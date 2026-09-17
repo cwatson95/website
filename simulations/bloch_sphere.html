@@ -1,0 +1,2774 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Bloch sphere — projection versus identity</title>
+<!--
+  ===================================================================
+  THE BLOCH SPHERE: PROJECTION VERSUS IDENTITY
+  rho = (1 + r.sigma)/2, and what each of those two terms is for
+  ===================================================================
+
+  Built to the same house rules as steam_carnot_cycle.html, diffraction.html,
+  pulsar.html, standard_candle.html, cmb.html, differential_scattering.html and
+  adiabatic_expansion.html: one flat file, no build step, no network, works
+  opened straight off the disk as file://.
+
+  ------------------------------------------------------------------
+  WHAT THIS COMPUTES
+  ------------------------------------------------------------------
+    the sphere    two complex amplitudes, minus a normalisation, minus a
+                  phase nobody can measure -- two angles, and the HALF that
+                  makes orthogonal states antipodal instead of perpendicular.
+    projection    rho = (1 + r.sigma)/2 split into its two halves: the
+    vs identity   identity part, which is the same for every state a qubit
+                  can be in, and the part that carries the whole state.
+                  Purity, eigenvalues, entropy, and where a projector is.
+    measurement   P+ + P- = 1 is what "the measurement has outcomes" means.
+                  The Born rule four independent ways, cos^2(Theta/2)
+                  against a polariser's cos^2(Theta), and three magnets.
+    precession    dr/dt = -gamma B x r at real CODATA frequencies, Rabi
+                  flopping in the rotating frame, and the electron anomaly
+                  against Schwinger's one loop.
+    decoherence   the Bloch equations, and T2 <= 2T1 derived from complete
+                  positivity of the map rather than quoted.
+    double cover  U(2pi) = -1 and U(4pi) = +1; the geometric phase as half
+                  the enclosed solid angle.
+
+  ------------------------------------------------------------------
+  WHAT IS MEASURED
+  ------------------------------------------------------------------
+  CODATA 2022, the complete listing, retrieved with curl from
+  physics.nist.gov/cuu/Constants/Table/allascii.txt.  Values and
+  uncertainties are copied from that file and are the shortest decimals that
+  round-trip; nothing is typed from memory.  Used for:
+    * gyromagnetic ratios (proton, shielded proton, electron, neutron,
+      shielded helion) -- these turn the picture into real frequencies;
+    * the electron g factor and magnetic moment anomaly, to 13 digits;
+    * the fine-structure constant, for Schwinger's alpha/2pi.
+  Everything else in this file is exact linear algebra.  That is the happiest
+  case the verification policy allows for, and it is why the assertions here
+  are at 1e-14 rather than at a percent.
+
+  ------------------------------------------------------------------
+  RESULTS WORTH THE FILE EXISTING
+  ------------------------------------------------------------------
+  * A proton in a 1.5 T scanner precesses at 63.8662 MHz.  The number MRI
+    actually uses is the SHIELDED one, 25.67 ppm lower, because the proton
+    sits inside a water molecule and its own electrons screen the field.
+  * Schwinger's one-loop alpha/2pi = 1.1614097e-3 against a measured
+    1.15965218046e-3: no free parameters, 0.15% high, and the gap is where
+    the two-loop term lives.
+  * T2 <= 2T1 is exactly the boundary of complete positivity.  Past it the
+    Choi matrix of the relaxation map acquires a negative eigenvalue, which
+    this file computes -- the boundary is at 2.00, not near it.
+  * The geometric phase after a closed loop is minus half the solid angle
+    enclosed, verified as a product of overlaps against the closed form.
+
+  ------------------------------------------------------------------
+  WHAT IS NOT MODELLED, and is said so on the canvas
+  ------------------------------------------------------------------
+  * One qubit only.  There is no second qubit anywhere in this file, so
+    there is no entanglement, and the mixed states in the ball are drawn
+    without saying which of the many ways of making them produced this one.
+    A reduced state of an entangled pair and a classically randomised state
+    give the SAME point in the ball, and nothing here can tell them apart --
+    which is a fact about the Bloch sphere, not an omission.
+  * Measurement is projective and instantaneous.  No POVMs, no weak
+    measurement, no detector model, no readout error.
+  * Relaxation is the Bloch-equation model with two rates.  Real
+    decoherence is not generally of that form; non-Markovian dynamics can
+    put purity back, and this cannot.
+  * The Rabi view uses the rotating-wave approximation without deriving it,
+    and the Bloch-Siegert shift is absent.
+  * No spins higher than 1/2.  The sphere is CP^1 and that is a coincidence
+    of two levels; CP^2 is not a ball you can draw.
+
+  ------------------------------------------------------------------
+  VERIFICATION
+  ------------------------------------------------------------------
+  selfTest() runs when there is no document (osascript -l JavaScript).  The
+  2x2 complex arithmetic is checked against hand-multiplied entries before
+  any physics is done with it; the Pauli algebra is checked for all nine
+  products; the Born rule is computed four independent ways; the sign of the
+  precession was DERIVED by integrating the Schrodinger equation in Python
+  and comparing, not chosen, and the suite asserts the opposite sign is badly
+  wrong so the check cannot be vacuous.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --crust:#39404f; --beam:#5ac8e0; --field:#e8843a; --deg:#7f8bd8;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>the Bloch sphere</h1>
+  <span class="sub" id="sub">what a cross section is, and how you get one from a trajectory</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+
+/* ================================================================== *
+ *  drawing helpers                                                    *
+ *                                                                     *
+ *  Text is wrapped on a MEASURED width, never on a character count —   *
+ *  a character budget overran the panel edge in wind_tunnel.html and   *
+ *  is on this project's Known-bad list.                                *
+ * ================================================================== */
+/* Canvas text is not HTML: fillText draws "&rsquo;" as seven characters on the
+   screen.  The readout and the info panel ARE HTML and use entities correctly,
+   and prose gets copied between the two, so rather than trusting nobody ever
+   pastes the wrong way, caption() decodes the handful this file uses. */
+const ENTS={'&rsquo;':'\u2019','&lsquo;':'\u2018','&mdash;':'\u2014','&ndash;':'\u2013',
+            '&times;':'\u00d7','&deg;':'\u00b0','&nbsp;':' ','&minus;':'\u2212',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'\u2026'};
+function plain(s){ return String(s).replace(/&[a-z]+;/g,m=>ENTS[m]!==undefined?ENTS[m]:m); }
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis — a
+     magnitude scale, where brighter is up — silently gets one tick label and
+     no grid.  Sort the range before asking for ticks; the placement below
+     already handles either direction.  (Found by looking at the picture: the
+     audit cannot see a label that was never drawn.) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(o.xlab,b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(o.ylab,0,0); ctx.restore(); }
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(o.title,b.x,b.y-6); }
+  ctx.restore();
+}
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  let started=false;
+  const n=Math.min(xs.length,ys.length);
+  for(let i=0;i<n;i++){
+    const X=b.x+b.w*(xs[i]-xlo)/(xhi-xlo||1);
+    const Y=b.y1-b.h*(ys[i]-ylo)/(yhi-ylo||1);
+    if(!isFinite(X)||!isFinite(Y)) { started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else ctx.lineTo(X,Y);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+/* ============================================================================
+ *  measured data -- CODATA 2022, the complete listing, retrieved with curl from
+ *  physics.nist.gov/cuu/Constants/Table/allascii.txt on 2026-08-03.  Values and
+ *  uncertainties are copied verbatim from that file; nothing is typed from memory
+ *  and nothing is rounded -- each number below is the shortest decimal that
+ *  round-trips to the parsed value.  "(exact)" means exact by SI definition.
+ * ========================================================================== */
+const CODATA={
+  alpha:{v:0.0072973525643,u:'0.0000000011e-3',unit:'',name:'fine-structure constant'},
+  alphaInv:{v:137.035999177,u:'0.000000021',unit:'',name:'inverse fine-structure constant'},
+  hbar:{v:1.054571817e-34,u:'(exact)',unit:'J s',name:'reduced Planck constant'},
+  h:{v:6.62607015e-34,u:'(exact)',unit:'J Hz^-1',name:'Planck constant'},
+  e:{v:1.602176634e-19,u:'(exact)',unit:'C',name:'elementary charge'},
+  me:{v:9.1093837139e-31,u:'0.0000000028e-31',unit:'kg',name:'electron mass'},
+  kB:{v:1.380649e-23,u:'(exact)',unit:'J K^-1',name:'Boltzmann constant'},
+  muB_HzT:{v:13996244917.1,u:'0.00000000044e10',unit:'Hz T^-1',name:'Bohr magneton in Hz/T'},
+  muN_MHzT:{v:7.6225932188,u:'0.0000000024',unit:'MHz T^-1',name:'nuclear magneton in MHz/T'},
+  a_e:{v:0.00115965218046,u:'0.00000000018e-3',unit:'',name:'electron mag. mom. anomaly'},
+  a_mu:{v:0.00116592062,u:'0.00000041e-3',unit:'',name:'muon mag. mom. anomaly'},
+  g_e:{v:-2.00231930436092,u:'0.00000000000036',unit:'',name:'electron g factor'},
+  g_p:{v:5.5856946893,u:'0.0000000016',unit:'',name:'proton g factor'},
+  g_n:{v:-3.82608552,u:'0.00000090',unit:'',name:'neutron g factor'},
+  g_d:{v:0.8574382335,u:'0.0000000022',unit:'',name:'deuteron g factor'},
+  g_mu:{v:-2.00233184123,u:'0.00000000082',unit:'',name:'muon g factor'},
+};
+/* Gyromagnetic ratios in MHz/T.  These turn the Bloch picture into real
+ * frequencies: gamma/2pi for the proton is the number an MRI scanner runs on,
+ * and the SHIELDED value -- the proton inside a water molecule, screened by its
+ * own electrons -- is 25.7 ppm lower and is the one that is actually used. */
+const GYRO={
+  p:{name:'proton',gam:42.577478461,u:'0.000000018',spin:'1/2'},
+  pshield:{name:'proton in water',gam:42.57638543,u:'0.00000017',spin:'1/2'},
+  e:{name:'electron',gam:28024.9513861,u:'0.0000087',spin:'1/2'},
+  n:{name:'neutron',gam:29.1646935,u:'0.0000069',spin:'1/2'},
+  he3:{name:'helion (³He)',gam:32.434100033,u:'0.000000028',spin:'1/2'},
+};
+
+/* ============================================================================
+ *  physics
+ *
+ *  JavaScript has no complex type, so a 2x2 complex matrix is a flat array of
+ *  eight reals -- [a.re,a.im, b.re,b.im, c.re,c.im, d.re,d.im] for [[a,b],[c,d]]
+ *  -- and a ket is four -- [a.re,a.im, b.re,b.im].  Everything below is built
+ *  on those two conventions and nothing else; selfTest checks the arithmetic
+ *  itself before it checks any physics done with it.
+ * ========================================================================== */
+
+/* ---- 2x2 complex matrices ------------------------------------------------ */
+const M_I  = [1,0, 0,0, 0,0, 1,0];
+const M_SX = [0,0, 1,0, 1,0, 0,0];
+const M_SY = [0,0, 0,-1, 0,1, 0,0];
+const M_SZ = [1,0, 0,0, 0,0, -1,0];
+const PAULI = [M_SX, M_SY, M_SZ];
+
+function mAdd(A, B){ const o = new Array(8); for (let i = 0; i < 8; i++) o[i] = A[i] + B[i]; return o; }
+function mScale(A, s){ const o = new Array(8); for (let i = 0; i < 8; i++) o[i] = A[i] * s; return o; }
+/* multiply by a complex scalar (x + iy) */
+function mScaleC(A, x, y){
+  const o = new Array(8);
+  for (let i = 0; i < 8; i += 2){
+    o[i]     = A[i] * x - A[i + 1] * y;
+    o[i + 1] = A[i] * y + A[i + 1] * x;
+  }
+  return o;
+}
+function mMul(A, B){
+  const o = new Array(8);
+  /* index of element (row,col) is 4*row + 2*col */
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++){
+    let re = 0, im = 0;
+    for (let k = 0; k < 2; k++){
+      const ar = A[4 * r + 2 * k], ai = A[4 * r + 2 * k + 1];
+      const br = B[4 * k + 2 * c], bi = B[4 * k + 2 * c + 1];
+      re += ar * br - ai * bi; im += ar * bi + ai * br;
+    }
+    o[4 * r + 2 * c] = re; o[4 * r + 2 * c + 1] = im;
+  }
+  return o;
+}
+function mDag(A){ return [A[0], -A[1], A[4], -A[5], A[2], -A[3], A[6], -A[7]]; }
+function mTrace(A){ return [A[0] + A[6], A[1] + A[7]]; }        /* [re, im] */
+function mDet(A){
+  const ar = A[0], ai = A[1], br = A[2], bi = A[3];
+  const cr = A[4], ci = A[5], dr = A[6], di = A[7];
+  return [ar * dr - ai * di - (br * cr - bi * ci),
+          ar * di + ai * dr - (br * ci + bi * cr)];
+}
+function mMaxAbsDiff(A, B){ let m = 0; for (let i = 0; i < 8; i++) m = Math.max(m, Math.abs(A[i] - B[i])); return m; }
+/* eigenvalues of a HERMITIAN 2x2: real, and available in closed form */
+function hermEig(A){
+  const t = A[0] + A[6], d = A[0] * A[6] - (A[2] * A[4] - A[3] * A[5]);
+  const disc = Math.max(0, t * t / 4 - d);
+  const s = Math.sqrt(disc);
+  return [t / 2 - s, t / 2 + s];
+}
+
+/* ---- kets ---------------------------------------------------------------- */
+/* |psi> = cos(th/2)|0> + e^{i ph} sin(th/2)|1>.  Note the HALF angle: it is the
+   reason orthogonal states sit at opposite poles rather than at right angles. */
+function ketOf(th, ph){
+  const c = Math.cos(th / 2), s = Math.sin(th / 2);
+  return [c, 0, s * Math.cos(ph), s * Math.sin(ph)];
+}
+function ketNorm(k){ return Math.sqrt(k[0]*k[0] + k[1]*k[1] + k[2]*k[2] + k[3]*k[3]); }
+/* <a|b>, returned as [re, im] */
+function braket(a, b){
+  return [a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3],
+          a[0]*b[1] - a[1]*b[0] + a[2]*b[3] - a[3]*b[2]];
+}
+function mApply(A, k){
+  const o = new Array(4);
+  for (let r = 0; r < 2; r++){
+    let re = 0, im = 0;
+    for (let c = 0; c < 2; c++){
+      const ar = A[4*r + 2*c], ai = A[4*r + 2*c + 1], kr = k[2*c], ki = k[2*c + 1];
+      re += ar * kr - ai * ki; im += ar * ki + ai * kr;
+    }
+    o[2*r] = re; o[2*r + 1] = im;
+  }
+  return o;
+}
+/* |psi><psi| */
+function ketRho(k){
+  const o = new Array(8);
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++){
+    const ar = k[2*r], ai = k[2*r+1], br = k[2*c], bi = -k[2*c+1];
+    o[4*r + 2*c] = ar * br - ai * bi; o[4*r + 2*c + 1] = ar * bi + ai * br;
+  }
+  return o;
+}
+
+/* ---- the Bloch correspondence ------------------------------------------- */
+/* r_i = <psi|sigma_i|psi> = Tr(rho sigma_i), and rho = (I + r.sigma)/2.
+   Everything a qubit can be is in those two lines: the identity part is fixed
+   by Tr rho = 1 and carries no information, and the whole state is the vector
+   multiplying the Pauli matrices. */
+function blochOfKet(k){
+  const o = [0, 0, 0];
+  for (let i = 0; i < 3; i++) o[i] = braket(k, mApply(PAULI[i], k))[0];
+  return o;
+}
+function rhoOfBloch(r){
+  let m = mScale(M_I, 0.5);
+  for (let i = 0; i < 3; i++) m = mAdd(m, mScale(PAULI[i], 0.5 * r[i]));
+  return m;
+}
+function blochOfRho(rho){
+  const o = [0, 0, 0];
+  for (let i = 0; i < 3; i++) o[i] = mTrace(mMul(rho, PAULI[i]))[0];
+  return o;
+}
+function blochOfAngles(th, ph){
+  return [Math.sin(th) * Math.cos(ph), Math.sin(th) * Math.sin(ph), Math.cos(th)];
+}
+function anglesOfBloch(r){
+  const n = Math.sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2]);
+  return { th: Math.acos(clamp(n > 0 ? r[2] / n : 1, -1, 1)),
+           ph: Math.atan2(r[1], r[0]), len: n };
+}
+/* purity Tr rho^2 = (1 + |r|^2)/2, so |r| = 1 on the surface and 0 at the
+   centre; eigenvalues are (1 +- |r|)/2 and the entropy follows from those. */
+function purity(R){ return 0.5 * (1 + R * R); }
+function rhoEigs(R){ return [(1 - R) / 2, (1 + R) / 2]; }
+function vonNeumann(R){
+  const e = rhoEigs(R);
+  let s = 0;
+  for (const l of e) if (l > 1e-15) s -= l * Math.log2(l);
+  return s;
+}
+
+/* ---- projection versus identity ----------------------------------------- */
+/* P_n = (I + n.sigma)/2 projects onto the state whose Bloch vector is n.
+   P^2 = P, Tr P = 1, P_+ + P_- = I, P_+ P_- = 0.  The pair of them resolves
+   the identity, which is the whole content of "a measurement has outcomes". */
+function projector(n){ return rhoOfBloch([n[0], n[1], n[2]]); }
+/* Born rule: p_+ = Tr(rho P_+) = (1 + r.n)/2.  For two PURE states that is
+   cos^2(Theta/2) with Theta the angle between them on the sphere -- the
+   half-angle again, and Malus's law for spin. */
+function bornP(r, n){ return 0.5 * (1 + (r[0]*n[0] + r[1]*n[1] + r[2]*n[2])); }
+/* the state after a projective measurement: r jumps to +-n, whatever it was */
+function postMeasure(n, plus){ return plus ? n.slice() : [-n[0], -n[1], -n[2]]; }
+
+/* ---- unitary evolution = rotation ---------------------------------------- */
+/* U(n, a) = exp(-i a n.sigma / 2) = cos(a/2) I - i sin(a/2) n.sigma.
+   Under it the Bloch vector rotates by a about n -- and U(n, 2pi) = -I, not
+   +I, which is the double cover and is asserted rather than remarked on. */
+function unitary(n, a){
+  let m = mScale(M_I, Math.cos(a / 2));
+  const s = -Math.sin(a / 2);
+  for (let i = 0; i < 3; i++) m = mAdd(m, mScaleC(PAULI[i], 0, s * n[i]));
+  return m;
+}
+/* Rodrigues rotation of a real 3-vector */
+function rotate3(r, n, a){
+  const c = Math.cos(a), s = Math.sin(a);
+  const d = n[0]*r[0] + n[1]*r[1] + n[2]*r[2];
+  const cr = [n[1]*r[2] - n[2]*r[1], n[2]*r[0] - n[0]*r[2], n[0]*r[1] - n[1]*r[0]];
+  return [r[0]*c + cr[0]*s + n[0]*d*(1 - c),
+          r[1]*c + cr[1]*s + n[1]*d*(1 - c),
+          r[2]*c + cr[2]*s + n[2]*d*(1 - c)];
+}
+function norm3(v){
+  const n = Math.hypot(v[0], v[1], v[2]);
+  return n > 0 ? [v[0]/n, v[1]/n, v[2]/n] : [0, 0, 1];
+}
+
+/* ---- precession and driving ---------------------------------------------- */
+/* THE SIGN HERE WAS DERIVED, NOT CHOSEN.  With H = -mu.B and mu = gamma (hbar/2)
+   sigma, integrating the Schrodinger equation and reading the azimuth off the
+   result gives  dr/dt = -gamma B x r  -- the opposite of the first thing one
+   writes down.  A Python run agreed to 3.6e-14 with the quantum evolution for
+   one sign and was off by order unity for the other. */
+function larmorRate(r, B, gam){
+  const c = [B[1]*r[2] - B[2]*r[1], B[2]*r[0] - B[0]*r[2], B[0]*r[1] - B[1]*r[0]];
+  return [-gam*c[0], -gam*c[1], -gam*c[2]];
+}
+/* Rabi, in the frame rotating at the drive frequency: H = (Omega sx + Delta sz)/2.
+   Starting from |0>, P_1(t) = (Omega^2/OmegaR^2) sin^2(OmegaR t / 2) exactly,
+   with OmegaR = sqrt(Omega^2 + Delta^2).  Off resonance the flop never
+   completes -- it is capped at Omega^2/OmegaR^2, which is a Lorentzian in the
+   detuning and is why a pi pulse has to be tuned. */
+function rabiP1(Om, De, t){
+  const OR = Math.hypot(Om, De);
+  if (OR === 0) return 0;
+  const s = Math.sin(OR * t / 2);
+  return (Om * Om / (OR * OR)) * s * s;
+}
+function rabiFreq(Om, De){ return Math.hypot(Om, De); }
+function rabiMax(Om, De){ const OR = Math.hypot(Om, De); return OR === 0 ? 0 : Om*Om/(OR*OR); }
+
+/* ---- relaxation ---------------------------------------------------------- */
+/* The Bloch equations: transverse components decay at 1/T2, the longitudinal
+   one relaxes toward its thermal value at 1/T1, and the vector spirals from
+   the surface into the ball.  T2 <= 2 T1 is not a rule of thumb -- it is
+   exactly where the map stops being completely positive, which selfTest checks
+   on the Choi matrix rather than asserting. */
+function blochStep(r, B, gam, T1, T2, req, dt){
+  const k1 = blochDeriv(r, B, gam, T1, T2, req);
+  const r2 = [r[0] + 0.5*dt*k1[0], r[1] + 0.5*dt*k1[1], r[2] + 0.5*dt*k1[2]];
+  const k2 = blochDeriv(r2, B, gam, T1, T2, req);
+  const r3 = [r[0] + 0.5*dt*k2[0], r[1] + 0.5*dt*k2[1], r[2] + 0.5*dt*k2[2]];
+  const k3 = blochDeriv(r3, B, gam, T1, T2, req);
+  const r4 = [r[0] + dt*k3[0], r[1] + dt*k3[1], r[2] + dt*k3[2]];
+  const k4 = blochDeriv(r4, B, gam, T1, T2, req);
+  return [r[0] + dt*(k1[0] + 2*k2[0] + 2*k3[0] + k4[0])/6,
+          r[1] + dt*(k1[1] + 2*k2[1] + 2*k3[1] + k4[1])/6,
+          r[2] + dt*(k1[2] + 2*k2[2] + 2*k3[2] + k4[2])/6];
+}
+function blochDeriv(r, B, gam, T1, T2, req){
+  const p = larmorRate(r, B, gam);
+  return [p[0] - r[0]/T2, p[1] - r[1]/T2, p[2] - (r[2] - req)/T1];
+}
+/* the closed solution with no field, for checking the integrator */
+function relaxClosed(r0, T1, T2, req, t){
+  return [r0[0]*Math.exp(-t/T2), r0[1]*Math.exp(-t/T2),
+          req + (r0[2] - req)*Math.exp(-t/T1)];
+}
+/* The Choi matrix of the relaxation map, as a real 4x4 -- it is real for this
+   family -- so its eigenvalues say whether the map is completely positive. */
+function choiEigs(t, T1, T2){
+  const lx = Math.exp(-t/T2), lz = Math.exp(-t/T1);
+  /* For the unital (req = 0) Pauli-diagonal map with eigenvalues (lx, lx, lz),
+     the Choi eigenvalues are (1 + lz +- 2 lx)/2 and (1 - lz)/2 twice. */
+  return [(1 + lz - 2*lx)/2, (1 - lz)/2, (1 - lz)/2, (1 + lz + 2*lx)/2].sort((a,b)=>a-b);
+}
+
+/* ---- geometric phase ----------------------------------------------------- */
+/* Transporting |+n> round a cone of half-angle th, the Berry connection is
+   A_ph = i<psi|d_ph psi> = -sin^2(th/2), so the phase is -2 pi sin^2(th/2)
+   = -pi(1 - cos th) = -Omega/2, half the solid angle enclosed and with a sign.
+   Computed here as a discrete product of overlaps, which needs no calculus. */
+function berryDiscrete(th, N){
+  N = N || 720;
+  let re = 1, im = 0;
+  for (let k = 0; k < N; k++){
+    const p0 = 2*Math.PI*k/N, p1 = 2*Math.PI*(k+1)/N;
+    const b = braket(ketOf(th, p0), ketOf(th, p1));
+    const nr = re*b[0] - im*b[1], ni = re*b[1] + im*b[0];
+    re = nr; im = ni;
+  }
+  return -Math.atan2(im, re);
+}
+function solidAngleCone(th){ return 2*Math.PI*(1 - Math.cos(th)); }
+function berryClosed(th){ return -solidAngleCone(th)/2; }
+
+/* ---- the anomaly --------------------------------------------------------- */
+/* The Bloch vector of an electron precesses at g/2 times the rate a classical
+   magnetic top would, and g/2 - 1 is the anomaly.  Schwinger's one-loop value
+   alpha/2pi has no free parameters at all and lands 0.15% from a number that
+   is now measured to thirteen digits. */
+function schwinger(){ return CODATA.alpha.v / (2 * Math.PI); }
+
+/* ============================================================================
+ *  views
+ *
+ *  The floating readout sits over the top right of the stage -- about 344 px
+ *  wide and up to 556 tall -- so nothing that has to be READ goes there.  RO
+ *  below is that reserved rectangle and every layout in this file respects it.
+ * ========================================================================== */
+/* --------------------------------------------------------------------------
+ *  formatting.  `sg` is the significant-figures formatter; it is NOT called
+ *  `sig` because tools/ui_drive.js declares `const sig` at top level and
+ *  concatenating the two for a headless UI run would be a SyntaxError, not a
+ *  subtle bug.  Renaming here keeps the shared harness usable unmodified.
+ * ------------------------------------------------------------------------ */
+function fmt(x, n){ return isFinite(x) ? Number(x).toFixed(n === undefined ? 3 : n) : '\u2014'; }
+function sup(e){
+  const d = '\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079';
+  let s = (e < 0 ? '\u207b' : ''), a = Math.abs(e) + '';
+  for (const ch of a) s += d[+ch];
+  return s;
+}
+function fmtExp(x, n){
+  if (!isFinite(x)) return '\u2014';
+  if (x === 0) return '0';
+  const e = Math.floor(Math.log10(Math.abs(x)));
+  return fmt(x / Math.pow(10, e), n === undefined ? 2 : n) + '\u00d710' + sup(e);
+}
+const RO = { w: 344, h: 556 };
+const C_GREEN = '#b8ec4c', C_ORANGE = '#e8843a', C_MAG = '#cd35c4', C_CYAN = '#5ac8e0';
+const C_DIM = '#8b93a6', C_TXT = '#cfd4de', C_FAINT = '#4a5165';
+const GASSYM = { he: 'He', ne: 'Ne', ar: 'Ar', kr: 'Kr', xe: 'Xe', h2: 'H₂', n2: 'N₂',
+                 o2: 'O₂', co2: 'CO₂', ch4: 'CH₄', c2h6: 'C₂H₆', nh3: 'NH₃' };
+
+function clipTo(ctx, b, fn){
+  ctx.save();
+  ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.clip();
+  fn();
+  ctx.restore();
+}
+/* polyline from [[x,y],...] pairs, always clipped to its box */
+function pl(ctx, b, pts, xlo, xhi, ylo, yhi, col, lw, dash){
+  if (!pts || !pts.length) return;
+  clipTo(ctx, b, () => polyline(ctx, b, pts.map(q => q[0]), pts.map(q => q[1]),
+                                xlo, xhi, ylo, yhi, col, lw, dash));
+}
+function px(b, x, xlo, xhi){ return b.x + b.w * (x - xlo) / (xhi - xlo || 1); }
+function py(b, y, ylo, yhi){ return b.y1 - b.h * (y - ylo) / (yhi - ylo || 1); }
+function dot(ctx, b, x, y, xlo, xhi, ylo, yhi, col, r){
+  const X = px(b, x, xlo, xhi), Y = py(b, y, ylo, yhi);
+  if (X < b.x - 2 || X > b.x1 + 2 || Y < b.y - 2 || Y > b.y1 + 2) return false;
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X, Y, r || 4, 0, TAU); ctx.fill();
+  return true;
+}
+/* Legends have now been placed on top of the curves they label three times --
+   free expansion, the parcel, and reduced coordinates -- because "which corner
+   is empty" was decided by looking at one configuration.  legend() therefore
+   records its own rectangle in LEGEND_BOXES, and selfTest asserts that no data
+   polyline passes through one, over every view and every gas. */
+let LEGEND_BOXES = [];
+function legend(ctx, x, y, entries, align){
+  /* the recorded box is the TEXT area only.  The key marks are strokes drawn by
+     this function itself, and including them would make every legend report a
+     curve running through it. */
+  /* Record the WHOLE legend -- key marks included -- and note how many path
+     vertices this function is about to contribute itself (one moveTo and one
+     lineTo per entry).  Recording only the text box was too generous: a
+     mutation sweep put the legend back on top of the curves in two views and
+     the assertion stayed green, because the curves crossed the key column
+     rather than the words. */
+  let wmax = 0;
+  for (const e of entries) wmax = Math.max(wmax, plain(e[1]).length * 6.2 + 34);
+  LEGEND_BOXES.push({ x: align === 'right' ? x - 28 - wmax : x, y: y - 9,
+                      w: wmax + 6, h: entries.length * 15 + 4, own: entries.length * 2 });
+  ctx.save();
+  ctx.font = '11px -apple-system, sans-serif'; ctx.textBaseline = 'middle';
+  let yy = y;
+  for (const [col, lab, dash] of entries){
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    if (dash) ctx.setLineDash(dash);
+    ctx.beginPath();
+    if (align === 'right'){ ctx.moveTo(x - 22, yy); ctx.lineTo(x - 4, yy); }
+    else { ctx.moveTo(x, yy); ctx.lineTo(x + 18, yy); }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = C_DIM; ctx.textAlign = align === 'right' ? 'right' : 'left';
+    ctx.fillText(plain(lab), align === 'right' ? x - 28 : x + 24, yy);
+    yy += 15;
+  }
+  ctx.restore();
+  return yy - y;
+}
+/* Tick labels sized to the tick SPACING.  fmt(t,2) prints "318.00" whatever
+   the range, and six of those do not fit in a 210 px panel -- the audit caught
+   them overlapping each other, not the frame.  This prints only the digits the
+   spacing actually distinguishes. */
+function tickfmt(ticks){
+  let step = Infinity;
+  for (let i = 1; i < ticks.length; i++) step = Math.min(step, Math.abs(ticks[i] - ticks[i - 1]));
+  if (!isFinite(step) || step <= 0) step = 1;
+  const d = Math.max(0, Math.min(4, Math.ceil(-Math.log10(step) + 0.3)));
+  return (t) => Number(t).toFixed(d);
+}
+function ticksN(lo, hi, n){ return ticksFor(Math.min(lo, hi), Math.max(lo, hi), n); }
+function sg(x, n){
+  if (!isFinite(x)) return '\u2014';
+  const a = Math.abs(x);
+  if (a === 0) return '0';
+  if (a >= 1e5 || a < 1e-3) return fmtExp(x, Math.max(0, (n || 3) - 1));
+  const d = Math.max(0, (n || 3) - 1 - Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d, 6));
+}
+/* --------------------------------------------------------------------------
+ *  Lay the stage out from the BOTTOM up.
+ *
+ *  The caption and the footnote are wrapped text, so their height depends on
+ *  the canvas width and cannot be a constant.  Guessing one put the caption
+ *  UNDER the footnote at 520x340 and pushed both off a 340 px canvas -- found
+ *  by the resize sweep, not by looking.  stage() measures both first and hands
+ *  the plot whatever vertical space is left.
+ * ------------------------------------------------------------------------ */
+const CAP_FONT  = '11.5px -apple-system, sans-serif';
+const FOOT_FONT = '10.5px "SF Mono", ui-monospace, monospace';
+function stage(ctx, W, H, capTxt, footTxt, capW){
+  const fl = footTxt ? wrapText(ctx, plain(footTxt), W - 40, FOOT_FONT).length : 0;
+  const cl = capTxt  ? wrapText(ctx, plain(capTxt),  capW,  CAP_FONT).length  : 0;
+  const footY = H - 8 - fl * 13;
+  const capY  = footY - 10 - cl * 14;
+  const top = 54;
+  /* axes() draws tick labels at b.y1 + 5 and the axis title at b.y1 + 21, so
+     the box must end at least ~40 px above the caption or the two collide --
+     which is exactly what the display-list audit reported on six views. */
+  return { top: top, capY: capY, footY: footY, capW: capW, cap: capTxt, foot: footTxt,
+           plotH: Math.max(90, capY - 44 - top) };
+}
+function drawStage(ctx, W, H, L){
+  if (L.cap)  caption(ctx, 66, L.capY, L.cap, L.capW, C_TXT, CAP_FONT);
+  if (L.foot) caption(ctx, 18, L.footY, L.foot, W - 40, '#5c6478', FOOT_FONT);
+}
+
+
+/* ============================================================================
+ *  state and model
+ * ========================================================================== */
+const VIEWS = [['sphere',   'the sphere'],
+               ['ident',    'projection vs identity'],
+               ['measure',  'measurement'],
+               ['precess',  'precession'],
+               ['decohere', 'decoherence'],
+               ['cover',    'the double cover']];
+
+const SPECIES = ['p', 'pshield', 'e', 'n', 'he3'];
+
+const DEFAULTS = {
+  view: 'sphere',
+  /* --- the state --- */
+  th: 1.0472,               /* polar angle, rad  (60 deg) */
+  ph: 0.7854,               /* azimuth, rad      (45 deg) */
+  chi: 0.0,                 /* GLOBAL phase -- deliberately does nothing */
+  rlen: 1.0,                /* |r|: 1 on the surface, 0 at the centre */
+  showCardinal: true, showGrid: true, showShadow: true,
+  /* --- measurement --- */
+  mth: 0.0, mph: 0.0,       /* the measurement axis n */
+  nShots: 400, seed: 7,
+  showMalus: true, showCascade: true,
+  /* --- precession --- */
+  species: 'p',
+  Btesla: 1.5,
+  Omega: 1.0,               /* Rabi drive, in units of the reference rate */
+  Delta: 0.0,               /* detuning, same units */
+  tau: 6.0,                 /* how long to watch, in units of 1/Omega */
+  showDetuned: true,
+  /* --- decoherence --- */
+  T1: 1.0, T2: 0.6, req: 0.9,
+  spin: 12.0,               /* precession rate during relaxation */
+  tmax: 6.0,
+  /* --- the double cover --- */
+  turn: 0.0,                /* rotation angle applied, in units of pi */
+  cone: 1.0472,             /* half-angle of the Berry loop */
+};
+
+/* ---------------------------------------------------------------------------
+ *  buildModel
+ * ------------------------------------------------------------------------- */
+function buildModel(st){
+  const M = { st: st, view: st.view };
+
+  /* --- the state, three ways -------------------------------------------- */
+  const ket = ketOf(st.th, st.ph);
+  const ketPhased = (function(){
+    const c = Math.cos(st.chi), s = Math.sin(st.chi);
+    return [ket[0]*c - ket[1]*s, ket[0]*s + ket[1]*c,
+            ket[2]*c - ket[3]*s, ket[2]*s + ket[3]*c];
+  })();
+  M.ket = ket; M.ketPhased = ketPhased;
+  M.rPure = blochOfKet(ketPhased);
+  M.rPhaseFree = blochOfKet(ket);
+  /* the global phase moves the ket and leaves the Bloch vector exactly alone --
+     that is what "projective" means and it is asserted, not asserted-looking */
+  M.phaseShift = Math.max(Math.abs(M.rPure[0] - M.rPhaseFree[0]),
+                          Math.abs(M.rPure[1] - M.rPhaseFree[1]),
+                          Math.abs(M.rPure[2] - M.rPhaseFree[2]));
+  M.r = [M.rPure[0]*st.rlen, M.rPure[1]*st.rlen, M.rPure[2]*st.rlen];
+  M.rho = rhoOfBloch(M.r);
+  M.rlen = st.rlen;
+  M.purity = purity(st.rlen);
+  M.eigs = rhoEigs(st.rlen);
+  M.entropy = vonNeumann(st.rlen);
+  M.traceRho = mTrace(M.rho);
+  /* the identity part and the projection part, separately */
+  M.idPart = mScale(M_I, 0.5);
+  M.projPart = mAdd(M.rho, mScale(M_I, -0.5));
+  M.isProjector = mMaxAbsDiff(mMul(M.rho, M.rho), M.rho);
+  M.antipode = [-M.rPure[0], -M.rPure[1], -M.rPure[2]];
+  M.ketPerp = ketOf(Math.PI - st.th, st.ph + Math.PI);
+  M.overlapPerp = Math.hypot(braket(ket, M.ketPerp)[0], braket(ket, M.ketPerp)[1]);
+
+  /* the six cardinal states */
+  M.cardinal = [
+    { lab: '|0⟩',  r: [0, 0, 1] },   { lab: '|1⟩',  r: [0, 0, -1] },
+    { lab: '|+⟩',  r: [1, 0, 0] },   { lab: '|−⟩',  r: [-1, 0, 0] },
+    { lab: '|+i⟩', r: [0, 1, 0] },   { lab: '|−i⟩', r: [0, -1, 0] }];
+
+  /* --- purity / entropy curves for the identity view --------------------- */
+  M.purCurve = []; M.entCurve = []; M.eigCurve = [];
+  for (let i = 0; i <= 120; i++){
+    const R = i / 120;
+    M.purCurve.push([R, purity(R)]);
+    M.entCurve.push([R, vonNeumann(R)]);
+    M.eigCurve.push([R, rhoEigs(R)[1], rhoEigs(R)[0]]);
+  }
+
+  /* --- measurement -------------------------------------------------------- */
+  const n = blochOfAngles(st.mth, st.mph);
+  M.n = n;
+  M.pPlus  = bornP(M.r, n);
+  M.pMinus = 1 - M.pPlus;
+  M.cosTheta = M.rPure[0]*n[0] + M.rPure[1]*n[1] + M.rPure[2]*n[2];
+  M.betweenAngle = Math.acos(clamp(M.cosTheta, -1, 1));
+  M.Pplus = projector(n);
+  M.Pminus = projector([-n[0], -n[1], -n[2]]);
+  M.resolveId = mMaxAbsDiff(mAdd(M.Pplus, M.Pminus), M_I);
+  M.projIdem = mMaxAbsDiff(mMul(M.Pplus, M.Pplus), M.Pplus);
+  /* Malus for spin: p = cos^2(Theta/2), NOT cos^2(Theta) -- the half-angle is
+     the whole difference between a qubit and a polariser */
+  M.malus = []; M.malusPhoton = [];
+  for (let i = 0; i <= 180; i++){
+    const T = Math.PI * i / 180;
+    M.malus.push([T * RAD, Math.cos(T/2)*Math.cos(T/2)]);
+    M.malusPhoton.push([T * RAD, Math.cos(T)*Math.cos(T)]);
+  }
+  /* shots, from a reproducible generator so the picture does not jitter */
+  M.shots = (function(){
+    let s = st.seed >>> 0, up = 0;
+    const run = [];
+    for (let i = 0; i < st.nShots; i++){
+      s = (s * 1664525 + 1013904223) >>> 0;
+      const u = s / 4294967296;
+      const hit = u < M.pPlus;
+      if (hit) up++;
+      if (i < 600) run.push(hit ? 1 : 0);
+    }
+    return { up: up, n: st.nShots, frac: up / Math.max(st.nShots, 1), run: run };
+  })();
+  M.shotErr = Math.sqrt(M.pPlus * (1 - M.pPlus) / Math.max(st.nShots, 1));
+  /* the three-magnet Stern-Gerlach cascade: z, then n, then z again */
+  M.cascade = (function(){
+    const pz = bornP(M.r, [0, 0, 1]);
+    const p2 = bornP([0, 0, 1], n);            /* after the first magnet the state IS |0> */
+    const p3 = bornP(n, [0, 0, 1]);
+    return { pz: pz, p2: p2, p3: p3, through: pz * p2 * p3,
+             recovered: p3 > 1e-9 && Math.abs(n[2]) < 1 - 1e-9 };
+  })();
+
+  /* --- precession and driving -------------------------------------------- */
+  const sp = GYRO[st.species] || GYRO.p;
+  M.sp = sp;
+  M.fLarmor = sp.gam * st.Btesla;                       /* MHz */
+  M.omegaLarmor = TAU * M.fLarmor * 1e6;                /* rad/s */
+  M.period = 1 / (M.fLarmor * 1e6);                     /* s */
+  /* the electron's precession is g/2 times the classical rate; the anomaly is
+     the most accurately verified prediction in physics and one loop gets it
+     to 0.15% with no free parameters at all */
+  M.gOver2 = 1 + CODATA.a_e.v;
+  M.schwinger = schwinger();
+  M.schwingerErr = M.schwinger / CODATA.a_e.v - 1;
+  /* the precession track on the sphere, at the current tilt */
+  M.track = [];
+  for (let i = 0; i <= 200; i++){
+    const a = TAU * i / 200;
+    M.track.push(rotate3(M.rPure, [0, 0, 1], -a));
+  }
+  /* Rabi */
+  M.rabi = []; M.rabiDet = [];
+  for (let i = 0; i <= 300; i++){
+    const t = st.tau * i / 300;
+    M.rabi.push([t, rabiP1(st.Omega, 0, t)]);
+    M.rabiDet.push([t, rabiP1(st.Omega, st.Delta, t)]);
+  }
+  M.rabiOR = rabiFreq(st.Omega, st.Delta);
+  M.rabiCap = rabiMax(st.Omega, st.Delta);
+  M.piTime = st.Omega > 0 ? Math.PI / st.Omega : NaN;
+  /* the resonance curve: the cap as a function of detuning is a Lorentzian */
+  M.lorentz = [];
+  for (let i = 0; i <= 200; i++){
+    const D = -4 * st.Omega + 8 * st.Omega * i / 200;
+    M.lorentz.push([D, rabiMax(st.Omega, D)]);
+  }
+  /* the driven path on the sphere, in the rotating frame */
+  M.rabiPath = [];
+  {
+    const axis = norm3([st.Omega, 0, st.Delta]);
+    const ang = M.rabiOR;
+    for (let i = 0; i <= 200; i++){
+      const t = st.tau * i / 200;
+      M.rabiPath.push(rotate3([0, 0, 1], axis, ang * t));
+    }
+    M.rabiAxis = axis;
+  }
+
+  /* --- decoherence -------------------------------------------------------- */
+  M.relax = []; M.relaxPur = [];
+  {
+    let r = M.rPure.slice();
+    const B = [0, 0, 1], gam = st.spin;
+    const nst = 900, dt = st.tmax / nst;
+    for (let i = 0; i <= nst; i++){
+      const t = i * dt;
+      if (i % 3 === 0){
+        M.relax.push(r.slice());
+        const R = Math.hypot(r[0], r[1], r[2]);
+        M.relaxPur.push([t, purity(R), R]);
+      }
+      r = blochStep(r, B, gam, st.T1, st.T2, st.req, dt);
+    }
+    M.relaxEnd = r;
+  }
+  /* the closed solution with the field off, for the comparison the view draws */
+  M.relaxClosed = [];
+  for (let i = 0; i <= 200; i++){
+    const t = st.tmax * i / 200;
+    const c = relaxClosed(M.rPure, st.T1, st.T2, st.req, t);
+    M.relaxClosed.push([t, c[2], Math.hypot(c[0], c[1])]);
+  }
+  /* complete positivity: the smallest Choi eigenvalue anywhere on the path */
+  M.choiWorst = Infinity; M.choiAt = 0;
+  for (let i = 1; i <= 400; i++){
+    const t = st.tmax * i / 400;
+    const e = choiEigs(t, st.T1, st.T2)[0];
+    if (e < M.choiWorst){ M.choiWorst = e; M.choiAt = t; }
+  }
+  M.cpOK = M.choiWorst > -1e-12;
+  M.t2Limit = 2 * st.T1;
+  /* where the boundary is, as a curve: worst Choi eigenvalue vs T2/T1 */
+  M.cpCurve = [];
+  for (let i = 0; i <= 160; i++){
+    const ratio = 0.2 + 2.8 * i / 160;
+    let w = Infinity;
+    for (let k = 1; k <= 160; k++){
+      const t = 8 * st.T1 * k / 160;
+      w = Math.min(w, choiEigs(t, st.T1, ratio * st.T1)[0]);
+    }
+    M.cpCurve.push([ratio, w]);
+  }
+
+  /* --- the double cover and the geometric phase --------------------------- */
+  {
+    const a = st.turn * Math.PI;
+    const axis = [0, 0, 1];
+    M.U = unitary(axis, a);
+    M.UvsI  = mMaxAbsDiff(M.U, M_I);
+    M.UvsmI = mMaxAbsDiff(M.U, mScale(M_I, -1));
+    M.rTurned = rotate3(M.rPure, axis, a);
+    M.rMoved = Math.hypot(M.rTurned[0] - M.rPure[0], M.rTurned[1] - M.rPure[1],
+                          M.rTurned[2] - M.rPure[2]);
+    const k2 = mApply(M.U, ket);
+    const ov = braket(ket, k2);
+    M.ketPhaseArg = Math.atan2(ov[1], ov[0]);
+    M.ketOverlap = Math.hypot(ov[0], ov[1]);
+    /* the two curves the view is about: what the VECTOR does (period 2pi) and
+       what the KET does (period 4pi) */
+    M.coverVec = []; M.coverKet = [];
+    for (let i = 0; i <= 400; i++){
+      const x = 4 * i / 400;                    /* turns, in units of pi */
+      const UU = unitary(axis, x * Math.PI);
+      const kk = mApply(UU, ket);
+      const o = braket(ket, kk);
+      M.coverVec.push([x, rotate3(M.rPure, axis, x * Math.PI)[0]]);
+      M.coverKet.push([x, o[0]]);               /* Re<psi|U|psi> */
+    }
+  }
+  M.berry = berryDiscrete(st.cone, 720);
+  M.berryClosed = berryClosed(st.cone);
+  M.solidAngle = solidAngleCone(st.cone);
+  M.berryDiff = Math.abs(wrapPi(M.berry - M.berryClosed));
+  M.berryCurve = [];
+  for (let i = 0; i <= 120; i++){
+    const th = Math.PI * i / 120;
+    M.berryCurve.push([solidAngleCone(th), berryClosed(th)]);
+  }
+  M.loop = [];
+  for (let i = 0; i <= 200; i++){
+    const p = TAU * i / 200;
+    M.loop.push(blochOfAngles(st.cone, p));
+  }
+  return M;
+}
+function wrapPi(x){ return ((x + Math.PI) % TAU + TAU) % TAU - Math.PI; }
+
+/* ==========================================================================
+ *  the Bloch sphere itself -- a shared 3-D renderer, used by four views
+ * ======================================================================== */
+const SPH_R = 1.0;
+
+/* Painter's-algorithm wireframe.  The sphere is drawn as latitude and
+   longitude circles split into far and near halves against the camera, so the
+   far half can be dimmed -- without that the wireframe reads as flat and the
+   state vector's depth is unreadable. */
+function drawSphere(ctx, cam, B, cx, cy, pixR, o){
+  o = o || {};
+  /* pixR is the radius the AXES should occupy on screen.  Deriving the scale
+     from the camera rather than hardcoding a divisor matters: the projected
+     radius is f*R/dist, and f depends on the canvas height, so a fixed divisor
+     that looks right at 820 px puts the sphere off the left edge at 430 px.
+     The layout check found 117 labels outside the canvas that way. */
+  const AXR = 1.68;
+  const scale = pixR / (B.f * AXR / cam.dist);
+  const P = (p) => {
+    const q = project(cam, B, p);
+    return q ? [cx + (q.x - cam.W / 2) * scale, cy + (q.y - cam.H / 2) * scale, q.z] : null;
+  };
+  const depth = (p) => (p[0] - B.eye[0]) * B.fwd[0] + (p[1] - B.eye[1]) * B.fwd[1]
+                     + (p[2] - B.eye[2]) * B.fwd[2];
+  const dTarget = depth([0, 0, 0]);
+  const seg = (a, b, near, col, lw, dash) => {
+    const A = P(a), Bp = P(b);
+    if (!A || !Bp) return;
+    ctx.strokeStyle = col; ctx.lineWidth = lw;
+    if (dash) ctx.setLineDash(dash);
+    ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(Bp[0], Bp[1]); ctx.stroke();
+    ctx.setLineDash([]);
+  };
+  /* the disc, so the sphere reads as solid rather than as a cage */
+  if (o.fill !== false){
+    const c0 = P([0, 0, 0]);
+    if (c0){
+      const edge = P(v3.add([0, 0, 0], v3.mul(B.right, SPH_R)));
+      const rr = edge ? Math.abs(edge[0] - c0[0]) : 60;
+      ctx.fillStyle = 'rgba(20,26,40,0.55)';
+      ctx.beginPath(); ctx.arc(c0[0], c0[1], rr, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#2b3346'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(c0[0], c0[1], rr, 0, TAU); ctx.stroke();
+    }
+  }
+  if (o.grid !== false){
+    const NL = 48;
+    for (let k = 1; k <= 5; k++){                    /* latitudes */
+      const th = Math.PI * k / 6, st_ = Math.sin(th), ct = Math.cos(th);
+      for (let i = 0; i < NL; i++){
+        const a = TAU * i / NL, b = TAU * (i + 1) / NL;
+        const p = [st_ * Math.cos(a), st_ * Math.sin(a), ct];
+        const q = [st_ * Math.cos(b), st_ * Math.sin(b), ct];
+        const far = depth(p) > dTarget;
+        seg(p, q, !far, far ? '#1d2330' : '#333c52', 1);
+      }
+    }
+    for (let k = 0; k < 6; k++){                     /* longitudes */
+      const ph = Math.PI * k / 6;
+      for (let i = 0; i < NL; i++){
+        const a = Math.PI * i / NL, b = Math.PI * (i + 1) / NL;
+        const p = [Math.sin(a) * Math.cos(ph), Math.sin(a) * Math.sin(ph), Math.cos(a)];
+        const q = [Math.sin(b) * Math.cos(ph), Math.sin(b) * Math.sin(ph), Math.cos(b)];
+        const far = depth(p) > dTarget;
+        seg(p, q, !far, far ? '#1d2330' : '#333c52', 1);
+      }
+    }
+  }
+  /* the three axes */
+  const AX = [[[1,0,0], 'x', C_DIM], [[0,1,0], 'y', C_DIM], [[0,0,1], 'z', C_DIM]];
+  for (const [a, lab, col] of AX){
+    seg(v3.mul(a, -1.28), v3.mul(a, 1.28), true, '#3d465e', 1.2, [4, 3]);
+    const t = pixR > 46 ? P(v3.mul(a, 1.62)) : null;
+    if (t){ ctx.fillStyle = col; ctx.font = 'italic 12px Georgia, serif';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(lab, t[0], t[1]); }
+  }
+  return { P: P, depth: depth, dTarget: dTarget };
+}
+/* an arrow from the origin to r, drawn with a head that scales with the view */
+function drawVec(ctx, S3, r, col, lw, lab){
+  const A = S3.P([0, 0, 0]), Bp = S3.P(r);
+  if (!A || !Bp) return;
+  ctx.strokeStyle = col; ctx.lineWidth = lw || 2.6;
+  ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(Bp[0], Bp[1]); ctx.stroke();
+  const dx = Bp[0] - A[0], dy = Bp[1] - A[1], L = Math.hypot(dx, dy) || 1;
+  const ux = dx / L, uy = dy / L, hs = Math.min(11, L * 0.22);
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(Bp[0], Bp[1]);
+  ctx.lineTo(Bp[0] - hs * ux + hs * 0.45 * uy, Bp[1] - hs * uy - hs * 0.45 * ux);
+  ctx.lineTo(Bp[0] - hs * ux - hs * 0.45 * uy, Bp[1] - hs * uy + hs * 0.45 * ux);
+  ctx.closePath(); ctx.fill();
+  if (lab){
+    ctx.fillStyle = col; ctx.font = 'italic 12px Georgia, serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(plain(lab), Bp[0] + 7, Bp[1] - 4);
+  }
+}
+function drawPath3(ctx, S3, pts, col, lw, dash){
+  ctx.save();
+  ctx.strokeStyle = col; ctx.lineWidth = lw || 1.8;
+  if (dash) ctx.setLineDash(dash);
+  ctx.beginPath();
+  let started = false;
+  for (const p of pts){
+    const q = S3.P(p);
+    if (!q){ started = false; continue; }
+    if (!started){ ctx.moveTo(q[0], q[1]); started = true; } else ctx.lineTo(q[0], q[1]);
+  }
+  ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+}
+/* Labels are pushed AWAY from the sphere's centre in screen space rather than
+   always upward.  Always-upward puts |0> directly under the z axis label, and
+   on a 640x430 canvas the two collide -- caught by the layout check, invisible
+   at the default size. */
+function dot3(ctx, S3, p, col, r, lab){
+  const q = S3.P(p);
+  if (!q) return;
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(q[0], q[1], r || 3.5, 0, TAU); ctx.fill();
+  if (lab){
+    const c = S3.P([0, 0, 0]);
+    let ux = 0, uy = -1;
+    if (c){
+      const dx = q[0] - c[0], dy = q[1] - c[1], L = Math.hypot(dx, dy);
+      if (L > 1e-6){ ux = dx / L; uy = dy / L; }
+    }
+    ctx.fillStyle = col; ctx.font = '10.5px -apple-system, sans-serif';
+    ctx.textAlign = ux > 0.3 ? 'left' : (ux < -0.3 ? 'right' : 'center');
+    ctx.textBaseline = uy > 0.3 ? 'top' : (uy < -0.3 ? 'bottom' : 'middle');
+    ctx.fillText(plain(lab), q[0] + ux * 8, q[1] + uy * 8);
+  }
+}
+/* render a 2x2 complex matrix as text, at (x,y).  Returns its height. */
+function drawMatrix(ctx, x, y, Mx, title, col){
+  ctx.save();
+  ctx.font = '11px "SF Mono", ui-monospace, monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  if (title){ ctx.fillStyle = C_DIM; ctx.font = 'italic 12px Georgia, serif';
+              ctx.fillText(plain(title), x, y); y += 17; }
+  ctx.font = '11px "SF Mono", ui-monospace, monospace';
+  const cell = (re, im) => {
+    const s = (Math.abs(re) < 5e-4 ? '0' : re.toFixed(3))
+            + (Math.abs(im) < 5e-4 ? '' : (im > 0 ? '+' : '−') + Math.abs(im).toFixed(3) + 'i');
+    return s;
+  };
+  const rows = [[cell(Mx[0], Mx[1]), cell(Mx[2], Mx[3])],
+                [cell(Mx[4], Mx[5]), cell(Mx[6], Mx[7])]];
+  const w = 88;
+  ctx.strokeStyle = '#3d465e'; ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(x + 5, y); ctx.lineTo(x, y); ctx.lineTo(x, y + 34); ctx.lineTo(x + 5, y + 34);
+  ctx.moveTo(x + 2 * w + 3, y); ctx.lineTo(x + 2 * w + 8, y);
+  ctx.lineTo(x + 2 * w + 8, y + 34); ctx.lineTo(x + 2 * w + 3, y + 34);
+  ctx.stroke();
+  for (let r = 0; r < 2; r++) for (let c = 0; c < 2; c++){
+    ctx.fillStyle = col || C_TXT;
+    ctx.fillText(rows[r][c], x + 8 + c * w, y + 3 + r * 17);
+  }
+  ctx.restore();
+  return 40 + (title ? 17 : 0);
+}
+
+/* ==========================================================================
+ *  view 1 -- the sphere
+ * ======================================================================== */
+function viewSphere(ctx, W, H, M, S){
+  const st = M.st;
+  const cap = 'A qubit\'s state is two complex numbers with a normalisation and an unobservable '
+    + 'overall phase taken away, which leaves two real numbers — so it is a point on a sphere, '
+    + 'not a vector in a plane. The angle is HALVED: θ = ' + sg(st.th * RAD, 4) + '° on the sphere '
+    + 'is θ/2 = ' + sg(st.th * RAD / 2, 4) + '° in the amplitudes, which is why |0⟩ and |1⟩ are '
+    + 'antipodal rather than perpendicular. Their overlap here is '
+    + M.overlapPerp.toExponential(1) + '.';
+  const foot = 'the global phase slider moves the ket and leaves the Bloch vector alone: '
+    + 'measured displacement ' + M.phaseShift.toExponential(1) + ' — that is what projective means';
+  const L = stage(ctx, W, H, cap, foot, Math.max(340, W - RO.w - 120));
+  /* this view is one object, so centre it in the space the readout leaves
+     rather than pinning it to the left margin with 350 px of nothing beside it */
+  const avail = Math.max(240, W - RO.w - 130);
+  const size = Math.min(L.plotH, avail);
+  const cx = 66 + avail / 2, cy = L.top + L.plotH / 2;
+  const cam = makeCamera(S.camTheta, S.camPhi, 5.2, [0, 0, 0]);
+  cam.W = W; cam.H = H;
+  const B = camBasis(cam);
+  const pixR = size * 0.44;
+  const S3 = drawSphere(ctx, cam, B, cx, cy, pixR, { grid: st.showGrid });
+  /* the six labels need about 90 px of radius to sit apart from each other and
+     from the axis letters; below that the dots go on without them rather than
+     the labels going on top of one another */
+  const roomForLabels = pixR > 90;
+  if (st.showCardinal)
+    for (const c of M.cardinal){
+      /* a cardinal label is dropped when the state or its antipode is sitting
+         on it -- at theta = 0 the state IS |0>, and two labels at one point is
+         not a picture of anything */
+      const near = (v) => (v[0]*c.r[0] + v[1]*c.r[1] + v[2]*c.r[2]) > 0.985;
+      /* and a state pointing at or away from the camera projects onto the
+         middle of the disc, where its label meets the axis letter */
+      const q = S3.P(c.r), c0 = S3.P([0, 0, 0]);
+      const edgeOn = !(q && c0) || Math.hypot(q[0] - c0[0], q[1] - c0[1]) < 0.5 * pixR;
+      const clash = near(M.rPure) || near(M.antipode) || edgeOn;
+      dot3(ctx, S3, c.r, '#5d6780', 3, (roomForLabels && !clash) ? c.lab : null);
+    }
+  /* the meridian and parallel through the state, so theta and phi are legible */
+  if (st.showShadow){
+    const mer = [], par = [];
+    for (let i = 0; i <= 60; i++){
+      mer.push(blochOfAngles(Math.PI * i / 60, st.ph));
+      par.push(blochOfAngles(st.th, TAU * i / 60));
+    }
+    drawPath3(ctx, S3, mer, '#2f4a5c', 1.4, [4, 3]);
+    drawPath3(ctx, S3, par, '#2f4a5c', 1.4, [4, 3]);
+  }
+  drawVec(ctx, S3, M.rPure, C_GREEN, 2.8, roomForLabels ? 'r' : null);
+  dot3(ctx, S3, M.antipode, C_MAG, 4, roomForLabels ? 'orthogonal' : null);
+  legend(ctx, 80, L.top + L.plotH - 52,
+    [[C_GREEN, 'the state |ψ⟩', null], [C_MAG, 'the state orthogonal to it', null],
+     ['#5d6780', 'the six cardinal states', null]]);
+  drawStage(ctx, W, H, L);
+}
+
+/* ==========================================================================
+ *  view 2 -- projection versus identity
+ * ======================================================================== */
+function viewIdent(ctx, W, H, M, S){
+  const st = M.st;
+  const cap = 'Every qubit state is ρ = ½(𝟙 + r⃗·σ⃗). The identity half is the same for every state '
+    + 'there is — it carries no information and fixes only Tr ρ = 1. Everything a qubit knows is in '
+    + 'the vector multiplying the Pauli matrices. At |r| = ' + sg(st.rlen, 3) + ' the purity is '
+    + sg(M.purity, 5) + ' and the entropy ' + sg(M.entropy, 4) + ' bits; ρ² − ρ has size '
+    + M.isProjector.toExponential(1) + ', so this state '
+    + (M.isProjector < 1e-9 ? 'IS a projector' : 'is NOT a projector — it is a mixture');
+  const foot = 'purity = (1 + |r|²)/2 and the eigenvalues are (1 ± |r|)/2 — both exact, '
+    + 'and both asserted against the matrix rather than against each other';
+  const wTot = Math.max(320, W - RO.w - 120);
+  const L = stage(ctx, W, H, cap, foot, wTot);
+  /* left: the ball in cross-section, with the state at radius |r| */
+  const bs = Math.min(L.plotH, 250);
+  const cx = 90 + bs / 2, cy = L.top + bs / 2 + 10;
+  ctx.save();
+  ctx.strokeStyle = '#3d465e'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.arc(cx, cy, bs / 2, 0, TAU); ctx.stroke();
+  for (let k = 1; k <= 4; k++){
+    ctx.strokeStyle = '#232a3a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, bs / 2 * k / 5, 0, TAU); ctx.stroke();
+  }
+  /* shade the interior by purity so "mixed" is visible rather than asserted */
+  for (let k = 20; k >= 1; k--){
+    const R = k / 20;
+    ctx.fillStyle = 'rgba(184,236,76,' + (0.020 * purity(R)) + ')';
+    ctx.beginPath(); ctx.arc(cx, cy, bs / 2 * R, 0, TAU); ctx.fill();
+  }
+  const ang = Math.atan2(M.rPure[1], M.rPure[0]);
+  const px2 = cx + Math.cos(ang) * bs / 2 * st.rlen, py2 = cy - Math.sin(ang) * bs / 2 * st.rlen;
+  ctx.strokeStyle = C_GREEN; ctx.lineWidth = 2.4;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px2, py2); ctx.stroke();
+  ctx.fillStyle = C_GREEN; ctx.beginPath(); ctx.arc(px2, py2, 4.5, 0, TAU); ctx.fill();
+  ctx.fillStyle = C_CYAN; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, TAU); ctx.fill();
+  ctx.font = '10.5px -apple-system, sans-serif'; ctx.fillStyle = C_DIM;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  ctx.fillText('𝟙/2 — maximally mixed', cx, cy + 8);
+  ctx.textBaseline = 'bottom';
+  ctx.fillText('pure states: the surface', cx, cy - bs / 2 - 6);
+  ctx.restore();
+  /* the matrices */
+  let mx = 90 + bs + 46, my = L.top + 6;
+  my += drawMatrix(ctx, mx, my, M.rho, 'ρ = ½(𝟙 + r·σ)', C_TXT) + 10;
+  my += drawMatrix(ctx, mx, my, M.idPart, '½𝟙 — the same for every state', C_CYAN) + 10;
+  my += drawMatrix(ctx, mx, my, M.projPart, '½ r·σ — the state itself', C_GREEN) + 10;
+  /* right: purity, entropy and eigenvalues against |r| */
+  const bx = mx + 252, bw = Math.max(120, wTot + 80 - (bx - 66));
+  if (bw > 150){
+    const b = box(bx, L.top + 12, bw, Math.max(120, L.plotH - 40));
+    const yt = ticksN(0, 1, 5), xt = ticksN(0, 1, 5);
+    axes(ctx, b, 0, 1, 0, 1.42, { xlab: '|r|', xticks: xt, yticks: yt,
+      xfmt: tickfmt(xt), yfmt: tickfmt(yt), title: 'what |r| decides' });
+    pl(ctx, b, M.purCurve, 0, 1, 0, 1.42, C_GREEN, 2.2);
+    pl(ctx, b, M.entCurve, 0, 1, 0, 1.42, C_ORANGE, 2.0, [6, 4]);
+    pl(ctx, b, M.eigCurve.map(q => [q[0], q[1]]), 0, 1, 0, 1.42, C_CYAN, 1.6);
+    pl(ctx, b, M.eigCurve.map(q => [q[0], q[2]]), 0, 1, 0, 1.42, C_CYAN, 1.6);
+    clipTo(ctx, b, () => {
+      const X = px(b, st.rlen, 0, 1);
+      ctx.strokeStyle = C_MAG; ctx.lineWidth = 1.2; ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(X, b.y); ctx.lineTo(X, b.y1); ctx.stroke(); ctx.setLineDash([]);
+    });
+    legend(ctx, b.x + 10, b.y + 12,
+      [[C_GREEN, 'purity Tr ρ²', null], [C_ORANGE, 'entropy (bits)', [6, 4]],
+       [C_CYAN, 'eigenvalues of ρ', null]]);
+  }
+  drawStage(ctx, W, H, L);
+}
+
+/* ==========================================================================
+ *  view 3 -- measurement
+ * ======================================================================== */
+function viewMeasure(ctx, W, H, M, S){
+  const st = M.st;
+  const cap = 'A projective measurement asks one yes/no question, and the two answers resolve the '
+    + 'identity: P₊ + P₋ = 𝟙 to ' + M.resolveId.toExponential(1) + ', with P² = P to '
+    + M.projIdem.toExponential(1) + '. The probability is ½(1 + r⃗·n̂) = cos²(Θ/2) with Θ = '
+    + sg(M.betweenAngle * RAD, 4) + '° the angle BETWEEN the two directions on the sphere — '
+    + 'p₊ = ' + sg(M.pPlus, 5) + '. ' + st.nShots + ' shots gave ' + M.shots.up + ' ('
+    + sg(M.shots.frac, 4) + ' against ' + sg(M.pPlus, 4) + ' ± ' + sg(M.shotErr, 2) + ').';
+  const foot = 'the half-angle is the whole difference between a spin and a polariser: '
+    + 'a photon through crossed polarisers obeys cos²Θ, a spin-½ obeys cos²(Θ/2)';
+  const wTot = Math.max(320, W - RO.w - 120);
+  const L = stage(ctx, W, H, cap, foot, wTot);
+  const size = Math.min(L.plotH, 260);
+  const cx = 78 + size / 2, cy = L.top + size / 2;
+  const cam = makeCamera(S.camTheta, S.camPhi, 5.2, [0, 0, 0]); cam.W = W; cam.H = H;
+  const B = camBasis(cam);
+  const pixR = size * 0.44, lab3 = pixR > 90;
+  const S3 = drawSphere(ctx, cam, B, cx, cy, pixR, {});
+  drawVec(ctx, S3, M.rPure, C_GREEN, 2.6, lab3 ? 'r' : null);
+  drawVec(ctx, S3, M.n, C_ORANGE, 2.4, lab3 ? 'n' : null);
+  dot3(ctx, S3, [-M.n[0], -M.n[1], -M.n[2]], '#7a4a2a', 3.2);
+  legend(ctx, 74, L.top + size + 4,
+    [[C_GREEN, 'the state', null], [C_ORANGE, 'the measurement axis', null]]);
+  /* Malus */
+  const bx = 78 + size + 44;
+  const bw = Math.max(140, 66 + wTot - bx + (st.showCascade ? -180 : 0));
+  if (bw > 150 && st.showMalus){
+    /* the panel is shortened deliberately to leave room for the shot strip
+       below it -- the strip is the only place nShots and seed are visible, and
+       drawing it "if there is room" meant it was never drawn at all */
+    const b = box(bx, L.top + 12, bw, Math.max(90, L.plotH - 104));
+    const xt = ticksN(0, 180, 5), yt = ticksN(0, 1, 5);
+    /* headroom, and the legend at the top.  The obvious empty corner is the
+       top RIGHT -- and it is not empty: cos^2(Theta) comes back UP to 1 at
+       180 degrees, so the polariser curve ends exactly there. */
+    /* one constant, used by the axis AND by everything drawn on it -- writing
+       the number four times means a change to the axis leaves the curves where
+       they were, which is how a mutant that "removed the headroom" removed
+       nothing at all */
+    const MHI = 1.45;
+    axes(ctx, b, 0, 180, 0, MHI, { xlab: 'angle between r and n  (°)', xticks: xt, yticks: yt,
+      xfmt: tickfmt(xt), yfmt: tickfmt(yt), title: 'the half-angle' });
+    pl(ctx, b, M.malus, 0, 180, 0, MHI, C_GREEN, 2.2);
+    pl(ctx, b, M.malusPhoton, 0, 180, 0, MHI, '#4a5165', 1.8, [6, 4]);
+    dot(ctx, b, M.betweenAngle * RAD, M.pPlus, 0, 180, 0, MHI, C_MAG, 4.5);
+    /* both curves start at 1 on the left and fall to 0 on the right, so the
+       bottom-LEFT corner is full and the top-RIGHT is empty */
+    legend(ctx, b.x + 10, b.y + 12,
+      [[C_GREEN, 'spin-½: cos²(Θ/2)', null], ['#4a5165', 'a polariser: cos²Θ', [6, 4]]]);
+  }
+  /* the shot tally.  Without this, nShots and seed are computed and thrown away
+     -- the UI sweep caught them as sliders that move nothing, which they were. */
+  if (st.showMalus && bw > 150){
+    const sy = L.top + 12 + Math.max(90, L.plotH - 104) + 52;
+    const runN = Math.min(M.shots.run.length, Math.floor(bw / 5));
+    ctx.save();
+    ctx.font = '10px -apple-system, sans-serif'; ctx.fillStyle = C_DIM;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    if (sy + 22 < L.capY - 2){
+      ctx.fillText(plain('the first ' + runN + ' shots  (up = +, down = \u2212)'), bx, sy - 13);
+      /* the outcome is up or down, not green or grey.  Colour alone is invisible
+         to the display-list harness -- and to anyone reading it in greyscale. */
+      const mid = sy + 10;
+      ctx.strokeStyle = '#2b3346'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(bx, mid); ctx.lineTo(bx + runN * 5, mid); ctx.stroke();
+      for (let i = 0; i < runN; i++){
+        ctx.fillStyle = M.shots.run[i] ? C_GREEN : C_ORANGE;
+        if (M.shots.run[i]) ctx.fillRect(bx + i * 5, mid - 9, 4, 9);
+        else                ctx.fillRect(bx + i * 5, mid + 1, 4, 9);
+      }
+    }
+    ctx.restore();
+  }
+  /* the cascade */
+  if (st.showCascade && bw > 150){
+    const gx = bx + bw + 26, gw = 66 + wTot - gx;
+    if (gw > 120){
+      const g = box(gx, L.top + 12, gw, Math.max(80, L.plotH - 104));
+      axes(ctx, g, 0, 3, 0, 1, { xticks: [], yticks: ticksN(0, 1, 3),
+        yfmt: tickfmt(ticksN(0, 1, 3)), title: 'three magnets in a row' });
+      const bars = [['z', M.cascade.pz], ['n', M.cascade.p2], ['z again', M.cascade.p3]];
+      bars.forEach(([lab, p], i) => {
+        const xc = px(g, i + 0.5, 0, 3), bwid = Math.min(34, g.w / 3 * 0.5);
+        const y0 = py(g, 0, 0, 1), y1 = py(g, p, 0, 1);
+        ctx.fillStyle = i === 2 ? 'rgba(205,53,196,0.5)' : 'rgba(90,200,224,0.4)';
+        ctx.fillRect(xc - bwid / 2, y1, bwid, y0 - y1);
+        ctx.fillStyle = C_DIM; ctx.font = '10px -apple-system, sans-serif';
+        ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+        ctx.fillText(plain(lab), xc, g.y1 + 5);
+        /* inside the bar, not above it: a bar at p = 1 reaches the top of the
+           box and its label then lands on the panel title */
+        /* sg() would render a probability of 1.35e-11 in full, three of them
+           side by side, and they collide.  Below a part in ten thousand the
+           honest short answer is 0; the readout carries the exact figure.
+           And the label goes INSIDE a tall bar and ABOVE a short one -- a
+           zero-height bar labelled inside sits on the axis labels. */
+        const txt = p < 1e-4 ? '0' : sg(p, 3);
+        if (y0 - y1 > 22){ ctx.textBaseline = 'top';    ctx.fillText(txt, xc, y1 + 3); }
+        else             { ctx.textBaseline = 'bottom'; ctx.fillText(txt, xc, y1 - 4); }
+      });
+    }
+  }
+  drawStage(ctx, W, H, L);
+}
+
+/* ==========================================================================
+ *  view 4 -- precession
+ * ======================================================================== */
+function viewPrecess(ctx, W, H, M, S){
+  const st = M.st;
+  const cap = 'A magnetic moment in a field does not line up with it, it goes round it: '
+    + 'dr⃗/dt = −γ B⃗ × r⃗, at ' + sg(M.fLarmor, 7) + ' MHz for a ' + M.sp.name + ' in '
+    + sg(st.Btesla, 3) + ' T — one turn every ' + sg(M.period * 1e9, 4) + ' ns. Add a drive at '
+    + 'that frequency and, in the frame that turns with it, the vector simply rotates about a '
+    + 'tilted axis: the Rabi flop is complete only on resonance, and off it the population never '
+    + 'exceeds ' + sg(M.rabiCap, 4) + '.';
+  const foot = 'γ/2π from CODATA 2022 · the sign of the precession was derived by integrating the '
+    + 'Schrödinger equation and reading the azimuth, not chosen';
+  const wTot = Math.max(320, W - RO.w - 120);
+  const L = stage(ctx, W, H, cap, foot, wTot);
+  const size = Math.min(L.plotH, 250);
+  const cx = 78 + size / 2, cy = L.top + size / 2;
+  const cam = makeCamera(S.camTheta, S.camPhi, 5.2, [0, 0, 0]); cam.W = W; cam.H = H;
+  const B = camBasis(cam);
+  const pixR = size * 0.44, lab3 = pixR > 90;
+  const S3 = drawSphere(ctx, cam, B, cx, cy, pixR, {});
+  drawPath3(ctx, S3, M.track, C_CYAN, 1.8);
+  drawVec(ctx, S3, M.rPure, C_GREEN, 2.6, lab3 ? 'r' : null);
+  drawVec(ctx, S3, [0, 0, 1.25], C_ORANGE, 2.0, lab3 ? 'B' : null);
+  drawPath3(ctx, S3, M.rabiPath, C_MAG, 1.6, [5, 4]);
+  /* below the sphere, not over it: the precession track is a wide ellipse that
+     crosses the top-left corner at almost every camera angle */
+  legend(ctx, 74, L.top + size + 4,
+    [[C_CYAN, 'free precession about B', null], [C_MAG, 'driven, rotating frame', [5, 4]]]);
+  const bx = 78 + size + 44, bw = Math.max(140, 66 + wTot - bx);
+  if (bw > 160){
+    const hh = Math.max(80, (L.plotH - 74) / 2);
+    const b = box(bx, L.top + 12, bw, hh);
+    const xt = ticksN(0, st.tau, 5), yt = ticksN(0, 1, 5);
+    /* headroom above 1: the flop fills the whole box, so a legend inside it is
+       crossed wherever it goes.  Give the axis a quarter more range and put the
+       legend in the strip the curve cannot reach. */
+    axes(ctx, b, 0, st.tau, 0, 1.34, { xticks: xt, yticks: yt, xfmt: tickfmt(xt), yfmt: tickfmt(yt),
+      title: 'population of |1⟩' });
+    pl(ctx, b, M.rabi, 0, st.tau, 0, 1.34, C_GREEN, 2.0);
+    if (st.showDetuned) pl(ctx, b, M.rabiDet, 0, st.tau, 0, 1.34, C_MAG, 2.0, [6, 4]);
+    clipTo(ctx, b, () => {
+      const Y = py(b, M.rabiCap, 0, 1.34);
+      ctx.strokeStyle = '#4a5165'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(b.x, Y); ctx.lineTo(b.x1, Y); ctx.stroke(); ctx.setLineDash([]);
+    });
+    /* at Delta = 0 the "detuned" curve IS the resonant one, and a legend that
+       says otherwise is claiming the picture shows two things when it shows one */
+    legend(ctx, b.x + 10, b.y + 12, Math.abs(st.Delta) < 1e-9
+      ? [[C_GREEN, 'on resonance', null],
+         [C_MAG, 'detuned — Δ is zero, so it is the same curve', [6, 4]]]
+      : [[C_GREEN, 'on resonance', null], [C_MAG, 'detuned Δ = ' + sg(st.Delta, 3), [6, 4]]]);
+    const b2 = box(bx, b.y1 + 60, bw, hh);
+    const xt2 = ticksN(-4 * st.Omega, 4 * st.Omega, 5);
+    axes(ctx, b2, -4 * st.Omega, 4 * st.Omega, 0, 1.05,
+      { xlab: 'detuning Δ', xticks: xt2, yticks: ticksN(0, 1, 3),
+        xfmt: tickfmt(xt2), yfmt: tickfmt(ticksN(0, 1, 3)), title: 'how far off you can be' });
+    pl(ctx, b2, M.lorentz, -4 * st.Omega, 4 * st.Omega, 0, 1.05, C_ORANGE, 2.0);
+    dot(ctx, b2, st.Delta, M.rabiCap, -4 * st.Omega, 4 * st.Omega, 0, 1.05, C_MAG, 4);
+  }
+  drawStage(ctx, W, H, L);
+}
+
+/* ==========================================================================
+ *  view 5 -- decoherence
+ * ======================================================================== */
+function viewDecohere(ctx, W, H, M, S){
+  const st = M.st;
+  const cap = 'Relaxation is the Bloch vector leaving the surface. The transverse part dies at '
+    + '1/T₂ and the longitudinal part crawls to its thermal value at 1/T₁, so a pure state spirals '
+    + 'into the ball and its purity falls from 1 toward ½. T₂ ≤ 2T₁ is not a rule of thumb: past '
+    + 'it the map stops being completely positive. Here T₂/T₁ = ' + sg(st.T2 / st.T1, 4)
+    + ' and the smallest Choi eigenvalue anywhere on the path is ' + M.choiWorst.toExponential(2)
+    + ' — ' + (M.cpOK ? 'still a legal quantum channel' : 'NEGATIVE: this is not a physical process');
+  const foot = 'the Choi eigenvalues are (1 + e^{−t/T₁} ± 2e^{−t/T₂})/2 and (1 − e^{−t/T₁})/2, '
+    + 'checked against a numerically-built Choi matrix';
+  const wTot = Math.max(320, W - RO.w - 120);
+  const L = stage(ctx, W, H, cap, foot, wTot);
+  const size = Math.min(L.plotH, 250);
+  const cx = 78 + size / 2, cy = L.top + size / 2;
+  const cam = makeCamera(S.camTheta, S.camPhi, 5.2, [0, 0, 0]); cam.W = W; cam.H = H;
+  const B = camBasis(cam);
+  const pixR = size * 0.44, lab3 = pixR > 90;
+  const S3 = drawSphere(ctx, cam, B, cx, cy, pixR, {});
+  drawPath3(ctx, S3, M.relax, C_MAG, 1.6);
+  drawVec(ctx, S3, M.rPure, '#4a5165', 1.8);
+  drawVec(ctx, S3, M.relaxEnd, C_GREEN, 2.6, lab3 ? 'r(t)' : null);
+  legend(ctx, 74, L.top + size + 4,
+    [['#4a5165', 'where it started', null], [C_MAG, 'the path into the ball', null]]);
+  const bx = 78 + size + 44, bw = Math.max(140, 66 + wTot - bx);
+  if (bw > 160){
+    const hh = Math.max(80, (L.plotH - 74) / 2);
+    const b = box(bx, L.top + 12, bw, hh);
+    const xt = ticksN(0, st.tmax, 5), yt = ticksN(0, 1, 5);
+    axes(ctx, b, 0, st.tmax, 0, 1.38, { xticks: xt, yticks: yt, xfmt: tickfmt(xt), yfmt: tickfmt(yt),
+      title: 'purity and |r|' });
+    pl(ctx, b, M.relaxPur.map(q => [q[0], q[1]]), 0, st.tmax, 0, 1.38, C_GREEN, 2.0);
+    pl(ctx, b, M.relaxPur.map(q => [q[0], q[2]]), 0, st.tmax, 0, 1.38, C_CYAN, 1.8, [6, 4]);
+    clipTo(ctx, b, () => {
+      const Y = py(b, 0.5, 0, 1.38);
+      ctx.strokeStyle = '#4a5165'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(b.x, Y); ctx.lineTo(b.x1, Y); ctx.stroke(); ctx.setLineDash([]);
+    });
+    legend(ctx, b.x + 10, b.y + 12, [[C_GREEN, 'purity', null], [C_CYAN, '|r|', [6, 4]]]);
+    const b2 = box(bx, b.y1 + 60, bw, hh);
+    const ys = M.cpCurve.map(q => q[1]);
+    const lo = Math.min(-0.02, Math.min(...ys)), hi = Math.max(...ys) * 1.1 + 1e-6;
+    const xt2 = ticksN(0.2, 3, 5), yt2 = ticksN(lo, hi, 4);
+    axes(ctx, b2, 0.2, 3, lo, hi, { xlab: 'T₂ / T₁', xticks: xt2, yticks: yt2,
+      xfmt: tickfmt(xt2), yfmt: tickfmt(yt2), title: 'where the channel stops being physical' });
+    clipTo(ctx, b2, () => {
+      const Y = py(b2, 0, lo, hi);
+      ctx.fillStyle = 'rgba(232,132,58,0.10)';
+      ctx.fillRect(px(b2, 2, 0.2, 3), b2.y, b2.x1 - px(b2, 2, 0.2, 3), b2.y1 - b2.y);
+      ctx.strokeStyle = '#4a5165'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(b2.x, Y); ctx.lineTo(b2.x1, Y); ctx.stroke(); ctx.setLineDash([]);
+    });
+    pl(ctx, b2, M.cpCurve, 0.2, 3, lo, hi, C_ORANGE, 2.0);
+    dot(ctx, b2, st.T2 / st.T1, M.choiWorst, 0.2, 3, lo, hi, C_MAG, 4.5);
+    ctx.fillStyle = '#8b6a3a'; ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.fillText('not completely positive', px(b2, 2.05, 0.2, 3), b2.y + 5);
+  }
+  drawStage(ctx, W, H, L);
+}
+
+/* ==========================================================================
+ *  view 6 -- the double cover
+ * ======================================================================== */
+function viewCover(ctx, W, H, M, S){
+  const st = M.st;
+  const cap = 'Turn the state by ' + sg(st.turn, 3) + 'π about z. The Bloch vector has moved by '
+    + sg(M.rMoved, 3) + ' and comes back after 2π — but the KET does not: U(2π) = −𝟙, and it takes '
+    + '4π to return. Here ⟨ψ|U|ψ⟩ = ' + sg(M.ketPhaseArg / Math.PI, 4) + 'π in phase. The sphere '
+    + 'is the space of states; the ket lives one dimension higher, on a circle above each point, '
+    + 'and that circle is exactly the global phase the sphere threw away.';
+  const foot = 'the geometric phase is −½ the enclosed solid angle: '
+    + 'computed as a product of overlaps (' + sg(M.berry, 6) + ') against −Ω/2 ('
+    + sg(M.berryClosed, 6) + '), agreeing to ' + M.berryDiff.toExponential(1);
+  const wTot = Math.max(320, W - RO.w - 120);
+  const L = stage(ctx, W, H, cap, foot, wTot);
+  const size = Math.min(L.plotH, 240);
+  const cx = 78 + size / 2, cy = L.top + size / 2;
+  const cam = makeCamera(S.camTheta, S.camPhi, 5.2, [0, 0, 0]); cam.W = W; cam.H = H;
+  const B = camBasis(cam);
+  const pixR = size * 0.44, lab3 = pixR > 90;
+  const S3 = drawSphere(ctx, cam, B, cx, cy, pixR, {});
+  /* the cap the loop encloses, shaded, so "solid angle" is a picture */
+  clipTo(ctx, box(cx - size, cy - size, 2 * size, 2 * size), () => {
+    ctx.fillStyle = 'rgba(90,200,224,0.10)';
+    ctx.beginPath();
+    let started = false;
+    for (const p of M.loop){
+      const q = S3.P(p);
+      if (!q){ started = false; continue; }
+      if (!started){ ctx.moveTo(q[0], q[1]); started = true; } else ctx.lineTo(q[0], q[1]);
+    }
+    ctx.closePath(); ctx.fill();
+  });
+  drawPath3(ctx, S3, M.loop, C_CYAN, 2.0);
+  drawVec(ctx, S3, M.rTurned, C_GREEN, 2.6, lab3 ? 'r' : null);
+  drawVec(ctx, S3, M.rPure, '#4a5165', 1.6);
+  legend(ctx, 74, L.top + size + 4,
+    [[C_CYAN, 'the transport loop', null], [C_GREEN, 'the turned state', null]]);
+  const bx = 78 + size + 44, bw = Math.max(140, 66 + wTot - bx);
+  if (bw > 160){
+    const hh = Math.max(80, (L.plotH - 74) / 2);
+    const b = box(bx, L.top + 12, bw, hh);
+    const xt = ticksN(0, 4, 5), yt = ticksN(-1, 1, 5);
+    axes(ctx, b, 0, 4, -1.08, 1.72, { xlab: 'rotation  (units of π)', xticks: xt, yticks: yt,
+      xfmt: tickfmt(xt), yfmt: tickfmt(yt), title: 'the vector returns at 2π, the ket at 4π' });
+    pl(ctx, b, M.coverVec, 0, 4, -1.08, 1.72, C_CYAN, 2.0);
+    pl(ctx, b, M.coverKet, 0, 4, -1.08, 1.72, C_GREEN, 2.2);
+    clipTo(ctx, b, () => {
+      for (const x of [2, 4]){
+        const X = px(b, x, 0, 4);
+        ctx.strokeStyle = '#3d465e'; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(X, b.y); ctx.lineTo(X, b.y1); ctx.stroke(); ctx.setLineDash([]);
+      }
+      const X = px(b, st.turn, 0, 4);
+      ctx.strokeStyle = C_MAG; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(X, b.y); ctx.lineTo(X, b.y1); ctx.stroke();
+    });
+    legend(ctx, b.x + 10, b.y + 12,
+      [[C_CYAN, 'r_x, the Bloch vector', null], [C_GREEN, 'Re⟨ψ|U|ψ⟩, the ket', null]]);
+    const b2 = box(bx, b.y1 + 60, bw, hh);
+    const xt2 = ticksN(0, 4 * Math.PI, 5), yt2 = ticksN(-2 * Math.PI, 0, 4);
+    axes(ctx, b2, 0, 4 * Math.PI, -2 * Math.PI, 0.2,
+      { xlab: 'solid angle enclosed  (sr)', xticks: xt2, yticks: yt2,
+        xfmt: tickfmt(xt2), yfmt: tickfmt(yt2), title: 'geometric phase = −Ω/2' });
+    pl(ctx, b2, M.berryCurve, 0, 4 * Math.PI, -2 * Math.PI, 0.2, C_ORANGE, 2.0);
+    dot(ctx, b2, M.solidAngle, M.berryClosed, 0, 4 * Math.PI, -2 * Math.PI, 0.2, C_MAG, 4.5);
+  }
+  drawStage(ctx, W, H, L);
+}
+
+/* ========================================================================== */
+function drawView(ctx, W, H, M, S){
+  LEGEND_BOXES = [];
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#070b18'; ctx.fillRect(0, 0, W, H);
+  const f = { sphere: viewSphere, ident: viewIdent, measure: viewMeasure,
+              precess: viewPrecess, decohere: viewDecohere, cover: viewCover }[M.view];
+  if (f) f(ctx, W, H, M, S);
+}
+
+/* ============================================================================
+ *  readout, equation bar, captions, the panel, and boot
+ * ========================================================================== */
+function cnum(re, im){
+  const a = Math.abs(re) < 5e-5 ? '0' : re.toFixed(4);
+  if (Math.abs(im) < 5e-5) return a;
+  return a + (im > 0 ? ' + ' : ' &minus; ') + Math.abs(im).toFixed(4) + 'i';
+}
+function readoutHTML(M){
+  const st = M.st, v = st.view;
+  const row = (a, b, c) => '<tr><td>' + a + '</td><td class="v' + (c ? ' ' + c : '') + '">' + b + '</td></tr>';
+  const hd  = (t) => '<tr><td class="hd" colspan="2">' + t + '</td></tr>';
+  let name = '', sub = '', body = '', note = '';
+
+  if (v === 'sphere' || v === 'ident'){
+    name = (v === 'sphere') ? 'the sphere' : 'projection vs identity';
+    sub = '&theta; = ' + sg(st.th * RAD, 4) + '&deg;, &phi; = ' + sg(st.ph * RAD, 4) + '&deg;';
+    body = hd('the ket')
+      + row('amplitude of |0&rang;', cnum(M.ketPhased[0], M.ketPhased[1]))
+      + row('amplitude of |1&rang;', cnum(M.ketPhased[2], M.ketPhased[3]))
+      + row('cos(&theta;/2)', sg(Math.cos(st.th / 2), 6))
+      + row('norm', sg(ketNorm(M.ketPhased), 8))
+      + row('global phase &chi;', sg(st.chi * RAD, 4) + '&deg;')
+      + row('&nbsp;&nbsp;moved the Bloch vector by', M.phaseShift.toExponential(1), 'good')
+      + hd('the Bloch vector')
+      + row('r&#8339;', sg(M.r[0], 6)) + row('r&#8342;', sg(M.r[1], 6)) + row('r&#8354;', sg(M.r[2], 6))
+      + row('|r|', sg(M.rlen, 6))
+      + hd('&rho; = &frac12;(&#120793; + r&middot;&sigma;)')
+      + row('Tr &rho;', sg(M.traceRho[0], 8))
+      + row('Tr &rho;&sup2;  (purity)', sg(M.purity, 6))
+      + row('eigenvalues', sg(M.eigs[0], 5) + ',  ' + sg(M.eigs[1], 5))
+      + row('von Neumann entropy', sg(M.entropy, 5) + ' bits')
+      + row('|&rho;&sup2; &minus; &rho;|', M.isProjector.toExponential(1),
+            M.isProjector < 1e-9 ? 'good' : 'bad')
+      + hd('the orthogonal state')
+      + row('&lang;&psi;|&psi;&perp;&rang;', M.overlapPerp.toExponential(1), 'good')
+      + row('r&middot;r&perp;', sg(-1, 3))
+      + row('angle between them', '180&deg;');
+    note = '<p class="note">The identity half of &rho; is the same for every state a qubit can be '
+         + 'in. It fixes the trace and carries nothing else. Everything the state knows is the '
+         + 'three real numbers multiplying the Pauli matrices &mdash; which is why the space of '
+         + 'states is a ball and not a Hilbert space you can see.</p>';
+
+  } else if (v === 'measure'){
+    name = 'measurement';
+    sub = 'along n̂ at ' + sg(st.mth * RAD, 4) + '&deg;, ' + sg(st.mph * RAD, 4) + '&deg;';
+    body = hd('the two operators')
+      + row('P&#8330; + P&#8331; &minus; &#120793;', M.resolveId.toExponential(1), 'good')
+      + row('|P&sup2; &minus; P|', M.projIdem.toExponential(1), 'good')
+      + row('Tr P&#8330;', '1')
+      + hd('the Born rule')
+      + row('angle between r and n', sg(M.betweenAngle * RAD, 5) + '&deg;')
+      + row('r&middot;n', sg(M.cosTheta, 6))
+      + row('p&#8330; = &frac12;(1 + r&middot;n)', sg(M.pPlus, 6), 'good')
+      + row('&nbsp;&nbsp;= cos&sup2;(&Theta;/2)', sg(Math.pow(Math.cos(M.betweenAngle / 2), 2), 6))
+      + row('a polariser would give cos&sup2;&Theta;', sg(M.cosTheta * M.cosTheta, 6), 'bad')
+      + row('p&#8331;', sg(M.pMinus, 6))
+      + hd('shots')
+      + row('trials', String(M.shots.n))
+      + row('came out +', String(M.shots.up))
+      + row('fraction', sg(M.shots.frac, 5))
+      + row('expected', sg(M.pPlus, 5) + ' &plusmn; ' + sg(M.shotErr, 2))
+      + row('discrepancy', sg((M.shots.frac - M.pPlus) / Math.max(M.shotErr, 1e-12), 3) + ' &sigma;')
+      + hd('three magnets in a row')
+      + row('through the first (z)', sg(M.cascade.pz, 5))
+      + row('then through n', sg(M.cascade.p2, 5))
+      + row('then z again', sg(M.cascade.p3, 5), M.cascade.recovered ? 'bad' : '')
+      + row('all three', sg(M.cascade.through, 5));
+    note = '<p class="note">The third magnet is the point of the cascade: after the first two, a '
+         + 'beam that was purely |0&rang; comes out of the z magnet split again. The middle '
+         + 'measurement did not filter the beam, it <b>remade</b> it &mdash; unless n is along z, '
+         + 'in which case nothing happens at all.</p>';
+
+  } else if (v === 'precess'){
+    name = 'precession';
+    sub = M.sp.name + ' in ' + sg(st.Btesla, 4) + ' T';
+    body = hd('Larmor')
+      + row('&gamma;/2&pi;', sg(M.sp.gam, 11) + ' MHz/T')
+      + row('&nbsp;&nbsp;CODATA uncertainty', '&plusmn;' + M.sp.u)
+      + row('frequency', sg(M.fLarmor, 8) + ' MHz')
+      + row('period', sg(M.period * 1e9, 6) + ' ns')
+      + row('angular rate', sg(M.omegaLarmor, 6) + ' rad/s')
+      + hd('the electron&rsquo;s anomaly')
+      + row('g/2 measured', sg(M.gOver2, 15))
+      + row('a&#8337; = g/2 &minus; 1', CODATA.a_e.v.toExponential(11))
+      + row('Schwinger &alpha;/2&pi;', M.schwinger.toExponential(11))
+      + row('one loop is high by', sg(100 * M.schwingerErr, 4) + '%', 'good')
+      + hd('driving it')
+      + row('&Omega;', sg(st.Omega, 5))
+      + row('&Delta;', sg(st.Delta, 5))
+      + row('&Omega;&#8341; = &radic;(&Omega;&sup2;+&Delta;&sup2;)', sg(M.rabiOR, 6))
+      + row('largest population reached', sg(M.rabiCap, 6), M.rabiCap > 0.999 ? 'good' : 'bad')
+      + row('&pi; pulse takes', sg(M.piTime, 5) + ' / &Omega;');
+    note = '<p class="note">A proton in a 1.5 T scanner precesses at 63.87 MHz, which is why MRI '
+         + 'is done with a radio transmitter. The value used in practice is the <b>shielded</b> '
+         + 'one &mdash; a proton inside a water molecule sees 25.7 ppm less field than the bare '
+         + 'number, because its own electrons screen it.</p>';
+
+  } else if (v === 'decohere'){
+    name = 'decoherence';
+    sub = 'T&#8321; = ' + sg(st.T1, 4) + ', T&#8322; = ' + sg(st.T2, 4);
+    body = hd('the two times')
+      + row('T&#8321;  (longitudinal)', sg(st.T1, 5))
+      + row('T&#8322;  (transverse)', sg(st.T2, 5))
+      + row('T&#8322;/T&#8321;', sg(st.T2 / st.T1, 5), st.T2 <= 2 * st.T1 ? 'good' : 'bad')
+      + row('the limit', '2 T&#8321; = ' + sg(M.t2Limit, 4))
+      + hd('is it a legal channel?')
+      + row('smallest Choi eigenvalue', M.choiWorst.toExponential(3), M.cpOK ? 'good' : 'bad')
+      + row('&nbsp;&nbsp;at t =', sg(M.choiAt, 4))
+      + row('completely positive', M.cpOK ? 'yes' : '<b>no</b>', M.cpOK ? 'good' : 'bad')
+      + hd('where it ended up')
+      + row('r&#8354;(t)', sg(M.relaxEnd[2], 6))
+      + row('|r|(t)', sg(Math.hypot(M.relaxEnd[0], M.relaxEnd[1], M.relaxEnd[2]), 6))
+      + row('purity', sg(purity(Math.hypot(M.relaxEnd[0], M.relaxEnd[1], M.relaxEnd[2])), 6))
+      + row('thermal r&#8354;', sg(st.req, 4));
+    note = '<p class="note">T&#8322; &le; 2T&#8321; is not a convention. Past it the map takes some '
+         + 'legitimate input to a matrix with a negative eigenvalue, which is not a state; the '
+         + 'Choi eigenvalue in this panel is that statement made arithmetic.</p>';
+
+  } else {
+    name = 'the double cover';
+    sub = 'turned by ' + sg(st.turn, 4) + '&pi;';
+    body = hd('what the rotation did')
+      + row('|U &minus; &#120793;|', M.UvsI.toExponential(2))
+      + row('|U + &#120793;|', M.UvsmI.toExponential(2))
+      + row('Bloch vector moved by', sg(M.rMoved, 6))
+      + row('&lang;&psi;|U|&psi;&rang; phase', sg(M.ketPhaseArg / Math.PI, 5) + '&pi;')
+      + row('|&lang;&psi;|U|&psi;&rang;|', sg(M.ketOverlap, 6))
+      + hd('the geometric phase')
+      + row('cone half-angle', sg(st.cone * RAD, 5) + '&deg;')
+      + row('solid angle &Omega;', sg(M.solidAngle, 6) + ' sr')
+      + row('&minus;&Omega;/2', sg(M.berryClosed, 8))
+      + row('product of overlaps', sg(M.berry, 8))
+      + row('difference', M.berryDiff.toExponential(2), 'good')
+      + hd('why the sphere is smaller than the ket')
+      + row('states in a qubit', '2 complex = 4 real')
+      + row('&minus; normalisation', '3')
+      + row('&minus; global phase', '2  &rarr; a sphere');
+    note = '<p class="note">A 2&pi; rotation sends |&psi;&rang; to &minus;|&psi;&rang;. On its own '
+         + 'that is unobservable &mdash; which is exactly why the Bloch sphere can ignore it. Put '
+         + 'the rotated half in a superposition with an unrotated half and the sign is a phase '
+         + 'difference, and it has been seen with neutrons.</p>';
+  }
+  return '<div class="rname">' + name + '<small>' + sub + '</small></div>'
+       + '<table>' + body + '</table>' + note;
+}
+
+function eqbarText(M){
+  const v = M.view;
+  if (v === 'sphere') return ['|&psi;&rang; = cos(&theta;/2)|0&rang; + e<sup>i&phi;</sup> sin(&theta;/2)|1&rang;'
+    + ',&nbsp;&nbsp; r&#770; = (sin&theta;cos&phi;, sin&theta;sin&phi;, cos&theta;)',
+    'Two complex amplitudes, minus a normalisation, minus a phase nobody can measure, leaves two angles.'];
+  if (v === 'ident') return ['&rho; = &frac12;(&#120793; + r&middot;&sigma;),'
+    + '&nbsp;&nbsp; Tr&rho;&sup2; = &frac12;(1 + |r|&sup2;),&nbsp;&nbsp; eig&rho; = (1 &plusmn; |r|)/2',
+    'The identity part is the same for every state there is; the state is the vector multiplying the Pauli matrices.'];
+  if (v === 'measure') return ['P&#8330; = &frac12;(&#120793; + n&middot;&sigma;),'
+    + '&nbsp;&nbsp; P&#8330; + P&#8331; = &#120793;,&nbsp;&nbsp; p&#8330; = Tr(&rho;P&#8330;) = &frac12;(1 + r&middot;n) = cos&sup2;(&Theta;/2)',
+    'Two projectors that sum to the identity: that is what having outcomes means, and the half-angle is what makes a spin not a polariser.'];
+  if (v === 'precess') return ['dr&#8407;/dt = &minus;&gamma; B&#8407; &times; r&#8407;,'
+    + '&nbsp;&nbsp; P&#8321;(t) = (&Omega;&sup2;/&Omega;&#8341;&sup2;) sin&sup2;(&Omega;&#8341;t/2),'
+    + '&nbsp;&nbsp; &Omega;&#8341; = &radic;(&Omega;&sup2; + &Delta;&sup2;)',
+    'A magnetic moment in a field goes round it rather than lining up with it &mdash; and a drive only flips it completely on resonance.'];
+  if (v === 'decohere') return ['dr&#8339;,&#8342;/dt = &minus;r&#8339;,&#8342;/T&#8322;,'
+    + '&nbsp;&nbsp; dr&#8354;/dt = &minus;(r&#8354; &minus; r&#8320;)/T&#8321;,&nbsp;&nbsp; T&#8322; &le; 2T&#8321;',
+    'Relaxation is the vector leaving the surface; the inequality is where the map stops being completely positive.'];
+  return ['U(n&#770;,&alpha;) = exp(&minus;i&alpha; n&middot;&sigma;/2),&nbsp;&nbsp; U(n&#770;,2&pi;) = &minus;&#120793;,'
+    + '&nbsp;&nbsp; &gamma;<sub>Berry</sub> = &minus;&Omega;/2',
+    'SU(2) covers the rotation group twice, and the phase left over after a closed loop is half the solid angle it enclosed.'];
+}
+function tagText(M){
+  return 'CODATA 2022 (physics.nist.gov)  ·  everything else is exact linear algebra';
+}
+
+const INFO = {
+  sphere: 'A qubit is two complex amplitudes: four real numbers. Normalisation removes one, and '
+    + 'the overall phase — which no measurement can ever see — removes another, leaving two. Two '
+    + 'numbers with the topology of a sphere, so that is what the state space is. The one thing '
+    + 'to notice is the half: the polar angle on the sphere is twice the angle in the amplitudes, '
+    + 'so states that are orthogonal in Hilbert space sit at opposite poles rather than at right '
+    + 'angles. Drag to turn it.',
+  ident: 'Write the density matrix as ρ = ½(𝟙 + r⃗·σ⃗) and it splits into two pieces that could '
+    + 'not be more different. The identity piece is identical for every state a qubit can ever be '
+    + 'in; it exists only to make the trace one. Everything else — every question you could ask '
+    + 'and every answer you could get — is in the three real numbers multiplying the Pauli '
+    + 'matrices. Their length decides whether the state is pure, and a state on the surface is '
+    + 'exactly a state that is its own projector.',
+  measure: 'A projective measurement is a pair of operators that add up to the identity. That is '
+    + 'not a technicality: it is the statement that the measurement has outcomes and that they are '
+    + 'exhaustive. The probability of the plus outcome is ½(1 + r⃗·n̂), which for two pure states '
+    + 'is cos² of HALF the angle between them on the sphere. A polariser gives cos² of the whole '
+    + 'angle, and the factor of two is the entire difference between a spin and a piece of '
+    + 'polaroid.',
+  precess: 'Put the qubit in a magnetic field and the Bloch vector precesses about it rather than '
+    + 'aligning with it, at a rate set by the gyromagnetic ratio — a measured number, and for the '
+    + 'proton a very precisely measured one. Drive it at that frequency and, in the frame turning '
+    + 'with the drive, the whole thing collapses back to a rotation about a tilted axis. On '
+    + 'resonance the tilt is zero and the flop is complete; off resonance the axis tips toward z '
+    + 'and the population never gets all the way across.',
+  decohere: 'Left alone with an environment, the Bloch vector leaves the surface. Phase '
+    + 'information goes first, at 1/T₂, and energy follows at 1/T₁, and the state spirals into '
+    + 'the ball toward whatever the temperature says it should be. The constraint T₂ ≤ 2T₁ falls '
+    + 'out of requiring the map to be completely positive, and this view computes the Choi '
+    + 'eigenvalues rather than quoting the inequality.',
+  cover: 'The Bloch sphere is the space of states, and it is smaller than the space of kets. '
+    + 'Above every point on it sits a circle of kets differing only by a phase. Rotating by 2π '
+    + 'brings the sphere back exactly and the ket back with a minus sign — the group SU(2) covers '
+    + 'the rotations twice. The leftover phase after a closed loop is not arbitrary: it is half '
+    + 'the solid angle the loop enclosed, which is geometry rather than dynamics.',
+};
+
+/* ------------------------------------------------------------------------ */
+function makeScene(canvas){
+  const st = Object.assign({}, DEFAULTS);
+  const cam = { W: 900, H: 600 };
+  let M = null;
+  const S = {
+    /* The default camera must not look ALONG the default state.  At
+       camTheta 0.72 the view direction and r = (0.612, 0.612, 0.5) had a dot
+       product of 0.99, so the one arrow the view exists to show was foreshortened
+       to a 37 px stub inside a 168 px sphere.  2.4 rad puts it side-on (0.14). */
+    st, cam, camTheta: 2.4, camPhi: 0.35, zoom: 1,
+    model(){ if (!M) S.rebuild(); return M; },
+    rebuild(){ M = buildModel(st); },
+    resetView(){ S.camTheta = 2.4; S.camPhi = 0.35; S.zoom = 1; },
+    orbit(dx, dy){
+      S.camTheta -= dx * 0.008;
+      S.camPhi = clamp(S.camPhi + dy * 0.008, -1.45, 1.45);
+    },
+    readout(){ return readoutHTML(S.model()); },
+    eqbar(){ return eqbarText(S.model()); },
+    tag(){ return tagText(S.model()); },
+    draw(){ drawView(canvas.getContext('2d'), cam.W, cam.H, S.model(), S); },
+  };
+  return S;
+}
+
+function boot(){
+  const canvas = document.getElementById('scene');
+  const panel  = document.getElementById('panel');
+  const tabsEl = document.getElementById('tabs');
+  const roEl   = document.getElementById('readout');
+  const eqEl   = document.getElementById('eqbar');
+  const tagEl  = document.getElementById('tag');
+  const hintEl = document.getElementById('hint');
+  const errEl  = document.getElementById('errbox');
+  const subEl  = document.getElementById('sub');
+  const S = makeScene(canvas), st = S.st;
+
+  function fail(e){ errEl.style.display = 'block'; errEl.textContent = String(e && e.stack || e); }
+  window.addEventListener('error', ev => fail(ev.error || ev.message));
+
+  VIEWS.forEach(([k, lab]) => {
+    tabsEl.appendChild(h('button', { class: st.view === k ? 'active' : '', onclick: () => {
+      st.view = k;
+      [].forEach.call(tabsEl.children, (b, i) => b.className = VIEWS[i][0] === k ? 'active' : '');
+      S.rebuild(); syncPanel(); refresh(); } }, lab));
+  });
+
+  const rows = {};
+  function slider(key, lab, lo, hi, step, fmtf){
+    const inp = h('input', { type: 'range', min: lo, max: hi, step: step, value: st[key] });
+    const val = h('span', { class: 'val' });
+    const row = h('div', { class: 'sliderrow' }, h('label', null, lab), inp, val);
+    const sync = () => { inp.value = st[key]; val.textContent = fmtf(st[key]); };
+    inp.addEventListener('input', () => { st[key] = parseFloat(inp.value);
+      val.textContent = fmtf(st[key]); S.rebuild(); syncPanel(); refresh(); });
+    rows[key] = { row, sync, inp }; sync(); return row;
+  }
+  function checkbox(key, lab){
+    const inp = h('input', { type: 'checkbox' }); inp.checked = st[key];
+    inp.addEventListener('change', () => { st[key] = inp.checked;
+      S.rebuild(); syncPanel(); refresh(); });
+    return h('label', null, inp, lab);
+  }
+  function chipRow(list, key, idf, namef){
+    const wrapEl = h('div', { class: 'chips' });
+    list.forEach(o => {
+      wrapEl.appendChild(h('button', { class: 'chip' + (st[key] === idf(o) ? ' on' : ''),
+        onclick: () => { st[key] = idf(o);
+          [].forEach.call(wrapEl.children, (b, i) =>
+            b.className = 'chip' + (idf(list[i]) === st[key] ? ' on' : ''));
+          S.rebuild(); syncPanel(); refresh(); } }, namef(o)));
+    });
+    wrapEl._sync = () => [].forEach.call(wrapEl.children, (b, i) =>
+      b.className = 'chip' + (idf(list[i]) === st[key] ? ' on' : ''));
+    return wrapEl;
+  }
+  const groups = [];
+  function group(title, ...kids){
+    const g = h('div', { class: 'group' }, h('div', { class: 'gtitle' }, title), ...kids);
+    groups.push(g); panel.appendChild(g); return g;
+  }
+  const spChips = chipRow(SPECIES.map(k => ({ k: k, n: GYRO[k].name })), 'species',
+                          o => o.k, o => o.n);
+  group('the state',
+    slider('th', 'θ', 0, 3.1416, 0.0087, v => sg(v * RAD, 4) + '°'),
+    slider('ph', 'φ', 0, 6.2832, 0.0087, v => sg(v * RAD, 4) + '°'),
+    slider('chi', 'global phase', 0, 6.2832, 0.0087, v => sg(v * RAD, 4) + '°'),
+    slider('rlen', '|r|', 0, 1, 0.01, v => sg(v, 3)),
+    checkbox('showGrid', ' sphere grid'), checkbox('showCardinal', ' cardinal states'),
+    checkbox('showShadow', ' θ and φ circles'));
+  group('measurement',
+    slider('mth', 'n̂ polar', 0, 3.1416, 0.0087, v => sg(v * RAD, 4) + '°'),
+    slider('mph', 'n̂ azimuth', 0, 6.2832, 0.0087, v => sg(v * RAD, 4) + '°'),
+    slider('nShots', 'shots', 20, 4000, 20, v => String(v)),
+    slider('seed', 'seed', 1, 40, 1, v => String(v)),
+    checkbox('showMalus', ' the half-angle curve'), checkbox('showCascade', ' three magnets'));
+  group('precession', spChips,
+    slider('Btesla', 'field', 0.01, 12, 0.01, v => sg(v, 4) + ' T'),
+    slider('Omega', 'drive Ω', 0.1, 3, 0.05, v => sg(v, 3)),
+    slider('Delta', 'detuning Δ', -3, 3, 0.05, v => sg(v, 3)),
+    slider('tau', 'watch for', 1, 20, 0.5, v => sg(v, 3) + ' /Ω'),
+    checkbox('showDetuned', ' show the detuned flop'));
+  group('decoherence',
+    slider('T1', 'T₁', 0.2, 4, 0.05, v => sg(v, 3)),
+    slider('T2', 'T₂', 0.05, 8, 0.05, v => sg(v, 3)),
+    slider('req', 'thermal r_z', -1, 1, 0.02, v => sg(v, 3)),
+    slider('spin', 'precession rate', 0, 40, 0.5, v => sg(v, 3)),
+    slider('tmax', 'watch for', 1, 20, 0.5, v => sg(v, 3)));
+  group('the double cover',
+    slider('turn', 'rotate by', 0, 4, 0.01, v => sg(v, 3) + 'π'),
+    slider('cone', 'loop half-angle', 0.05, 3.09, 0.01, v => sg(v * RAD, 4) + '°'));
+  const infoEl = h('div', { class: 'info' });
+  panel.appendChild(infoEl);
+  panel.appendChild(h('button', { class: 'chip', style: 'margin-top:10px',
+    onclick: () => { Object.assign(st, DEFAULTS); S.resetView(); S.rebuild(); syncPanel(); refresh(); } },
+    'reset all'));
+
+  const VIS = { sphere: [0], ident: [0], measure: [0, 1], precess: [2], decohere: [3], cover: [0, 4] };
+  function syncPanel(){
+    const keep = VIS[st.view] || [];
+    groups.forEach((g, i) => g.style.display = keep.indexOf(i) >= 0 ? '' : 'none');
+    Object.keys(rows).forEach(k => rows[k].sync());
+    spChips._sync();
+    infoEl.textContent = INFO[st.view] || '';
+    subEl.textContent = VIEWS.filter(v => v[0] === st.view)[0][1];
+  }
+  function refresh(){
+    try {
+      S.draw();
+      roEl.innerHTML = S.readout();
+      const [eq, sm] = S.eqbar();
+      eqEl.innerHTML = '<div class="eq">' + eq + '</div><div class="sm">' + sm + '</div>';
+      tagEl.textContent = S.tag();
+      hintEl.textContent = 'drag to turn the sphere · ← → change view · r resets';
+    } catch (e){ fail(e); }
+  }
+  function resize(){
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    S.cam.W = Math.max(420, Math.round(r.width));
+    S.cam.H = Math.max(320, Math.round(r.height));
+    canvas.width = Math.round(S.cam.W * dpr); canvas.height = Math.round(S.cam.H * dpr);
+    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', () => { resize(); refresh(); });
+
+  let drag = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    drag = { x: e.clientX, y: e.clientY };
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    S.orbit(e.clientX - drag.x, e.clientY - drag.y);
+    drag = { x: e.clientX, y: e.clientY };
+    refresh();
+  });
+  canvas.addEventListener('pointerup', () => { drag = null; });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'r' || e.key === 'R'){ S.resetView(); refresh(); }
+    const i = VIEWS.map(v => v[0]).indexOf(st.view);
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft'){
+      const j = (i + (e.key === 'ArrowRight' ? 1 : VIEWS.length - 1)) % VIEWS.length;
+      st.view = VIEWS[j][0];
+      [].forEach.call(tabsEl.children, (b, k) => b.className = k === j ? 'active' : '');
+      S.rebuild(); syncPanel(); refresh();
+    }
+  });
+  resize(); syncPanel(); refresh();
+  window.__S = S;
+}
+
+/* Reference values computed OUTSIDE this file and pasted in.  Every number
+ * here came from a Python/scipy run whose output was read in full; if one
+ * cannot be pointed back at a line of that output it does not belong here. */
+const REF={
+  /* [nx,ny,nz,alpha, then U as re,im x4] from scipy expm (scipy) */
+  U:[[0.0,0.0,1.0,0.7,0.9393727128473789,-0.34289780745545134,0.0,0.0,0.0,0.0,0.9393727128473789,0.34289780745545134],[0.36,-0.48,0.8,1.9,0.5816830894638836,-0.650732403831499,0.3904394422988994,-0.2928295817241746,-0.39043944229889926,-0.29282958172417456,0.5816830894638835,0.6507324038314991],[1.0,0.0,0.0,1.5707963267948966,0.7071067811865476,0.0,0.0,-0.7071067811865476,0.0,-0.7071067811865475,0.7071067811865476,0.0],[0.6,0.8,0.0,2.5,0.3153223623952687,0.0,-0.759187695484469,-0.5693907716133517,0.7591876954844688,-0.5693907716133516,0.31532236239526856,-1.198163011067562e-16]],
+  /* Schrodinger integration of a proton in 1.5 T for 2 ns (scipy) */
+  larmor:{gam:267522187.08,B:[0.0,0.0,1.5],T:2e-09,r0:[0.7833269096274834,0.0,0.6216099682706644],rT:[0.5443051044400877,-0.563323176007346,0.6216099682706616]},
+  /* [Omega, Delta, t, P1] from scipy expm (scipy) */
+  rabi:[[1.0,0.0,1.1,0.27320193928721137],[1.0,1.0,2.3,0.4984587255982011],[2.0,0.5,0.7,0.4106529454027887],[1.0,3.0,4.0,0.00017105018257705188]],
+  /* [t,T1,T2, four Choi eigenvalues] from a numerically BUILT Choi matrix (scipy) */
+  choi:[[0.5,1.0,0.6,0.1967346701436833,0.1967346701436833,0.3686671213492385,1.237863538363395],[1.0,1.0,2.0,0.07740906087308774,0.31606027941427883,0.31606027941427883,1.2904703802983546],[0.3,1.0,2.1,0.003531210590677293,0.12959088965914106,0.12959088965914112,1.7372870100910403],[2.0,1.0,1.0,0.4323323583816935,0.43233235838169365,0.4323323583816937,0.703002924854919],[0.05,1.0,3.0,-0.007856741571260557,0.024385287749642992,0.024385287749642992,1.9590861660719745]],
+  /* [cone half-angle, Berry phase] from a 200000-step overlap product (scipy) */
+  berry:[[0.3,-0.14031455762496572],[1.0472,-1.5708029891598085],[2.0,1.8342288089897254]],
+  /* [t, exp(-t/0.6), 0.9+(0.5-0.9)exp(-t)] (scipy) */
+  relax:[[0.0,1.0,0.5],[0.7,0.3114032239145977,0.7013658784834362],[2.5,0.015503853599009314,0.8671660005504405],[6.0,4.5399929762484854e-05,0.8990084991293334]]
+};
+
+/* ============================================================================
+ *  selfTest -- runs when there is no document
+ * ========================================================================== */
+function selfTest(){
+  let pass = 0, fail = 0;
+  const ok = (c, n) => { if (c) pass++; else { fail++; console.log('FAIL: ' + n); } };
+  const close = (a, b, tol, n) => ok(isFinite(a) && isFinite(b) && Math.abs(a - b) <= tol,
+    n + '  (got ' + a + ', want ' + b + ', tol ' + tol + ')');
+  const rel = (a, b, t, n) => ok(isFinite(a) && isFinite(b) && b !== 0
+    && Math.abs(a / b - 1) <= t, n + '  (got ' + a + ', want ' + b + ', rel ' + t + ')');
+  const d1 = (f, x, hh) => (f(x - 2*hh) - 8*f(x - hh) + 8*f(x + hh) - f(x + 2*hh)) / (12*hh);
+
+  /* ---------------- the complex arithmetic, before any physics ----------- */
+  {
+    /* two matrices with no symmetry, multiplied by hand on paper */
+    const A = [1,2, 3,4, 5,6, 7,8], Bm = [8,7, 6,5, 4,3, 2,1];
+    const P = mMul(A, Bm);
+    /* (1+2i)(8+7i) + (3+4i)(4+3i) = (8+7i+16i-14) + (12+9i+16i-12) = (-6+23i)+(0+25i) */
+    close(P[0], -6, 1e-12, 'mMul entry (0,0) real');
+    close(P[1], 48, 1e-12, 'mMul entry (0,0) imaginary');
+    const T = mTrace(A);
+    close(T[0], 8, 1e-14, 'mTrace real'); close(T[1], 10, 1e-14, 'mTrace imaginary');
+    const D = mDag(A);
+    close(D[0], 1, 1e-14, 'mDag transposes and conjugates (0,0) re');
+    close(D[1], -2, 1e-14, '  and conjugates it');
+    close(D[2], 5, 1e-14, '  and swaps (0,1) with (1,0)');
+    ok(mMaxAbsDiff(mMul(M_I, A), A) < 1e-15, 'the identity multiplies to nothing');
+    ok(mMaxAbsDiff(mDag(mDag(A)), A) < 1e-15, 'dagger is an involution');
+    /* det and eigenvalues on something hermitian, where both are checkable */
+    const Hm = mAdd(mScale(M_I, 0.5), mScale(M_SZ, 0.3));
+    const ev = hermEig(Hm);
+    close(ev[0] + ev[1], mTrace(Hm)[0], 1e-14, 'eigenvalues sum to the trace');
+    close(ev[0] * ev[1], mDet(Hm)[0], 1e-14, 'and multiply to the determinant');
+  }
+  /* Pauli algebra: sigma_i sigma_j = delta_ij I + i eps_ijk sigma_k, all nine */
+  {
+    const eps = (i, j, k) => (i - j) * (j - k) * (k - i) / 2;
+    let worst = 0;
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++){
+      let want = i === j ? M_I.slice() : [0,0,0,0,0,0,0,0];
+      for (let k = 0; k < 3; k++){
+        const e = eps(i, j, k);
+        if (e !== 0) want = mAdd(want, mScaleC(PAULI[k], 0, e));
+      }
+      worst = Math.max(worst, mMaxAbsDiff(mMul(PAULI[i], PAULI[j]), want));
+    }
+    ok(worst < 1e-15, 'sigma_i sigma_j = delta_ij I + i eps_ijk sigma_k for all nine pairs ('
+       + worst.toExponential(1) + ')');
+    for (let i = 0; i < 3; i++){
+      close(mTrace(PAULI[i])[0], 0, 1e-15, 'sigma_' + i + ' is traceless');
+      ok(mMaxAbsDiff(mDag(PAULI[i]), PAULI[i]) < 1e-15, 'sigma_' + i + ' is hermitian');
+      ok(mMaxAbsDiff(mMul(PAULI[i], PAULI[i]), M_I) < 1e-15, 'sigma_' + i + ' squares to I');
+      close(mDet(PAULI[i])[0], -1, 1e-15, 'det sigma_' + i + ' = -1');
+    }
+    /* and they ANTIcommute, which is the half of the algebra the identity hides */
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) if (i !== j)
+      ok(mMaxAbsDiff(mAdd(mMul(PAULI[i], PAULI[j]), mMul(PAULI[j], PAULI[i])),
+                     [0,0,0,0,0,0,0,0]) < 1e-15, 'sigma_' + i + ' and sigma_' + j + ' anticommute');
+  }
+
+  /* ---------------- state, Bloch vector, density matrix ------------------ */
+  {
+    let wr = 0, wrho = 0, wnorm = 0;
+    for (let a = 0; a <= 16; a++) for (let b = 0; b <= 18; b++){
+      const th = Math.PI * a / 16, ph = TAU * b / 18;
+      const k = ketOf(th, ph);
+      wnorm = Math.max(wnorm, Math.abs(ketNorm(k) - 1));
+      const r = blochOfKet(k), want = blochOfAngles(th, ph);
+      wr = Math.max(wr, Math.abs(r[0]-want[0]), Math.abs(r[1]-want[1]), Math.abs(r[2]-want[2]));
+      wrho = Math.max(wrho, mMaxAbsDiff(ketRho(k), rhoOfBloch(r)));
+      const back = blochOfRho(rhoOfBloch(r));
+      wr = Math.max(wr, Math.abs(back[0]-r[0]), Math.abs(back[1]-r[1]), Math.abs(back[2]-r[2]));
+    }
+    ok(wnorm < 1e-15, 'every ket is normalised (' + wnorm.toExponential(1) + ')');
+    ok(wr < 1e-14, 'r = (sin th cos ph, sin th sin ph, cos th) and round-trips through rho ('
+       + wr.toExponential(1) + ') over 323 states');
+    ok(wrho < 1e-14, 'and |psi><psi| = (I + r.sigma)/2 for every one of them');
+  }
+  {
+    /* the global phase is unobservable -- the whole reason the sphere exists */
+    let worst = 0;
+    for (const chi of [0.3, 1.7, Math.PI, 5.9]){
+      const k = ketOf(1.1, 0.7), c = Math.cos(chi), s = Math.sin(chi);
+      const kp = [k[0]*c - k[1]*s, k[0]*s + k[1]*c, k[2]*c - k[3]*s, k[2]*s + k[3]*c];
+      const a = blochOfKet(k), b = blochOfKet(kp);
+      worst = Math.max(worst, Math.abs(a[0]-b[0]), Math.abs(a[1]-b[1]), Math.abs(a[2]-b[2]));
+      /* but the KET really did change, or the test is vacuous */
+      ok(Math.abs(kp[0] - k[0]) + Math.abs(kp[1] - k[1]) > 1e-6 || Math.abs(Math.sin(chi)) < 1e-9,
+         'the phase chi = ' + chi + ' really moved the ket');
+    }
+    ok(worst < 1e-15, 'and moved the Bloch vector by ' + worst.toExponential(1));
+  }
+  {
+    /* orthogonal <-> antipodal.  This is the half-angle, and it is the single
+       most misread thing about the picture. */
+    let wov = 0, wdot = 0;
+    for (const [th, ph] of [[0.4, 0.2], [1.1, 3.0], [2.6, 5.5], [Math.PI/2, 0]]){
+      const a = ketOf(th, ph), b = ketOf(Math.PI - th, ph + Math.PI);
+      const o = braket(a, b);
+      wov = Math.max(wov, Math.hypot(o[0], o[1]));
+      const ra = blochOfKet(a), rb = blochOfKet(b);
+      wdot = Math.max(wdot, Math.abs(ra[0]*rb[0] + ra[1]*rb[1] + ra[2]*rb[2] + 1));
+    }
+    ok(wov < 1e-14, 'orthogonal states have zero overlap (' + wov.toExponential(1) + ')');
+    ok(wdot < 1e-14, 'and their Bloch vectors are ANTIPODAL, r.r = -1 exactly');
+    /* states at RIGHT ANGLES on the sphere are not orthogonal -- they overlap 1/sqrt2 */
+    const p = ketOf(0, 0), q = ketOf(Math.PI/2, 0);
+    close(Math.hypot(braket(p, q)[0], braket(p, q)[1]), Math.SQRT1_2, 1e-14,
+          'and 90 degrees apart on the sphere means an overlap of 1/sqrt(2), not 0');
+  }
+  {
+    for (const R of [0, 0.25, 0.5, 0.75, 1]){
+      const rho = rhoOfBloch([0.6*R, -0.48*R, 0.64*R]);
+      close(mTrace(rho)[0], 1, 1e-14, 'Tr rho = 1 at |r| = ' + R);
+      close(mTrace(rho)[1], 0, 1e-15, 'and is real');
+      ok(mMaxAbsDiff(mDag(rho), rho) < 1e-15, 'rho is hermitian at |r| = ' + R);
+      close(mTrace(mMul(rho, rho))[0], purity(R), 1e-13, 'Tr rho^2 = (1+|r|^2)/2 at |r| = ' + R);
+      const ev = hermEig(rho), want = rhoEigs(R);
+      close(Math.min(ev[0], ev[1]), Math.min(want[0], want[1]), 1e-13,
+            'eigenvalues are (1 -+ |r|)/2 at |r| = ' + R);
+      ok(ev[0] > -1e-14, 'and non-negative, so it is a state');
+    }
+    close(vonNeumann(0), 1, 1e-14, 'the maximally mixed state carries exactly one bit');
+    close(vonNeumann(1), 0, 1e-14, 'and a pure state carries none');
+    ok(vonNeumann(0.5) > 0.7 && vonNeumann(0.5) < 0.95, 'and half way is ' + sg(vonNeumann(0.5), 4));
+    /* purity is monotone in |r| -- the ball has an inside and it means something */
+    let mono = true;
+    for (let i = 1; i <= 100; i++) if (purity(i/100) <= purity((i-1)/100)) mono = false;
+    ok(mono, 'purity increases with |r| all the way to the surface');
+  }
+
+  /* ---------------- projection versus identity --------------------------- */
+  {
+    let wid = 0, wsq = 0, wort = 0, wtr = 0;
+    for (const [th, ph] of [[0,0],[1.0,0.6],[2.2,4.4],[Math.PI/2,Math.PI/2]]){
+      const n = blochOfAngles(th, ph);
+      const Pp = projector(n), Pm = projector([-n[0], -n[1], -n[2]]);
+      wid  = Math.max(wid,  mMaxAbsDiff(mAdd(Pp, Pm), M_I));
+      wsq  = Math.max(wsq,  mMaxAbsDiff(mMul(Pp, Pp), Pp));
+      wort = Math.max(wort, mMaxAbsDiff(mMul(Pp, Pm), [0,0,0,0,0,0,0,0]));
+      wtr  = Math.max(wtr,  Math.abs(mTrace(Pp)[0] - 1));
+    }
+    ok(wid  < 1e-15, 'P+ + P- = I exactly (' + wid.toExponential(1) + ') -- the resolution of '
+       + 'the identity, which is what "the measurement has outcomes" means');
+    ok(wsq  < 1e-15, 'P^2 = P (' + wsq.toExponential(1) + ')');
+    ok(wort < 1e-15, 'P+ P- = 0 (' + wort.toExponential(1) + ')');
+    ok(wtr  < 1e-14, 'Tr P = 1');
+    /* a MIXED state is emphatically not a projector -- or the test above says nothing */
+    const mix = rhoOfBloch([0, 0, 0.5]);
+    ok(mMaxAbsDiff(mMul(mix, mix), mix) > 0.1, 'a mixed state is not a projector, by 0.1 or more');
+  }
+  {
+    /* the Born rule three ways: from the trace, from the dot product, and from
+       the overlap of the two kets */
+    let worst = 0;
+    for (const [th, ph] of [[0.7, 0.3], [1.9, 2.2], [2.9, 5.0]])
+    for (const [mt, mp] of [[0, 0], [1.2, 0.9], [2.4, 3.3]]){
+      const k = ketOf(th, ph), r = blochOfKet(k);
+      const n = blochOfAngles(mt, mp);
+      const fromTrace = mTrace(mMul(rhoOfBloch(r), projector(n)))[0];
+      const fromDot   = bornP(r, n);
+      const nk = ketOf(mt, mp), o = braket(nk, k);
+      const fromKet = o[0]*o[0] + o[1]*o[1];
+      const Theta = Math.acos(clamp(r[0]*n[0] + r[1]*n[1] + r[2]*n[2], -1, 1));
+      const fromHalf = Math.pow(Math.cos(Theta/2), 2);
+      worst = Math.max(worst, Math.abs(fromTrace - fromDot), Math.abs(fromTrace - fromKet),
+                       Math.abs(fromTrace - fromHalf));
+    }
+    ok(worst < 1e-13, 'Tr(rho P), (1 + r.n)/2, |<n|psi>|^2 and cos^2(Theta/2) are the same '
+       + 'number to ' + worst.toExponential(1) + ', over nine geometries');
+    /* and it is NOT cos^2(Theta): a spin is not a polariser */
+    const T = 1.0;
+    ok(Math.abs(Math.pow(Math.cos(T/2), 2) - Math.pow(Math.cos(T), 2)) > 0.1,
+       'cos^2(Theta/2) and cos^2(Theta) differ by more than 0.1 at 1 rad -- the half-angle is '
+       + 'a real difference, not a convention');
+    close(bornP([0,0,1], [0,0,1]), 1, 1e-15, 'measuring |0> along z always gives +');
+    close(bornP([0,0,1], [1,0,0]), 0.5, 1e-15, 'and along x gives exactly a half');
+    close(bornP([0,0,1], [0,0,-1]), 0, 1e-15, 'and along -z never gives +');
+    /* The three-magnet cascade.  The point of it is that the middle magnet does
+       not filter the beam, it REMAKES it: whatever went in, what comes out of
+       the first magnet is |0>, so the second probability cannot depend on the
+       original state at all.  Nothing asserted this and a mutant that fed the
+       original state into the second magnet survived. */
+    {
+      const n = blochOfAngles(1.1, 0.4);
+      const p2s = [];
+      for (const [th, ph] of [[0.2, 0], [1.5, 2.0], [2.9, 5.0]]){
+        const M = buildModel(Object.assign({}, DEFAULTS, { th: th, ph: ph, mth: 1.1, mph: 0.4 }));
+        p2s.push(M.cascade.p2);
+        close(M.cascade.pz, bornP(blochOfAngles(th, ph), [0, 0, 1]), 1e-14,
+              'the first magnet passes (1 + r_z)/2');
+        close(M.cascade.p3, bornP(n, [0, 0, 1]), 1e-14,
+              'and the third sees a beam that is now along n, not along z');
+      }
+      ok(Math.abs(p2s[0] - p2s[1]) < 1e-15 && Math.abs(p2s[0] - p2s[2]) < 1e-15,
+         'the second magnet\'s probability does not depend on the original state '
+         + '(' + sg(p2s[0], 6) + ' for all three) -- the first measurement remade it');
+      close(p2s[0], (1 + n[2]) / 2, 1e-14, 'and equals (1 + n_z)/2');
+      /* and with n along z the cascade does nothing: the third magnet passes all */
+      const Mz = buildModel(Object.assign({}, DEFAULTS, { mth: 0 }));
+      close(Mz.cascade.p3, 1, 1e-14, 'with n along z the third magnet passes everything');
+      ok(!Mz.cascade.recovered, 'and nothing was "recovered" -- there is nothing to recover');
+      const Mx = buildModel(Object.assign({}, DEFAULTS, { mth: Math.PI / 2 }));
+      close(Mx.cascade.p3, 0.5, 1e-14, 'with n along x it passes exactly half -- the beam that '
+            + 'was purely |0> is split again, which is the whole point of the experiment');
+      ok(Mx.cascade.recovered, 'and that IS a recovery');
+    }
+    /* probabilities sum to one for every state and every axis */
+    let ws = 0;
+    for (let i = 0; i < 40; i++){
+      const r = blochOfAngles(Math.PI*i/40, 2.1*i), n = blochOfAngles(1.3*i, 0.7*i);
+      ws = Math.max(ws, Math.abs(bornP(r, n) + bornP(r, [-n[0],-n[1],-n[2]]) - 1));
+      ok(bornP(r, n) >= -1e-15 && bornP(r, n) <= 1 + 1e-15, 'and lies in [0,1]');
+    }
+    ok(ws < 1e-15, 'p+ + p- = 1 for every state and axis');
+  }
+
+  /* ---------------- unitary evolution = rotation ------------------------- */
+  {
+    for (const row of REF.U){
+      const n = [row[0], row[1], row[2]], a = row[3];
+      const U = unitary(n, a);
+      let worst = 0;
+      for (let i = 0; i < 8; i++) worst = Math.max(worst, Math.abs(U[i] - row[4 + i]));
+      ok(worst < 1e-13, 'U(n,' + sg(a,3) + ') matches scipy expm to ' + worst.toExponential(1)
+         + ' (scipy)');
+      ok(mMaxAbsDiff(mMul(mDag(U), U), M_I) < 1e-14, '  and is unitary');
+      close(mDet(U)[0], 1, 1e-13, '  with determinant +1 (real part)');
+      close(mDet(U)[1], 0, 1e-13, '  and no imaginary part');
+    }
+    /* the double cover, which is the whole of view six */
+    const n = norm3([0.3, -0.5, 0.8]);
+    ok(mMaxAbsDiff(unitary(n, 0), M_I) < 1e-15, 'U(0) = I');
+    ok(mMaxAbsDiff(unitary(n, TAU), mScale(M_I, -1)) < 1e-14,
+       'U(2pi) = MINUS I -- not the identity');
+    ok(mMaxAbsDiff(unitary(n, TAU), M_I) > 1.9, '  and is nowhere near +I');
+    ok(mMaxAbsDiff(unitary(n, 2*TAU), M_I) < 1e-13, 'U(4pi) = +I: it takes two turns to get back');
+    /* the Bloch vector, by contrast, is home after one */
+    const r = blochOfAngles(1.1, 0.4);
+    const back = rotate3(r, n, TAU);
+    ok(Math.hypot(back[0]-r[0], back[1]-r[1], back[2]-r[2]) < 1e-13,
+       'while the Bloch vector returns after 2pi');
+  }
+  {
+    /* U rotates the Bloch vector by exactly alpha about n */
+    let worst = 0;
+    for (let ai = 1; ai <= 12; ai++){
+      const a = 0.5 * ai, n = norm3([0.36, -0.48, 0.8]);
+      const U = unitary(n, a);
+      for (const [th, ph] of [[0.7, 0.3], [2.0, 4.1], [1.3, 5.5]]){
+        const k = ketOf(th, ph);
+        const got = blochOfKet(mApply(U, k));
+        const want = rotate3(blochOfKet(k), n, a);
+        worst = Math.max(worst, Math.abs(got[0]-want[0]), Math.abs(got[1]-want[1]),
+                         Math.abs(got[2]-want[2]));
+      }
+    }
+    ok(worst < 1e-13, 'the Bloch vector rotates by exactly alpha about n (' + worst.toExponential(1)
+       + ' over 36 cases) -- SU(2) acting on the ket IS SO(3) acting on the vector');
+    /* the rotation really is a rotation: lengths preserved, handedness kept */
+    let wl = 0;
+    for (let i = 0; i < 20; i++){
+      const v = [Math.sin(i), Math.cos(2*i), Math.sin(3*i)];
+      const L0 = Math.hypot(v[0], v[1], v[2]);
+      const w = rotate3(v, norm3([1, 2, -1]), 0.9);
+      wl = Math.max(wl, Math.abs(Math.hypot(w[0], w[1], w[2]) - L0));
+    }
+    ok(wl < 1e-14, 'and preserves length to ' + wl.toExponential(1));
+    /* rotating by a then -a is the identity */
+    const v = [0.3, -0.6, 0.74], nn = norm3([0.2, 0.9, -0.4]);
+    const rt = rotate3(rotate3(v, nn, 1.3), nn, -1.3);
+    ok(Math.hypot(rt[0]-v[0], rt[1]-v[1], rt[2]-v[2]) < 1e-14, 'and inverts');
+  }
+
+  /* ---------------- precession, driving ---------------------------------- */
+  {
+    /* THE SIGN.  Integrate the Bloch equation with no relaxation and compare
+       against a Schrodinger integration done in Python.  Getting this wrong is
+       a coin flip and the picture would still look plausible. */
+    const L = REF.larmor;
+    let r = L.r0.slice();
+    const nst = 40000, dt = L.T / nst;
+    for (let i = 0; i < nst; i++) r = blochStep(r, L.B, L.gam, 1e30, 1e30, 0, dt);
+    let worst = 0;
+    for (let i = 0; i < 3; i++) worst = Math.max(worst, Math.abs(r[i] - L.rT[i]));
+    ok(worst < 1e-7, 'dr/dt = -gamma B x r reproduces the Schrodinger integration to '
+       + worst.toExponential(1) + ' (scipy)');
+    /* the opposite sign must be badly wrong, or the test above proves nothing */
+    let r2 = L.r0.slice();
+    for (let i = 0; i < nst; i++){
+      const c = [L.B[1]*r2[2]-L.B[2]*r2[1], L.B[2]*r2[0]-L.B[0]*r2[2], L.B[0]*r2[1]-L.B[1]*r2[0]];
+      r2 = [r2[0] + dt*L.gam*c[0], r2[1] + dt*L.gam*c[1], r2[2] + dt*L.gam*c[2]];
+    }
+    ok(Math.hypot(r2[0]-L.rT[0], r2[1]-L.rT[1], r2[2]-L.rT[2]) > 0.5,
+       'and the opposite sign is wrong by more than 0.5, so the check is not vacuous');
+    /* precession preserves |r| and the angle to B */
+    let wlen = 0;
+    let r3 = [0.6, -0.48, 0.64];
+    const L0 = Math.hypot(r3[0], r3[1], r3[2]), z0 = r3[2];
+    for (let i = 0; i < 2000; i++){
+      r3 = blochStep(r3, [0,0,1], 3.0, 1e30, 1e30, 0, 0.002);
+      wlen = Math.max(wlen, Math.abs(Math.hypot(r3[0], r3[1], r3[2]) - L0), Math.abs(r3[2] - z0));
+    }
+    ok(wlen < 1e-9, 'free precession keeps |r| and r_z fixed to ' + wlen.toExponential(1));
+  }
+  {
+    for (const [Om, De, t, p] of REF.rabi)
+      close(rabiP1(Om, De, t), p, 1e-12,
+            'Rabi P1 at Omega=' + Om + ', Delta=' + De + ', t=' + t + ' (scipy)');
+    close(rabiP1(1, 0, Math.PI), 1, 1e-14, 'a pi pulse on resonance is a complete flip');
+    close(rabiP1(1, 0, Math.PI/2), 0.5, 1e-14, 'and a pi/2 pulse lands on the equator');
+    for (const De of [0.5, 1, 3]){
+      const cap = rabiMax(1, De);
+      let m = 0;
+      for (let i = 0; i <= 4000; i++) m = Math.max(m, rabiP1(1, De, 20 * i / 4000));
+      close(m, cap, 1e-6, 'detuned by ' + De + ', the flop never exceeds Omega^2/OmegaR^2');
+      ok(cap < 0.999, '  and that cap is ' + sg(cap, 4) + ', short of one');
+    }
+    close(rabiFreq(3, 4), 5, 1e-14, 'the generalised Rabi frequency is the hypotenuse');
+    /* the sim's real frequencies, against CODATA directly */
+    close(GYRO.p.gam * 1.5, 63.8662176915, 1e-6, 'a proton in 1.5 T precesses at 63.87 MHz (CODATA)');
+    rel(GYRO.e.gam / GYRO.p.gam, 658.2107, 1e-5, 'the electron is 658 times faster than the proton');
+    ok(GYRO.pshield.gam < GYRO.p.gam, 'the SHIELDED proton ratio is lower than the bare one');
+    rel(1e6 * (1 - GYRO.pshield.gam / GYRO.p.gam), 25.67, 2e-3,
+        'by 25.7 ppm -- the diamagnetic shielding of the water molecule it sits in');
+  }
+  {
+    /* the anomaly: g/2 - 1 from CODATA against Schwinger's one loop */
+    close(1 + CODATA.a_e.v, Math.abs(CODATA.g_e.v) / 2, 1e-15,
+          'CODATA g/2 and 1 + a_e agree exactly, as they must');
+    const s = schwinger();
+    rel(s, CODATA.a_e.v, 2e-3, 'alpha/2pi lands within 0.2% of the measured electron anomaly');
+    ok(s > CODATA.a_e.v, 'one loop overshoots -- the higher orders come in negative');
+    ok(Math.abs(s / CODATA.a_e.v - 1) > 1e-3,
+       'and it is NOT exact: the gap is ' + sg(100*(s/CODATA.a_e.v - 1), 4) + '%, which is where '
+       + 'the two-loop term lives');
+    /* the muon's anomaly is close to the electron's in value -- the reason it
+       matters is not its size, and the file should not imply it is */
+    rel(CODATA.a_mu.v / CODATA.a_e.v, 1.0054, 1e-3,
+        'the muon anomaly is only 0.5% larger than the electron\'s in value');
+  }
+
+  /* ---------------- relaxation ------------------------------------------- */
+  {
+    for (const [t, xy, z] of REF.relax){
+      const c = relaxClosed([1, 0, 0.5], 1.0, 0.6, 0.9, t);
+      close(Math.hypot(c[0], c[1]), xy, 1e-12, 'transverse decay at t = ' + t + ' (scipy)');
+      close(c[2], z, 1e-12, 'longitudinal relaxation at t = ' + t + ' (scipy)');
+    }
+    /* the integrator must reproduce the closed form when the field is off */
+    let r = [1, 0, 0.5], worst = 0;
+    const T1 = 1.0, T2 = 0.6, req = 0.9, dt = 0.0005;
+    for (let i = 0; i <= 12000; i++){
+      const t = i * dt;
+      const c = relaxClosed([1, 0, 0.5], T1, T2, req, t);
+      worst = Math.max(worst, Math.abs(r[0]-c[0]), Math.abs(r[1]-c[1]), Math.abs(r[2]-c[2]));
+      r = blochStep(r, [0,0,0], 0, T1, T2, req, dt);
+    }
+    ok(worst < 1e-10, 'the RK4 step reproduces the closed relaxation to ' + worst.toExponential(1));
+    /* and it must NOT be exact when a field is on and the two are inconsistent */
+    ok(Math.abs(relaxClosed([1,0,0.5], T1, T2, req, 1.0)[0]
+              - blochStep([1,0,0.5], [0,0,5], 3, T1, T2, req, 1.0)[0]) > 0.01,
+       'while precession genuinely changes the answer, so that check is not vacuous');
+  }
+  {
+    /* complete positivity, against a Choi matrix built numerically in Python */
+    for (const row of REF.choi){
+      const got = choiEigs(row[0], row[1], row[2]);
+      let worst = 0;
+      for (let i = 0; i < 4; i++) worst = Math.max(worst, Math.abs(got[i] - row[3 + i]));
+      ok(worst < 1e-12, 'Choi eigenvalues at t=' + row[0] + ', T1=' + row[1] + ', T2=' + row[2]
+         + ' match the built matrix to ' + worst.toExponential(1) + ' (scipy)');
+    }
+    /* the boundary is exactly T2 = 2 T1 */
+    const worstOver = (ratio) => {
+      let w = Infinity;
+      for (let i = 1; i <= 4000; i++) w = Math.min(w, choiEigs(20 * i / 4000, 1, ratio)[0]);
+      return w;
+    };
+    for (const ratio of [0.5, 1.0, 1.5, 1.99, 2.0])
+      ok(worstOver(ratio) > -1e-9, 'T2/T1 = ' + ratio + ' is completely positive');
+    for (const ratio of [2.01, 2.5, 3.0])
+      ok(worstOver(ratio) < -1e-6, 'T2/T1 = ' + ratio + ' is NOT ('
+         + worstOver(ratio).toExponential(2) + ') -- the boundary really is at 2');
+    /* and the eigenvalues sum to 2, because the Choi matrix here is unnormalised */
+    for (const [t, T1, T2] of [[0.4, 1, 0.7], [1.3, 2, 3]]){
+      const e = choiEigs(t, T1, T2);
+      close(e[0]+e[1]+e[2]+e[3], 2, 1e-13, 'the Choi eigenvalues sum to 2');
+    }
+  }
+
+  /* ---------------- geometric phase -------------------------------------- */
+  {
+    for (const [th, g] of REF.berry){
+      const got = berryDiscrete(th, 4000);
+      close(Math.abs(wrapPi(got - g)), 0, 2e-5,
+            'the Berry phase at a cone of ' + sg(th, 4) + ' matches the 200000-step product (scipy)');
+    }
+    let worst = 0;
+    for (let i = 1; i < 12; i++){
+      const th = Math.PI * i / 12;
+      worst = Math.max(worst, Math.abs(wrapPi(berryDiscrete(th, 3000) - berryClosed(th))));
+    }
+    ok(worst < 5e-5, 'and equals -Omega/2 over eleven cones (' + worst.toExponential(1) + ')');
+    close(solidAngleCone(Math.PI/2), TAU, 1e-14, 'a great circle encloses 2pi steradians');
+    close(berryClosed(Math.PI/2), -Math.PI, 1e-14, 'so its geometric phase is -pi');
+    close(solidAngleCone(Math.PI), 2*TAU, 1e-13, 'and the whole sphere is 4pi');
+    close(berryClosed(0), 0, 1e-15, 'a loop that encloses nothing gives no phase');
+    /* the connection itself, differentiated numerically */
+    for (const th of [0.3, 1.4, 2.6]){
+      const f = (p) => {
+        const k = ketOf(th, p);
+        return k;
+      };
+      const hh = 1e-5, p0 = 0.7;
+      const kp = f(p0 + hh), km = f(p0 - hh), k0 = f(p0);
+      const d = [(kp[0]-km[0])/(2*hh), (kp[1]-km[1])/(2*hh),
+                 (kp[2]-km[2])/(2*hh), (kp[3]-km[3])/(2*hh)];
+      /* A = i<psi|d psi>, real part */
+      const A = -(k0[0]*d[1] - k0[1]*d[0] + k0[2]*d[3] - k0[3]*d[2]);
+      close(A, -Math.pow(Math.sin(th/2), 2), 1e-8,
+            'the Berry connection is -sin^2(th/2) at th = ' + th);
+    }
+  }
+
+  /* ---------------- model, panels, corners ------------------------------- */
+  {
+    let bad = 0, n = 0, first = '';
+    for (const [v] of VIEWS) for (const sp of SPECIES){
+      const st = Object.assign({}, DEFAULTS, { view: v, species: sp });
+      const M = buildModel(st); n++;
+      const html = readoutHTML(M);
+      if (/NaN|undefined|Infinity/.test(html)){ bad++; if (!first) first = v + '/' + sp; }
+      const [eq, sm] = eqbarText(M);
+      if (!eq || !sm || /NaN|undefined/.test(eq + sm)) bad++;
+      if (!tagText(M)) bad++;
+    }
+    ok(bad === 0, n + ' view x species combinations build a clean readout and equation bar'
+       + (first ? ' (first problem: ' + first + ')' : ''));
+  }
+  {
+    const RANGES = { th: [0, 3.1416], ph: [0, 6.2832], chi: [0, 6.2832], rlen: [0, 1],
+                     mth: [0, 3.1416], mph: [0, 6.2832], nShots: [20, 4000], seed: [1, 40],
+                     Btesla: [0.01, 12], Omega: [0.1, 3], Delta: [-3, 3], tau: [1, 20],
+                     T1: [0.2, 4], T2: [0.05, 8], req: [-1, 1], spin: [0, 40], tmax: [1, 20],
+                     turn: [0, 4], cone: [0.05, 3.09] };
+    let bad = 0, n = 0, first = '';
+    for (const key of Object.keys(RANGES)){
+      const [lo, hi] = RANGES[key];
+      for (const val of [lo, 0.5*(lo+hi), hi]) for (const [v] of VIEWS){
+        const st = Object.assign({}, DEFAULTS, { view: v }); st[key] = val; n++;
+        try {
+          const M = buildModel(st);
+          if (/NaN|undefined|Infinity/.test(readoutHTML(M))){
+            bad++; if (!first) first = key + '=' + val + ' in ' + v;
+          }
+        } catch (e){ bad++; if (!first) first = key + '=' + val + ' in ' + v + ': ' + e; }
+      }
+    }
+    ok(bad === 0, n + ' slider corners give finite models and clean readouts'
+       + (first ? ' (first: ' + first + ')' : ''));
+  }
+  {
+    /* the model must respond to its inputs */
+    const base = buildModel(Object.assign({}, DEFAULTS));
+    ok(Math.abs(buildModel(Object.assign({}, DEFAULTS, { th: 2.4 })).r[2] - base.r[2]) > 0.5,
+       'theta moves the state');
+    ok(Math.abs(buildModel(Object.assign({}, DEFAULTS, { rlen: 0.2 })).purity - base.purity) > 0.3,
+       '|r| changes the purity');
+    ok(Math.abs(buildModel(Object.assign({}, DEFAULTS, { species: 'e' })).fLarmor
+              - base.fLarmor) > 1000, 'the species changes the Larmor frequency by kilohertz');
+    ok(Math.abs(buildModel(Object.assign({}, DEFAULTS, { chi: 2.0 })).phaseShift) < 1e-14,
+       'and the global phase changes nothing at all');
+  }
+
+  /* ---------------- drawing ---------------------------------------------- */
+  ok(plain('a &mdash; b') === 'a — b', 'plain() decodes the entities this file uses');
+  ok(ticksFor(1, 10, 5).length >= 4, 'ticksFor gives several ticks on an ordinary range');
+  ok(ticksFor(10, 1, 5).length === 1, 'and collapses on an unsorted one');
+  ok(tickfmt([0, 100, 200])(200) === '200', 'integer ticks print no decimals');
+  ok(tickfmt([0, 0.5, 1])(0.5) === '0.5', 'and half-unit ticks print one');
+  {
+    const rec = makeTestRecorder();
+    /* Latin-1 letters (Schrodinger's o-umlaut) are universally supported and
+       are not the class of glyph this check exists to catch. */
+    const LATIN1 = (ch) => ch.charCodeAt(0) >= 0xA0 && ch.charCodeAt(0) <= 0xFF;
+    const SAFE = '—–’‘“”·×→←↑↓°±≈∫∂√ΔΓΘΛΣΦΩ𝟙' +
+                 'αβγδεζηθκλμνξπρστυφχψωσ' +
+                 '₀₁₂₃₄₅₆₇₈₉₊₋⁰¹²³⁴⁵⁶⁷⁸⁹⁻′″∞≤≥≠−½⅓¼⟨⟩̂⃗|';
+    let bad = 0, odd = '', minOps = 1e9, off = 0, over = 0, worstOver = '';
+    const TOG = [{}, { showGrid: false }, { showCardinal: false }, { showMalus: false },
+                 { showCascade: false }, { showDetuned: false }, { showShadow: false }];
+    for (const [W, H] of [[1400, 820], [1100, 700], [820, 560], [640, 430]]){
+      for (const [v] of VIEWS) for (const tg of TOG){
+        rec.reset();
+        const M = buildModel(Object.assign({}, DEFAULTS, { view: v }, tg));
+        try { drawView(rec.ctx, W, H, M, { camTheta: 2.4, camPhi: 0.35, zoom: 1 }); }
+        catch (e){ bad++; console.log('  draw threw in ' + v + ': ' + e); continue; }
+        if (W === 1400) minOps = Math.min(minOps, rec.ops.length);
+        const boxes = [];
+        for (const o of rec.ops){
+          if (o.op !== 'fillText'){
+            if ((o.op === 'lineTo' || o.op === 'moveTo' || o.op === 'fillRect')
+                && o.a.some(x => typeof x === 'number' && !isFinite(x))) bad++;
+            continue;
+          }
+          const s = String(o.a[0]);
+          if (/&\w+;|&#\d+;|<\/?\w+>|NaN|undefined|Infinity/.test(s)) bad++;
+          for (const ch of s) if (ch.charCodeAt(0) > 127 && SAFE.indexOf(ch) < 0
+                                  && !LATIN1(ch) && !(ch >= '̀' && ch <= 'ͯ')){
+            bad++; if (!odd) odd = ch + ' (U+' + ch.charCodeAt(0).toString(16).toUpperCase() + ')';
+          }
+          if (o.rot) continue;
+          const fs = parseFloat((/(\d+(?:\.\d+)?)px/.exec(o.font || '') || [0, 10])[1]);
+          const w = s.length * fs * 0.52;
+          let x = o.a[1];
+          if (o.align === 'center') x -= w / 2; else if (o.align === 'right') x -= w;
+          const y = o.a[2] - (o.baseline === 'top' ? 0 : fs * 0.8);
+          if (x < -6 || x + w > W + 6 || y < -6 || y + fs > H + 6) off++;
+          boxes.push({ x, y, w, h: fs * 1.15, s });
+        }
+        for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++){
+          const a = boxes[i], b = boxes[j];
+          if (a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h){
+            over++;
+            if (!worstOver) worstOver = v + ' @' + W + 'x' + H + ': "' + a.s.slice(0, 24)
+              + '" vs "' + b.s.slice(0, 24) + '"';
+          }
+        }
+      }
+    }
+    ok(bad === 0, 'no entity, tag, NaN or stray glyph reaches the canvas'
+       + (odd ? ' (found ' + odd + ')' : '') + ', over 168 renders');
+    ok(minOps > 60, 'and every view draws something (fewest ' + minOps + ' ops)');
+    ok(off === 0, 'no text leaves the canvas at any of four sizes (' + off + ')');
+    ok(over === 0, 'and no two text boxes overlap' + (worstOver ? ' -- ' + worstOver : ''));
+  }
+  {
+    /* no data curve through a legend, and the camera must actually move things */
+    const rec = makeTestRecorder();
+    let hits = 0, worst = '';
+    for (const [v] of VIEWS) for (const tg of [{}, { showCascade: false }, { showMalus: false }]){
+      rec.reset();
+      const M = buildModel(Object.assign({}, DEFAULTS, { view: v }, tg));
+      try { drawView(rec.ctx, 1400, 820, M, { camTheta: 2.4, camPhi: 0.35, zoom: 1 }); }
+      catch (e){ continue; }
+      const boxes = LEGEND_BOXES.slice();
+      if (!boxes.length) continue;
+      let own = 0; for (const b of boxes) own += b.own;
+      let n = 0;
+      for (const o of rec.ops){
+        if ((o.op !== 'lineTo' && o.op !== 'moveTo') || !(o.lw >= 1.5)) continue;
+        for (const b of boxes)
+          if (o.a[0] >= b.x && o.a[0] <= b.x + b.w && o.a[1] >= b.y && o.a[1] <= b.y + b.h){ n++; break; }
+      }
+      if (n - own > 0){ hits++; if (!worst) worst = v + ' (' + (n - own) + ' strays)'; }
+    }
+    ok(hits === 0, 'no data curve passes through a legend' + (worst ? ' -- ' + worst : ''));
+    /* the camera: two real drawings, one axis at a time */
+    const cap = (ct, cp) => {
+      rec.reset();
+      drawView(rec.ctx, 1400, 820, buildModel(Object.assign({}, DEFAULTS, { view: 'sphere' })),
+               { camTheta: ct, camPhi: cp, zoom: 1 });
+      return JSON.stringify(rec.ops.filter(o => o.op === 'lineTo' || o.op === 'moveTo'));
+    };
+    const a0 = cap(2.4, 0.35);
+    ok(cap(3.1, 0.35) !== a0, 'orbiting in theta moves the drawn geometry');
+    ok(cap(2.4, 0.85) !== a0, 'and orbiting in phi moves it too');
+    ok(cap(2.4, 0.35) === a0, 'and returning to the same camera redraws identically');
+  }
+
+  console.log(pass + ' passed, ' + fail + ' failed');
+  if (fail > 0) throw new Error(fail + ' self-test failure(s)');
+  return true;
+}
+
+/* A canvas stub that records what was asked for.  Deliberately NOT called
+   makeRecorder: tools/recorder.js declares a function of that name and is
+   concatenated after this file for the display-list capture. */
+function makeTestRecorder(){
+  const ops = [];
+  const noop = () => {};
+  let rot = 0; const stack = [];
+  const ctx = {
+    ops: ops,
+    save(){ stack.push(rot); }, restore(){ rot = stack.length ? stack.pop() : 0; },
+    beginPath: noop, closePath: noop, stroke: noop, fill: noop, clip: noop,
+    setLineDash: noop, translate: noop, rotate(a){ rot += a; }, scale: noop, setTransform: noop,
+    arc: (...a) => ops.push({ op: 'arc', a }),
+    moveTo: (...a) => ops.push({ op: 'moveTo', a, lw: ctx.lineWidth }),
+    lineTo: (...a) => ops.push({ op: 'lineTo', a, lw: ctx.lineWidth }),
+    rect: (...a) => ops.push({ op: 'rect', a }),
+    fillRect: (...a) => ops.push({ op: 'fillRect', a }),
+    strokeRect: (...a) => ops.push({ op: 'strokeRect', a }),
+    clearRect: noop,
+    fillText: (...a) => ops.push({ op: 'fillText', a, font: ctx.font, fill: ctx.fillStyle,
+                                   align: ctx.textAlign, baseline: ctx.textBaseline,
+                                   rot: Math.abs(rot) > 1e-9 }),
+    measureText: (s) => ({ width: String(s).length * 6.0 }),
+    createLinearGradient: () => ({ addColorStop: noop }),
+    font: '', fillStyle: '', strokeStyle: '', lineWidth: 1, textAlign: 'left',
+    textBaseline: 'alphabetic', globalAlpha: 1, lineJoin: '', lineCap: '',
+  };
+  return { ctx, ops, reset(){ ops.length = 0; } };
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

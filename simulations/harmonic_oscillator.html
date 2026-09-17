@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Harmonic oscillator — classical &amp; quantum</title>
+<!--
+  The harmonic oscillator both ways, hbar = m = 1, V(x) = (1/2) w^2 x^2.
+
+  CLASSICAL: a ball in the parabolic bowl, x(t) = A cos(wt), p = -A w sin(wt),
+  E = (1/2) w^2 A^2, period T = 2 pi / w. Overlays: the time-averaged position
+  density rho_cl(x) = 1/(pi sqrt(A^2 - x^2)) (diverging at the turning points)
+  and a phase-space (x,p) inset where the trail traces the energy ellipse.
+
+  QUANTUM: exact spectral evolution in the 60-mode Hermite basis
+  phi_n(x) = (w/pi)^(1/4) H_n(sqrt(w) x) e^{-w x^2/2} / sqrt(2^n n!)
+  (built by the stable normalized recurrence
+  phi_{n+1} = sqrt(2w/(n+1)) x phi_n - sqrt(n/(n+1)) phi_{n-1}),
+  E_n = (n + 1/2) w. States advance by e^{-i E_n t} phases — no integrator,
+  so every state is exactly periodic at T = 2 pi / w (density mirrored at
+  T/2 by parity). States:
+    - eigenstate n (density frozen, phase rotating; Dx Dp = n + 1/2;
+      "classical envelope" overlays rho_cl at E_n — the CDFs agree to ~2%
+      by n = 25, the correspondence limit),
+    - superposition (phi_a + phi_b)/sqrt2 beating at (E_b - E_a),
+    - coherent state |alpha>: c_n = e^{-a^2/2} a^n / sqrt(n!), a Gaussian
+      that never spreads, <x>(t) = sqrt(2/w) a cos(wt) EXACTLY equal to the
+      classical ball released from the same amplitude, with Dx Dp = 1/2
+      pinned at the Heisenberg minimum for all time.
+  The phase-space inset plots (<x>, <p>); the level ladder shows the equally
+  spaced E_n rungs (contrast the particle-in-a-box n^2 ladder) with |c_n|^2
+  occupation bars.
+
+  Rendering: 2d canvas on black, additive neon columns for |psi|^2 colored
+  with Mathematica's ColorData["NeonColors"] (same NEON_STOPS table as
+  orbitals / quantum_tunneling / particles_in_a_box) by phase, density, or
+  uniform; magenta potential curve, chartreuse energy line.
+
+  Single file, no dependencies, works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript ho_test.js
+  — with `document` undefined it runs the assertion suite (recurrence
+  orthonormality, ladder matrix elements vs closed forms, coherent-state
+  reconstruction and classical tracking, exact period/mirror, uncertainty
+  products, CDF correspondence) instead of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0;}
+  #wave{position:absolute; inset:0; width:100%; height:100%; display:block;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .steprow{display:flex; align-items:center; gap:8px; margin:5px 0;}
+  .steprow .qn{width:26px; font:italic 15px Georgia, serif; color:var(--text);}
+  .steprow button{width:24px; height:24px; border-radius:12px; background:var(--panel2);
+                  border:1px solid var(--edge); color:var(--text); cursor:pointer; font-size:14px; line-height:1;}
+  .steprow button:hover{border-color:var(--accent);}
+  .steprow button:disabled{opacity:.28; cursor:default; border-color:var(--edge);}
+  .steprow .val{min-width:34px; text-align:center; font:600 14px "SF Mono", Menlo, monospace; color:#fff;}
+  .steprow .range{color:#666; font-size:10.5px; margin-left:auto;}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:76px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:44px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; gap:16px; margin-top:6px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #gradbar{display:block; width:100%; height:10px; border-radius:5px; margin:6px 0 3px;}
+  #gradlabels{display:flex; justify-content:space-between; font-size:10.5px; color:#777;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Harmonic oscillator</h1>
+  <span class="sub">classical bowl &amp; quantum ladder &mdash; exact spectral evolution &middot; coherent-state correspondence &middot; &#8463; = m = 1</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="wave"></canvas>
+    <div id="hint">space = pause &middot; r = relaunch</div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    <canvas id="inset" width="300" height="150"></canvas>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>system</h3>
+      <div class="chips">
+        <button class="chip on" id="modeC">classical</button>
+        <button class="chip" id="modeQ">quantum</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpClassical">
+      <h3>classical</h3>
+      <div class="sliderrow"><label for="eA">amplitude A</label>
+        <input type="range" id="eA" min="0.5" max="8" step="0.1">
+        <span class="val" id="eAVal"></span></div>
+    </div>
+
+    <div class="grp" id="grpQuantum" hidden>
+      <h3>quantum state</h3>
+      <div class="chips">
+        <button class="chip" id="qE" title="stationary state phi_n — frozen density, rotating phase">eigenstate</button>
+        <button class="chip" id="qS" title="(phi_a + phi_b)/sqrt2 — beats at the Bohr frequency">superposition</button>
+        <button class="chip on" id="qC" title="|alpha>: the Gaussian that follows the classical ball forever">coherent</button>
+      </div>
+      <div class="steprow" id="rowN"><span class="qn">n</span>
+        <button id="nSub">&minus;</button><span class="val" id="nVal">2</span><button id="nAdd">+</button>
+        <span class="range">0 &hellip; 30</span></div>
+      <div class="steprow" id="rowNa"><span class="qn">n<sub>a</sub></span>
+        <button id="naSub">&minus;</button><span class="val" id="naVal">0</span><button id="naAdd">+</button>
+        <span class="range">0 &hellip; 30</span></div>
+      <div class="steprow" id="rowNb"><span class="qn">n<sub>b</sub></span>
+        <button id="nbSub">&minus;</button><span class="val" id="nbVal">1</span><button id="nbAdd">+</button>
+        <span class="range">&ne; n<sub>a</sub></span></div>
+      <div class="sliderrow" id="rowAlpha"><label for="eAlpha">coherent &alpha;</label>
+        <input type="range" id="eAlpha" min="0" max="4" step="0.1">
+        <span class="val" id="eAlphaVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>oscillator &amp; time</h3>
+      <div class="sliderrow"><label for="eW">frequency &omega;</label>
+        <input type="range" id="eW" min="0.5" max="2" step="0.05">
+        <span class="val" id="eWVal"></span></div>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0.2" max="30" step="0.2">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow">
+        <button id="pauseBtn">pause</button>
+        <button id="relaunchBtn" title="restart at t = 0">relaunch</button>
+        <button id="resetBtn" title="back to the defaults">reset all</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>color &mdash; NeonColors</h3>
+      <div class="chips" id="colorRow">
+        <button class="chip on" id="colorPhase">phase</button>
+        <button class="chip" id="colorDensity">density</button>
+        <button class="chip" id="colorFlat">uniform</button>
+      </div>
+      <canvas id="gradbar" width="248" height="10"></canvas>
+      <div id="gradlabels"><span id="gradLo"></span><span id="gradHi"></span></div>
+      <div class="checks" id="rowChecks">
+        <label id="labRe"><input type="checkbox" id="reChk" checked> Re &psi;</label>
+        <label id="labCl"><input type="checkbox" id="clChk" checked> classical overlay</label>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* ====================== oscillator eigenbasis ==================== */
+const PI = Math.PI, TAU = 2*PI;
+const NB = 60;                                    // Hermite basis size
+const NMAX_UI = 30;                               // eigenstate stepper range
+function En(n,w){ return (n+0.5)*w; }
+function Tper(w){ return TAU/w; }
+function ampOfN(n,w){ return Math.sqrt((2*n+1)/w); }     // (1/2) w^2 A^2 = E_n
+function ampOfAlpha(a,w){ return Math.sqrt(2/w)*a; }     // <x>(0) of |alpha>
+// phi_n on a grid by the stable normalized recurrence:
+//   phi_{n+1} = sqrt(2w/(n+1)) x phi_n - sqrt(n/(n+1)) phi_{n-1}
+function buildPhiTab(w,xs){
+  const G=xs.length, t=new Float64Array(NB*G), pref=Math.pow(w/PI,0.25);
+  for (let g=0;g<G;g++){
+    const x=xs[g];
+    t[g]=pref*Math.exp(-w*x*x/2);
+    t[G+g]=Math.sqrt(2*w)*x*t[g];
+  }
+  for (let n=1;n<NB-1;n++){
+    const a=Math.sqrt(2*w/(n+1)), b=Math.sqrt(n/(n+1));
+    for (let g=0;g<G;g++) t[(n+1)*G+g]=a*xs[g]*t[n*G+g]-b*t[(n-1)*G+g];
+  }
+  return t;
+}
+function coeffsEigen(n){ const c={re:new Float64Array(NB),im:new Float64Array(NB)};
+  c.re[n]=1; return c; }
+function coeffsSuper(na,nb){ const c={re:new Float64Array(NB),im:new Float64Array(NB)};
+  c.re[na]=Math.SQRT1_2; c.re[nb]=Math.SQRT1_2; return c; }
+// |alpha> for real alpha: c_n = e^{-a^2/2} a^n / sqrt(n!), built multiplicatively
+function coeffsCoherent(a){
+  const c={re:new Float64Array(NB),im:new Float64Array(NB)};
+  let v=Math.exp(-a*a/2);
+  for (let n=0;n<NB;n++){ c.re[n]=v; v*=a/Math.sqrt(n+1); }
+  return c;
+}
+function meanEfromC(c,w){ let s=0;
+  for (let i=0;i<NB;i++) s+=(c.re[i]*c.re[i]+c.im[i]*c.im[i])*En(i,w);
+  return s; }
+function sumC2(c){ let s=0;
+  for (let i=0;i<NB;i++) s+=c.re[i]*c.re[i]+c.im[i]*c.im[i];
+  return s; }
+function psiEval(c,w,t,phiTab,G,outR,outI){
+  outR.fill(0); outI.fill(0);
+  for (let i=0;i<NB;i++){
+    if (c.re[i]===0 && c.im[i]===0) continue;
+    const th=En(i,w)*t, co=Math.cos(th), si=Math.sin(th);
+    const aR=c.re[i]*co+c.im[i]*si, aI=c.im[i]*co-c.re[i]*si;
+    const row=i*G;
+    for (let g=0;g<G;g++){ const p=phiTab[row+g]; outR[g]+=aR*p; outI[g]+=aI*p; }
+  }
+}
+// norm, <x>, <x^2> from the density; <p>, <p^2> by central differences
+function gridMoments(pR,pI,xs){
+  const G=xs.length, h=xs[1]-xs[0];
+  let n=0,mx=0,mx2=0;
+  for (let g=0;g<G;g++){
+    const p=pR[g]*pR[g]+pI[g]*pI[g];
+    n+=p; mx+=p*xs[g]; mx2+=p*xs[g]*xs[g];
+  }
+  let mp=0,mp2=0;
+  for (let g=1;g<G-1;g++){
+    const dR=(pR[g+1]-pR[g-1])/(2*h), dI=(pI[g+1]-pI[g-1])/(2*h);
+    mp+=pR[g]*dI-pI[g]*dR;                 // psi* (-i d/dx) psi, real part
+    mp2+=dR*dR+dI*dI;
+  }
+  n*=h; mx*=h; mx2*=h; mp*=h; mp2*=h;
+  const inv=1/(n||1);
+  return { norm:n, x:mx*inv, x2:mx2*inv, p:mp*inv, p2:mp2*inv };
+}
+/* ------------------------- classical side ------------------------ */
+function xClassical(A,w,t){ return A*Math.cos(w*t); }
+function pClassical(A,w,t){ return -A*w*Math.sin(w*t); }
+function eClassical(A,w){ return 0.5*w*w*A*A; }
+function rhoClassical(A,x){
+  const d=A*A-x*x;
+  return d>0 ? 1/(PI*Math.sqrt(d)) : 0;
+}
+
+/* ================= colormap: Mathematica NeonColors ==============
+   Same exact 16-sample table as the other sims in this collection
+   (idsc-frazzoli/tensor colorscheme/neon.csv, verified vs Wolfram). */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){
+  const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ======================== state and labels ======================= */
+const DEFAULTS={ mode:'classical', qstate:'coherent', n:2, na:0, nb:1, alpha:2,
+                 A:3, w:1, speed:1, colorBy:'phase', showRe:true, clOverlay:true };
+const DT_BASE=0.0175;                              // t per frame at speed 1
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,+v||lo));
+  const qi=v=>Math.max(0,Math.min(NMAX_UI,Math.round(+v||0)));
+  c.n=qi(c.n); c.na=qi(c.na); c.nb=qi(c.nb);
+  if (c.nb===c.na) c.nb=(c.na===NMAX_UI)?c.na-1:c.na+1;
+  c.alpha=f(c.alpha,0,4); c.A=f(c.A,0.5,8); c.w=f(c.w,0.5,2);
+  c.speed=f(c.speed,0.2,30);
+  if (c.mode!=='quantum') c.mode='classical';
+  if (['eigen','super','coherent'].indexOf(c.qstate)<0) c.qstate='coherent';
+  return c;
+}
+function fmt(x,d){ return (+x).toFixed(d===undefined?2:d); }
+function stateLabel(st){
+  if (st.mode==='classical') return 'classical — A = '+fmt(st.A,1);
+  if (st.qstate==='eigen') return 'eigenstate n = '+st.n;
+  if (st.qstate==='super') return '(ψ'+st.na+' + ψ'+st.nb+')/√2';
+  return 'coherent state α = '+fmt(st.alpha,1);
+}
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('wave'), ctx=cv.getContext('2d');
+  const insetCv=$('inset'), insetCtx=insetCv.getContext('2d');
+  if (!ctx || !insetCtx) return;
+  const dpr=(typeof window!=='undefined' && window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let model=null, t=0, paused=false;
+  let W=900, H=620;
+  let xsPix=null, phiPix=null, aR=null, aI=null;
+  let relaunchTimer=0;
+  const trail=[];                                  // phase-space history
+
+  function relevantAmp(st){
+    if (st.mode==='classical') return st.A;
+    if (st.qstate==='eigen') return ampOfN(st.n,st.w);
+    if (st.qstate==='super') return ampOfN(Math.max(st.na,st.nb),st.w);
+    return ampOfAlpha(st.alpha,st.w)+2/Math.sqrt(st.w);
+  }
+  function buildModel(){
+    const st=state, w=st.w;
+    const m={ w, Tp:Tper(w), kind: st.mode==='classical'?'classical':st.qstate };
+    m.XM=Math.max(5/Math.sqrt(w), relevantAmp(st)*1.25+4/Math.sqrt(w));
+    if (m.kind==='classical'){
+      m.A=st.A; m.E=eClassical(st.A,w);
+    } else {
+      m.c = m.kind==='eigen' ? coeffsEigen(st.n)
+          : m.kind==='super' ? coeffsSuper(st.na,st.nb)
+          : coeffsCoherent(st.alpha);
+      m.meanE=meanEfromC(m.c,w);
+      m.A = m.kind==='eigen' ? ampOfN(st.n,w)
+          : m.kind==='super' ? ampOfN(Math.max(st.na,st.nb),w)
+          : ampOfAlpha(st.alpha,w);
+      const occ=[]; let mx=0;
+      for (let i=0;i<NB;i++) mx=Math.max(mx,m.c.re[i]*m.c.re[i]+m.c.im[i]*m.c.im[i]);
+      for (let i=0;i<NB;i++){
+        const w2=m.c.re[i]*m.c.re[i]+m.c.im[i]*m.c.im[i];
+        if (w2>0.004*mx) occ.push({n:i,w:w2/mx});
+      }
+      m.occ=occ;
+      m.nShow=Math.max(6,Math.min(NB-1,occ.reduce((a,o)=>Math.max(a,o.n),0)+2));
+    }
+    return m;
+  }
+  function buildPixGrid(){
+    const x0px=46, x1px=W-16, G=Math.max(60,Math.round(x1px-x0px));
+    xsPix=new Float64Array(G);
+    for (let g=0;g<G;g++) xsPix[g]=-model.XM+(g+0.5)*(2*model.XM)/G;
+    if (model.kind!=='classical'){
+      phiPix=buildPhiTab(model.w,xsPix);
+      aR=new Float64Array(G); aI=new Float64Array(G);
+      psiEval(model.c,model.w,0,phiPix,G,aR,aI);
+      let mx=0;
+      for (let g=0;g<G;g++) mx=Math.max(mx,aR[g]*aR[g]+aI[g]*aI[g]);
+      model.refPeak=mx||1; model.refAmp=Math.sqrt(mx)||1;
+    }
+  }
+  function rebuildAll(){
+    model=buildModel(); buildPixGrid();
+    t=0; trail.length=0;
+    drawInset(); updateInfo(); updateReadout(); paintGradbar();
+  }
+  function relaunch(){ t=0; trail.length=0; updateReadout(); }
+  function resize(){
+    W=cv.clientWidth||900; H=cv.clientHeight||620;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+    if (model) buildPixGrid();
+  }
+  const xToPx=x=>46+(x+model.XM)/(2*model.XM)*(W-62);
+
+  /* ---------- shared stage furniture (potential + energy line) --- */
+  function drawWell(yB,es,Eline,label){
+    ctx.strokeStyle='#2a2a30'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,yB); ctx.lineTo(W,yB); ctx.stroke();
+    ctx.fillStyle='#666'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('0',xToPx(0)-2,yB+14);
+    ctx.fillText('x',W-30,yB+14);
+    ctx.strokeStyle='#cd35c4'; ctx.lineWidth=2;
+    ctx.beginPath();
+    let started=false;
+    for (let g=0;g<xsPix.length;g+=2){
+      const V=0.5*model.w*model.w*xsPix[g]*xsPix[g];
+      let y=yB-V*es;
+      if (y<10){ if (started){ ctx.stroke(); ctx.beginPath(); started=false; } continue; }
+      if (!started){ ctx.moveTo(xToPx(xsPix[g]),y); started=true; }
+      else ctx.lineTo(xToPx(xsPix[g]),y);
+    }
+    ctx.stroke();
+    ctx.strokeStyle='rgba(184,236,76,0.8)'; ctx.lineWidth=1; ctx.setLineDash([6,5]);
+    ctx.beginPath(); ctx.moveTo(0,yB-Eline*es); ctx.lineTo(W,yB-Eline*es); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#b8ec4c'; ctx.fillText(label,W-60,yB-Eline*es-5);
+  }
+
+  /* ---------- classical stage ---------- */
+  function drawClassical(){
+    ctx.clearRect(0,0,W,H);
+    const yB=H-40, es=(H-96)/(model.E*1.5);
+    drawWell(yB,es,model.E,'E = '+fmt(model.E,2));
+    // turning points
+    ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.setLineDash([3,5]);
+    for (const s of [-1,1]){
+      ctx.beginPath();
+      ctx.moveTo(xToPx(s*model.A),yB); ctx.lineTo(xToPx(s*model.A),yB-model.E*es);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // time-averaged density rho_cl as additive neon columns
+    ctx.globalCompositeOperation='lighter';
+    const rho0=rhoClassical(model.A,0), hMax=0.30*(H-96);
+    for (let g=0;g<xsPix.length;g++){
+      const r=rhoClassical(model.A,xsPix[g]);
+      if (r<=0) continue;
+      let hh=r/rho0*0.35*hMax; if (hh>hMax) hh=hMax;
+      ctx.fillStyle=neonCss(Math.min(1,0.15+0.8*r/(rho0*3)));
+      ctx.globalAlpha=0.45;
+      ctx.fillRect(xToPx(xsPix[g]),yB-hh,1,hh);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+    // the ball, riding the bowl, plus its shadow on the axis
+    const x=xClassical(model.A,model.w,t), V=0.5*model.w*model.w*x*x;
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(xToPx(x),yB-V*es,6,0,TAU); ctx.fill();
+    ctx.fillStyle='#b8ec4c';
+    ctx.beginPath(); ctx.arc(xToPx(x),yB,3,0,TAU); ctx.fill();
+  }
+
+  /* ---------- quantum stage ---------- */
+  function drawQuantum(){
+    ctx.clearRect(0,0,W,H);
+    const G=xsPix.length, yB=H-40, plotH=H-96;
+    const es=plotH/(Math.max(model.meanE*1.45, En(model.nShow,model.w)));
+    drawWell(yB,es,model.meanE,'⟨E⟩ = '+fmt(model.meanE,2));
+    psiEval(model.c,model.w,t,phiPix,G,aR,aI);
+    const head=model.kind==='eigen'?1.15:2.0;
+    const yscale=0.62*plotH/(model.refPeak*head);
+    ctx.globalCompositeOperation='lighter';
+    const flatCss=neonCss(0.85);
+    for (let g=0;g<G;g++){
+      const p=aR[g]*aR[g]+aI[g]*aI[g];
+      let hh=p*yscale; if (hh<0.15) continue;
+      if (hh>yB-10) hh=yB-10;
+      let tc;
+      if (state.colorBy==='phase') tc=(Math.atan2(aI[g],aR[g])+PI)/TAU;
+      else if (state.colorBy==='density') tc=Math.pow(Math.min(1,p/model.refPeak),0.4);
+      else tc=0.85;
+      ctx.fillStyle = state.colorBy==='flat' ? flatCss : neonCss(tc);
+      const px=46+g;
+      ctx.globalAlpha=0.5;  ctx.fillRect(px,yB-hh,1,hh);
+      ctx.globalAlpha=0.95; ctx.fillRect(px,yB-hh-1.6,1,1.9);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+    if (state.showRe){
+      const reC=yB-0.30*plotH, reS=0.26*plotH/model.refAmp;
+      ctx.strokeStyle='rgba(185,215,255,0.75)'; ctx.lineWidth=1;
+      ctx.beginPath();
+      for (let g=0;g<G;g+=2){
+        let y=reC-aR[g]*reS;
+        if (y<8) y=8; if (y>yB-2) y=yB-2;
+        if (g===0) ctx.moveTo(46+g,y); else ctx.lineTo(46+g,y);
+      }
+      ctx.stroke();
+    }
+    if (state.clOverlay){
+      // classical envelope rho_cl at the matching amplitude, dashed, drawn on
+      // the SAME scale as |psi|^2 so the correspondence is quantitative
+      ctx.strokeStyle='rgba(255,255,255,0.45)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
+      ctx.beginPath();
+      let started=false;
+      for (let g=0;g<G;g++){
+        const r=rhoClassical(model.A,xsPix[g]);
+        if (r<=0){ started=false; continue; }
+        let hh=r*yscale; if (hh>yB-12) hh=yB-12;
+        const y=yB-hh;
+        if (!started){ ctx.moveTo(46+g,y); started=true; } else ctx.lineTo(46+g,y);
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+      // the classical twin released from the same amplitude
+      if (model.kind!=='super'){
+        const xc=xClassical(model.A,model.w,t);
+        ctx.fillStyle='#b8ec4c';
+        ctx.beginPath(); ctx.arc(xToPx(xc),yB,3,0,TAU); ctx.fill();
+      }
+    }
+  }
+
+  /* ---------- inset: ladder + phase space ---------- */
+  function drawInset(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height;
+    c.clearRect(0,0,IW,IH);
+    const classical=model.kind==='classical';
+    const psX0=classical?0:150, psW=IW-psX0;
+    if (!classical){
+      const Lm=30, Rm=8, Tm=12, Bm=14, pw=150-Lm-Rm, ph=IH-Tm-Bm;
+      const Emax=En(model.nShow,model.w)*1.06;
+      const yOf=E=>Tm+ph*(1-E/Emax);
+      c.strokeStyle='#2a2a30'; c.lineWidth=1;
+      c.beginPath(); c.moveTo(Lm,Tm); c.lineTo(Lm,Tm+ph); c.lineTo(Lm+pw,Tm+ph); c.stroke();
+      c.font='9px -apple-system, sans-serif';
+      for (let n=0;n<=model.nShow;n++){
+        const y=yOf(En(n,model.w));
+        c.strokeStyle='rgba(255,255,255,0.16)';
+        c.beginPath(); c.moveTo(Lm,y); c.lineTo(Lm+pw,y); c.stroke();
+      }
+      for (const o of model.occ){
+        c.strokeStyle='#b8ec4c'; c.lineWidth=2.2;
+        const y=yOf(En(o.n,model.w));
+        c.beginPath(); c.moveTo(Lm+2,y); c.lineTo(Lm+2+(pw-6)*o.w,y); c.stroke();
+      }
+      c.lineWidth=1;
+      c.fillStyle='#b8ec4c'; c.fillText('Eₙ = (n+½)ω',Lm+4,Tm+2);
+    }
+    // phase-space frame
+    const cx=psX0+psW/2, cy=IH/2;
+    c.strokeStyle='#2a2a30';
+    c.beginPath(); c.moveTo(psX0+8,cy); c.lineTo(IW-8,cy); c.stroke();
+    c.beginPath(); c.moveTo(cx,10); c.lineTo(cx,IH-10); c.stroke();
+    c.fillStyle='#777'; c.font='9px -apple-system, sans-serif';
+    c.fillText('x',IW-14,cy-4); c.fillText('p',cx+4,16);
+  }
+  function drawTrail(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height;
+    const classical=model.kind==='classical';
+    const psX0=classical?0:150, psW=IW-psX0;
+    const cx=psX0+psW/2, cy=IH/2;
+    const Pm=Math.max(model.A*1.15,1.2/Math.sqrt(model.w));
+    const sx=(psW/2-14)/Pm, sy=(IH/2-14)/(Pm*model.w);
+    drawInset();
+    if (classical){
+      // the energy ellipse, on the same scale the trail uses
+      c.strokeStyle='rgba(205,53,196,0.5)';
+      c.beginPath();
+      for (let k=0;k<=72;k++){
+        const th=k/72*TAU, px=cx+model.A*Math.cos(th)*sx, py=cy-model.A*model.w*Math.sin(th)*sy;
+        if (k===0) c.moveTo(px,py); else c.lineTo(px,py);
+      }
+      c.stroke();
+    }
+    for (let i=0;i<trail.length;i++){
+      const a=(i+1)/trail.length;
+      c.fillStyle=neonCss(0.15+0.7*a);
+      c.globalAlpha=0.15+0.85*a*a;
+      c.fillRect(cx+trail[i][0]*sx-1,cy-trail[i][1]*sy-1,2,2);
+    }
+    c.globalAlpha=1;
+    if (trail.length){
+      const last=trail[trail.length-1];
+      c.fillStyle='#fff';
+      c.beginPath(); c.arc(cx+last[0]*sx,cy-last[1]*sy,2.5,0,TAU); c.fill();
+    }
+  }
+
+  /* ---------- readouts / info ---------- */
+  function updateReadout(){
+    $('roMain').textContent=stateLabel(state);
+    let sub='t/T = '+fmt(t/model.Tp,3)+' &middot; T = 2π/ω = '+fmt(model.Tp,3);
+    if (model.kind==='classical'){
+      sub+='<br>x = '+fmt(xClassical(model.A,model.w,t),3)+
+           ' &middot; p = '+fmt(pClassical(model.A,model.w,t),3)+
+           ' &middot; E = '+fmt(model.E,3);
+    } else if (aR){
+      const mo=gridMoments(aR,aI,xsPix);
+      const dx=Math.sqrt(Math.max(0,mo.x2-mo.x*mo.x)),
+            dp=Math.sqrt(Math.max(0,mo.p2-mo.p*mo.p));
+      sub+='<br>⟨x⟩ = '+fmt(mo.x,3)+' &middot; ⟨p⟩ = '+fmt(mo.p,3)+
+           ' &middot; ⟨E⟩ = '+fmt(model.meanE,2)+
+           '<br>Δx·Δp = '+fmt(dx*dp,3)+'  (min ½)';
+      model._lastXP=[mo.x,mo.p];
+    }
+    $('roSub').innerHTML=sub;
+  }
+  function updateInfo(){
+    const st=state, w=st.w;
+    let s='';
+    if (st.mode==='classical'){
+      s='<b>classical bowl</b>: x(t) = A cos ωt, E = ½ω²A² = '+fmt(eClassical(st.A,w),2)+
+        ', period T = 2π/ω. The neon carpet is the time-averaged density '+
+        'ρ<sub>cl</sub> = 1/(π√(A²−x²)) — the ball lingers at the turning points. '+
+        'The phase-space trail traces the energy ellipse.';
+    } else if (st.qstate==='eigen'){
+      s='<b>stationary state</b>: E<sub>n</sub> = (n+½)ω (equally spaced rungs — compare the box\'s n² ladder), '+
+        'Δx·Δp = n+½. The dashed <b>classical envelope</b> is ρ<sub>cl</sub> at the same energy: '+
+        'by n ≈ 25 the two agree in the mean (correspondence limit).';
+    } else if (st.qstate==='super'){
+      s='<b>two-level beat</b>: the density oscillates at the Bohr frequency ΔE = '+
+        fmt((st.nb-st.na)*w,2)+'; ⟨x⟩ is sinusoidal only for adjacent n.';
+    } else {
+      s='<b>coherent state</b> |α⟩, ⟨n⟩ = α² = '+fmt(st.alpha*st.alpha,1)+
+        ', ⟨E⟩ = ω(α²+½). The Gaussian never spreads: ⟨x⟩(t) = √(2/ω)·α·cos ωt '+
+        'rides exactly on the classical ball (chartreuse dot), and Δx·Δp stays pinned at ½ '+
+        '— the closest quantum mechanics comes to a classical particle.';
+    }
+    s+='<br>Exact spectral evolution on '+NB+' Hermite modes — no time-step error; '+
+       'every state repeats exactly each period.';
+    $('info').innerHTML=s;
+  }
+  function paintGradbar(){
+    const g=$('gradbar').getContext('2d');
+    if (!g) return;
+    for (let i=0;i<248;i++){ g.fillStyle=neonCss(i/247); g.fillRect(i,0,1,10); }
+    const lab = state.mode==='classical' ? ['ρ<sub>cl</sub> low','high']
+      : {phase:['arg ψ = −π','+π'], density:['|ψ|² = 0','peak'], flat:['','']}[state.colorBy];
+    $('gradLo').innerHTML=lab[0]; $('gradHi').innerHTML=lab[1];
+  }
+
+  /* ---------- control wiring ---------- */
+  function syncControls(){
+    const st=state, cl=st.mode==='classical';
+    $('modeC').classList.toggle('on',cl);
+    $('modeQ').classList.toggle('on',!cl);
+    $('grpClassical').hidden=!cl;
+    $('grpQuantum').hidden=cl;
+    $('qE').classList.toggle('on',st.qstate==='eigen');
+    $('qS').classList.toggle('on',st.qstate==='super');
+    $('qC').classList.toggle('on',st.qstate==='coherent');
+    $('rowN').hidden=st.qstate!=='eigen';
+    $('rowNa').hidden=st.qstate!=='super';
+    $('rowNb').hidden=st.qstate!=='super';
+    $('rowAlpha').hidden=st.qstate!=='coherent';
+    $('nVal').textContent=String(st.n);
+    $('naVal').textContent=String(st.na); $('nbVal').textContent=String(st.nb);
+    $('eA').value=st.A; $('eAVal').textContent=fmt(st.A,1);
+    $('eAlpha').value=st.alpha; $('eAlphaVal').textContent=fmt(st.alpha,1);
+    $('eW').value=st.w; $('eWVal').textContent=fmt(st.w);
+    $('eSpeed').value=st.speed; $('eSpeedVal').textContent='×'+fmt(st.speed,1);
+    $('colorRow').hidden=cl;
+    $('labRe').hidden=cl; $('labCl').hidden=cl;
+    $('reChk').checked=st.showRe; $('clChk').checked=st.clOverlay;
+    const cb={phase:'colorPhase',density:'colorDensity',flat:'colorFlat'};
+    for (const k in cb) $(cb[k]).classList.toggle('on',st.colorBy===k);
+  }
+  function applyChange(){ state=clampState(state); syncControls(); rebuildAll(); }
+  function applyDebounced(){
+    state=clampState(state); syncControls();
+    if (relaunchTimer) clearTimeout(relaunchTimer);
+    relaunchTimer=setTimeout(()=>{ relaunchTimer=0; rebuildAll(); },260);
+  }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  chip('modeC',()=>{ state.mode='classical'; });
+  chip('modeQ',()=>{ state.mode='quantum'; });
+  chip('qE',()=>{ state.qstate='eigen'; });
+  chip('qS',()=>{ state.qstate='super'; });
+  chip('qC',()=>{ state.qstate='coherent'; });
+  function stepper(idSub,idAdd,key){
+    $(idSub).addEventListener('click',()=>{ state[key]-=1; applyChange(); });
+    $(idAdd).addEventListener('click',()=>{ state[key]+=1; applyChange(); });
+  }
+  stepper('nSub','nAdd','n'); stepper('naSub','naAdd','na'); stepper('nbSub','nbAdd','nb');
+  function bindSlider(id,key){
+    $(id).addEventListener('input',()=>{ state[key]=+$(id).value; applyDebounced(); });
+  }
+  bindSlider('eA','A'); bindSlider('eAlpha','alpha'); bindSlider('eW','w');
+  $('eSpeed').addEventListener('input',()=>{ state.speed=+$('eSpeed').value;
+    state=clampState(state); syncControls(); });
+  function setColor(m){ state.colorBy=m; syncControls(); paintGradbar(); }
+  $('colorPhase').addEventListener('click',()=>setColor('phase'));
+  $('colorDensity').addEventListener('click',()=>setColor('density'));
+  $('colorFlat').addEventListener('click',()=>setColor('flat'));
+  $('reChk').addEventListener('change',()=>{ state.showRe=$('reChk').checked; });
+  $('clChk').addEventListener('change',()=>{ state.clOverlay=$('clChk').checked; });
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+  $('relaunchBtn').addEventListener('click',()=>relaunch());
+  $('resetBtn').addEventListener('click',()=>{
+    state=clampState(Object.assign({},DEFAULTS));
+    syncControls(); rebuildAll(); setPaused(false);
+  });
+  document.addEventListener('keydown',ev=>{
+    if (ev.key===' '){ setPaused(!paused); ev.preventDefault(); }
+    else if (ev.key==='r'||ev.key==='R') relaunch();
+  });
+  if (typeof window!=='undefined')
+    window.addEventListener('resize',()=>{ resize(); });
+
+  /* ---------- main loop ---------- */
+  function frame(){
+    if (!paused) t+=DT_BASE*state.speed;
+    if (model.kind==='classical'){
+      drawClassical();
+      if (!paused) trail.push([xClassical(model.A,model.w,t),pClassical(model.A,model.w,t)]);
+    } else {
+      drawQuantum();
+    }
+    updateReadout();
+    if (!paused && model.kind!=='classical' && model._lastXP) trail.push(model._lastXP);
+    if (trail.length>260) trail.splice(0,trail.length-260);
+    drawTrail();
+    requestAnimationFrame(frame);
+  }
+  resize(); syncControls(); rebuildAll();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test =========================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+  const gridFor=(w,NQ)=>{ const XQ=13/Math.sqrt(w), h=2*XQ/NQ, xs=new Float64Array(NQ);
+    for (let i=0;i<NQ;i++) xs[i]=-XQ+(i+0.5)*h;
+    return xs; };
+
+  for (const w of [1,1.7]){
+    const NQ=2048, xs=gridFor(w,NQ), h=xs[1]-xs[0], phi=buildPhiTab(w,xs);
+    { let worst=0;
+      for (let m=0;m<=30;m+=6) for (let n=m;n<=30;n+=6){
+        let s=0;
+        for (let i=0;i<NQ;i++) s+=phi[m*NQ+i]*phi[n*NQ+i];
+        worst=Math.max(worst,Math.abs(s*h-(m===n?1:0)));
+      }
+      ok(worst<1e-8,'orthonormality of the Hermite recurrence (w='+w+')'); }
+    { let good=true;
+      for (const n of [0,3,10]){
+        let s=0;
+        for (let i=0;i<NQ;i++) s+=xs[i]*phi[n*NQ+i]*phi[(n+1)*NQ+i];
+        if (!approx(s*h,Math.sqrt((n+1)/(2*w)),1e-7)) good=false;
+      }
+      ok(good,'<n|x|n+1> = sqrt((n+1)/2w) (w='+w+')'); }
+    { let good=true;
+      for (const n of [0,5,25]){
+        let s=0;
+        for (let i=0;i<NQ;i++) s+=xs[i]*xs[i]*phi[n*NQ+i]*phi[n*NQ+i];
+        if (!approx(s*h,(n+0.5)/w,1e-6)) good=false;
+      }
+      ok(good,'<x^2>_n = (n+1/2)/w — the virial theorem (w='+w+')'); }
+  }
+  { const w=1, NQ=4096, xs=gridFor(w,NQ), h=xs[1]-xs[0], phi=buildPhiTab(w,xs);
+    let s=0;
+    for (let i=0;i<NQ;i++) s+=xs[i]*phi[4*NQ+i]*phi[4*NQ+i];
+    ok(Math.abs(s*h)<1e-10,'<n|x|n> = 0 by parity');
+    const n=7, E=En(n,w);
+    let worst=0;
+    for (let i=2;i<NQ-2;i++){
+      const f=phi[n*NQ+i];
+      if (Math.abs(f)<1e-3) continue;
+      const lap=(phi[n*NQ+i+1]-2*f+phi[n*NQ+i-1])/(h*h);
+      worst=Math.max(worst,Math.abs((-0.5*lap+0.5*w*w*xs[i]*xs[i]*f)/f-E));
+    }
+    ok(worst/E<3e-3,'H phi_n = E_n phi_n (numeric Schrodinger residual)'); }
+
+  /* --- coherent state --- */
+  { const a=2, w=1, c=coeffsCoherent(a);
+    ok(Math.abs(sumC2(c)-1)<1e-12,'coherent norm: sum|c_n|^2 = 1');
+    let mn=0;
+    for (let n=0;n<NB;n++) mn+=n*(c.re[n]*c.re[n]+c.im[n]*c.im[n]);
+    ok(approx(mn,a*a,1e-8),'coherent <n> = alpha^2');
+    ok(approx(meanEfromC(c,w),w*(a*a+0.5),1e-8),'coherent <E> = w(alpha^2 + 1/2)');
+    const NQ=2048, xs=gridFor(w,NQ), phi=buildPhiTab(w,xs);
+    const pR=new Float64Array(NQ), pI=new Float64Array(NQ);
+    psiEval(c,w,0,phi,NQ,pR,pI);
+    const x0=ampOfAlpha(a,w), pref=Math.pow(w/PI,0.25);
+    let sup=0;
+    for (let i=0;i<NQ;i++)
+      sup=Math.max(sup,Math.hypot(pR[i]-pref*Math.exp(-w*(xs[i]-x0)*(xs[i]-x0)/2),pI[i]));
+    ok(sup<1e-10,'coherent psi(x,0) is the displaced ground-state Gaussian');
+    // <x>(t) tracks the classical ball exactly; width and Dx Dp never change
+    let good=true, goodW=true, goodU=true;
+    for (const tt of [0,0.4,1.1,2.9,5.0]){
+      psiEval(c,w,tt,phi,NQ,pR,pI);
+      const mo=gridMoments(pR,pI,xs);
+      if (Math.abs(mo.x-xClassical(x0,w,tt))>1e-6) good=false;
+      if (Math.abs((mo.x2-mo.x*mo.x)-1/(2*w))>1e-6) goodW=false;
+      const dx=Math.sqrt(mo.x2-mo.x*mo.x), dp=Math.sqrt(mo.p2-mo.p*mo.p);
+      if (Math.abs(dx*dp-0.5)>2e-3) goodU=false;
+    }
+    ok(good,'coherent <x>(t) = classical A cos(wt) at all sampled times');
+    ok(goodW,'coherent width never changes (no spreading)');
+    ok(goodU,'coherent Dx Dp pinned at the Heisenberg minimum 1/2');
+    psiEval(c,w,0.7,phi,NQ,pR,pI);
+    const mo=gridMoments(pR,pI,xs);
+    ok(Math.abs(mo.p-(-x0*w*Math.sin(w*0.7)))<2e-3,'coherent <p>(t) = classical momentum'); }
+
+  /* --- exact periodicity and parity mirror --- */
+  { const w=1.3, c=coeffsCoherent(1.5), NQ=1024, xs=gridFor(w,NQ), phi=buildPhiTab(w,xs);
+    const r0=new Float64Array(NQ), i0=new Float64Array(NQ),
+          r1=new Float64Array(NQ), i1=new Float64Array(NQ);
+    psiEval(c,w,0,phi,NQ,r0,i0);
+    psiEval(c,w,Tper(w),phi,NQ,r1,i1);
+    let dT=0;
+    for (let g=0;g<NQ;g++)
+      dT=Math.max(dT,Math.abs((r1[g]*r1[g]+i1[g]*i1[g])-(r0[g]*r0[g]+i0[g]*i0[g])));
+    ok(dT<1e-9,'density exactly periodic: |psi(T)|^2 = |psi(0)|^2');
+    psiEval(c,w,Tper(w)/2,phi,NQ,r1,i1);
+    let dM=0;
+    for (let g=0;g<NQ;g++)
+      dM=Math.max(dM,Math.abs((r1[g]*r1[g]+i1[g]*i1[g])-(r0[NQ-1-g]*r0[NQ-1-g]+i0[NQ-1-g]*i0[NQ-1-g])));
+    ok(dM<1e-9,'parity mirror at T/2: |psi(T/2,x)|^2 = |psi(0,-x)|^2'); }
+
+  /* --- eigenstate and superposition dynamics --- */
+  { const w=1, NQ=1024, xs=gridFor(w,NQ), phi=buildPhiTab(w,xs);
+    const c2=coeffsEigen(2), r=new Float64Array(NQ), im=new Float64Array(NQ),
+          r2=new Float64Array(NQ), im2=new Float64Array(NQ);
+    psiEval(c2,w,0,phi,NQ,r,im); psiEval(c2,w,0.377,phi,NQ,r2,im2);
+    let d=0;
+    for (let g=0;g<NQ;g++)
+      d=Math.max(d,Math.abs((r2[g]*r2[g]+im2[g]*im2[g])-(r[g]*r[g]+im[g]*im[g])));
+    ok(d<1e-12,'eigenstate density is frozen in time');
+    const mo=gridMoments(r,im,xs);
+    const dx=Math.sqrt(mo.x2-mo.x*mo.x), dp=Math.sqrt(mo.p2-mo.p*mo.p);
+    ok(Math.abs(dx*dp-2.5)<5e-3,'eigenstate n=2: Dx Dp = n + 1/2 = 2.5');
+    const cs=coeffsSuper(0,1);
+    const mx=tt=>{ psiEval(cs,w,tt,phi,NQ,r,im); return gridMoments(r,im,xs).x; };
+    ok(approx(mx(0),Math.sqrt(1/(2*w)),1e-8),'superposition (0,1): <x>(0) = <0|x|1>');
+    ok(approx(mx(PI/w),-Math.sqrt(1/(2*w)),1e-8),'superposition: <x> flips sign after half a period');
+    ok(approx(meanEfromC(cs,w),w*1.0,1e-12),'superposition <E> = (E_0+E_1)/2 = w'); }
+
+  /* --- classical side and the correspondence limit --- */
+  { const A=3, w=1.2;
+    let good=true;
+    for (const tt of [0,0.7,1.9,4.4])
+      if (!approx(0.5*Math.pow(pClassical(A,w,tt),2)+0.5*w*w*Math.pow(xClassical(A,w,tt),2),
+                  eClassical(A,w),1e-12)) good=false;
+    ok(good,'classical energy conserved along x(t), p(t)');
+    ok(approx(rhoClassical(A,0),1/(PI*A),1e-15),'rho_cl(0) = 1/(pi A)');
+    const M=4096, hh=2*A/M;
+    let s=0;
+    for (let i=0;i<M;i++) s+=rhoClassical(A,-A+(i+0.5)*hh);
+    ok(Math.abs(s*hh-1)<0.01,'rho_cl integrates to 1 (integrable singularity)');
+    ok(approx(0.5*w*w*Math.pow(ampOfN(25,w),2),En(25,w),1e-12),
+       'turning-point amplitude: (1/2) w^2 A_n^2 = E_n'); }
+  { const w=1, n=25, NQ=2048, xs=gridFor(w,NQ), h=xs[1]-xs[0], phi=buildPhiTab(w,xs);
+    const A=ampOfN(n,w);
+    let cum=0, sup=0, x2=0;
+    for (let i=0;i<NQ;i++){
+      const p=phi[n*NQ+i]*phi[n*NQ+i];
+      cum+=p*h; x2+=xs[i]*xs[i]*p*h;
+      const xx=xs[i];
+      const Fcl=xx<=-A?0:(xx>=A?1:0.5+Math.asin(xx/A)/PI);
+      sup=Math.max(sup,Math.abs(cum-Fcl));
+    }
+    ok(sup<0.035,'correspondence: quantum and classical CDFs agree to ~2% at n=25');
+    ok(approx(x2,A*A/2,1e-6),'<x^2>_25 equals the classical time average A^2/2'); }
+
+  /* --- clamps, labels, colors --- */
+  { const st=clampState({mode:'quantum',qstate:'super',na:7,nb:7,n:-3,alpha:9,A:0,w:5,speed:99});
+    ok(st.nb===8&&st.n===0&&st.alpha===4&&st.A===0.5&&st.w===2&&st.speed===30,
+       'clamps: distinct superposition and slider ranges');
+    ok(clampState({na:30,nb:30}).nb===29,'superposition bump steps down at the top'); }
+  { const st=clampState(Object.assign({},DEFAULTS));
+    ok(stateLabel(st)==='classical — A = 3.0' &&
+       stateLabel(Object.assign({},st,{mode:'quantum'}))==='coherent state α = 2.0' &&
+       stateLabel(Object.assign({},st,{mode:'quantum',qstate:'eigen'}))==='eigenstate n = 2',
+       'readout labels for the main modes'); }
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS;
+    ok(approx(c0[0],S[0][1])&&approx(c0[2],S[0][3])&&approx(c1[0],S[15][1])&&approx(c1[2],S[15][3]),
+       'neon endpoints hit the gradient stops');
+    const mid=neon(0.1), f=(0.1-S[1][0])/(S[2][0]-S[1][0]);
+    ok(approx(mid[1],S[1][2]+(S[2][2]-S[1][2])*f,1e-12),'neon interpolates linearly between stops');
+    ok(/^rgb\(\d+,\d+,\d+\)$/.test(neonCss(0.44)),'neonCss emits rgb() strings'); }
+  { ok(fmt(2)==='2.00'&&fmt(6.2832,3)==='6.283','number formatting');
+    ok(approx(En(3,1.5),5.25,1e-12)&&approx(Tper(2),PI,1e-12),'E_n and T formulas'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

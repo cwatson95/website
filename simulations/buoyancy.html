@@ -1,0 +1,2171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buoyancy &mdash; Archimedes&rsquo; principle, from the spring scale to the metacentre</title>
+<!--
+  ===================================================================
+  buoyancy.html — Archimedes' principle: the upthrust equals the weight
+  of the displaced fluid, and everything that follows from it — why it
+  is a pressure difference, what floats and how deep, why a square log
+  floats on its corner, whether the crown was gold, and why a Cartesian
+  diver can never hover
+  ===================================================================
+
+  Six views.  THE PRINCIPLE: a block hangs from a spring scale and is
+  lowered into a tank; the scale reads W - rho_f g V_sub while the
+  displaced fluid runs into a measuring beaker — the two agree to the
+  last digit, and once the block is under the upthrust stops growing
+  while both face pressures keep rising.  THE PRESSURE: the same force
+  built from where it really comes from — the hydrostatic pressure on
+  every face of a submerged polygon, integrated edge by edge (exactly,
+  because p is linear along a straight edge): the horizontal parts
+  cancel, the vertical parts sum to rho g A, and the resultant passes
+  through the centroid of the submerged area, whatever the shape or its
+  tilt.  FLOATING: a body of density ratio r sinks until it displaces
+  its own weight — a box to r h, a cylinder or a sphere to a root of a
+  segment or a cap formula — and a hollow hull carries cargo until its
+  mean density reaches the fluid's; push it down and it heaves at
+  2 pi sqrt(m / rho g A_wl).  STABILITY: heel a floating box and the
+  centre of buoyancy moves to the centroid of the new submerged
+  polygon; the righting arm GZ is exact (polygon clipping), the small-
+  angle metacentric height GM = KB + BM - KG with BM = I/V, and a box
+  is stable upright only if b/h > sqrt(6 r (1 - r)) — a square block of
+  density 0.5 is not, and released it rolls to a corner-down 45 degrees.
+  THE CROWN: Archimedes' problem done both ways — Vitruvius' overflow
+  (a fraction of a millimetre of water level for a silver admixture)
+  and the hydrostatic balance Galileo argued he really used (La
+  Bilancetta, 1586).  THE DIVER & THE BALLOON: buoyancy in a
+  compressible world — a Cartesian diver's air pocket obeys Boyle's
+  law, so its equilibrium depth exists but is unstable (dF/dy < 0),
+  and a balloon in the ISA troposphere rises to the altitude where the
+  air's density has fallen to its own.
+
+  WHAT IS MEASURED (sources in build_buoy/derive.py)
+  --------------------------------------------------
+  Densities (Wikipedia "Density" table and infoboxes): fresh water
+  1000, salt water 1030, ethanol 789.45, olive oil 911, glycerol 1261,
+  mercury 13546; cork 240, oak 710, ice 916.7, aluminium 2700, iron 7870,
+  copper 8940, silver 10500, lead 11340, gold 19320, osmium 22570 kg/m^3.
+  The ISA troposphere: 101325 Pa, 288.15 K, 1.2250 kg/m^3 at sea level,
+  -6.5 K/km to 11 km, R_air = 287.0528 J/(kg K); the article's 11-km row
+  (22632 Pa, 0.3639 kg/m^3) is reproduced by the closed form and pinned.
+  Molar masses of He and H2 and R_u are CODATA/IUPAC values.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The pressure integral (per-edge, closed form, checked against a
+  2000-point numerical perimeter sum), the clipped polygon's area and
+  centroid (shoelace), the drafts (bisection, checked against brentq
+  and against the trapezoid, segment and cap formulas), the wall-sided
+  GZ = (GM + BM tan^2(phi)/2) sin(phi) check at 10 degrees, the roll and
+  heave periods (RK4 zero crossings against 2 pi sqrt(I / rho g V GM) and
+  2 pi sqrt(m / rho g A_wl)), the ISA closed forms and the balloon
+  ceiling (brentq against the closed inverse).  Every number is pinned
+  in selfTest to build_buoy/refvals.txt.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  Fluids are incompressible and at rest; air pressure is ignored except
+  inside the diver (Boyle's law, isothermal); the hydrostatic balance
+  ignores the pans' own buoyancy; the roll and heave dynamics carry a
+  light linear damping and no added mass; the diver has quadratic drag
+  with C_d = 1; the balloon's envelope volume is fixed and its gas is
+  at ambient pressure (hot air at 373.15 K).  Animation advances a fixed
+  1/60 s per frame so the headless suites are deterministic.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the quantity computed (the upthrust, the submerged
+       polygon), orange = the reference/analytic value or a warning,
+       magenta = the live marker (the centre of buoyancy, the live state),
+       cyan = structure (the fluid, the waterline, the vessel). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Buoyancy</h1>
+  <span class="sub" id="sub">Archimedes&rsquo; principle: the upthrust is the weight of the displaced fluid &mdash; where it comes from, what floats and how deep, why a square log rolls onto its corner, whether the crown was gold, and why a Cartesian diver cannot hover</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the physics — densities, the pressure integral on a polygon, the   *
+ *  floating drafts, the heaving and rolling bodies, the crown, the    *
+ *  Cartesian diver, the ISA balloon.  Nothing here touches a canvas.  *
+ *  y is UP in every world coordinate; the views flip.                 *
+ *  build_buoy/derive.py is the Python twin of every function below.   *
+ * ================================================================== */
+const DEG=PI/180;                 /* multiply DEGREES by this to get radians (asserted: 90 DEG = pi/2) */
+const FRAME_DT=1/60;              /* the frame loop advances a fixed 1/60 s: headless runs are deterministic */
+const G=9.80665;                  /* standard gravity, m/s^2 */
+
+/* measured densities, kg/m^3 — Wikipedia "Density" table (fresh water at its
+   4 C maximum, salt water at 3 % salinity, cork approximate), the mercury,
+   ethanol and olive-oil infoboxes; fetched 2026-09-15 */
+const FLUIDS=[{id:'water',name:'fresh water',rho:1000},{id:'seawater',name:'salt water',rho:1030},
+              {id:'ethanol',name:'ethanol',rho:789.45},{id:'oil',name:'olive oil',rho:911},
+              {id:'glycerol',name:'glycerol',rho:1261},{id:'mercury',name:'mercury',rho:13546}];
+const MATS=[{id:'cork',name:'cork',rho:240},{id:'oak',name:'oak',rho:710},{id:'ice',name:'ice',rho:916.7},
+            {id:'aluminium',name:'aluminium',rho:2700},{id:'iron',name:'iron',rho:7870},{id:'copper',name:'copper',rho:8940},
+            {id:'silver',name:'silver',rho:10500},{id:'lead',name:'lead',rho:11340},{id:'gold',name:'gold',rho:19320},
+            {id:'osmium',name:'osmium',rho:22570},{id:'custom',name:'set the density',rho:null}];
+function fluidRho(id){ const f=FLUIDS.find(x=>x.id===id); if(!f) throw new Error('unknown fluid '+id); return f.rho; }
+function matRho(id,custom){ const m=MATS.find(x=>x.id===id); if(!m) throw new Error('unknown material '+id); return m.rho===null?custom:m.rho; }
+
+/* ---- polygons (CCW lists of [x, y]) ----------------------------------------- */
+/* Sutherland–Hodgman against the half-plane y <= w: the submerged part */
+function clipBelow(poly,w){
+  const out=[], n=poly.length;
+  for(let i=0;i<n;i++){
+    const a=poly[i], b=poly[(i+1)%n], ain=a[1]<=w, bin=b[1]<=w;
+    if(ain) out.push([a[0],a[1]]);
+    if(ain!==bin){ const t=(w-a[1])/(b[1]-a[1]); out.push([a[0]+(b[0]-a[0])*t,w]); }
+  }
+  return out;
+}
+function polyArea(poly){ let s=0; const n=poly.length;
+  for(let i=0;i<n;i++){ const a=poly[i], b=poly[(i+1)%n]; s+=a[0]*b[1]-b[0]*a[1]; } return 0.5*s; }
+function polyCentroid(poly){
+  const A=polyArea(poly); if(Math.abs(A)<1e-300) return [0,0];
+  let cx=0, cy=0; const n=poly.length;
+  for(let i=0;i<n;i++){ const a=poly[i], b=poly[(i+1)%n], cr=a[0]*b[1]-b[0]*a[1]; cx+=(a[0]+b[0])*cr; cy+=(a[1]+b[1])*cr; }
+  return [cx/(6*A),cy/(6*A)];
+}
+function polyRotate(poly,th,c){ const cx=c?c[0]:0, cy=c?c[1]:0, ct=Math.cos(th), st=Math.sin(th);
+  return poly.map(p=>[cx+(p[0]-cx)*ct-(p[1]-cy)*st,cy+(p[0]-cx)*st+(p[1]-cy)*ct]); }
+/* the hydrostatic pressure p = rho g (w - y) pushes on each edge of the
+   SUBMERGED polygon (already clipped at y = w).  p is linear along a straight
+   edge, so the integral is p(mid) L exactly; the outward normal of a CCW edge
+   (dx, dy) is (dy, -dx)/L and the fluid pushes inward: F = -p n L.  Per unit
+   depth (2-D).  Returns the per-edge forces, their sum and the moment about
+   the origin — the sum must be (0, rho g A) and the moment rho g A x_B. */
+function edgeForces(sub,w,rho){
+  const n=sub.length, F=[], tot=[0,0]; let torque=0;
+  for(let i=0;i<n;i++){
+    const a=sub[i], b=sub[(i+1)%n], dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy);
+    if(L===0){ F.push([0,0,a,b,0]); continue; }
+    const mid=[(a[0]+b[0])/2,(a[1]+b[1])/2], p=rho*G*(w-mid[1]);
+    const fx=-p*dy, fy=p*dx;
+    F.push([fx,fy,a,b,p]); tot[0]+=fx; tot[1]+=fy;
+    /* the moment of a LINEAR load is not mid x F: with r = a + t d and
+       p(t) = p_a + t (p_b - p_a),  dM = p(t) (r . d) dt  integrates to */
+    const pa=rho*G*(w-a[1]), dp=rho*G*(a[1]-b[1]), ad=a[0]*dx+a[1]*dy, d2=dx*dx+dy*dy;
+    torque+=pa*ad+(pa*d2+dp*ad)/2+dp*d2/3;
+  }
+  return {F,tot,torque};
+}
+/* the independent route the tests use: subdivide every edge and sum p n ds */
+function finePerimeterIntegral(poly,w,rho,nsub){
+  nsub=nsub||2000; const tot=[0,0], n=poly.length;
+  for(let i=0;i<n;i++){ const a=poly[i], b=poly[(i+1)%n], dx=b[0]-a[0], dy=b[1]-a[1];
+    for(let k=0;k<nsub;k++){ const t=(k+0.5)/nsub, y=a[1]+dy*t, p=rho*G*Math.max(0,w-y); tot[0]+=-p*dy/nsub; tot[1]+=p*dx/nsub; } }
+  return tot;
+}
+const SHAPES={
+  box:{name:'a box',pts:[[-1,-0.5],[1,-0.5],[1,0.5],[-1,0.5]]},
+  wedge:{name:'a wedge',pts:[[-1,-0.6],[1,-0.6],[0,0.8]]},
+  hull:{name:'a hull',pts:[[-1.1,0.5],[-0.9,-0.3],[-0.4,-0.7],[0.4,-0.7],[0.9,-0.3],[1.1,0.5]]},
+  disc:{name:'a disc (64-gon)',pts:(function(){ const o=[]; for(let k=0;k<64;k++) o.push([0.8*Math.cos(TAU*k/64),0.8*Math.sin(TAU*k/64)]); return o; })()},
+};
+const SHAPE_LIST=[{id:'box',name:'a box'},{id:'wedge',name:'a wedge'},{id:'hull',name:'a hull'},{id:'disc',name:'a disc'}];
+
+/* ---- floating bodies -------------------------------------------------------- */
+function segmentArea(R,d){ d=clamp(d,0,2*R); return R*R*Math.acos(1-d/R)-(R-d)*Math.sqrt(Math.max(0,2*R*d-d*d)); }
+function capVolume(R,d){ d=clamp(d,0,2*R); return PI*d*d*(3*R-d)/3; }
+/* bisection with a fixed 60 halvings (the twin does the same, so the pins
+   agree to the last digit); f must change sign on [lo, hi] */
+function bisect(f,lo,hi,n){ n=n||60; let flo=f(lo);
+  for(let i=0;i<n;i++){ const m=0.5*(lo+hi), fm=f(m); if((fm>0)===(flo>0)){ lo=m; flo=fm; } else hi=m; }
+  return 0.5*(lo+hi); }
+const FSHAPES={
+  box:{name:'a box',dims:[1.0,0.6,1.0]},          /* beam, height, length */
+  cyl:{name:'a cylinder',dims:[0.5,1.0]},          /* radius, length (axis horizontal) */
+  sph:{name:'a sphere',dims:[0.5]},                /* radius */
+  boat:{name:'a hull with cargo',dims:[1.0,0.6,1.0]},
+};
+const FSHAPE_LIST=[{id:'box',name:'a box'},{id:'cyl',name:'a cylinder'},{id:'sph',name:'a sphere'},{id:'boat',name:'a hull with cargo'}];
+const BOAT={hullMass:60,encl:0.6};                 /* kg; the enclosed volume of the 1 x 0.6 x 1 hull, m^3 */
+function shapeKind(id){ return id==='boat'?'box':id; }
+function vtot(kind,dims){ if(kind==='box') return dims[0]*dims[1]*dims[2]; if(kind==='cyl') return PI*dims[0]*dims[0]*dims[1]; return 4*PI*Math.pow(dims[0],3)/3; }
+function vsub(kind,d,dims){ if(kind==='box') return dims[0]*dims[2]*clamp(d,0,dims[1]); if(kind==='cyl') return segmentArea(dims[0],d)*dims[1]; return capVolume(dims[0],d); }
+function awl(kind,d,dims){ if(kind==='box') return (d>0&&d<dims[1])?dims[0]*dims[2]:0; if(kind==='cyl') return 2*Math.sqrt(Math.max(0,2*dims[0]*d-d*d))*dims[1]; return PI*Math.max(0,2*dims[0]*d-d*d); }
+function draft(kind,r,dims){
+  if(kind==='box') return r*dims[1];
+  if(kind==='cyl') return bisect(d=>segmentArea(dims[0],d)-r*PI*dims[0]*dims[0],0,2*dims[0]);
+  return bisect(d=>capVolume(dims[0],d)-r*4*PI*Math.pow(dims[0],3)/3,0,2*dims[0]);
+}
+function heavePeriod(m,rho,A){ return TAU*Math.sqrt(m/(rho*G*A)); }
+/* m z'' = rho g (Vsub(d0 - z) - Vsub(d0)) - c z'  (z up from equilibrium: pushed
+   down the draft grows, the upthrust exceeds the weight, the net force is up) */
+function heaveAcc(kind,dims,rho,m,d0,z,v,c){ return (rho*G*(vsub(kind,d0-z,dims)-vsub(kind,d0,dims))-c*v)/m; }
+function rk4Step(acc,x,v,dt){
+  const k1x=v, k1v=acc(x,v);
+  const k2x=v+0.5*dt*k1v, k2v=acc(x+0.5*dt*k1x,v+0.5*dt*k1v);
+  const k3x=v+0.5*dt*k2v, k3v=acc(x+0.5*dt*k2x,v+0.5*dt*k2v);
+  const k4x=v+dt*k3v, k4v=acc(x+dt*k3x,v+dt*k3v);
+  return [x+dt*(k1x+2*k2x+2*k3x+k4x)/6, v+dt*(k1v+2*k2v+2*k3v+k4v)/6];
+}
+
+/* ---- the heeled box --------------------------------------------------------- */
+function boxPoly(b,h,th){ return polyRotate([[-b/2,-h/2],[b/2,-h/2],[b/2,h/2],[-b/2,h/2]],th); }
+/* the waterline y = w at which the clipped area is frac x the polygon's area */
+function waterline(poly,frac){ const A=polyArea(poly); let lo=Infinity, hi=-Infinity;
+  for(const p of poly){ lo=Math.min(lo,p[1]); hi=Math.max(hi,p[1]); }
+  return bisect(w=>polyArea(clipBelow(poly,w))-frac*A,lo,hi,60); }
+/* the heeled box at density ratio r: submerged polygon, its centroid B, and
+   the righting arm GZ (positive = restoring).  G is the box centre at the
+   origin; buoyancy acts up through B, so its moment about G for a CCW heel
+   is rho g V B_x — positive B_x turns the box FURTHER over.  GZ = -B_x. */
+function heelState(b,h,r,th){
+  const P=boxPoly(b,h,th), w=waterline(P,r), S=clipBelow(P,w), B=polyCentroid(S);
+  return {P,w,S,B,GZ:-B[0],Asub:polyArea(S)};
+}
+function gmSmall(b,h,r){ const d=r*h; return d/2+b*b/(12*d)-h/2; }           /* KB + BM - KG */
+function criticalBeam(h,r){ return h*Math.sqrt(6*r*(1-r)); }
+function rollPeriod(b,h,r,rho){ const m=r*rho*b*h, I=m*(b*b+h*h)/12, V=r*b*h; return TAU*Math.sqrt(I/(rho*G*V*gmSmall(b,h,r))); }
+function rollAcc(b,h,r,rho,c,th,om){ const m=r*rho*b*h, I=m*(b*b+h*h)/12, V=r*b*h; return (-rho*G*V*heelState(b,h,r,th).GZ-c*om)/I; }
+/* the GZ curve on a 1-degree grid, and the angle of loll (the first upward
+   zero crossing) when the upright position is unstable */
+function gzCurve(b,h,r,nDeg){
+  nDeg=nDeg||90; const th=[], gz=[];
+  for(let k=0;k<=nDeg;k++){ th.push(k); gz.push(heelState(b,h,r,k*DEG).GZ); }
+  let loll=null;
+  for(let k=1;k<=nDeg&&loll===null;k++) if(gz[k-1]<0&&gz[k]>=0) loll=bisect(t=>heelState(b,h,r,t).GZ,(k-1)*DEG,k*DEG,50)/DEG;
+  return {th,gz,loll};
+}
+
+/* ---- the crown ------------------------------------------------------------- */
+function crownFacts(m,f,rhoW){
+  const rAu=matRho('gold'), rAg=matRho('silver');
+  const V=m*(f/rAu+(1-f)/rAg), rho=m/V, W=m*G, Wp=W-rhoW*G*V;
+  const rhoInf=rhoW*W/(W-Wp), fInf=(1/rhoInf-1/rAg)/(1/rAu-1/rAg);
+  const dV=m*(1-f)*(1/rAg-1/rAu);
+  return {V,rho,W,Wp,rhoInf,fInf,dV,dhMm:dV/(PI*0.1*0.1)*1000,torque:rhoW*G*dV};
+}
+
+/* ---- the Cartesian diver ------------------------------------------------------ */
+const P0=101325;                                        /* Pa, the ISA sea-level pressure */
+const DIVER={m:0.010,Vg:4e-6,V0:6.5e-6,H:0.30,cd:0.5*1000*1*PI*0.005*0.005};   /* glass 10 g, 4 mL glass, 6.5 mL air at the surface, a 30-cm bottle, C_d = 1 on a 1-cm tube */
+function diverForce(y,dp,rho){ const p=P0+dp+rho*G*y, Va=DIVER.V0*P0/p; return {Fup:rho*G*(DIVER.Vg+Va)-DIVER.m*G,Va,p}; }
+function diverEq(dp,rho){ const Va=DIVER.m/rho-DIVER.Vg; if(Va<=0) return null; const p=P0*DIVER.V0/Va; return (p-P0-dp)/(rho*G); }
+function diverDFdy(dp,rho){ const y=diverEq(dp,rho); if(y===null) return null; const p=P0+dp+rho*G*y; return -rho*G*DIVER.V0*P0*rho*G/(p*p); }
+function diverDpSink(rho){ return P0*DIVER.V0/(DIVER.m/rho-DIVER.Vg)-P0; }
+function diverAcc(dp,rho,y,v){ const f=diverForce(y,dp,rho); return (-f.Fup-DIVER.cd*v*Math.abs(v))/DIVER.m; }   /* y measured DOWN */
+
+/* ---- the ISA troposphere and a balloon ---------------------------------------- */
+const ISA={T0:288.15,L:0.0065,R:287.0528,Ru:8.314462618,ztop:11000};
+ISA.Mair=ISA.Ru/ISA.R;
+const GASES=[{id:'helium',name:'helium',M:4.002602e-3},{id:'hydrogen',name:'hydrogen',M:2.01588e-3},{id:'hotair',name:'hot air (100 °C)',M:null}];
+function isaT(z){ return ISA.T0-ISA.L*z; }
+function isaP(z){ return P0*Math.pow(isaT(z)/ISA.T0,G/(ISA.R*ISA.L)); }
+function isaRho(z){ return isaP(z)/(ISA.R*isaT(z)); }
+function gasRho(z,gas){ if(gas==='hotair') return isaP(z)/(ISA.R*373.15); const g=GASES.find(x=>x.id===gas); return isaP(z)*g.M/(ISA.Ru*isaT(z)); }
+function balloonLift(z,gas,V,mp){ return (isaRho(z)-gasRho(z,gas))*G*V-mp*G; }
+function balloonCeiling(gas,V,mp){
+  if(balloonLift(0,gas,V,mp)<=0) return 0;
+  if(balloonLift(ISA.ztop,gas,V,mp)>0) return ISA.ztop;
+  return bisect(z=>balloonLift(z,gas,V,mp),0,ISA.ztop,60);
+}
+/* the light-gas closed form: rho_air(z_c) = m_p / (V (1 - M_gas/M_air)) inverted through the ISA power law */
+function balloonCeilingClosed(gas,V,mp){ const g=GASES.find(x=>x.id===gas); const rc=mp/(V*(1-g.M/ISA.Mair)), e=G/(ISA.R*ISA.L)-1;
+  return (ISA.T0/ISA.L)*(1-Math.pow(rc/isaRho(0),1/e)); }
+
+/* ================================================================== *
+ *  state, the live clock and runs, the per-view model, readout, eqbar *
+ * ================================================================== */
+const TABS=[['prin','the principle'],['press','the pressure'],['float','floating'],
+            ['stab','stability'],['crown','the crown'],['comp','the diver & the balloon']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0',
+           dim:'#8b93a6', off:'#161c2c', edge:'#242a3a', comp:'#2a3346', gold:'#d9b44a',
+           fluid:'#163a55', fluid2:'#1e4f73', body:'#4a5060', body2:'#6b7285', air:'#0d1626'};
+const RO_W=300;
+const COMP_LIST=[{id:'diver',name:'the Cartesian diver'},{id:'balloon',name:'the balloon'}];
+const FLUID_LIST=FLUIDS.map(f=>({id:f.id,name:f.name}));
+const MAT_LIST=MATS.map(m=>({id:m.id,name:m.name}));
+const GAS_LIST=GASES.map(g=>({id:g.id,name:g.name}));
+
+const DEFAULTS={view:'prin', fluid:'water', mat:'iron', rhoCustom:1500, volL:2, lowered:0.6,
+                shape:'box', tilt:25, wline:0.3,
+                fshape:'box', ratio:0.5, cargo:200, push:0.1,
+                beam:1.0, sratio:0.5, heel:5,
+                crownM:1.0, gold:0.7,
+                comp:'diver', squeeze:7000, diverY:0.12, gas:'helium', balV:2000, payload:1500,
+                running:true, speed:1};
+const ST=Object.assign({},DEFAULTS);
+const LIM={volMax:10, tiltMax:180, cargoMax:700, beamMax:3, squeezeMax:12000, balVMax:6000, payloadMax:3000};
+
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+
+/* ---- the live clock and the three runs --------------------------------------
+   A run is an ODE integrated one 1/60 s step per frame (speed = steps per
+   frame) from the state the sliders set when the button was pressed: the
+   heaving body (float), the rolling box (stab), the sinking diver (comp).
+   Every slider resets its view's run; nothing moves until the button. */
+const SIM={t:0, key:''};
+const RUN={kind:null, t:0, x:0, v:0, trace:[]};
+const HEAVE_C=20, ROLL_C=0.0;                  /* damping: N s/m per m^2 of body, N m s per m of length */
+function simKey(st){ return [st.view,st.fluid,st.mat,st.rhoCustom,st.volL,st.shape,st.tilt,st.wline,st.fshape,st.ratio,st.cargo,st.push,
+                             st.beam,st.sratio,st.heel,st.crownM,st.gold,st.comp,st.squeeze,st.diverY,st.gas,st.balV,st.payload].join('|'); }
+function simReset(st){ SIM.t=0; SIM.key=simKey(st); RUN.kind=null; RUN.t=0; RUN.x=0; RUN.v=0; RUN.trace=[]; }
+function viewAnimates(v){ return v==='float'||v==='stab'||v==='comp'; }
+function runActive(st){ return RUN.kind!==null&&RUN.kind===st.view; }
+/* the buttons: start a run from the current sliders */
+function startRun(st){
+  if(SIM.key!==simKey(st)) simReset(st);
+  if(st.view==='float'){ const F=floatModel(st); if(F.sinks) return false; RUN.kind='float'; RUN.x=-st.push; RUN.v=0; }
+  else if(st.view==='stab'){ RUN.kind='stab'; RUN.x=st.heel*DEG; RUN.v=0; }
+  else if(st.view==='comp'){ if(st.comp!=='diver') return false; RUN.kind='comp'; RUN.x=st.diverY; RUN.v=0; }
+  else return false;
+  RUN.t=0; RUN.trace=[[0,RUN.x]]; return true;
+}
+/* one frame: `speed` RK4 steps of FRAME_DT */
+function runStep(st){
+  if(!runActive(st)) return false;
+  const n=Math.max(1,Math.round(st.speed));
+  for(let k=0;k<n;k++){
+    if(RUN.kind==='float'){ const F=floatModel(st); const s=rk4Step((z,v)=>heaveAcc(F.kind,F.dims,F.rho,F.m,F.d,z,v,HEAVE_C),RUN.x,RUN.v,FRAME_DT); RUN.x=s[0]; RUN.v=s[1]; }
+    else if(RUN.kind==='stab'){ const Sm=stabModel(st); const s=rk4Step((th,om)=>rollAcc(Sm.b,Sm.h,Sm.r,Sm.rho,ROLL_C,th,om),RUN.x,RUN.v,FRAME_DT); RUN.x=s[0]; RUN.v=s[1]; }
+    else { const C=compModel(st); const s=rk4Step((y,v)=>diverAcc(C.dp,C.rho,y,v),RUN.x,RUN.v,FRAME_DT); RUN.x=s[0]; RUN.v=s[1];
+      if(RUN.x<0){ RUN.x=0; RUN.v=0; } if(RUN.x>DIVER.H){ RUN.x=DIVER.H; RUN.v=0; } }
+    RUN.t+=FRAME_DT;
+  }
+  if(RUN.trace.length<3600) RUN.trace.push([RUN.t,RUN.x]);
+  return true;
+}
+
+/* ---- the principle ------------------------------------------------------------ */
+function prinModel(st){
+  const rhoF=fluidRho(st.fluid), rhoB=matRho(st.mat,st.rhoCustom), V=st.volL/1000, a=Math.pow(V,1/3), s=st.lowered;
+  const fSub=clamp(s,0,1), Vsub=fSub*V, W=rhoB*G*V, Fb=rhoF*G*Vsub, T=W-Fb;
+  const dBot=s*a, dTop=Math.max(0,(s-1)*a);          /* depths of the bottom and top faces below the surface */
+  const pBot=rhoF*G*dBot, pTop=rhoF*G*dTop, A=a*a;
+  return {rhoF,rhoB,V,a,s,fSub,Vsub,W,Fb,T,slack:T<0,dBot,dTop,pBot,pTop,A,faceNet:(pBot-pTop)*A,
+          floatFrac:rhoB/rhoF,wouldFloat:rhoB<rhoF,mFluidDisp:rhoF*Vsub,scaleKg:Math.max(T,0)/G};
+}
+/* ---- the pressure -------------------------------------------------------------- */
+function pressModel(st){
+  const rhoF=fluidRho(st.fluid), key=[st.shape,st.tilt,st.wline,st.fluid].join('|');
+  return memo('press',key,()=>{
+    const P=polyRotate(SHAPES[st.shape].pts,st.tilt*DEG), S=clipBelow(P,st.wline);
+    const A=polyArea(S), Atot=polyArea(P), C=A>1e-12?polyCentroid(S):null, E=edgeForces(S,st.wline,rhoF);
+    let ymin=Infinity, ymax=-Infinity; for(const p of P){ ymin=Math.min(ymin,p[1]); ymax=Math.max(ymax,p[1]); }
+    return {rhoF,P,S,A,Atot,frac:A/Atot,C,F:E.F,tot:E.tot,torque:E.torque,rhogA:rhoF*G*A,
+            xB:(C&&A>1e-12)?E.torque/(rhoF*G*A):null,ymin,ymax,w:st.wline,pMax:rhoF*G*(st.wline-ymin)};
+  });
+}
+/* ---- floating ------------------------------------------------------------------- */
+function floatModel(st){
+  const rho=fluidRho(st.fluid), key=[st.fshape,st.ratio,st.cargo,st.fluid].join('|');
+  return memo('float',key,()=>{
+    const kind=shapeKind(st.fshape), dims=FSHAPES[st.fshape].dims, V=vtot(kind,dims);
+    const boat=st.fshape==='boat';
+    const mass=boat?BOAT.hullMass+st.cargo:st.ratio*rho*V;
+    const r=mass/(rho*V);
+    const sinks=r>=1;
+    const d=sinks?(kind==='box'?dims[1]:2*dims[0]):draft(kind,r,dims);
+    const A=sinks?0:awl(kind,d,dims), T=sinks?null:heavePeriod(mass,rho,A);
+    const top=kind==='box'?dims[1]:2*dims[0];
+    return {kind,dims,V,boat,m:mass,rho,r,sinks,d,A,T,freeboard:top-d,Vsub:vsub(kind,d,dims),top,
+            capacity:boat?rho*BOAT.encl-BOAT.hullMass:null,rhoMean:mass/V};
+  });
+}
+/* ---- stability ----------------------------------------------------------------- */
+function stabModel(st){
+  const rho=fluidRho(st.fluid), key=[st.beam,st.sratio,st.fluid].join('|');
+  return memo('stab',key,()=>{
+    const b=st.beam, h=1, r=st.sratio, GM=gmSmall(b,h,r), bc=criticalBeam(h,r), curve=gzCurve(b,h,r,90);
+    const m=r*rho*b*h, I=m*(b*b+h*h)/12, V=r*b*h;
+    return {b,h,r,rho,GM,bc,stable:GM>0,curve,loll:curve.loll,m,I,V,Troll:GM>0?rollPeriod(b,h,r,rho):null,
+            d:r*h,KB:r*h/2,BM:b*b/(12*r*h),KG:h/2};
+  });
+}
+/* ---- the crown ----------------------------------------------------------------- */
+function crownModel(st){ return Object.assign({m:st.crownM,f:st.gold,rhoW:fluidRho('water')},crownFacts(st.crownM,st.gold,fluidRho('water'))); }
+/* ---- the diver and the balloon ------------------------------------------------------ */
+function compModel(st){
+  const rho=fluidRho('water');
+  if(st.comp==='diver'){
+    const dp=st.squeeze, yEq=diverEq(dp,rho), dF=diverDFdy(dp,rho);
+    const top=diverForce(0,dp,rho), bot=diverForce(DIVER.H,dp,rho);
+    return {comp:'diver',rho,dp,yEq,inBottle:yEq!==null&&yEq>=0&&yEq<=DIVER.H,dFdy:dF,top,bot,dpSink:diverDpSink(rho),
+            rhoMeanTop:DIVER.m/(DIVER.Vg+top.Va),y0:st.diverY};
+  }
+  const key=[st.gas,st.balV,st.payload].join('|');
+  return memo('balloon',key,()=>{
+    const lift0=balloonLift(0,st.gas,st.balV,st.payload), zc=balloonCeiling(st.gas,st.balV,st.payload);
+    const zs=[], rs=[], ls=[]; for(let k=0;k<=44;k++){ const z=ISA.ztop*k/44; zs.push(z); rs.push(isaRho(z)); ls.push(balloonLift(z,st.gas,st.balV,st.payload)); }
+    return {comp:'balloon',gas:st.gas,V:st.balV,mp:st.payload,lift0,zc,rhoC:isaRho(zc),rhoGas0:gasRho(0,st.gas),rho0:isaRho(0),
+            capped:zc>=ISA.ztop,grounded:lift0<=0,zs,rs,ls,rhoNeed:st.payload/st.balV,pC:isaP(zc),TC:isaT(zc)};
+  });
+}
+
+function buildModel(){
+  const st=ST, view=st.view;
+  const M={view,st,t:SIM.t,run:runActive(st)?{t:RUN.t,x:RUN.x,v:RUN.v,trace:RUN.trace}:null};
+  if(view==='prin') M.Pr=prinModel(st);
+  if(view==='press') M.Ps=pressModel(st);
+  if(view==='float'){ M.Fl=floatModel(st); M.z=M.run?M.run.x:0; }
+  if(view==='stab'){ M.Sb=stabModel(st); M.th=M.run?M.run.x:st.heel*DEG; M.heel=heelState(M.Sb.b,M.Sb.h,M.Sb.r,M.th); }
+  if(view==='crown') M.Cr=crownModel(st);
+  if(view==='comp'){ M.Cp=compModel(st); if(M.Cp.comp==='diver'){ M.y=M.run?M.run.x:st.diverY; M.now=diverForce(M.y,M.Cp.dp,M.Cp.rho); } }
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function fN(x){ return sigf(x,4)+' N'; }
+function readoutHTML(M){
+  const st=ST;
+  let s='<div class="rname">buoyancy<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='prin'){
+    const P=M.Pr;
+    s+=hd('the block')+rrow('material, &rho;<sub>b</sub>',sigf(P.rhoB,4)+' kg/m&sup3;')+rrow('volume, side',sigf(P.V*1000,3)+' L, '+sigf(P.a*100,3)+' cm')
+      +rrow('weight W = &rho;<sub>b</sub>gV',fN(P.W))+rrow('fluid, &rho;<sub>f</sub>',sigf(P.rhoF,4)+' kg/m&sup3;');
+    s+=hd('lowered '+fmt(P.s,2)+' sides')+rrow('displaced V<sub>sub</sub>',sigf(P.Vsub*1000,3)+' L = '+sigf(P.mFluidDisp,3)+' kg of fluid')
+      +rrow('upthrust &rho;<sub>f</sub>gV<sub>sub</sub>',fN(P.Fb),'good')+rrow('scale reads W &minus; F<sub>b</sub>',P.slack?'0 (string slack: it floats)':fN(P.T),P.slack?'bad':'')
+      +rrow('&hellip; in kilograms',sigf(P.scaleKg,4)+' kg');
+    s+=hd('the faces')+rrow('bottom, depth '+sigf(P.dBot*100,3)+' cm',sigf(P.pBot,4)+' Pa')+rrow('top, depth '+sigf(P.dTop*100,3)+' cm',sigf(P.pTop,4)+' Pa')
+      +rrow('(p<sub>bot</sub> &minus; p<sub>top</sub>) A',fN(P.faceNet),'good')+rrow('&rho;<sub>b</sub>/&rho;<sub>f</sub>',sigf(P.floatFrac,3)+(P.wouldFloat?' — floats '+Math.round(100*P.floatFrac)+' % under':' — sinks'));
+  }
+  else if(M.view==='press'){
+    const P=M.Ps;
+    s+=hd(SHAPES[st.shape].name+', tilted '+fmt(st.tilt,0)+'&deg;')+rrow('waterline y<sub>w</sub>',fmt(P.w,2))+rrow('submerged area A',sigf(P.A,4)+' m&sup2; ('+Math.round(100*P.frac)+' %)')
+      +rrow('deepest pressure',sigf(P.pMax,4)+' Pa');
+    s+=hd('sum of the edge forces (per m)')+rrow('&Sigma;F<sub>x</sub>',sigf(P.tot[0],3)+' N/m',Math.abs(P.tot[0])<1e-6*Math.max(1,Math.abs(P.tot[1]))?'good':'bad')
+      +rrow('&Sigma;F<sub>y</sub>',sigf(P.tot[1],5)+' N/m','good')+rrow('&rho;<sub>f</sub> g A',sigf(P.rhogA,5)+' N/m');
+    if(P.C){ s+=rrow('line of action x',sigf(P.xB,4)+' m')+rrow('centroid of the area',sigf(P.C[0],4)+', '+sigf(P.C[1],4),'good'); }
+    else s+=rrow('nothing submerged','raise the waterline','bad');
+  }
+  else if(M.view==='float'){
+    const F=M.Fl;
+    s+=hd(FSHAPES[st.fshape].name+' in '+FLUIDS.find(f=>f.id===st.fluid).name)+rrow('mass',sigf(F.m,4)+' kg'+(F.boat?' (hull '+BOAT.hullMass+' + cargo '+fmt(st.cargo,0)+')':''))
+      +rrow('volume',sigf(F.V,4)+' m&sup3;')+rrow('mean density / &rho;<sub>f</sub>',sigf(F.r,4),F.sinks?'bad':'good');
+    if(F.sinks) s+=rrow('verdict','it sinks','bad'); else s+=hd('equilibrium')+rrow('draft d',sigf(F.d,4)+' m')+rrow('freeboard',sigf(F.freeboard,4)+' m')
+      +rrow('V<sub>sub</sub> = m/&rho;<sub>f</sub>',sigf(F.Vsub,4)+' m&sup3;','good')+rrow('waterplane A<sub>wl</sub>',sigf(F.A,4)+' m&sup2;')+rrow('heave 2&pi;&radic;(m/&rho;<sub>f</sub>gA<sub>wl</sub>)',sigf(F.T,4)+' s');
+    if(F.boat) s+=rrow('cargo it can carry',sigf(F.capacity,4)+' kg');
+    if(M.run) s+=hd('the run')+rrow('t',fmt(M.run.t,2)+' s')+rrow('z (up)',sigf(M.run.x,3)+' m')+rrow('v',sigf(M.run.v,3)+' m/s');
+  }
+  else if(M.view==='stab'){
+    const S=M.Sb, Hh=M.heel;
+    s+=hd('the box, b/h = '+fmt(S.b,2)+', r = '+fmt(S.r,2))+rrow('draft d = rh',sigf(S.d,4))+rrow('KB, BM = I/V, KG',sigf(S.KB,4)+', '+sigf(S.BM,4)+', '+sigf(S.KG,4))
+      +rrow('GM = KB + BM &minus; KG',sigf(S.GM,4),S.stable?'good':'bad')+rrow('critical b/h = &radic;(6r(1&minus;r))',sigf(S.bc,4))
+      +rrow('upright',S.stable?'stable':'unstable',S.stable?'good':'bad');
+    if(S.loll!==null) s+=rrow('angle of loll',fmt(S.loll,2)+'&deg;','bad');
+    if(S.Troll!==null) s+=rrow('roll period 2&pi;&radic;(I/&rho;gV&middot;GM)',sigf(S.Troll,4)+' s');
+    s+=hd('heeled '+fmt(M.th/DEG,1)+'&deg;')+rrow('waterline y<sub>w</sub>',sigf(Hh.w,4))+rrow('B',sigf(Hh.B[0],4)+', '+sigf(Hh.B[1],4))
+      +rrow('GZ (exact)',sigf(Hh.GZ,4),Hh.GZ*Math.sin(M.th)>=0?'good':'bad')+rrow('GM sin &theta;',sigf(S.GM*Math.sin(M.th),4));
+    if(M.run) s+=hd('the run')+rrow('t',fmt(M.run.t,2)+' s')+rrow('&theta;',fmt(M.run.x/DEG,2)+'&deg;')+rrow('&omega;',sigf(M.run.v,3)+' rad/s');
+  }
+  else if(M.view==='crown'){
+    const C=M.Cr;
+    s+=hd('the crown, '+fmt(C.m,2)+' kg')+rrow('gold by mass',Math.round(100*C.f)+' %')+rrow('volume',sigf(C.V*1e6,4)+' cm&sup3;')+rrow('density',sigf(C.rho,5)+' kg/m&sup3;');
+    s+=hd('the balance (Galileo)')+rrow('weight in air',fN(C.W))+rrow('weight in water',fN(C.Wp))+rrow('&rho; = &rho;<sub>w</sub>W/(W &minus; W&prime;)',sigf(C.rhoInf,5)+' kg/m&sup3;','good')
+      +rrow('gold fraction inferred',Math.round(1000*C.fInf)/10+' %','good')+rrow('vs an equal mass of gold',sigf(C.torque,4)+' N extra upthrust');
+    s+=hd('the overflow (Vitruvius)')+rrow('extra volume vs gold',sigf(C.dV*1e6,4)+' cm&sup3;')+rrow('level in a 20-cm vessel',sigf(C.dhMm,3)+' mm',C.dhMm<1?'bad':'');
+  }
+  else {
+    const C=M.Cp;
+    if(C.comp==='diver'){
+      s+=hd('the diver')+rrow('glass 10 g, 4 mL; air 6.5 mL at the surface','')+rrow('squeeze &Delta;p',sigf(C.dp,4)+' Pa')+rrow('mean density at the top / &rho;<sub>w</sub>',sigf(C.rhoMeanTop/C.rho,4),C.rhoMeanTop<C.rho?'good':'bad');
+      s+=hd('equilibrium')+rrow('depth y*',C.yEq===null?'none':(sigf(C.yEq,4)+' m'+(C.inBottle?'':' (outside the bottle)')),C.inBottle?'':'bad')
+        +rrow('dF/dy there',C.dFdy===null?'—':sigf(C.dFdy,4)+' N/m','bad')+rrow('verdict','unstable: it never hovers','bad')+rrow('&Delta;p to sink it from the top',sigf(C.dpSink,4)+' Pa');
+      s+=hd('now, y = '+fmt(M.y,3)+' m')+rrow('air pocket',sigf(M.now.Va*1e6,4)+' mL')+rrow('net force (up)',fN(M.now.Fup),M.now.Fup>=0?'good':'bad');
+      if(M.run) s+=rrow('t, v (down)',fmt(M.run.t,2)+' s, '+sigf(M.run.v,3)+' m/s');
+    } else {
+      s+=hd(GASES.find(g=>g.id===C.gas).name+', V = '+fmt(C.V,0)+' m&sup3;')+rrow('payload + envelope',fmt(C.mp,0)+' kg')+rrow('&rho;<sub>air</sub>, &rho;<sub>gas</sub> at sea level',sigf(C.rho0,4)+', '+sigf(C.rhoGas0,4)+' kg/m&sup3;')
+        +rrow('lift at sea level',fN(C.lift0),C.lift0>0?'good':'bad');
+      s+=hd('the ceiling')+rrow('needs &rho;<sub>air</sub> &minus; &rho;<sub>gas</sub> =',sigf(C.rhoNeed,4)+' kg/m&sup3;')
+        +rrow('altitude',C.grounded?'it does not lift':(C.capped?'above the tropopause (11 km)':sigf(C.zc,4)+' m'),C.grounded||C.capped?'bad':'good')
+        +rrow('&rho;<sub>air</sub>, p, T there',sigf(C.rhoC,4)+' kg/m&sup3;, '+sigf(C.pC/1000,4)+' kPa, '+sigf(C.TC,4)+' K');
+    }
+  }
+  s+='</table><div class="note">Measured: the densities and the ISA constants (sources in the header). Everything else is exact and pinned in selfTest to build_buoy/derive.py.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='prin') return E('<span class="hl">F<sub>b</sub> = &rho;<sub>f</sub> g V<sub>sub</sub></span> &nbsp;&middot;&nbsp; scale = W &minus; F<sub>b</sub> = (&rho;<sub>b</sub> &minus; &rho;<sub>f</sub>) g V &nbsp;<span class="rm">(fully under)</span>',
+    'Archimedes: the upthrust is the weight of the fluid the body pushes aside — read it off the beaker and off the scale');
+  if(M.view==='press') return E('F = &minus;&oint; p n dA, &nbsp; p = &rho;<sub>f</sub> g (y<sub>w</sub> &minus; y) &nbsp;&rArr;&nbsp; <span class="hl">F = &rho;<sub>f</sub> g A<sub>sub</sub> &ycirc;</span> <span class="rm">through the centroid</span>',
+    'the fluid that would fill the same space is in equilibrium, so the pressure on that surface must exactly carry its weight — for any shape, at any tilt');
+  if(M.view==='float') return E('<span class="hl">&rho;<sub>f</sub> V<sub>sub</sub> = m</span> &nbsp;&middot;&nbsp; V<sub>sub</sub>/V = &rho;<sub>b</sub>/&rho;<sub>f</sub> &nbsp;&middot;&nbsp; m z&Prime; = &minus;&rho;<sub>f</sub> g A<sub>wl</sub> z &nbsp;&rArr;&nbsp; T = 2&pi;&radic;(m / &rho;<sub>f</sub> g A<sub>wl</sub>)',
+    'a floating body sinks until it displaces its own weight; pushed down it heaves like a mass on the spring the waterplane makes');
+  if(M.view==='stab') return E('<span class="hl">GM = KB + BM &minus; KG</span>, &nbsp; BM = I/V = b&sup2;/12d &nbsp;&middot;&nbsp; GZ &asymp; GM sin &theta; &nbsp;&middot;&nbsp; stable upright iff b/h &gt; &radic;(6r(1&minus;r))',
+    'heel the box and B moves outboard; if it moves past the line of G the box rights itself, if not it rolls on — the metacentre M decides');
+  if(M.view==='crown') return E('<span class="hl">&rho; = &rho;<sub>w</sub> W / (W &minus; W&prime;)</span> &nbsp;&middot;&nbsp; V = m(f/&rho;<sub>Au</sub> + (1&minus;f)/&rho;<sub>Ag</sub>) &nbsp;&middot;&nbsp; &Delta;h = &Delta;V / (&pi;D&sup2;/4)',
+    'weigh it in air and in water and the density falls out; the overflow method needs a fraction of a millimetre of water level');
+  if(M.Cp&&M.Cp.comp==='diver') return E('V<sub>air</sub> = V<sub>0</sub> p<sub>0</sub> / (p<sub>0</sub> + &Delta;p + &rho;gy) &nbsp;&middot;&nbsp; <span class="hl">F = &rho;g(V<sub>g</sub> + V<sub>air</sub>) &minus; mg</span>, &nbsp; dF/dy &lt; 0',
+    'Boyle shrinks the pocket as it sinks, so the deeper it goes the less it is buoyed: the equilibrium exists and cannot be held');
+  return E('<span class="hl">L = (&rho;<sub>air</sub>(z) &minus; &rho;<sub>gas</sub>(z)) g V &minus; m<sub>p</sub> g</span> &nbsp;&middot;&nbsp; &rho;<sub>air</sub> = p/RT, &nbsp; T = T<sub>0</sub> &minus; 6.5 K/km &middot; z, &nbsp; p = p<sub>0</sub>(T/T<sub>0</sub>)<sup>g/RL</sup>',
+    'the balloon climbs until the air is as light as it is: the ISA troposphere gives the ceiling in closed form');
+}
+function tagHTML(M){
+  const st=ST;
+  if(M.view==='prin') return '<b>the principle</b> — '+MATS.find(m=>m.id===st.mat).name+' in '+FLUIDS.find(f=>f.id===st.fluid).name;
+  if(M.view==='press') return '<b>the pressure</b> — '+SHAPES[st.shape].name+', '+fmt(st.tilt,0)+'&deg;';
+  if(M.view==='float') return '<b>floating</b> — '+FSHAPES[st.fshape].name+(M.run?', heaving':'');
+  if(M.view==='stab') return '<b>stability</b> — b/h = '+fmt(st.beam,2)+', r = '+fmt(st.sratio,2)+(M.run?', released':'');
+  if(M.view==='crown') return '<b>the crown</b> — '+Math.round(100*st.gold)+' % gold';
+  return '<b>'+(st.comp==='diver'?'the Cartesian diver':'the balloon')+'</b>'+(st.comp==='diver'?' — squeeze '+fmt(st.squeeze/1000,1)+' kPa':' — '+GASES.find(g=>g.id===st.gas).name);
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — extracted from build_cycloid/p4_views.js, unchanged              *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+/* the fluid: a translucent slab from ybot up to the surface yw across [x0, x1] */
+function fluidRect(ctx,map,x0,x1,ybot,yw,col){
+  const X0=map.X(x0), X1=map.X(x1), Y0=map.Y(yw), Y1=map.Y(ybot);
+  ctx.fillStyle=col||rgba(COL.struct,0.16); ctx.fillRect(X0,Y0,X1-X0,Y1-Y0);
+  ctx.strokeStyle=rgba(COL.struct,0.8); ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y0); ctx.stroke();
+  POLY_SEGS.push(X0,Y0,X1,Y0);
+}
+/* a force arrow whose world length is len x (F / Fref), with its label */
+function forceArrow(ctx,W,H,map,at,F,Fref,dir,len,col,txt,labDx){
+  const v=[0,dir*len*Math.min(Math.abs(F)/Math.max(Fref,1e-12),1.6)];
+  arrowW(ctx,map,at,v,col,2);
+  const tip=[at[0]+v[0],at[1]+v[1]];
+  if(txt) lab(ctx,W,H,map.X(tip[0])+(labDx===undefined?8:labDx),map.Y(tip[1]),txt,col,LAB_FONT,labDx!==undefined&&labDx<0?'right':'left');
+}
+function matColour(id){
+  if(id==='gold') return '#d9b44a'; if(id==='silver') return '#c8ccd6'; if(id==='copper') return '#c47a45';
+  if(id==='cork'||id==='oak') return '#8a6a3e'; if(id==='ice') return '#bfe3ff'; if(id==='custom') return '#9a7fd1';
+  return '#6b7285';
+}
+
+/* ================================================================== *
+ *  view: the principle                                                *
+ * ================================================================== */
+const PRIN_CAP_FULL='A block hangs from a spring scale and is lowered into the tank (drag it, or use the slider; 1.00 sides puts its '
+  +'top at the surface). The fluid it pushes aside spills into the beaker on the right, and the scale reading falls by exactly the '
+  +'weight of that spilled fluid: W − F_b. Small cyan arrows are the pressure on the bottom face (and on the top face once it is '
+  +'under); their difference times the face area IS the upthrust. Below: the three forces against how far the block is lowered — '
+  +'the upthrust stops growing at 1.00, the weight never changes. Arrows share one force scale.';
+const PRIN_CAP_SHORT='Lower the block: the scale falls by the weight of the spilled fluid. Arrows share one force scale.';
+function prinGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,PRIN_CAP_FULL,PRIN_CAP_SHORT,1,0.34,1);
+  const ext={xmin:-0.33,xmax:0.5,ymin:-0.5,ymax:0.6};
+  const map=worldFitUp(L.main,ext,0.02);
+  const P=M.Pr, a=P.a, y0=-P.s*a;
+  return {L,map,a,y0,block:[[-a/2,y0],[a/2,y0],[a/2,y0+a],[-a/2,y0+a]]};
+}
+function drawPrin(ctx,W,H,M){
+  const G=prinGeo(ctx,W,H,M), L=G.L, map=G.map, P=M.Pr, a=G.a, y0=G.y0, st=M.st;
+  const bm=L.main;
+  /* the tank and the beaker */
+  fluidRect(ctx,map,-0.26,0.26,-0.45,0);
+  ctx.strokeStyle=rgba(COL.struct,0.55); ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(map.X(-0.26),map.Y(0.08)); ctx.lineTo(map.X(-0.26),map.Y(-0.45)); ctx.lineTo(map.X(0.26),map.Y(-0.45)); ctx.lineTo(map.X(0.26),map.Y(0.08)); ctx.stroke();
+  const Ab=0.04, lvl=P.Vsub/Ab;
+  ctx.beginPath(); ctx.moveTo(map.X(0.32),map.Y(-0.15)); ctx.lineTo(map.X(0.32),map.Y(-0.45)); ctx.lineTo(map.X(0.48),map.Y(-0.45)); ctx.lineTo(map.X(0.48),map.Y(-0.15)); ctx.stroke();
+  if(lvl>0){ const X0=map.X(0.32), X1=map.X(0.48); ctx.fillStyle=rgba(COL.pos,0.28); ctx.fillRect(X0,map.Y(-0.45+lvl),X1-X0,map.Y(-0.45)-map.Y(-0.45+lvl)); }
+  seg(ctx,map,[0.26,0],[0.32,-0.02],rgba(COL.struct,0.5),1,[3,3]);           /* the spout */
+  lab(ctx,W,H,map.X(0.40),map.Y(-0.10),'spilled: '+sigf(P.Vsub*1000,3)+' L = '+sigf(P.mFluidDisp,3)+' kg',COL.pos,SM_FONT,'center');
+  /* the scale and the string */
+  const sc=[-0.06,0.44,0.12,0.1];
+  ctx.fillStyle='#141925'; ctx.fillRect(map.X(sc[0]),map.Y(sc[1]+sc[3]),sc[2]*map.s,sc[3]*map.s);
+  ctx.strokeStyle=COL.edge; ctx.strokeRect(map.X(sc[0]),map.Y(sc[1]+sc[3]),sc[2]*map.s,sc[3]*map.s);
+  lab(ctx,W,H,map.X(0),map.Y(0.49),P.slack?'slack':sigf(P.T,4)+' N',P.slack?COL.ref:'#fff',LAB_FONT,'center');
+  lab(ctx,W,H,map.X(0),map.Y(0.575),'spring scale',COL.dim,SM_FONT,'center');
+  seg(ctx,map,[0,0.44],[0,y0+a],P.slack?rgba(COL.ref,0.6):'#c9ced8',P.slack?1:1.4,P.slack?[3,3]:null);
+  /* the block, its submerged part tinted */
+  const mc=matColour(st.mat);
+  worldPoly(ctx,map,G.block,rgba(mc,0.55),mc,1.4);
+  const sub=clipBelow(G.block,0);
+  if(sub.length>=3) worldFill(ctx,map,sub,rgba(COL.struct,0.22));
+  /* face pressures */
+  const pref=Math.max(P.pBot,1e-9), n=4;
+  for(let k=0;k<n;k++){ const x=-a/2+a*(k+0.5)/n;
+    if(P.pBot>0){ const len=0.12*P.pBot/pref; arrowW(ctx,map,[x,y0-len],[0,len],COL.struct,1.2); }
+    if(P.pTop>0){ const len=0.12*P.pTop/pref; arrowW(ctx,map,[x,y0+a+len],[0,-len],COL.struct,1.2); } }
+  if(P.pBot>0) lab(ctx,W,H,map.X(0),map.Y(y0-0.12*P.pBot/pref-0.035),'p<sub>bot</sub> = &rho;<sub>f</sub> g d = '+sigf(P.pBot,4)+' Pa',COL.struct,SM_FONT,'center');
+  if(P.pTop>0) lab(ctx,W,H,map.X(0),map.Y(y0+a+0.12*P.pTop/pref+0.035),'p<sub>top</sub> = '+sigf(P.pTop,4)+' Pa',COL.struct,SM_FONT,'center');
+  /* the three forces, one scale: W -> 0.22 world */
+  const Fref=P.W, len=0.22, cB=sub.length>=3?polyCentroid(sub):[0,y0+a/2];
+  forceArrow(ctx,W,H,map,[a/2+0.03,y0+a/2],P.W,Fref,-1,len,COL.ref,'W = '+sigf(P.W,4)+' N');
+  if(P.Fb>0) forceArrow(ctx,W,H,map,[cB[0]-a/2-0.03,cB[1]],P.Fb,Fref,1,len,COL.pos,'F<sub>b</sub> = '+sigf(P.Fb,4)+' N',-8);
+  if(!P.slack&&P.T>0) forceArrow(ctx,W,H,map,[-a/2-0.03,y0+a],P.T,Fref,1,len,COL.live,'T = W &minus; F<sub>b</sub>',-8);
+  else if(P.slack) lab(ctx,W,H,map.X(-a/2)-10,map.Y(y0+a+0.06),'the string cannot push: it floats',COL.ref,SM_FONT,'right');
+  lab(ctx,W,H,map.X(-0.26)+5,map.Y(-0.45)-4,FLUIDS.find(f=>f.id===st.fluid).name+', '+sigf(P.rhoF,4)+' kg/m&sup3;',COL.struct,SM_FONT,'left','bottom');
+  lab(ctx,W,H,map.X(0),map.Y(y0+a/2),MATS.find(m=>m.id===st.mat).name+(st.mat==='custom'?'':''),'#fff',SM_FONT,'center');
+  /* the force curves against the lowering */
+  if(L.bottom.length){
+    const b=L.bottom[0];
+    const xs=[], fb=[], tt=[]; for(let i=0;i<=60;i++){ const s=1.5*i/60; xs.push(s); const F=P.rhoF*G_or(P)*Math.min(s,1)*P.V; fb.push(F); tt.push(P.W-F); }
+    const ylo=Math.min(0,Math.min.apply(null,tt))*1.1, yhi=Math.max(P.W,Math.max.apply(null,fb))*1.15;
+    axesR(ctx,b,0,1.5,ylo,yhi,{title:titleFor(b,'the three forces against how far the block is lowered (sides)','forces vs lowering'),xlab:'lowered, sides',ylab:'N',nx:6,ny:4,
+      yfmt:v=>sigf(v,3)});
+    polyline(ctx,b,[0,1.5],[P.W,P.W],0,1.5,ylo,yhi,COL.ref,1.2,[4,4]);
+    polyline(ctx,b,xs,fb,0,1.5,ylo,yhi,COL.pos,1.8);
+    polyline(ctx,b,xs,tt,0,1.5,ylo,yhi,COL.live,1.6);
+    polyline(ctx,b,[0,1.5],[0,0],0,1.5,ylo,yhi,'#3a4152',1,[2,3]);
+    marker(ctx,b,0,1.5,ylo,yhi,P.s,P.Fb,COL.pos); marker(ctx,b,0,1.5,ylo,yhi,P.s,P.T,COL.live);
+    legendAuto(ctx,b,[[COL.ref,'W = &rho;<sub>b</sub> g V'],[COL.pos,'F<sub>b</sub> = &rho;<sub>f</sub> g V<sub>sub</sub>'],[COL.live,'scale, W &minus; F<sub>b</sub>']]);
+  }
+  drawCaption(ctx,L);
+}
+function G_or(P){ return G; }
+
+/* ================================================================== *
+ *  view: the pressure                                                 *
+ * ================================================================== */
+const PRESS_CAP_FULL='A shape sits in the fluid at the tilt and waterline you set (drag the waterline). On every submerged edge the '
+  +'pressure ρ_f g (y_w − y) pushes inward, perpendicular to the edge, growing with depth — the cyan arrows. Summed edge by edge '
+  +'(exactly: the pressure is linear along a straight edge) the horizontal parts cancel and the vertical parts add to ρ_f g A_sub, '
+  +'the green arrow, acting through the centroid of the submerged area, the centre of buoyancy B. Below: that upthrust against the '
+  +'waterline height — it saturates once the whole shape is under. Forces are per metre of depth into the screen.';
+const PRESS_CAP_SHORT='Pressure on every submerged edge, summed: the upthrust is ρ_f g A_sub through the centroid. Per metre of depth.';
+function pressGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,PRESS_CAP_FULL,PRESS_CAP_SHORT,1,0.32,1);
+  const ext={xmin:-1.6,xmax:1.6,ymin:-1.45,ymax:1.45};
+  return {L,map:worldFitUp(L.main,ext,0.02)};
+}
+function drawPress(ctx,W,H,M){
+  const G2=pressGeo(ctx,W,H,M), L=G2.L, map=G2.map, P=M.Ps, w=P.w;
+  fluidRect(ctx,map,-1.6,1.6,-1.45,w);
+  lab(ctx,W,H,map.X(1.6)-4,map.Y(w)-3,'waterline y<sub>w</sub> = '+fmt(w,2)+' (drag)',COL.struct,SM_FONT,'right','bottom');
+  worldPoly(ctx,map,P.P,rgba(COL.body2,0.18),COL.struct,1.4);
+  if(P.S.length>=3) worldPoly(ctx,map,P.S,rgba(COL.pos,0.25),null);
+  /* the pressure arrows, inward, length ∝ p */
+  const pref=Math.max(P.pMax,1e-9);
+  for(const e of P.F){
+    const a=e[2], b=e[3], dx=b[0]-a[0], dy=b[1]-a[1], Le=Math.hypot(dx,dy); if(Le<1e-9) continue;
+    const nx=dy/Le, ny=-dx/Le, n=Math.max(1,Math.round(Le/0.16));
+    for(let k=0;k<n;k++){ const t=(k+0.5)/n, x=a[0]+dx*t, y=a[1]+dy*t, p=P.rhoF*G*(w-y); if(p<=0) continue;
+      const len=0.42*p/pref; arrowW(ctx,map,[x+nx*len,y+ny*len],[-nx*len,-ny*len],COL.struct,1.1); }
+  }
+  if(P.C){
+    arrowW(ctx,map,P.C,[0,0.7],COL.pos,2.6);
+    dot(ctx,map.X(P.C[0]),map.Y(P.C[1]),4.5,COL.live,'#fff');
+    lab(ctx,W,H,map.X(P.C[0])+9,map.Y(P.C[1]+0.7)-2,'&Sigma;F = &rho;<sub>f</sub> g A<sub>sub</sub> = '+sigf(P.tot[1],4)+' N/m',COL.pos,LAB_FONT);
+    lab(ctx,W,H,map.X(P.C[0])+9,map.Y(P.C[1])+8,'B, the centroid',COL.live,SM_FONT);
+    lab(ctx,W,H,map.X(P.C[0])-9,map.Y(P.C[1]+0.35),'&Sigma;F<sub>x</sub> = 0',COL.dim,SM_FONT,'right');
+  } else lab(ctx,W,H,map.X(0),map.Y(0.9),'nothing under the waterline',COL.ref,LAB_FONT,'center');
+  if(L.bottom.length){
+    const b=L.bottom[0], xs=[], ys=[];
+    for(let i=0;i<=80;i++){ const y=P.ymin+(P.ymax-P.ymin)*i/80; xs.push(y); ys.push(P.rhoF*G*polyArea(clipBelow(P.P,y))); }
+    const yhi=P.rhoF*G*P.Atot*1.12;
+    axesR(ctx,b,P.ymin,P.ymax,0,yhi,{title:titleFor(b,'upthrust per metre against the waterline height','upthrust vs waterline'),xlab:'waterline y_w',ylab:'N/m',nx:6,ny:4,yfmt:v=>sigf(v,3)});
+    polyline(ctx,b,xs,ys,P.ymin,P.ymax,0,yhi,COL.pos,1.8);
+    polyline(ctx,b,[P.ymin,P.ymax],[P.rhoF*G*P.Atot,P.rhoF*G*P.Atot],P.ymin,P.ymax,0,yhi,COL.ref,1.2,[4,4]);
+    marker(ctx,b,P.ymin,P.ymax,0,yhi,clamp(w,P.ymin,P.ymax),P.rhogA,COL.live);
+    legendAuto(ctx,b,[[COL.pos,'&rho;<sub>f</sub> g A<sub>sub</sub>(y<sub>w</sub>)'],[COL.ref,'fully under: &rho;<sub>f</sub> g A']]);
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: floating                                                     *
+ * ================================================================== */
+const FLOAT_CAP_FULL='The body sinks until the fluid it displaces weighs what it does: ρ_f V_sub = m, so for a box the submerged fraction '
+  +'is the density ratio, and for a cylinder or a sphere the draft is the root of a segment or a cap formula. The hull is mostly air; '
+  +'load it and its mean density climbs until the freeboard is gone. Push & release starts the heave: the extra displaced volume is '
+  +'a spring of stiffness ρ_f g A_wl, and the body oscillates with T = 2π√(m/ρ_f g A_wl) (exact for the box, small-amplitude for the '
+  +'rest; light damping). Below: either the upthrust against draft with the equilibrium marked, or the heave trace during a run.';
+const FLOAT_CAP_SHORT='A body sinks until ρ_f V_sub = m; push & release to see it heave at 2π√(m/ρ_f g A_wl).';
+function floatGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,FLOAT_CAP_FULL,FLOAT_CAP_SHORT,1,0.34,1);
+  const ext={xmin:-1.15,xmax:1.15,ymin:-1.0,ymax:0.85};
+  return {L,map:worldFitUp(L.main,ext,0.02)};
+}
+function bodyPoly(F,yb){                       /* the body's outline with its lowest point at y = yb */
+  if(F.kind==='box'){ const b=F.dims[0], h=F.dims[1]; return [[-b/2,yb],[b/2,yb],[b/2,yb+h],[-b/2,yb+h]]; }
+  const R=F.dims[0], o=[]; for(let k=0;k<72;k++) o.push([R*Math.cos(TAU*k/72),yb+R+R*Math.sin(TAU*k/72)]); return o;
+}
+function drawFloat(ctx,W,H,M){
+  const G2=floatGeo(ctx,W,H,M), L=G2.L, map=G2.map, F=M.Fl, st=M.st, z=M.z;
+  const bottom=-0.95;
+  const yb=F.sinks?bottom:(-F.d+z);
+  const poly=bodyPoly(F,yb);
+  const col=F.boat?'#8a6a3e':COL.body2;
+  /* the body, then the fluid over it so the wet part is tinted */
+  if(F.boat){ const b=F.dims[0], h=F.dims[1], t=0.06;
+    worldPoly(ctx,map,[[-b/2,yb],[b/2,yb],[b/2,yb+h],[b/2-t,yb+h],[b/2-t,yb+t],[-b/2+t,yb+t],[-b/2+t,yb+h],[-b/2,yb+h]],rgba(col,0.6),col,1.4);
+    const n=Math.round(st.cargo/50); for(let k=0;k<n;k++){ const cx=-b/2+t+0.09+(k%9)*0.095, cy=yb+t+0.01+Math.floor(k/9)*0.1;
+      worldPoly(ctx,map,[[cx,cy],[cx+0.085,cy],[cx+0.085,cy+0.09],[cx,cy+0.09]],rgba(COL.ref,0.45),COL.ref,1); } }
+  else worldPoly(ctx,map,poly,rgba(col,0.55),col,1.4);
+  fluidRect(ctx,map,-1.15,1.15,bottom,0);
+  ctx.strokeStyle=rgba(COL.struct,0.55); ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(map.X(-1.15),map.Y(0.4)); ctx.lineTo(map.X(-1.15),map.Y(bottom)); ctx.lineTo(map.X(1.15),map.Y(bottom)); ctx.lineTo(map.X(1.15),map.Y(0.4)); ctx.stroke();
+  const sub=clipBelow(poly,0), cB=sub.length>=3?polyCentroid(sub):null, cG=[0,yb+F.top/2];
+  const Fw=F.m*G, Fb=F.rho*G*vsub(F.kind,-yb,F.dims), len=0.3;
+  forceArrow(ctx,W,H,map,[cG[0]+0.02,cG[1]],Fw,Fw,-1,len,COL.ref,'W = mg = '+sigf(Fw,4)+' N');
+  if(cB) forceArrow(ctx,W,H,map,[cB[0]-0.02,cB[1]],Fb,Fw,1,len,COL.pos,'F<sub>b</sub> = '+sigf(Fb,4)+' N',-8);
+  if(cB) dot(ctx,map.X(cB[0]),map.Y(cB[1]),3.5,COL.live,'#fff');
+  if(F.sinks) lab(ctx,W,H,map.X(0),map.Y(bottom+F.top+0.1),'mean density '+sigf(F.r,3)+' &times; the fluid: it sinks',COL.ref,LAB_FONT,'center');
+  else { lab(ctx,W,H,map.X(1.15)-4,map.Y(0)-3,'draft '+sigf(F.d,3)+' m, freeboard '+sigf(F.freeboard,3)+' m',COL.struct,SM_FONT,'right','bottom');
+    if(M.run) lab(ctx,W,H,map.X(-1.15)+4,map.Y(0.42)-2,'heaving: z = '+sigf(z,3)+' m, t = '+fmt(M.run.t,2)+' s',COL.live,SM_FONT,'left','bottom'); }
+  if(L.bottom.length){
+    const b=L.bottom[0];
+    if(M.run){
+      const tr=M.run.trace, ts=tr.map(p=>p[0]), zs=tr.map(p=>p[1]);
+      const tmax=Math.max(3,Math.ceil(M.run.t)), za=Math.max(0.05,Math.max.apply(null,zs.map(Math.abs)))*1.15;
+      axesR(ctx,b,0,tmax,-za,za,{title:titleFor(b,'the heave z(t) — T = 2&pi;&radic;(m/&rho;<sub>f</sub> g A<sub>wl</sub>) = '+sigf(F.T,4)+' s','heave, T = '+sigf(F.T,3)+' s'),xlab:'t (s)',ylab:'z (m)',nx:6,ny:4});
+      polyline(ctx,b,[0,tmax],[0,0],0,tmax,-za,za,'#3a4152',1,[2,3]);
+      polyline(ctx,b,ts,zs,0,tmax,-za,za,COL.live,1.8);
+      if(F.T) for(let k=1;k*F.T<tmax;k++) polyline(ctx,b,[k*F.T,k*F.T],[-za,za],0,tmax,-za,za,rgba(COL.ref,0.6),1,[3,3]);
+    } else {
+      const xs=[], ys=[]; for(let i=0;i<=60;i++){ const d=F.top*i/60; xs.push(d); ys.push(F.rho*G*vsub(F.kind,d,F.dims)); }
+      const yhi=Math.max(F.rho*G*F.V,Fw)*1.15;
+      axesR(ctx,b,0,F.top,0,yhi,{title:titleFor(b,'the upthrust against draft — it floats where &rho;<sub>f</sub> g V<sub>sub</sub>(d) meets the weight','upthrust vs draft'),xlab:'draft d (m)',ylab:'N',nx:6,ny:4,yfmt:v=>sigf(v,3)});
+      polyline(ctx,b,xs,ys,0,F.top,0,yhi,COL.pos,1.8);
+      polyline(ctx,b,[0,F.top],[Fw,Fw],0,F.top,0,yhi,COL.ref,1.2,[4,4]);
+      if(!F.sinks) marker(ctx,b,0,F.top,0,yhi,F.d,Fw,COL.live);
+      legendAuto(ctx,b,[[COL.pos,'&rho;<sub>f</sub> g V<sub>sub</sub>(d)'],[COL.ref,'W = m g']]);
+    }
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: stability                                                    *
+ * ================================================================== */
+const STAB_CAP_FULL='A box of beam b, height h = 1 and density ratio r floats heeled by θ (the slider, or the run after you release it). '
+  +'The submerged polygon is clipped exactly and its centroid is the centre of buoyancy B; the upthrust acts up through B and the '
+  +'weight down through G. The vertical through B meets the box’s centreline at the metacentre M, and the horizontal offset GZ '
+  +'is the righting arm — positive when the couple rights the box. Below left: GZ against heel (green) with the small-angle GM sin θ '
+  +'(orange); a box is stable upright only when GM = KB + BM − KG > 0, i.e. b/h > √(6r(1−r)). Below right: θ(t) during a run.';
+const STAB_CAP_SHORT='Heel the box: B moves to the submerged centroid; GZ = −B_x rights it or not. GM = KB + BM − KG.';
+function stabGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,STAB_CAP_FULL,STAB_CAP_SHORT,2,0.36,1);
+  const S=M.Sb, R=0.5*Math.hypot(S.b,S.h)+0.35;
+  const ext={xmin:-R,xmax:R,ymin:-R,ymax:R};
+  return {L,map:worldFitUp(L.main,ext,0.02)};
+}
+function drawStab(ctx,W,H,M){
+  const G2=stabGeo(ctx,W,H,M), L=G2.L, map=G2.map, S=M.Sb, Hh=M.heel, th=M.th;
+  const R=0.5*Math.hypot(S.b,S.h)+0.35;
+  fluidRect(ctx,map,-R,R,-R,Hh.w);
+  worldPoly(ctx,map,Hh.P,rgba(COL.body2,0.25),COL.struct,1.4);
+  if(Hh.S.length>=3) worldPoly(ctx,map,Hh.S,rgba(COL.pos,0.28),null);
+  /* the centreline, the buoyancy line, M */
+  const ux=-Math.sin(th), uy=Math.cos(th);
+  seg(ctx,map,[-ux*0.7*S.h,-uy*0.7*S.h],[ux*0.9*S.h,uy*0.9*S.h],rgba('#aeb6c6',0.35),1,[4,4]);
+  const B=Hh.B;
+  let Mpt=null; if(Math.abs(Math.sin(th))>1e-6){ const t=-B[0]/Math.sin(th); Mpt=[B[0],t*Math.cos(th)]; }
+  if(Mpt&&Math.abs(Mpt[1])<1.6*R){ seg(ctx,map,[B[0],B[1]],[B[0],Mpt[1]],rgba(COL.struct,0.8),1.2,[3,3]);
+    dot(ctx,map.X(Mpt[0]),map.Y(Mpt[1]),4,COL.struct,'#fff'); lab(ctx,W,H,map.X(Mpt[0])+8,map.Y(Mpt[1]),'M, the metacentre',COL.struct,SM_FONT); }
+  seg(ctx,map,[0,0],[B[0],0],COL.live,1.6);
+  const len=0.32;
+  forceArrow(ctx,W,H,map,[0,0],1,1,-1,len,COL.ref,'W at G');
+  forceArrow(ctx,W,H,map,[B[0],B[1]],1,1,1,len,COL.pos,'F<sub>b</sub> at B');
+  dot(ctx,map.X(0),map.Y(0),4,'#fff','#000'); dot(ctx,map.X(B[0]),map.Y(B[1]),4,COL.live,'#fff');
+  lab(ctx,W,H,map.X(B[0]/2),map.Y(0)+12,'GZ = '+sigf(Hh.GZ,3)+(Hh.GZ*Math.sin(th)>=-1e-15?' (rights it)':' (capsizes)'),COL.live,SM_FONT,'center');
+  lab(ctx,W,H,L.main.x+2,L.main.y+8,'heel '+fmt(th/DEG,1)+'&deg; &middot; '+(S.stable?'GM = '+sigf(S.GM,3)+' &gt; 0, stable upright':'GM = '+sigf(S.GM,3)+' &lt; 0, unstable upright'),S.stable?COL.pos:COL.ref,SM_FONT,'left','top');
+  if(L.bottom.length){
+    const b=L.bottom[0], C=S.curve, gmax=Math.max(0.02,Math.max.apply(null,C.gz.map(Math.abs)),Math.abs(S.GM))*1.15;
+    axesR(ctx,b,0,90,-gmax,gmax,{title:titleFor(b,'the righting arm GZ against heel: exact (green) and GM sin &theta; (orange)','GZ vs heel'),xlab:'heel &theta; (&deg;)',ylab:'GZ',nx:6,ny:4,yfmt:v=>sigf(v,2)});
+    polyline(ctx,b,[0,90],[0,0],0,90,-gmax,gmax,'#3a4152',1,[2,3]);
+    polyline(ctx,b,C.th,C.th.map(t=>S.GM*Math.sin(t*DEG)),0,90,-gmax,gmax,COL.ref,1.2,[4,4]);
+    polyline(ctx,b,C.th,C.gz,0,90,-gmax,gmax,COL.pos,1.8);
+    if(S.loll!==null){ polyline(ctx,b,[S.loll,S.loll],[-gmax,gmax],0,90,-gmax,gmax,rgba(COL.ref,0.7),1,[3,3]); lab(ctx,W,H,b.x+b.w*S.loll/90+4,b.y+12,'loll '+fmt(S.loll,1)+'&deg;',COL.ref,SM_FONT); }
+    const ta=Math.abs(th)/DEG; marker(ctx,b,0,90,-gmax,gmax,clamp(ta,0,90),heelState(S.b,S.h,S.r,clamp(ta,0,90)*DEG).GZ,COL.live);
+    legendAuto(ctx,b,[[COL.pos,'GZ, exact'],[COL.ref,'GM sin &theta;']]);
+  }
+  if(L.bottom.length>1){
+    const b=L.bottom[1];
+    if(M.run){ const tr=M.run.trace, ts=tr.map(p=>p[0]), hs=tr.map(p=>p[1]/DEG);
+      const tmax=Math.max(3,Math.ceil(M.run.t)), ha=Math.max(10,Math.max.apply(null,hs.map(Math.abs)))*1.15;
+      axesR(ctx,b,0,tmax,-ha,ha,{title:titleFor(b,'the roll &theta;(t) — I&theta;&Prime; = &minus;&rho;<sub>f</sub> g V GZ(&theta;)'+(S.Troll?', T = '+sigf(S.Troll,3)+' s':''),'roll &theta;(t)'),xlab:'t (s)',ylab:'&theta; (&deg;)',nx:6,ny:4});
+      polyline(ctx,b,[0,tmax],[0,0],0,tmax,-ha,ha,'#3a4152',1,[2,3]);
+      if(S.loll!==null) polyline(ctx,b,[0,tmax],[S.loll,S.loll],0,tmax,-ha,ha,rgba(COL.ref,0.6),1,[3,3]);
+      polyline(ctx,b,ts,hs,0,tmax,-ha,ha,COL.live,1.8); }
+    else { axesR(ctx,b,0,10,-60,60,{title:titleFor(b,'the roll &theta;(t) — press release','roll &theta;(t)'),xlab:'t (s)',ylab:'&theta; (&deg;)',nx:5,ny:4});
+      lab(ctx,W,H,b.x+b.w/2,b.y+b.h/2,'release the box at the heel you set',COL.dim,SM_FONT,'center'); }
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: the crown                                                    *
+ * ================================================================== */
+const CROWN_CAP_FULL='Left, the hydrostatic balance: the crown against an equal mass of pure gold, both dipped. The crown, alloyed with '
+  +'silver, is the larger body, so it is buoyed by more and its pan rises (the beam tilt is drawn exaggerated; the readout has the '
+  +'actual force). Right, Vitruvius’ overflow: the crown’s extra volume over the gold raises the water in a 20-cm vessel by '
+  +'Δh — drawn ×20, because at true scale it would be invisible, which was Galileo’s point. Below: the density of a gold–silver '
+  +'alloy against its gold fraction, which is what weighing in air and in water measures.';
+const CROWN_CAP_SHORT='The balance sees the alloy; the overflow (drawn ×20) barely can. Below: density against gold fraction.';
+function crownGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,CROWN_CAP_FULL,CROWN_CAP_SHORT,1,0.32,1);
+  const half=L.main.w/2;
+  const bl=box(L.main.x,L.main.y,half-8,L.main.h), br=box(L.main.x+half+8,L.main.y,half-8,L.main.h);
+  return {L,bl,br,mapL:worldFitUp(bl,{xmin:-0.5,xmax:0.5,ymin:-0.42,ymax:0.5},0.02),mapR:worldFitUp(br,{xmin:-0.3,xmax:0.3,ymin:-0.05,ymax:0.75},0.02)};
+}
+function crownPoly(cx,cy,s){ const o=[]; const pts=[[-1,-0.6],[1,-0.6],[1,0.1],[0.7,0.8],[0.4,0.15],[0,0.9],[-0.4,0.15],[-0.7,0.8],[-1,0.1]];
+  for(const p of pts) o.push([cx+p[0]*s,cy+p[1]*s]); return o; }
+function drawCrown(ctx,W,H,M){
+  const G2=crownGeo(ctx,W,H,M), L=G2.L, C=M.Cr, mL=G2.mapL, mR=G2.mapR;
+  /* the balance */
+  fluidRect(ctx,mL,-0.5,0.5,-0.4,0);
+  ctx.strokeStyle=rgba(COL.struct,0.55); ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(mL.X(-0.5),mL.Y(0.1)); ctx.lineTo(mL.X(-0.5),mL.Y(-0.4)); ctx.lineTo(mL.X(0.5),mL.Y(-0.4)); ctx.lineTo(mL.X(0.5),mL.Y(0.1)); ctx.stroke();
+  const tilt=clamp(C.torque/C.W*8,-0.12,0.12);                     /* exaggerated x8 (the caption says so): the crown's pan (left) rises */
+  const piv=[0,0.36], arm=0.32, e1=[piv[0]-arm*Math.cos(tilt),piv[1]-arm*Math.sin(tilt)], e2=[piv[0]+arm*Math.cos(tilt),piv[1]+arm*Math.sin(tilt)];
+  seg(ctx,mL,[0,0.42],[0,0.3],'#aeb6c6',1.6); seg(ctx,mL,[-0.05,0.3],[0.05,0.3],'#aeb6c6',1.6);
+  seg(ctx,mL,e1,e2,'#e4e7ee',2); dot(ctx,mL.X(piv[0]),mL.Y(piv[1]),3.5,'#fff','#000');
+  const p1=[e1[0],-0.14], p2=[e2[0],-0.14];
+  seg(ctx,mL,e1,[p1[0],p1[1]+0.02],'#9aa2b4',1); seg(ctx,mL,e2,[p2[0],p2[1]+0.02],'#9aa2b4',1);
+  seg(ctx,mL,[p1[0]-0.09,p1[1]],[p1[0]+0.09,p1[1]],'#c9ced8',1.6); seg(ctx,mL,[p2[0]-0.09,p2[1]],[p2[0]+0.09,p2[1]],'#c9ced8',1.6);
+  const sC=0.055*Math.pow(C.V/6.5e-5,1/3);
+  worldPoly(ctx,mL,crownPoly(p1[0],p1[1]+0.035,sC),rgba(COL.gold,0.6),COL.gold,1.2);
+  const sG=0.04*Math.pow(C.V/6.5e-5,1/3)*0.9;
+  worldPoly(ctx,mL,[[p2[0]-sG,p2[1]],[p2[0]+sG,p2[1]],[p2[0]+sG,p2[1]+1.2*sG],[p2[0]-sG,p2[1]+1.2*sG]],rgba(COL.gold,0.85),COL.gold,1.2);
+  lab(ctx,W,H,mL.X(p1[0]),mL.Y(-0.24),'the crown, '+sigf(C.V*1e6,3)+' cm&sup3;',COL.gold,SM_FONT,'center');
+  lab(ctx,W,H,mL.X(p2[0]),mL.Y(-0.24),'gold, '+sigf(C.m/matRho('gold')*1e6,3)+' cm&sup3;',COL.gold,SM_FONT,'center');
+  lab(ctx,W,H,mL.X(0),mL.Y(0.47),C.dV>0?'the crown rises: it is buoyed by '+sigf(C.torque,3)+' N more':'pure gold: the beam stays level','#fff',SM_FONT,'center');
+  lab(ctx,W,H,G2.bl.x+2,G2.bl.y+12,'Galileo&rsquo;s balance (tilt exaggerated)',COL.dim,SM_FONT,'left');
+  /* the overflow vessel */
+  const D=0.2, lvl=0.45, dh=C.dhMm/1000*20;
+  fluidRect(ctx,mR,-D/2,D/2,0,lvl+dh,rgba(COL.struct,0.16));
+  ctx.strokeStyle=rgba(COL.struct,0.55); ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(mR.X(-D/2),mR.Y(0.7)); ctx.lineTo(mR.X(-D/2),mR.Y(0)); ctx.lineTo(mR.X(D/2),mR.Y(0)); ctx.lineTo(mR.X(D/2),mR.Y(0.7)); ctx.stroke();
+  seg(ctx,mR,[-D/2,lvl],[D/2,lvl],rgba(COL.ref,0.8),1,[4,3]);
+  worldPoly(ctx,mR,crownPoly(0,0.12,0.045),rgba(COL.gold,0.6),COL.gold,1.2);
+  lab(ctx,W,H,mR.X(D/2)+6,mR.Y(lvl+dh/2),'&Delta;h = '+sigf(C.dhMm,3)+' mm (drawn &times;20)',COL.ref,SM_FONT,'left');
+  lab(ctx,W,H,mR.X(0),mR.Y(0.66),'Vitruvius&rsquo; overflow: D = 20 cm',COL.dim,SM_FONT,'center');
+  lab(ctx,W,H,mR.X(-D/2)-6,mR.Y(lvl),'gold level',COL.ref,SM_FONT,'right');
+  if(L.bottom.length){
+    const b=L.bottom[0], xs=[], ys=[]; for(let i=0;i<=50;i++){ const f=i/50; xs.push(f); ys.push(crownFacts(1,f,1000).rho); }
+    axesR(ctx,b,0,1,10000,20000,{title:titleFor(b,'the density of a gold&ndash;silver alloy against its gold fraction by mass','alloy density vs gold fraction'),xlab:'gold, fraction by mass',ylab:'kg/m&sup3;',nx:5,ny:4,yfmt:v=>sigf(v,3)});
+    polyline(ctx,b,xs,ys,0,1,10000,20000,COL.pos,1.8);
+    marker(ctx,b,0,1,10000,20000,C.f,C.rho,COL.live);
+    lab(ctx,W,H,b.x+b.w*C.f+8,b.y1-b.h*(C.rho-10000)/10000-4,'&rho; = '+sigf(C.rho,4),COL.live,SM_FONT);
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: the diver and the balloon                                    *
+ * ================================================================== */
+const DIVER_CAP_FULL='A sealed bottle of water; the diver is a small tube with an air pocket, and squeezing the bottle raises the '
+  +'pressure everywhere by Δp. Boyle shrinks the pocket, the diver displaces less, and its upthrust falls. There is a depth y* where '
+  +'it exactly balances — the dashed line — but a little deeper the pocket is smaller still and the net force points down; a '
+  +'little shallower, up. Below: the net upward force against depth crosses zero with a negative slope, which is what an unstable '
+  +'equilibrium looks like. Release the diver above or below y* and watch it run away (quadratic drag, walls at the top and bottom).';
+const DIVER_CAP_SHORT='Boyle shrinks the pocket with depth: the equilibrium exists and is unstable. Release the diver and watch.';
+const BALL_CAP_FULL='The ISA troposphere: temperature falls 6.5 K per kilometre, so pressure and density fall by the power law shown. '
+  +'A balloon of fixed volume rises as long as the air it displaces outweighs its gas and payload; it stops where the air’s density '
+  +'has fallen to (payload/V)/(1 − M_gas/M_air) — a closed form for a light gas, a root for hot air. The curve is the air density '
+  +'against altitude with the balloon drawn at its ceiling; below, the net lift against altitude. Beyond 11 km the model stops '
+  +'(the stratosphere has a different law).';
+const BALL_CAP_SHORT='The balloon climbs until the air is as light as it is; the ISA troposphere gives the ceiling in closed form.';
+function compGeo(ctx,W,H,M){
+  const diver=M.Cp.comp==='diver';
+  const L=stageLayout(ctx,W,H,diver?DIVER_CAP_FULL:BALL_CAP_FULL,diver?DIVER_CAP_SHORT:BALL_CAP_SHORT,1,0.34,1);
+  const map=diver?worldFitUp(L.main,{xmin:-0.2,xmax:0.2,ymin:-0.33,ymax:0.05},0.01):null;
+  return {L,map};
+}
+function drawComp(ctx,W,H,M){
+  const G2=compGeo(ctx,W,H,M), L=G2.L, C=M.Cp;
+  if(C.comp==='diver'){
+    const map=G2.map, y=M.y, Hb=DIVER.H;
+    fluidRect(ctx,map,-0.12,0.12,-Hb,0);
+    ctx.strokeStyle=rgba(COL.struct,0.55); ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(map.X(-0.12),map.Y(0.03)); ctx.lineTo(map.X(-0.12),map.Y(-Hb)); ctx.lineTo(map.X(0.12),map.Y(-Hb)); ctx.lineTo(map.X(0.12),map.Y(0.03)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(map.X(-0.12),map.Y(0.03)); ctx.lineTo(map.X(0.12),map.Y(0.03)); ctx.stroke();
+    /* the squeeze: arrows on the walls */
+    const sq=C.dp/LIM.squeezeMax;
+    if(sq>0){ for(const yy of [-0.08,-0.16,-0.24]){ arrowW(ctx,map,[-0.19,yy],[0.05*sq+0.01,0],COL.struct,1.4); arrowW(ctx,map,[0.19,yy],[-(0.05*sq+0.01),0],COL.struct,1.4); }
+      lab(ctx,W,H,map.X(-0.15),map.Y(-0.02),'squeeze &Delta;p = '+fmt(C.dp,0)+' Pa',COL.struct,SM_FONT,'left'); }
+    /* the equilibrium */
+    if(C.inBottle){ seg(ctx,map,[-0.12,-C.yEq],[0.12,-C.yEq],COL.live,1,[4,3]); lab(ctx,W,H,map.X(0.12)+6,map.Y(-C.yEq),'y* = '+sigf(C.yEq,3)+' m, unstable',COL.live,SM_FONT); }
+    else lab(ctx,W,H,map.X(0.12)+6,map.Y(-0.15),C.yEq===null?'no equilibrium':'y* outside the bottle ('+sigf(C.yEq,3)+' m)',COL.live,SM_FONT);
+    /* the diver: a 4-cm tube, its pocket height ∝ V_air */
+    const yt=-y, hT=0.04, hA=0.03*M.now.Va/DIVER.V0;
+    worldPoly(ctx,map,[[-0.01,yt-hT],[0.01,yt-hT],[0.01,yt],[-0.01,yt]],rgba(COL.body2,0.35),'#c9ced8',1.2);
+    worldPoly(ctx,map,[[-0.009,yt-hA],[0.009,yt-hA],[0.009,yt-0.001],[-0.009,yt-0.001]],rgba('#ffffff',0.85),null);
+    const Fw=DIVER.m*G, Fb=Fw+M.now.Fup;
+    forceArrow(ctx,W,H,map,[0.02,yt-hT/2],Fb,Fw,1,0.06,COL.pos,'F<sub>b</sub> = '+sigf(Fb,4)+' N');
+    forceArrow(ctx,W,H,map,[-0.02,yt-hT/2],Fw,Fw,-1,0.06,COL.ref,'mg = '+sigf(Fw,4)+' N',-8);
+    lab(ctx,W,H,map.X(0),map.Y(yt+0.012),'air '+sigf(M.now.Va*1e6,3)+' mL',COL.dim,SM_FONT,'center');
+    if(M.run) lab(ctx,W,H,map.X(-0.12)+4,map.Y(-Hb)+14,'t = '+fmt(M.run.t,2)+' s, y = '+sigf(y,3)+' m',COL.live,SM_FONT,'left');
+    if(L.bottom.length){
+      const b=L.bottom[0], xs=[], ys=[]; for(let i=0;i<=60;i++){ const yy=Hb*i/60; xs.push(yy); ys.push(diverForce(yy,C.dp,C.rho).Fup); }
+      const fa=Math.max(1e-4,Math.max.apply(null,ys.map(Math.abs)))*1.2;
+      axesR(ctx,b,0,Hb,-fa,fa,{title:titleFor(b,'net upward force on the diver against depth — the slope is negative at the crossing','net force vs depth'),xlab:'depth y (m)',ylab:'N',nx:6,ny:4,yfmt:v=>sigf(v,2)});
+      polyline(ctx,b,[0,Hb],[0,0],0,Hb,-fa,fa,'#3a4152',1,[2,3]);
+      polyline(ctx,b,xs,ys,0,Hb,-fa,fa,COL.pos,1.8);
+      if(C.inBottle) marker(ctx,b,0,Hb,-fa,fa,C.yEq,0,COL.ref);
+      marker(ctx,b,0,Hb,-fa,fa,clamp(y,0,Hb),M.now.Fup,COL.live);
+    }
+  } else {
+    const b0=L.main, zmax=ISA.ztop/1000;
+    axesR(ctx,b0,0,1.3,0,zmax,{title:titleFor(b0,'the ISA troposphere: air density against altitude, and the balloon at its ceiling','air density vs altitude'),xlab:'density (kg/m&sup3;)',ylab:'altitude (km)',nx:6,ny:6});
+    polyline(ctx,b0,C.rs,C.zs.map(z=>z/1000),0,1.3,0,zmax,COL.struct,1.8);
+    polyline(ctx,b0,C.zs.map(z=>gasRho(z,C.gas)),C.zs.map(z=>z/1000),0,1.3,0,zmax,rgba(COL.dim,0.7),1.2,[3,3]);
+    const rn=C.rhoNeed/(C.gas==='hotair'?1:(1-GASES.find(g=>g.id===C.gas).M/ISA.Mair));
+    if(C.gas!=='hotair') polyline(ctx,b0,[rn,rn],[0,zmax],0,1.3,0,zmax,COL.ref,1.2,[4,4]);
+    const zc=C.zc/1000, X=b0.x+b0.w*clamp(C.rhoC,0,1.3)/1.3, Y=b0.y1-b0.h*zc/zmax;
+    polyline(ctx,b0,[0,1.3],[zc,zc],0,1.3,0,zmax,rgba(COL.live,0.6),1,[3,3]);
+    dot(ctx,X,Y,9,rgba(COL.pos,0.35),COL.pos,1.6); dot(ctx,X,Y+16,3,COL.ref,null);
+    ctx.strokeStyle=COL.pos; ctx.beginPath(); ctx.moveTo(X,Y+9); ctx.lineTo(X,Y+16); ctx.stroke();
+    lab(ctx,W,H,X+14,Y,C.grounded?'no lift at sea level':(C.capped?'still lifting at 11 km':'ceiling '+sigf(C.zc,4)+' m'),COL.pos,LAB_FONT);
+    legendAuto(ctx,b0,[[COL.struct,'&rho;<sub>air</sub>(z), ISA'],[COL.dim,'&rho;<sub>gas</sub>(z)'],[COL.ref,'&rho;<sub>air</sub> needed']]);
+    if(L.bottom.length){
+      const b=L.bottom[0], la=Math.max(1,Math.max.apply(null,C.ls.map(Math.abs)))*1.15;
+      axesR(ctx,b,0,zmax,-la,la,{title:titleFor(b,'net lift against altitude — the balloon stops where it crosses zero','net lift vs altitude'),xlab:'altitude (km)',ylab:'N',nx:6,ny:4,yfmt:v=>sigf(v,3)});
+      polyline(ctx,b,[0,zmax],[0,0],0,zmax,-la,la,'#3a4152',1,[2,3]);
+      polyline(ctx,b,C.zs.map(z=>z/1000),C.ls,0,zmax,-la,la,COL.pos,1.8);
+      if(!C.grounded&&!C.capped) marker(ctx,b,0,zmax,-la,la,zc,0,COL.live);
+    }
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='prin') drawPrin(ctx,W,H,M);
+  else if(M.view==='press') drawPress(ctx,W,H,M);
+  else if(M.view==='float') drawFloat(ctx,W,H,M);
+  else if(M.view==='stab') drawStab(ctx,W,H,M);
+  else if(M.view==='crown') drawCrown(ctx,W,H,M);
+  else drawComp(ctx,W,H,M);
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame: only an active run moves anything (runStep carries the guard;
+     a second one here was an equivalent mutant the sweep could not see) */
+  S.step=function(){
+    if(!ST.running||!viewAnimates(ST.view)) return false;
+    return runStep(ST);
+  };
+  /* the pointer: the block in the principle view, the waterline in the pressure view */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    const ctx=canvas.getContext('2d');
+    if(ST.view==='prin'){
+      const G2=prinGeo(ctx,S.W,S.H,buildModel()), map=G2.map;
+      if(type==='down'){ const X0=map.X(-G2.a/2)-10, X1=map.X(G2.a/2)+10, Y0=map.Y(G2.y0+G2.a)-10, Y1=map.Y(G2.y0)+10;
+        if(x>=X0&&x<=X1&&y>=Y0&&y<=Y1){ DRAG.what='block'; DRAG.off=(G2.y0+G2.a/2)-map.wy(y); return true; } return false; }
+      if(type==='move'&&DRAG.what==='block'){ const yc=map.wy(y)+DRAG.off; ST.lowered=clamp((G2.a/2-yc)/G2.a,0,1.5); return true; }
+      return false;
+    }
+    if(ST.view==='press'){
+      const G2=pressGeo(ctx,S.W,S.H,buildModel()), map=G2.map;
+      if(type==='down'){ if(Math.abs(y-map.Y(ST.wline))<12&&x>=map.X(-1.6)&&x<=map.X(1.6)){ DRAG.what='wline'; return true; } return false; }
+      if(type==='move'&&DRAG.what==='wline'){ ST.wline=clamp(map.wy(y),-1.2,1.2); return true; }
+      return false;
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    if(st.view!==k){ st.view=k; simReset(st); }
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  const restart=()=>{ simReset(st); };
+
+  const gFluid=h('div',{class:'grp'},h('h3',null,'the fluid'));
+  const fluidChips=chipRow(FLUID_LIST,'fluid',restart); gFluid.appendChild(fluidChips); trackChips(gFluid,FLUID_LIST,'fluid');
+
+  const gPrin=h('div',{class:'grp'},h('h3',null,'the block'));
+  const matChips=chipRow(MAT_LIST,'mat',restart); gPrin.appendChild(matChips); trackChips(gPrin,MAT_LIST,'mat');
+  gPrin.appendChild(slider('rhoCustom','density, kg/m³',100,25000,10,v=>fmt(v,0),restart));
+  gPrin.appendChild(slider('volL','volume, litres',0.1,LIM.volMax,0.1,v=>fmt(v,1),restart));
+  gPrin.appendChild(slider('lowered','lowered, sides',0,1.5,0.01,v=>fmt(v,2),restart));
+  const prinTag=h('div',{class:'tag'}); gPrin.appendChild(prinTag);
+
+  const gPress=h('div',{class:'grp'},h('h3',null,'the shape'));
+  const shapeChips=chipRow(SHAPE_LIST,'shape',restart); gPress.appendChild(shapeChips); trackChips(gPress,SHAPE_LIST,'shape');
+  gPress.appendChild(slider('tilt','tilt, degrees',0,LIM.tiltMax,1,v=>fmt(v,0)+'°',restart));
+  gPress.appendChild(slider('wline','waterline y',-1.2,1.2,0.02,v=>fmt(v,2),restart));
+  const pressTag=h('div',{class:'tag'}); gPress.appendChild(pressTag);
+
+  const gFloat=h('div',{class:'grp'},h('h3',null,'the floating body'));
+  const fshapeChips=chipRow(FSHAPE_LIST,'fshape',restart); gFloat.appendChild(fshapeChips); trackChips(gFloat,FSHAPE_LIST,'fshape');
+  gFloat.appendChild(slider('ratio','ρ_body / ρ_fluid',0.05,1.2,0.01,v=>fmt(v,2),restart));
+  gFloat.appendChild(slider('cargo','cargo, kg',0,LIM.cargoMax,5,v=>fmt(v,0),restart));
+  gFloat.appendChild(slider('push','push down by, m',0.02,0.3,0.01,v=>fmt(v,2),restart));
+  gFloat.appendChild(h('div',{class:'btnrow'},h('button',{onclick:()=>{ if(startRun(st)){ dirty=true; refresh(); } }},'push & release')));
+  const floatTag=h('div',{class:'tag'}); gFloat.appendChild(floatTag);
+
+  const gStab=h('div',{class:'grp'},h('h3',null,'the box'));
+  gStab.appendChild(slider('beam','beam b / height h',0.4,LIM.beamMax,0.02,v=>fmt(v,2),restart));
+  gStab.appendChild(slider('sratio','ρ_box / ρ_fluid',0.05,0.95,0.01,v=>fmt(v,2),restart));
+  gStab.appendChild(slider('heel','heel θ, degrees',-60,60,0.5,v=>fmt(v,1)+'°',restart));
+  gStab.appendChild(h('div',{class:'btnrow'},h('button',{onclick:()=>{ if(startRun(st)){ dirty=true; refresh(); } }},'release')));
+  const stabTag=h('div',{class:'tag'}); gStab.appendChild(stabTag);
+
+  const gCrown=h('div',{class:'grp'},h('h3',null,'the crown'));
+  gCrown.appendChild(slider('crownM','mass, kg',0.2,3,0.05,v=>fmt(v,2),restart));
+  gCrown.appendChild(slider('gold','gold by mass',0,1,0.01,v=>Math.round(100*v)+' %',restart));
+  const crownTag=h('div',{class:'tag'}); gCrown.appendChild(crownTag);
+
+  const gComp=h('div',{class:'grp'},h('h3',null,'a compressible pocket'));
+  const compChips=chipRow(COMP_LIST,'comp',restart); gComp.appendChild(compChips); trackChips(gComp,COMP_LIST,'comp');
+  gComp.appendChild(slider('squeeze','squeeze Δp, Pa',0,LIM.squeezeMax,100,v=>fmt(v,0),restart));
+  gComp.appendChild(slider('diverY','start depth, m',0,DIVER.H,0.005,v=>fmt(v,3),restart));
+  const diverBtn=h('div',{class:'btnrow'},h('button',{onclick:()=>{ if(startRun(st)){ dirty=true; refresh(); } }},'release the diver'));
+  gComp.appendChild(diverBtn);
+  const gasChips=chipRow(GAS_LIST,'gas',restart); gComp.appendChild(gasChips); trackChips(gComp,GAS_LIST,'gas');
+  gComp.appendChild(slider('balV','envelope, m³',100,LIM.balVMax,50,v=>fmt(v,0),restart));
+  gComp.appendChild(slider('payload','payload + envelope, kg',20,LIM.payloadMax,10,v=>fmt(v,0),restart));
+  const compTag=h('div',{class:'tag'}); gComp.appendChild(compTag);
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the run'));
+  gRun.appendChild(h('div',{class:'checks'},checkbox('running','time runs')));
+  gRun.appendChild(slider('speed','steps per frame',1,4,1,v=>fmt(v,0)+'×'));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ simReset(st); dirty=true; refresh(); }},'stop & reset'),
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; simReset(st);
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Measured: the densities (Wikipedia &ldquo;Density&rdquo; table and the mercury, ethanol and olive-oil '
+      +'infoboxes) and the ISA troposphere constants; everything else is exact and pinned in selfTest to build_buoy/derive.py '
+      +'(scipy brentq, solve_ivp, a 2000-point perimeter sum, the trapezoid, segment and cap closed forms).'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the physics'),h('div',{id:'phys'}));
+  [gFluid,gPrin,gPress,gFloat,gStab,gCrown,gComp,gRun,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++) if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view;
+    gFluid.hidden=!(v==='prin'||v==='press'||v==='float'||v==='stab');
+    gPrin.hidden=(v!=='prin');
+    gPress.hidden=(v!=='press');
+    gFloat.hidden=(v!=='float');
+    gStab.hidden=(v!=='stab');
+    gCrown.hidden=(v!=='crown');
+    gComp.hidden=(v!=='comp');
+    gRun.hidden=!viewAnimates(v);
+    rows.rhoCustom.row.hidden=(st.mat!=='custom');
+    rows.ratio.row.hidden=(st.fshape==='boat'); rows.cargo.row.hidden=(st.fshape!=='boat');
+    const diver=st.comp==='diver';
+    rows.squeeze.row.hidden=!diver; rows.diverY.row.hidden=!diver; diverBtn.hidden=!diver;
+    gasChips.hidden=diver; rows.balV.row.hidden=diver; rows.payload.row.hidden=diver;
+    for(const k in rows) rows[k].sync();
+    prinTag.innerHTML='drag the block up and down, or use the slider; past 1.00 it is fully under';
+    pressTag.innerHTML='drag the waterline; arrows are the pressure on each edge, per metre of depth';
+    floatTag.innerHTML=st.fshape==='boat'?'the hull weighs '+BOAT.hullMass+' kg and encloses '+BOAT.encl+' m&sup3;: it sinks when the cargo passes '+fmt(fluidRho(st.fluid)*BOAT.encl-BOAT.hullMass,0)+' kg'
+                                        :'push &amp; release starts the heave; ratio &ge; 1 sinks';
+    stabTag.innerHTML='release integrates I&theta;&Prime; = &minus;&rho;gV&middot;GZ(&theta;) from the heel you set; the square block at r = 0.5 rolls to its corner';
+    crownTag.innerHTML='pure gold at 100 %; Hiero&rsquo;s goldsmith is said to have swapped in silver';
+    compTag.innerHTML=diver?'squeeze the bottle to move the equilibrium; release the diver above or below it':'the ceiling is where the air has thinned to the balloon&rsquo;s own mean density';
+    runTag.innerHTML='space runs/pauses &nbsp; <b>r</b> stops the run &nbsp; 1&ndash;6 switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='prin')?'drag the block · 1–6 switch views':(st.view==='press')?'drag the waterline · 1–6 switch views'
+        :viewAnimates(st.view)?'space pauses · r stops the run · 1–6 switch views':'1–6 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel(); roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ simReset(st); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw(); if(advanced&&frameN%10===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  simReset(st); resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  prin:'Archimedes of Syracuse (c. 250 BC) stated it in On Floating Bodies: a body in a fluid is pushed up by a force equal to '
+    +'the weight of the fluid it displaces. The demonstration here is the one every laboratory does. A block hangs from a spring '
+    +'scale; as it is lowered, the fluid it pushes aside spills into the measuring beaker, and the scale reading drops by exactly '
+    +'the weight of that spilled fluid. Once the block is fully under, the upthrust stops growing — the beaker stops filling — '
+    +'no matter how much deeper it goes, even though the pressure on both faces keeps rising: it is the difference that counts. '
+    +'Try oak, ice or cork: the string goes slack, because the fluid pushes harder than the block weighs, and the block floats.',
+  press:'Where does the upthrust come from? Not from a new force — from the ordinary pressure of the fluid, which grows with depth '
+    +'as p = ρ_f g × depth and pushes perpendicular to every bit of surface. On a submerged shape the pushes on the sides cancel '
+    +'left against right, while the bottom, deeper than the top, is pushed harder than the top is pushed down. Integrate around '
+    +'the outline and the sum is exactly ρ_f g × (submerged area) upward, acting through the centroid of that area — for a box, '
+    +'a wedge, a hull or a disc, tilted any way you like. Archimedes’ own argument is cleaner still: the fluid that would '
+    +'occupy the same space is at rest, so the pressure on that boundary must carry exactly its weight.',
+  float:'A body lighter than the fluid sinks only until the fluid it displaces weighs as much as it does: ρ_f V_sub = m. For a box '
+    +'that means the submerged fraction equals the density ratio — ice at 916.7 kg/m³ in salt water at 1030 has 89 % of itself '
+    +'under water, the iceberg of the proverb. A cylinder on its side or a sphere obeys the same rule through a circular segment '
+    +'or a spherical cap, so the draft is the root of a transcendental or cubic equation, found here by bisection and checked '
+    +'against scipy. A steel hull floats because it is mostly enclosed air; load it and its mean density rises until the '
+    +'freeboard is gone — the Plimsoll line is that limit drawn on the side. Push any of them down and let go: the extra '
+    +'displaced volume is a spring, ρ_f g A_wl per metre, and the body heaves with the period of a mass on that spring.',
+  stab:'A floating body is in equilibrium when its weight and its upthrust are equal and opposite; whether it stays upright is a '
+    +'different question. Heel a box and the submerged shape changes: the centre of buoyancy B moves to the centroid of the new '
+    +'underwater polygon, computed here exactly by clipping. If B moves far enough outboard, the upthrust through B and the '
+    +'weight through G form a couple that rights the box; if not, they tip it further. The vertical through B cuts the '
+    +'centreline at the metacentre M, and for small angles GZ = GM sin θ with GM = KB + BM − KG and BM = I/V, the second moment '
+    +'of the waterplane over the displaced volume. A box is stable upright only if b/h exceeds √(6r(1−r)): a square block of '
+    +'half the fluid’s density fails the test, and released from a small heel it rolls over to sit on a corner — the '
+    +'angle of loll. Ships keep GM positive, but not too large, or they roll like a metronome.',
+  crown:'Vitruvius tells the story: King Hiero suspected his goldsmith of alloying silver into a votive crown, and Archimedes, '
+    +'stepping into an overfull bath, saw that a body displaces its own volume. Measure the crown’s volume by overflow, '
+    +'compare with an equal mass of gold, and the fraud is exposed. Galileo, at twenty-two, did not believe it: the volume '
+    +'difference is a few cubic centimetres, which in any bathtub-sized vessel is a fraction of a millimetre of water level, '
+    +'far beyond ancient measurement. In La Bilancetta (1586) he argued Archimedes must have used the principle itself — '
+    +'weigh the crown in air and in water, and the density follows from the two readings, or hang it against an equal mass of '
+    +'gold on a balance and dip both: the crown, displacing more water, is buoyed more and its pan rises. Both methods run '
+    +'live here; the readout says what each can see.',
+  comp:'Two cases where the displaced fluid is not fixed. The Cartesian diver (Magiotti, 1648) is a small tube with an air pocket, '
+    +'floating just barely in a sealed bottle. Squeeze the bottle and the extra pressure compresses the pocket (Boyle: pV = '
+    +'constant), the diver displaces less water, and it sinks. There is a depth where its mean density equals the water’s '
+    +'— but a little deeper the pocket is smaller still and the diver sinks faster; a little shallower it expands and it rises '
+    +'faster. The equilibrium is unstable, so a diver can never hover. A balloon is the opposite case in a compressible medium: '
+    +'its lift is the air it displaces minus its own gas and payload, and since the air thins with altitude — the ISA '
+    +'troposphere loses 6.5 K per kilometre and about 11 % of its density — it climbs exactly to where the air’s density '
+    +'has fallen to its own, which for a light gas has a closed form.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  prin:'<h4>the principle</h4>'
+    +EQ(1,'F<sub>b</sub> = &rho;<sub>f</sub> g V<sub>sub</sub>, &nbsp; <span class="rm">scale reads</span> T = W &minus; F<sub>b</sub> = (&rho;<sub>b</sub>V &minus; &rho;<sub>f</sub>V<sub>sub</sub>) g')
+    +EQ(2,'<span class="rm">a cube of side</span> a = V<sup>1/3</sup> <span class="rm">lowered</span> s <span class="rm">sides:</span> V<sub>sub</sub> = min(s, 1) V, &nbsp; p<sub>bot</sub> = &rho;<sub>f</sub> g s a, &nbsp; p<sub>top</sub> = &rho;<sub>f</sub> g max(0, s &minus; 1) a')
+    +EQ(3,'(p<sub>bot</sub> &minus; p<sub>top</sub>) a&sup2; = &rho;<sub>f</sub> g a&sup3; min(s, 1) = F<sub>b</sub>')
+    +'<p>The face pressures are the whole story for a box: the sides cancel, and the bottom is deeper than the top by exactly the submerged height. '
+    +'A denser block (&rho;<sub>b</sub> &gt; &rho;<sub>f</sub>) keeps a positive tension; a lighter one would need the string to push, which it cannot, so it floats at V<sub>sub</sub>/V = &rho;<sub>b</sub>/&rho;<sub>f</sub>.</p>'
+    +'<div class="cite">pins: the 2-litre iron cube in water at s = 0.6 (W, F_b, T, p_bot, the face difference), the slack oak block, the 89 % iceberg — derive.py</div>',
+  press:'<h4>the pressure integral</h4>'
+    +EQ(1,'F = &minus;&oint; p n dA, &nbsp; p = &rho;<sub>f</sub> g (y<sub>w</sub> &minus; y) &nbsp;<span class="rm">on the submerged boundary</span>')
+    +EQ(2,'<span class="rm">on a straight edge from</span> a <span class="rm">to</span> b, n L = (dy, &minus;dx): &nbsp; F<sub>edge</sub> = &minus;p(mid) (dy, &minus;dx) &nbsp;<span class="rm">(exact: p is linear along it)</span>')
+    +EQ(3,'&Sigma;F<sub>x</sub> = 0, &nbsp; &Sigma;F<sub>y</sub> = &rho;<sub>f</sub> g A<sub>sub</sub>, &nbsp; <span class="rm">moment</span> &Sigma; &int; r &times; dF = &rho;<sub>f</sub> g A<sub>sub</sub> x<sub>B</sub> &nbsp;<span class="rm">(B the centroid)</span>')
+    +'<p>The moment of a linearly varying load is not mid &times; F: with r = a + t d and p(t) linear, &int; p (r&middot;d) dt = p<sub>a</sub> a&middot;d + (p<sub>a</sub>|d|&sup2; + &Delta;p a&middot;d)/2 + &Delta;p|d|&sup2;/3 — the first sweep had that wrong and the resultant missed the centroid.</p>'
+    +'<div class="cite">pins: box, wedge, hull and 64-gon disc at three tilts and waterlines — &Sigma;F<sub>x</sub> = 0 to 1e-9, &Sigma;F<sub>y</sub> = &rho;gA, the moment through the centroid, and a 2000-point numerical perimeter sum — derive.py</div>',
+  float:'<h4>the draft</h4>'
+    +EQ(1,'&rho;<sub>f</sub> V<sub>sub</sub>(d) = m: &nbsp; <span class="rm">box</span> d = r h; &nbsp; <span class="rm">cylinder</span> R&sup2;acos(1 &minus; d/R) &minus; (R &minus; d)&radic;(2Rd &minus; d&sup2;) = r &pi; R&sup2;; &nbsp; <span class="rm">sphere</span> &pi;d&sup2;(3R &minus; d)/3 = r &middot; 4&pi;R&sup3;/3')
+    +EQ(2,'<span class="rm">the hull:</span> r = (m<sub>hull</sub> + m<sub>cargo</sub>) / (&rho;<sub>f</sub> V<sub>enclosed</sub>), &nbsp; <span class="rm">sinks at</span> r = 1')
+    +EQ(3,'m z&Prime; = &rho;<sub>f</sub> g [V<sub>sub</sub>(d &minus; z) &minus; V<sub>sub</sub>(d)] &minus; c z&prime; &nbsp;&rArr;&nbsp; <span class="rm">small z:</span> T = 2&pi;&radic;(m / &rho;<sub>f</sub> g A<sub>wl</sub>)')
+    +'<p>The segment and cap roots are bisections (60 halvings) checked against scipy brentq; the heave is RK4 at the frame step, its zero-crossing period checked against the formula (exact for the box, whose waterplane does not change) and its trajectory against solve_ivp.</p>'
+    +'<div class="cite">pins: drafts, waterplanes and periods for the box, cylinder and sphere at r = 0.3, 0.5, 0.9; the box heave at frames 1, 30, 60, 120, 240; the measured period — derive.py</div>',
+  stab:'<h4>the metacentre</h4>'
+    +EQ(1,'KB = d/2, &nbsp; BM = '+FR('I','V')+' = '+FR('L b&sup3;/12','L b d')+' = '+FR('b&sup2;','12 d')+', &nbsp; KG = h/2, &nbsp; <span class="rm">GM = KB + BM &minus; KG</span>')
+    +EQ(2,'GM &gt; 0 &nbsp;&hArr;&nbsp; b&sup2; &gt; 6 d (h &minus; d) = 6 r (1 &minus; r) h&sup2; &nbsp;&hArr;&nbsp; b/h &gt; &radic;(6r(1&minus;r)) &nbsp;<span class="rm">(1.22 at r = &frac12;)</span>')
+    +EQ(3,'<span class="rm">exact:</span> B = <span class="rm">centroid of the clipped polygon at the waterline that keeps</span> A<sub>sub</sub> = r b h, &nbsp; GZ = &minus;B<sub>x</sub>; &nbsp; <span class="rm">wall-sided:</span> GZ = (GM + &frac12;BM tan&sup2;&theta;) sin &theta;')
+    +EQ(4,'I &theta;&Prime; = &minus;&rho;<sub>f</sub> g V GZ(&theta;), &nbsp; I = m(b&sup2; + h&sup2;)/12 &nbsp;&rArr;&nbsp; T = 2&pi;&radic;(I / &rho;<sub>f</sub> g V GM)')
+    +'<p>The angle of loll is the first zero of GZ above &theta; = 0 when GM &lt; 0; the released box settles there (the run carries no damping, so it rocks about it). The exact GZ at 10&deg; equals the wall-sided formula to 1e-9 while the waterline stays on the sides.</p>'
+    +'<div class="cite">pins: GM and the critical beam for four boxes, GZ at 5&hellip;60&deg; (exact and GM sin &theta;), the numerical GM from the GZ slope, the loll angles, the roll ODE at five frames, the measured period vs the formula — derive.py</div>',
+  crown:'<h4>two ways to weigh a crown</h4>'
+    +EQ(1,'V = m ('+FR('f','&rho;<sub>Au</sub>')+' + '+FR('1 &minus; f','&rho;<sub>Ag</sub>')+'), &nbsp; &rho; = m/V')
+    +EQ(2,'W = mg, &nbsp; W&prime; = W &minus; &rho;<sub>w</sub> g V &nbsp;&rArr;&nbsp; &rho; = '+FR('&rho;<sub>w</sub> W','W &minus; W&prime;')+', &nbsp; f = '+FR('1/&rho; &minus; 1/&rho;<sub>Ag</sub>','1/&rho;<sub>Au</sub> &minus; 1/&rho;<sub>Ag</sub>'))
+    +EQ(3,'<span class="rm">overflow:</span> &Delta;V = m(1 &minus; f)(1/&rho;<sub>Ag</sub> &minus; 1/&rho;<sub>Au</sub>), &nbsp; &Delta;h = &Delta;V / (&pi;D&sup2;/4); &nbsp; <span class="rm">balance:</span> &Delta;F = &rho;<sub>w</sub> g &Delta;V')
+    +'<p>A one-kilogram crown with 30 % silver is 13 cm&sup3; larger than gold; in a 20-cm vessel that is 0.4 mm of water. The hydrostatic balance measures the same &Delta;V as a force of 0.13 N against a 9.8 N weight — a percent, which a good balance resolves.</p>'
+    +'<div class="cite">pins: four crowns (1 kg 70 %, pure gold, pure silver, 95 %): V, &rho;, W, W&prime;, the inferred &rho; and f (round trips exactly), &Delta;V, &Delta;h, &Delta;F — derive.py</div>',
+  comp:'<h4>the diver</h4>'
+    +EQ(1,'V<sub>air</sub>(y) = '+FR('V<sub>0</sub> p<sub>0</sub>','p<sub>0</sub> + &Delta;p + &rho; g y')+', &nbsp; F(y) = &rho; g (V<sub>g</sub> + V<sub>air</sub>) &minus; m g')
+    +EQ(2,'F = 0 &nbsp;&rArr;&nbsp; y* = '+FR('p<sub>0</sub> V<sub>0</sub> / (m/&rho; &minus; V<sub>g</sub>) &minus; p<sub>0</sub> &minus; &Delta;p','&rho; g')+', &nbsp; '+FR('dF','dy')+' = &minus;'+FR('&rho;&sup2; g&sup2; V<sub>0</sub> p<sub>0</sub>','p&sup2;')+' &lt; 0')
+    +EQ(3,'m y&Prime; = &minus;F(y) &minus; c<sub>d</sub> y&prime;|y&prime;| &nbsp;<span class="rm">(y down; walls at 0 and H)</span>')
+    +'<h4>the balloon</h4>'
+    +EQ(4,'T = T<sub>0</sub> &minus; L z, &nbsp; p = p<sub>0</sub> (T/T<sub>0</sub>)<sup>g/RL</sup>, &nbsp; &rho;<sub>air</sub> = p/RT &nbsp;<span class="rm">(ISA: 288.15 K, 6.5 K/km, R = 287.0528)</span>')
+    +EQ(5,'L(z) = (&rho;<sub>air</sub> &minus; &rho;<sub>gas</sub>) g V &minus; m<sub>p</sub> g, &nbsp; &rho;<sub>gas</sub> = p M<sub>gas</sub>/R<sub>u</sub>T &nbsp;<span class="rm">(hot air: p/R&middot;373 K)</span>')
+    +EQ(6,'<span class="rm">light gas:</span> &rho;<sub>air</sub>(z<sub>c</sub>) = '+FR('m<sub>p</sub>','V(1 &minus; M<sub>gas</sub>/M<sub>air</sub>)')+' &nbsp;&rArr;&nbsp; z<sub>c</sub> = '+FR('T<sub>0</sub>','L')+'[1 &minus; (&rho;<sub>c</sub>/&rho;<sub>0</sub>)<sup>1/(g/RL &minus; 1)</sup>]')
+    +'<div class="cite">pins: the ISA 11-km row (22632 Pa, 0.3639 kg/m&sup3;) from the closed forms; the diver&rsquo;s y*, dF/dy and forces at four squeezes, its RK4 runs above and below y*; six balloons, the brentq ceiling against the closed inverse — derive.py</div>',
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) are lines of build_buoy/refvals.txt, the printed output   *
+ *  of derive.py (scipy brentq / solve_ivp, a 2000-point perimeter     *
+ *  sum, the trapezoid, segment and cap closed forms), read in full.   *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    Object.assign(ST,DEFAULTS,over); simReset(ST);
+    if(over.runFrames){ startRun(ST); for(let k=0;k<over.runFrames;k++) runStep(ST); }
+    try{ return fn(); } finally{ Object.assign(ST,stSave); simReset(ST); }
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  close(90*DEG,PI/2,1e-15,'DEG converts degrees INTO radians (90 DEG = pi/2)');
+  eq(G,9.80665,'standard gravity');
+  eq(fluidRho('water'),1000,'fresh water 1000 kg/m^3 (Wikipedia Density table)'); eq(fluidRho('mercury'),13546,'mercury 13546'); eq(fluidRho('ethanol'),789.45,'ethanol 789.45'); eq(fluidRho('oil'),911,'olive oil 911'); eq(fluidRho('seawater'),1030,'salt water 1030');
+  eq(matRho('gold'),19320,'gold 19320'); eq(matRho('silver'),10500,'silver 10500'); eq(matRho('ice'),916.7,'ice 916.7'); eq(matRho('custom',1234),1234,'custom density passes through');
+  { let threw=false; try{ fluidRho('lava'); }catch(e){ threw=true; } ok(threw,'an unknown fluid throws'); }
+
+  /* ---------- A. the principle ---------- */
+  { const P=withState({view:'prin',fluid:'water',mat:'iron',volL:2,lowered:0.6},()=>prinModel(ST));
+    rel(P.a,0.1259921049895,1e-12,'a 2-litre cube: side (derive)'); rel(P.W,154.356671,1e-12,'W (derive)'); rel(P.Fb,11.76798,1e-12,'F_b at 0.6 sides (derive)');
+    rel(P.T,142.588691,1e-12,'the scale reads W - F_b (derive)'); rel(P.pBot,741.3362858371,1e-12,'bottom-face pressure (derive)'); rel(P.faceNet,11.76798,1e-12,'(p_bot - p_top) A = F_b (derive)');
+    eq(P.pTop,0,'the top face is dry at 0.6 sides'); ok(!P.slack,'iron keeps the string taut'); rel(P.mFluidDisp,1.2,1e-12,'1.2 kg of water spilled');
+    const P2=withState({view:'prin',fluid:'water',mat:'iron',volL:2,lowered:1.3},()=>prinModel(ST));
+    rel(P2.Fb,1000*G*0.002,1e-12,'fully under: F_b = rho_f g V'); ok(P2.pTop>0&&Math.abs(P2.pTop-1000*G*0.3*P2.a)<1e-9,'the top face is 0.3 sides deep'); rel(P2.faceNet,P2.Fb,1e-12,'and the face difference still equals F_b');
+    const P3=withState({view:'prin',fluid:'water',mat:'oak',volL:2,lowered:1.0},()=>prinModel(ST));
+    rel(P3.T,-5.687857,1e-12,'oak fully under: W - F_b = -5.69 N (derive)'); ok(P3.slack,'so the string is slack'); rel(P3.floatFrac,0.71,1e-12,'and it would float 71 % under (derive)');
+    const P4=withState({view:'prin',fluid:'seawater',mat:'ice',volL:1,lowered:1},()=>prinModel(ST)); rel(P4.floatFrac,0.89,1e-12,'ice in salt water: 89 % under, the iceberg (derive)');
+    const P5=withState({view:'prin',fluid:'mercury',mat:'iron',volL:1,lowered:1},()=>prinModel(ST)); ok(P5.slack,'iron floats on mercury'); }
+
+  /* ---------- B. the pressure integral ---------- */
+  const PR=[
+    ['box',0,0,1,0,-0.25,9806.65,0,9806.65],
+    ['box',25,0.3,1.567239762981,-0.1029717508283,-0.1358344614913,15369.37182163,-1582.611125604,15369.37219116],
+    ['box',110,-0.2,0.7871644455048,0.1688007413684,-0.5764356340724,7719.44620951,1303.048243119,7719.446224937],
+    ['wedge',0,0,0.9428571428571,0,-0.3272727272727,9246.27,0,9246.270070048],
+    ['wedge',25,0.3,1.223289679696,0.08090535602776,-0.2021003192475,11996.37373739,970.5708882655,11996.37411891],
+    ['wedge',110,-0.2,0.4501401390879,0.2265871373856,-0.3821208523781,4414.366794987,1000.238735446,4414.366942358],
+    ['hull',0,0,1.0825,0,-0.3047729022325,10615.698625,0,10615.698625],
+    ['hull',25,0.3,1.673437656587,-0.08590428848966,-0.1704143035586,16410.81739497,-1409.759591849,16410.81785642],
+    ['hull',110,-0.2,0.7623372120918,0.1391092445924,-0.5689077743312,7475.97422096,1039.97712647,7475.974183717],
+    ['disc',0,0,1.003695516975,0,-0.3392577937498,9842.89064154,0,9842.89064154],
+    ['disc',25,0.3,1.471804040485,-1.280376499136e-06,-0.1842395839409,14433.46709363,-0.01848027206771,14433.46709371],
+    ['disc',110,-0.2,0.6873154177826,-3.743726242838e-06,-0.4496363147105,6740.261741798,-0.02523369476617,6740.261741732],
+  ];
+  for(const [sh,tilt,w,A,cx,cy,Fy,tq,fine] of PR){
+    const tag='pressure '+sh+' '+tilt+'° w='+w+': ';
+    const P=withState({view:'press',shape:sh,tilt,wline:w,fluid:'water'},()=>pressModel(ST));
+    rel(P.A,A,1e-11,tag+'submerged area (derive)'); close(P.C[0],cx,1e-10,tag+'centroid x (derive)'); rel(P.C[1],cy,1e-11,tag+'centroid y (derive)');
+    close(P.tot[0],0,1e-9,tag+'the horizontal forces cancel'); rel(P.tot[1],Fy,1e-11,tag+'sum F_y (derive)'); rel(P.rhogA,Fy,1e-11,tag+'= rho g A');
+    close(P.torque,tq,1e-8,tag+'the moment about the origin (derive)'); close(P.torque-P.rhogA*P.C[0],0,1e-7*Math.max(1,Math.abs(tq)),tag+'the resultant acts through the centroid');
+    const fn=finePerimeterIntegral(P.P,w,1000); rel(fn[1],fine,1e-11,tag+'2000-point perimeter sum (derive)'); rel(fn[1],P.tot[1],1e-6,tag+'agrees with the per-edge closed form');
+  }
+  { const P=withState({view:'press',shape:'box',tilt:0,wline:-1.2},()=>pressModel(ST)); eq(P.S.length,0,'a waterline below the box submerges nothing'); ok(P.C===null&&P.tot[1]===0,'no centroid, no force');
+    const Q=withState({view:'press',shape:'box',tilt:0,wline:1.2},()=>pressModel(ST)); rel(Q.A,2,1e-12,'fully under: the whole area'); rel(Q.frac,1,1e-12,'fraction 1');
+    const sq=[[0,0],[2,0],[2,1],[0,1]]; rel(polyArea(sq),2,1e-15,'shoelace area of a 2x1 rectangle'); const c=polyCentroid(sq); close(c[0],1,1e-15,'its centroid x'); close(c[1],0.5,1e-15,'y');
+    const cl=clipBelow(sq,0.25); rel(polyArea(cl),0.5,1e-15,'clipped at y = 0.25: a quarter'); eq(cl.length,4,'four vertices');
+    const rt=polyRotate([[1,0]],PI/2); close(rt[0][0],0,1e-15,'rotate (1,0) by 90°: x'); close(rt[0][1],1,1e-15,'y'); }
+
+  /* ---------- C. floating ---------- */
+  for(const [fs,r,d,Aw,m,T,Vs] of [['box',0.3,0.18,1,180,0.8512473699752,0.18],['box',0.5,0.3,1,300,1.098955629139,0.3],['box',0.9,0.54,1,540,1.474403694607,0.54],
+      ['cyl',0.3,0.3401542451047,0.9475216823735,235.6194490192,1.000530933274,0.2356194490192],['cyl',0.5,0.5,1,392.6990816987,1.257330565822,0.3926990816987],['cyl',0.9,0.8435244130663,0.726611251296,706.8583470577,1.97894929484,0.7068583470577],
+      ['sph',0.3,0.3632574910906,0.7266550499899,157.0796326795,0.9328575290208,0.1570796326795],['sph',0.5,0.5,0.7853981633974,261.7993877991,1.158400945181,0.2617993877991],['sph',0.9,0.8041998943409,0.4946827953438,471.2388980385,1.958288589247,0.4712388980385]]){
+    const tag='floating '+fs+' r='+r+': ';
+    const F=withState({view:'float',fshape:fs,ratio:r,fluid:'water'},()=>floatModel(ST));
+    rel(F.d,d,1e-11,tag+'draft (derive)'); rel(F.A,Aw,1e-11,tag+'waterplane (derive)'); rel(F.m,m,1e-12,tag+'mass (derive)'); rel(F.T,T,1e-11,tag+'heave period (derive)'); rel(F.Vsub,Vs,1e-11,tag+'V_sub = m/rho (derive)');
+    rel(F.Vsub,F.m/1000,1e-9,tag+'the displaced volume carries the mass'); ok(!F.sinks,tag+'floats'); }
+  rel(withState({view:'float',fshape:'cyl',ratio:0.3},()=>floatModel(ST)).d,0.3401542451047,1e-11,'the cylinder draft = scipy brentq (derive CHECK)');
+  rel(withState({view:'float',fshape:'sph',ratio:0.9},()=>floatModel(ST)).d,0.8041998943409,1e-11,'the sphere draft = scipy brentq (derive CHECK)');
+  rel(segmentArea(0.5,0.5),PI*0.125,1e-15,'a half-disc segment'); rel(segmentArea(0.5,1.0),PI*0.25,1e-12,'the full disc'); eq(segmentArea(0.5,0),0,'no segment at zero depth');
+  rel(capVolume(0.5,0.5),2*PI*0.125/3,1e-15,'a hemisphere cap'); rel(capVolume(0.5,1),4*PI*0.125/3,1e-15,'the full sphere');
+  { const F=withState({view:'float',fshape:'boat',cargo:200},()=>floatModel(ST)); rel(F.m,260,1e-15,'the hull + 200 kg of cargo'); rel(F.r,260/600,1e-12,'mean density ratio'); ok(!F.sinks,'floats'); rel(F.capacity,540,1e-12,'capacity = rho V_enclosed - hull = 540 kg');
+    const S=withState({view:'float',fshape:'boat',cargo:700},()=>floatModel(ST)); ok(S.sinks,'700 kg sinks it'); eq(S.T,null,'no heave period when it sinks');
+    const S2=withState({view:'float',fshape:'box',ratio:1.1},()=>floatModel(ST)); ok(S2.sinks&&S2.d===0.6,'ratio 1.1 sinks: draft = the full height'); }
+  { /* the heave ODE: box r = 0.5, pushed 0.1 m down, c = 20, mirrored step for step */
+    let z=-0.1, v=0; const want={1:[-0.09954650007583,0.0543687278598],30:[0.09427677656029,0.1569808504165],60:[-0.08134244985035,-0.2964955482549],120:[-0.03927308505721,-0.4841463423902],240:[0.05628198253499,-0.3850587920055]};
+    for(let k=1;k<=240;k++){ const s=rk4Step((zz,vv)=>heaveAcc('box',[1,0.6,1],1000,300,0.3,zz,vv,20),z,v,FRAME_DT); z=s[0]; v=s[1];
+      if(want[k]){ rel(z,want[k][0],1e-11,'heave frame '+k+': z (derive rk4)'); rel(v,want[k][1],1e-11,'frame '+k+': v (derive)'); } }
+    rel(z,0.05628097476865,3e-5,'z(4 s) against scipy solve_ivp (derive CHECK: rk4 at 1/60 s is 2e-5 off)');
+    let z2=-0.05, v2=0, prev=z2; const cross=[]; let t=0;
+    for(let k=1;k<=600;k++){ const s=rk4Step((zz,vv)=>heaveAcc('box',[1,0.6,1],1000,300,0.3,zz,vv,0),z2,v2,FRAME_DT); z2=s[0]; v2=s[1];
+      if(prev<0&&z2>=0) cross.push(t+(0-prev)/(z2-prev)*FRAME_DT); prev=z2; t+=FRAME_DT; }
+    rel(cross[1]-cross[0],1.098957147602,1e-9,'the measured heave period (derive)'); rel(cross[1]-cross[0],heavePeriod(300,1000,1),2e-6,'= 2 pi sqrt(m / rho g A_wl) to 2e-6');
+    const acc0=heaveAcc('box',[1,0.6,1],1000,300,0.3,-0.1,0,0); ok(acc0>0,'pushed down, the net force is UP'); rel(acc0,1000*G*0.1/300,1e-12,'and equals rho g A z / m for the box'); }
+  { const F=withState({view:'float',fshape:'box',ratio:0.5,push:0.1,runFrames:60},()=>({m:buildModel(),run:{t:RUN.t,x:RUN.x,v:RUN.v}}));
+    close(F.run.t,1,1e-12,'a 60-frame run is one second'); rel(F.run.x,-0.08134244985035,1e-11,'the model run reproduces the heave at frame 60 (derive)'); rel(F.m.z,F.run.x,1e-15,'and the model carries it as z'); }
+
+  /* ---------- D. stability ---------- */
+  const STB=[[1,0.5,-0.08333333333333,1.224744871392,[[5,6.060785851849e-17,0.007207385790653,-0.2496841028106,-0.007207385790653,-0.007262978562305],[10,8.289602882689e-17,0.01402077056075,-0.2487535098258,-0.01402077056075,-0.01447068147224],[30,5.035562215542e-17,0.02777777777778,-0.2405626121623,-0.02777777777778,-0.04166666666667],[45,2.023947310022e-17,1.850371707709e-17,-0.2357022603955,-1.850371707709e-17,-0.05892556509888],[60,1.007112443108e-17,-0.02777777777778,-0.2405626121623,0.02777777777778,-0.0721687836487]],-0.08333333249984,45],
+    [1.5,0.5,0.125,1.224744871392,[[5,3.469963473117e-17,-0.01101955157967,-0.2504783881701,0.01101955157967,0.01089446784346],[10,7.290730633545e-17,-0.02271832175922,-0.2519429742918,0.02271832175922,0.02170602220837],[30,6.657973363584e-17,-0.09375,-0.2706329386826,0.09375,0.0625],[45,3.909898212543e-17,-0.1473139127472,-0.3044487530109,0.1473139127472,0.08838834764832],[60,5.539479704067e-17,-0.1226851851852,-0.3407970338967,0.1226851851852,0.1082531754731]],0.1250000018754,null],
+    [1,0.2,0.01666666666667,0.9797958971133,[[5,-0.2988584094275,-0.00159157764159,-0.4000664499558,0.00159157764159,0.001452595712461],[10,-0.2954423259037,-0.00401891357318,-0.4003020301369,0.00401891357318,0.002894136294449],[30,-0.2668335568634,-0.02282527428324,-0.4055599385397,0.02282527428324,0.008333333333333],[45,-0.2598931856866,-2.312964634636e-17,-0.4089643841866,2.312964634636e-17,0.01178511301978],[60,-0.2668335568634,0.02282527428324,-0.4055599385397,-0.02282527428324,0.01443375672974]],0.01666666875011,null],
+    [2,0.8,0.3166666666667,0.9797958971133,[[5,0.2988584094275,-0.02773830046589,-0.1012080405283,0.02773830046589,0.02759931853676],[10,0.2954423259037,-0.05611336687326,-0.1048597042332,0.05611336687326,0.05498858959453],[30,0.3444465106157,-0.09737154278454,-0.1351588102603,0.09737154278454,0.1583333333333],[45,0.4282046397461,-0.08838834764832,-0.159755787606,0.08838834764832,0.2239171473757],[60,0.5196152422707,-0.06961805555556,-0.180722662387,0.06961805555556,0.2742413778651]],0.31666666875,null]];
+  for(const [b,r,GM,bc,rows,GMn,loll] of STB){
+    const tag='box b='+b+' r='+r+': ';
+    const S=withState({view:'stab',beam:b,sratio:r},()=>stabModel(ST));
+    rel(S.GM,GM,1e-11,tag+'GM = KB + BM - KG (derive)'); rel(S.bc,bc,1e-12,tag+'critical beam sqrt(6r(1-r)) (derive)'); eq(S.stable,GM>0,tag+'stable iff GM > 0');
+    for(const [deg,w,Bx,By,GZ,GMs] of rows){ const Hh=heelState(b,1,r,deg*DEG);
+      close(Hh.w,w,1e-10,tag+deg+'°: waterline (derive)'); close(Hh.B[0],Bx,1e-10,tag+deg+'°: B_x (derive)'); rel(Hh.B[1],By,1e-10,tag+deg+'°: B_y (derive)');
+      close(Hh.GZ,GZ,1e-10,tag+deg+'°: GZ (derive)'); rel(Hh.Asub,r*b,1e-9,tag+deg+'°: the submerged area is r b h'); close(S.GM*Math.sin(deg*DEG),GMs,1e-11,tag+deg+'°: GM sin theta (derive)'); }
+    const e=1e-4; rel(heelState(b,1,r,e).GZ/Math.sin(e),GMn,1e-6,tag+'GM from the GZ slope at 1e-4 rad (derive numeric)'); rel(heelState(b,1,r,e).GZ/Math.sin(e),GM,2e-5,tag+'agrees with the closed form');
+    if(loll!==null){ ok(S.loll!==null,tag+'has an angle of loll'); close(S.loll,loll,1e-8,tag+'loll = '+loll+'° (derive brentq)'); } else eq(S.loll,null,tag+'no loll: stable upright');
+  }
+  { const Hh=heelState(1.5,1,0.5,10*DEG), GM=gmSmall(1.5,1,0.5), BM=1.5*1.5/(12*0.5);
+    close(Hh.GZ,(GM+0.5*BM*Math.pow(Math.tan(10*DEG),2))*Math.sin(10*DEG),1e-9,'the exact GZ at 10° equals the wall-sided formula (derive CHECK)');
+    rel(Hh.GZ,0.02271832175922,1e-10,'(derive: 0.02271832175922)'); }
+  { rel(gmSmall(1,1,0.5),1/4+1/6-1/2,1e-12,'the square block at r = 1/2: GM = KB + BM - KG = 1/4 + 1/6 - 1/2 = -1/12'); rel(criticalBeam(1,0.5),Math.sqrt(1.5),1e-15,'critical b/h at r = 1/2 is sqrt(3/2)');
+    const half=criticalBeam(1,0.5); ok(gmSmall(half*1.001,1,0.5)>0&&gmSmall(half*0.999,1,0.5)<0,'GM changes sign exactly at the critical beam'); }
+  { /* the roll ODE: the square block released at 5°, no damping, frame by frame */
+    let th=5*DEG, om=0; const want={1:[5.003375108983,0.007069592452363],60:[22.47503115179,0.8040229353769],120:[77.15197340749,0.4495029305556],300:[7.706548737762,-0.2249237805666],600:[18.54647938491,-0.6665072053123]};
+    let mx=0;
+    for(let k=1;k<=600;k++){ const s=rk4Step((t,o)=>rollAcc(1,1,0.5,1000,0,t,o),th,om,FRAME_DT); th=s[0]; om=s[1]; mx=Math.max(mx,th);
+      if(want[k]){ rel(th/DEG,want[k][0],1e-9,'roll frame '+k+': theta (derive rk4)'); rel(om,want[k][1],1e-9,'frame '+k+': omega (derive)'); } }
+    rel(mx/DEG,84.99990204815,1e-9,'the block swings to 85°: symmetric about the 45° loll (derive)');
+    const S=withState({view:'stab',beam:1,sratio:0.5},()=>stabModel(ST)); rel(S.I,83.33333333333,1e-11,'I = m(b^2+h^2)/12 (derive)'); rel(S.V,0.5,1e-15,'V = r b h'); eq(S.Troll,null,'no small-angle period when unstable');
+    let th2=2*DEG, om2=0, prev=th2, t=0; const cross=[];
+    for(let k=1;k<=600;k++){ const s=rk4Step((tt,o)=>rollAcc(1.5,1,0.5,1000,0,tt,o),th2,om2,FRAME_DT); th2=s[0]; om2=s[1];
+      if(k===60) rel(th2/DEG,-1.058782752332,1e-9,'wide box roll frame 60 (derive)'); if(k===300) rel(th2/DEG,-0.6889059698722,1e-9,'frame 300 (derive)');
+      if(prev<0&&th2>=0) cross.push(t+(0-prev)/(th2-prev)*FRAME_DT); prev=th2; t+=FRAME_DT; }
+    rel(cross[1]-cross[0],2.95155606209,1e-9,'the measured roll period of the wide box (derive)'); rel(cross[1]-cross[0],rollPeriod(1.5,1,0.5,1000),1e-3,'= 2 pi sqrt(I / rho g V GM) to 0.1 % (2° amplitude)');
+    rel(rollPeriod(1.5,1,0.5,1000),2.953354512021,1e-11,'the formula period (derive)'); }
+  { const M=withState({view:'stab',beam:1,sratio:0.5,heel:5,runFrames:120},()=>buildModel()); rel(M.th/DEG,77.15197340749,1e-9,'the model run: the square block is at 77° after 2 s (derive)'); ok(M.heel.GZ>0,'past the 45° loll, GZ now pulls it back');
+    const M5=withState({view:'stab',beam:1,sratio:0.5,heel:5,runFrames:30},()=>buildModel()); ok(M5.th>5*DEG&&M5.heel.GZ<0,'before the loll, GZ < 0 drives the heel on'); }
+
+  /* ---------- E. the crown ---------- */
+  for(const [m,f,V,rho,W,Wp,dV,dh,tq] of [[1,0.7,6.48033126294e-05,15431.30990415,9.80665,9.171146594203,1.304347826087e-05,0.4151868080658,0.127912826087],[0.5,1,2.587991718427e-05,19320,4.903325,4.649529710145,0,0,0],
+      [2,0,0.0001904761904762,10500,19.6133,17.74536666667,8.695652173913e-05,2.767912053772,0.852752173913],[1,0.95,5.393374741201e-05,18541.26679463,9.80665,9.277740615942,2.173913043478e-06,0.0691978013443,0.02131880434783]]){
+    const tag='crown '+m+' kg, '+Math.round(100*f)+' % gold: ';
+    const C=withState({view:'crown',crownM:m,gold:f},()=>crownModel(ST));
+    rel(C.V,V,1e-12,tag+'volume (derive)'); rel(C.rho,rho,1e-12,tag+'density (derive)'); rel(C.W,W,1e-12,tag+'weight (derive)'); rel(C.Wp,Wp,1e-12,tag+'weight in water (derive)');
+    rel(C.rhoInf,rho,1e-9,tag+'rho_w W/(W - W\') recovers the density'); close(C.fInf,f,1e-9,tag+'and the gold fraction (round trip)');
+    close(C.dV,dV,1e-17,tag+'extra volume vs gold (derive)'); close(C.dhMm,dh,1e-10,tag+'level rise in a 20-cm vessel (derive)'); close(C.torque,tq,1e-11,tag+'extra upthrust (derive)'); }
+  ok(withState({view:'crown',crownM:1,gold:0.7},()=>crownModel(ST)).dhMm<0.5,'a 30 % silver crown moves the level under half a millimetre — Galileo\'s objection');
+
+  /* ---------- F. the diver ---------- */
+  rel(diverDpSink(1000),8443.75,1e-12,'the squeeze that sinks the diver from the surface (derive)'); rel(DIVER.cd,0.03926990816987,1e-12,'the drag coefficient (derive)');
+  for(const [dp,y,dF,Ft,Fb,Vt,Vb] of [[0,0.8610228773332,-0.005256708355839,0.004903325,0.003104747710668,6.5e-06,6.316596157777e-06],[5000,0.3511647708443,-0.005256708355839,0.00190575975194,0.0002701933371966,6.194333411709e-06,6.027552052658e-06],
+      [7000,0.1472215282487,-0.005256708355839,0.0007842151453958,-0.0007922977157377,6.079967689822e-06,5.919208117376e-06],[9000,-0.0567217143469,-0.005256708355839,-0.0002966661624745,-0.001817267121596,5.969748470428e-06,5.81469032528e-06]]){
+    const tag='diver dp='+dp+': ';
+    const C=withState({view:'comp',comp:'diver',squeeze:dp},()=>compModel(ST));
+    rel(C.yEq,y,1e-11,tag+'equilibrium depth (derive)'); rel(C.dFdy,dF,1e-11,tag+'dF/dy (derive)'); ok(C.dFdy<0,tag+'negative: unstable');
+    rel(C.top.Fup,Ft,1e-11,tag+'force at the top (derive)'); rel(C.bot.Fup,Fb,1e-11,tag+'force at the bottom (derive)'); rel(C.top.Va,Vt,1e-11,tag+'pocket at the top (derive)'); rel(C.bot.Va,Vb,1e-11,tag+'pocket at the bottom (derive)');
+    const e=1e-6; if(C.yEq!==null){ const num=(diverForce(C.yEq+e,dp,1000).Fup-diverForce(C.yEq-e,dp,1000).Fup)/(2*e); rel(num,C.dFdy,1e-4,tag+'dF/dy by finite differences'); close(diverForce(C.yEq,dp,1000).Fup,0,1e-12,tag+'F(y*) = 0'); }
+    eq(C.inBottle,y>=0&&y<=0.3,tag+'in the bottle iff 0 <= y* <= H'); }
+  ok(withState({view:'comp',comp:'diver',squeeze:0},()=>compModel(ST)).dFdy===withState({view:'comp',comp:'diver',squeeze:9000},()=>compModel(ST)).dFdy,'dF/dy at equilibrium does not depend on the squeeze (p* is fixed by m, V_g, V_0)');
+  for(const [y0,y60,v60,y180,v180] of [[0.127,0.1214771958337,-0.01144456747986,0.06245499875351,-0.05436059703344],[0.167,0.172381761369,0.01115068621819,0.2297920925205,0.05278215117303]]){
+    let y=y0, v=0; for(let k=1;k<=180;k++){ const s=rk4Step((yy,vv)=>diverAcc(7000,1000,yy,vv),y,v,FRAME_DT); y=s[0]; v=s[1]; if(y<0){ y=0; v=0; } if(y>DIVER.H){ y=DIVER.H; v=0; }
+      if(k===60){ rel(y,y60,1e-10,'diver from '+y0+': y at frame 60 (derive)'); rel(v,v60,1e-9,'v (derive)'); } }
+    rel(y,y180,1e-10,'y at frame 180 (derive)'); rel(v,v180,1e-9,'v (derive)'); ok((y0<0.1472)===(y<y0),'released above y* it rises, below it sinks'); }
+  { const M=withState({view:'comp',comp:'diver',squeeze:7000,diverY:0.167,runFrames:60},()=>buildModel()); rel(M.y,0.172381761369,1e-10,'the model run reproduces the diver at frame 60 (derive)');
+    const M2=withState({view:'comp',comp:'diver',squeeze:7000,diverY:0.167,runFrames:2000},()=>buildModel()); close(M2.y,DIVER.H,1e-12,'and it ends on the bottom'); }
+
+  /* ---------- G. the ISA and the balloon ---------- */
+  rel(isaP(11000),22632.03182222,1e-11,'ISA p at 11 km (derive; the article prints 22632)'); close(isaP(11000),22632,0.1,'22632 Pa'); rel(isaT(11000),216.65,1e-12,'T at 11 km = -56.5 °C'); rel(isaRho(11000),0.3639176038213,1e-11,'rho at 11 km (derive; article 0.3639)'); close(isaRho(11000),0.3639,5e-5,'0.3639 kg/m^3');
+  rel(isaRho(0),1.22500031685,1e-11,'sea-level density 1.2250 (derive)'); rel(ISA.Mair,0.02896492428571,1e-11,'M_air = R_u/R_air (derive)');
+  for(const [z,p,T,rho] of [[1000,89874.56028802,281.65,1.111642738881],[2000,79495.19723042,275.15,1.00649028335],[5000,54019.87990248,255.65,0.7361156139998],[10000,26436.23393095,223.15,0.4127061186074]]){
+    rel(isaP(z),p,1e-11,'ISA p at '+z+' m (derive)'); rel(isaT(z),T,1e-12,'T (derive)'); rel(isaRho(z),rho,1e-11,'rho (derive)'); }
+  rel(gasRho(0,'helium'),0.1692802187176,1e-11,'helium at sea level (derive)'); rel(gasRho(0,'hydrogen'),0.08525669234875,1e-11,'hydrogen (derive)'); rel(gasRho(0,'hotair'),0.9459569644922,1e-11,'hot air at 373.15 K (derive)');
+  for(const [gas,V,mp,L0,zc,rc] of [['helium',2000,1500,5996.180000696,3422.104323682,0.8702593038276],['hydrogen',2000,1500,7644.158630427,4151.630941572,0.8061025461226],['hotair',2800,500,2758.820375913,9057.057207447,0.4631509333011],
+      ['helium',2000,2500,-3810.469999304,0,1.22500031685],['helium',2000,500,15802.8300007,11000,0.3639176038213],['hotair',2800,900,-1163.839624087,0,1.22500031685],['hotair',2800,300,4720.150375913,11000,0.3639176038213]]){
+    const tag='balloon '+gas+' '+V+' m^3, '+mp+' kg: ';
+    const C=withState({view:'comp',comp:'balloon',gas,balV:V,payload:mp},()=>compModel(ST));
+    rel(C.lift0,L0,1e-11,tag+'lift at sea level (derive)'); rel(C.zc,zc,1e-9,tag+'ceiling (derive brentq)'); rel(C.rhoC,rc,1e-11,tag+'air density there (derive)');
+    if(gas!=='hotair'&&zc>0&&zc<11000){ rel(balloonCeilingClosed(gas,V,mp),zc,1e-9,tag+'the closed-form inverse agrees (derive CHECK)'); close(balloonLift(zc,gas,V,mp),0,1e-6,tag+'zero lift at the ceiling'); }
+    eq(C.grounded,L0<=0,tag+'grounded iff no lift'); eq(C.capped,zc>=11000,tag+'capped iff still lifting at 11 km'); }
+
+  /* ---------- H. the models, the readouts, the scene ---------- */
+  for(const [v] of TABS){
+    for(const over of (v==='comp'?[{comp:'diver'},{comp:'balloon'}]:v==='float'?[{fshape:'box'},{fshape:'boat',cargo:700}]:[{}])){
+      const M=withState(Object.assign({view:v},over),()=>buildModel());
+      const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+      ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0,'panels clean for '+v+' '+JSON.stringify(over)); } }
+  { const M=withState({view:'prin'},()=>buildModel()); ok(readoutHTML(M).indexOf('11.77')>=0,'the principle readout prints F_b = 11.77 N off the model'); ok(readoutHTML(M).indexOf('142.6')>=0,'and the scale reading 142.6 N'); }
+  { const M=withState({view:'stab',beam:1,sratio:0.5},()=>buildModel()); ok(readoutHTML(M).indexOf('45.00&deg;')>=0,'the stability readout prints the 45° loll'); ok(readoutHTML(M).indexOf('unstable')>=0,'and says unstable'); }
+  { const M=withState({view:'comp',comp:'balloon'},()=>buildModel()); ok(readoutHTML(M).indexOf('3422')>=0,'the balloon readout prints the 3422 m ceiling'); }
+  { const shot=makeShot(1100,712); const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS); simReset(ST);
+    ok(!S.step(),'the principle view has no clock'); ST.view='float'; simReset(ST); ok(!S.step(),'floating idles until a run starts');
+    ok(startRun(ST),'push & release starts a run'); ok(S.step(),'then a frame advances'); close(RUN.t,FRAME_DT,1e-15,'by 1/60 s'); ok(RUN.x>-0.1,'the box has risen from the push');
+    ST.running=false; ok(!S.step(),'paused: no frame'); ST.running=true; ST.speed=3; S.step(); close(RUN.t,4*FRAME_DT,1e-15,'speed 3 takes three steps per frame'); ST.speed=1;
+    ST.ratio=1.1; simReset(ST); ok(!startRun(ST),'a sinking body cannot be pushed to heave');
+    ST.view='comp'; ST.comp='balloon'; simReset(ST); ok(!startRun(ST),'the balloon has no run'); ST.comp='diver'; ok(startRun(ST),'the diver has'); ok(S.step(),'and steps');
+    ST.view='crown'; simReset(ST); ok(!startRun(ST)&&!S.step(),'the crown is static');
+    /* the pointer: the block in the principle view */
+    Object.assign(ST,DEFAULTS); simReset(ST);
+    const Gp=prinGeo(shot,S.W,S.H,buildModel()), map=Gp.map;
+    ok(S.pointer('down',map.X(0),map.Y(Gp.y0+Gp.a/2)),'pointer-down on the block grabs it'); eq(DRAG.what,'block','it is the block');
+    S.pointer('move',map.X(0),map.Y(Gp.y0+Gp.a/2-0.05)); ok(ST.lowered>0.6,'dragging down lowers it ('+ST.lowered.toFixed(3)+')');
+    S.pointer('move',map.X(0),map.Y(-5)); close(ST.lowered,1.5,1e-12,'and it stops at 1.5 sides'); S.pointer('move',map.X(0),map.Y(5)); close(ST.lowered,0,1e-12,'or at 0');
+    ok(S.pointer('up',0,0),'pointer-up releases'); eq(DRAG.what,null,'nothing dragged');
+    ok(!S.pointer('down',map.X(0.6),map.Y(0.6)),'a pointer-down away from the block grabs nothing');
+    /* the waterline in the pressure view */
+    ST.view='press'; simReset(ST); const Gq=pressGeo(shot,S.W,S.H,buildModel()), mq=Gq.map;
+    ok(S.pointer('down',mq.X(0),mq.Y(ST.wline)+3),'pointer-down on the waterline grabs it'); S.pointer('move',mq.X(0),mq.Y(-0.5)); close(ST.wline,-0.5,1e-9,'the waterline follows the pointer');
+    S.pointer('move',mq.X(0),mq.Y(-3)); close(ST.wline,-1.2,1e-12,'clamped at -1.2'); S.pointer('up',0,0);
+    ok(!S.pointer('down',mq.X(0),mq.Y(ST.wline)+60),'far from the waterline nothing is grabbed');
+    ST.view='crown'; ok(!S.pointer('down',300,300),'the crown view ignores the pointer');
+    Object.assign(ST,stSave); simReset(ST); }
+
+  /* ---------- I. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['prin iron',{view:'prin'},6],['prin oak slack',{view:'prin',mat:'oak',lowered:1.0},6],['prin gold 10 L under',{view:'prin',mat:'gold',volL:10,lowered:1.4},6],['prin custom mercury',{view:'prin',fluid:'mercury',mat:'custom',rhoCustom:5000,lowered:0.3},6],['prin cork out',{view:'prin',mat:'cork',lowered:0},5],
+    ['press box',{view:'press'},6],['press wedge',{view:'press',shape:'wedge',tilt:110,wline:-0.2},6],['press hull',{view:'press',shape:'hull',tilt:0,wline:0.3},6],['press disc',{view:'press',shape:'disc',tilt:60,wline:0.9},6],['press under',{view:'press',shape:'box',tilt:45,wline:1.2},6],['press dry',{view:'press',shape:'box',tilt:0,wline:-1.2},4],
+    ['float box',{view:'float'},4],['float cyl',{view:'float',fshape:'cyl',ratio:0.9},4],['float sphere',{view:'float',fshape:'sph',ratio:0.3},4],['float boat',{view:'float',fshape:'boat',cargo:200},6],['float boat sinks',{view:'float',fshape:'boat',cargo:700},5],['float sinks',{view:'float',ratio:1.1},3],['float heaving',{view:'float',runFrames:90},3],
+    ['stab square',{view:'stab'},6],['stab wide 30',{view:'stab',beam:1.5,heel:30},6],['stab flat -45',{view:'stab',beam:2,sratio:0.8,heel:-45},6],['stab narrow',{view:'stab',beam:0.5,sratio:0.5,heel:0},6],['stab released',{view:'stab',runFrames:120},6],['stab wide released',{view:'stab',beam:1.5,heel:20,runFrames:200},6],
+    ['crown 70',{view:'crown'},6],['crown gold',{view:'crown',gold:1},6],['crown silver',{view:'crown',gold:0,crownM:2},6],
+    ['diver 7000',{view:'comp'},5],['diver 0',{view:'comp',squeeze:0,diverY:0.25},4],['diver 9000 run',{view:'comp',squeeze:9000,diverY:0.02,runFrames:120},4],['diver run up',{view:'comp',diverY:0.127,runFrames:150},5],
+    ['balloon helium',{view:'comp',comp:'balloon'},6],['balloon hydrogen',{view:'comp',comp:'balloon',gas:'hydrogen'},6],['balloon hot air capped',{view:'comp',comp:'balloon',gas:'hotair',balV:2800,payload:300},6],['balloon grounded',{view:'comp',comp:'balloon',payload:2500},6],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

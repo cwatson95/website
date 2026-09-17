@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quantum tunneling — wave-packet barrier explorer</title>
+<!--
+  A 1-d Gaussian wave packet hitting one or two rectangular barriers,
+  integrated in real time. Natural units hbar = m = 1.
+
+  Physics: i dpsi/dt = [-(1/2) d2/dx2 + V(x)] psi on x in [-120,120],
+  2048 cells, dt = 0.02, packet psi ~ exp(-(x-x0)^2/(4 sigma^2) + i k0 x),
+  k0 = sqrt(2 E0). Time stepping is Crank-Nicolson in Cayley form
+      (1 + i dt H/2) psi_new = (1 - i dt H/2) psi_old
+  solved each step by a complex Thomas (tridiagonal) sweep — exactly
+  unitary for Hermitian H, unconditionally stable. The outer 22 a.u. on
+  each side carry a quadratic complex absorbing potential (CAP) so the
+  transmitted / reflected waves exit instead of bouncing off the walls;
+  the probability they soak up is book-kept per side, which makes the
+  live T and R readouts:  T = P(right of barriers) + absorbed_right, etc.
+
+  The T(E) inset is exact: transfer matrices across the piecewise-constant
+  potential give the plane-wave transmission, and the packet prediction
+  <T> integrates T(k^2/2) over the packet's Gaussian momentum density
+  (sigma_k = 1/(2 sigma)). With two barriers the inset shows the
+  resonant-tunneling peaks (T -> 1 at the quasi-bound levels).
+
+  Rendering: 2d canvas, additive ("lighter") columns of |psi|^2 on black,
+  each column colored with Mathematica's ColorData["NeonColors"] gradient
+  (NEON_STOPS below, same table as orbitals.html) mapped to the phase
+  arg psi, to |psi|^2, or held uniform. Barriers live on an energy axis
+  (magenta), the packet energy E0 is the dashed chartreuse line.
+
+  Single file, no dependencies, works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript tunnel_test.js
+  — when `document` is undefined it runs the assertion suite (transfer
+  matrix vs closed forms, CN unitarity/eigenphase, CN transmission vs
+  the analytic packet average, CAP bookkeeping) instead of booting.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0;}
+  #wave{position:absolute; inset:0; width:100%; height:100%; display:block;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:76px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:44px;
+                  text-align:right; flex-shrink:0;}
+  .sliderrow.off{opacity:.32; pointer-events:none;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; gap:16px; margin-top:6px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #gradbar{display:block; width:100%; height:10px; border-radius:5px; margin:6px 0 3px;}
+  #gradlabels{display:flex; justify-content:space-between; font-size:10.5px; color:#777;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Quantum tunneling</h1>
+  <span class="sub">1-d wave packet vs. potential barriers &mdash; Crank&ndash;Nicolson, absorbing edges, &#8463; = m = 1</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="wave"></canvas>
+    <div id="hint">space = pause &middot; r = relaunch &middot; barrier edits apply live</div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    <canvas id="inset" width="300" height="150"></canvas>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>presets</h3>
+      <div class="chips">
+        <button class="chip on" id="pTunnel" title="E below the barrier — most reflects, some tunnels">tunnel</button>
+        <button class="chip" id="pOver" title="E above the barrier — mostly passes, quantum reflection remains">over-barrier</button>
+        <button class="chip" id="pRes" title="double barrier tuned to a quasi-bound level: T peaks at 1">resonant</button>
+        <button class="chip" id="pWall" title="a long barrier — transmission ~ e^(-2 kappa w) ~ 1e-9">thick wall</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>wave packet</h3>
+      <div class="sliderrow"><label for="eE">energy E&#8320;</label>
+        <input type="range" id="eE" min="0.05" max="3" step="0.01">
+        <span class="val" id="eEVal"></span></div>
+      <div class="sliderrow"><label for="eSig">width &sigma;</label>
+        <input type="range" id="eSig" min="2" max="16" step="0.5">
+        <span class="val" id="eSigVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>barrier 1</h3>
+      <div class="sliderrow"><label for="eV1">height V&#8321;</label>
+        <input type="range" id="eV1" min="0.05" max="3" step="0.01">
+        <span class="val" id="eV1Val"></span></div>
+      <div class="sliderrow"><label for="eW1">length w&#8321;</label>
+        <input type="range" id="eW1" min="0.4" max="20" step="0.1">
+        <span class="val" id="eW1Val"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>barrier 2</h3>
+      <div class="checks" style="margin:0 0 4px">
+        <label><input type="checkbox" id="b2Chk"> second barrier</label>
+      </div>
+      <div class="sliderrow" id="rowV2"><label for="eV2">height V&#8322;</label>
+        <input type="range" id="eV2" min="0.05" max="3" step="0.01">
+        <span class="val" id="eV2Val"></span></div>
+      <div class="sliderrow" id="rowW2"><label for="eW2">length w&#8322;</label>
+        <input type="range" id="eW2" min="0.4" max="20" step="0.1">
+        <span class="val" id="eW2Val"></span></div>
+      <div class="sliderrow" id="rowGap"><label for="eGap">gap</label>
+        <input type="range" id="eGap" min="0.5" max="24" step="0.1">
+        <span class="val" id="eGapVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>simulation</h3>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="1" max="100" step="1">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow">
+        <button id="pauseBtn">pause</button>
+        <button id="relaunchBtn" title="restart the packet with the current E0, sigma">relaunch</button>
+        <button id="resetBtn" title="back to the tunnel preset defaults">reset all</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>color &mdash; NeonColors</h3>
+      <div class="chips">
+        <button class="chip on" id="colorPhase">phase</button>
+        <button class="chip" id="colorDensity">density</button>
+        <button class="chip" id="colorFlat">uniform</button>
+      </div>
+      <canvas id="gradbar" width="248" height="10"></canvas>
+      <div id="gradlabels"><span id="gradLo"></span><span id="gradHi"></span></div>
+      <div class="checks">
+        <label><input type="checkbox" id="reChk" checked> Re &psi;</label>
+        <label><input type="checkbox" id="logChk"> log T(E)</label>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* ========================= grid and constants ==================== */
+const PI = Math.PI, TAU = 2*PI;
+const NX = 2048, XMIN = -120, XMAX = 120, LX = XMAX-XMIN, DX = LX/NX, DT = 0.02;
+const X0P = -55;                                  // packet launch point
+const CAPW = 22, CAPW0 = 1.5;                     // absorbing-edge width and strength
+const XS = (()=>{ const a=new Float64Array(NX);
+  for (let i=0;i<NX;i++) a[i]=XMIN+(i+0.5)*DX; return a; })();
+// CAP profile W(x) = W0 s^2, s ramping 0..1 across each edge zone
+const WARR = (()=>{ const w=new Float64Array(NX);
+  for (let i=0;i<NX;i++){
+    const dl=(XMIN+CAPW)-XS[i], dr=XS[i]-(XMAX-CAPW);
+    if (dl>0) w[i]=CAPW0*(dl/CAPW)*(dl/CAPW);
+    else if (dr>0) w[i]=CAPW0*(dr/CAPW)*(dr/CAPW);
+  }
+  return w; })();
+const NCAPL = (()=>{ let n=0; while (n<NX && XS[n]<XMIN+CAPW) n++; return n; })();
+const ICAPR = (()=>{ let i=NX-1; while (i>=0 && XS[i]>XMAX-CAPW) i--; return i+1; })();
+
+/* ===================== complex helpers (2-vectors) =============== */
+function cadd(a,b){ return [a[0]+b[0], a[1]+b[1]]; }
+function csub(a,b){ return [a[0]-b[0], a[1]-b[1]]; }
+function cmul(a,b){ return [a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]]; }
+function cdiv(a,b){ const d=b[0]*b[0]+b[1]*b[1];
+  return [(a[0]*b[0]+a[1]*b[1])/d, (a[1]*b[0]-a[0]*b[1])/d]; }
+function cscale(a,s){ return [a[0]*s, a[1]*s]; }
+function cabs2(a){ return a[0]*a[0]+a[1]*a[1]; }
+function cexpi(z){ const e=Math.exp(-z[1]); return [e*Math.cos(z[0]), e*Math.sin(z[0])]; }
+// local wavevector: k = sqrt(2(E-V)), analytically continued to i*kappa under the barrier
+function kOfEV(E,V){ const d=2*(E-V);
+  return d>=0 ? [Math.sqrt(d),0] : [0,Math.sqrt(-d)]; }
+
+/* ================ transfer matrix: exact plane-wave T(E) =========
+   Piecewise-constant V. In each region psi = A e^{ikx} + B e^{-ikx};
+   continuity of psi, psi' at interface x between k1- and k2-regions gives
+   (A,B) = D(k1,k2,x) (C,D). With equal outer k the product matrix M has
+   T = 1/|M00|^2, R = |M10/M00|^2. */
+function ifaceMat(k1,k2,x){
+  const r=cdiv(k2,k1), pl=cadd([1,0],r), mi=csub([1,0],r);
+  const e1=cexpi(cscale(csub(k2,k1),x)),  e2=cexpi(cscale(cadd(k2,k1),-x)),
+        e3=cexpi(cscale(cadd(k2,k1),x)),  e4=cexpi(cscale(csub(k1,k2),x));
+  return [ cscale(cmul(pl,e1),0.5), cscale(cmul(mi,e2),0.5),
+           cscale(cmul(mi,e3),0.5), cscale(cmul(pl,e4),0.5) ];
+}
+function mm2(a,b){ return [
+  cadd(cmul(a[0],b[0]),cmul(a[1],b[2])), cadd(cmul(a[0],b[1]),cmul(a[1],b[3])),
+  cadd(cmul(a[2],b[0]),cmul(a[3],b[2])), cadd(cmul(a[2],b[1]),cmul(a[3],b[3])) ]; }
+
+// barrier geometry -> list of {a,b,V}; barrier 1 starts at x=0
+function segsOf(st){
+  const segs=[{a:0, b:st.w1, V:st.V1}];
+  if (st.two) segs.push({a:st.w1+st.gap, b:st.w1+st.gap+st.w2, V:st.V2});
+  return segs;
+}
+function transmission(E,segs){
+  if (E<=0) return {T:0,R:1};
+  const bounds=[], Vs=[0];
+  for (const s of segs){ bounds.push(s.a,s.b); Vs.push(s.V,0); }
+  let M=[[1,0],[0,0],[0,0],[1,0]];
+  for (let j=0;j<bounds.length;j++)
+    M=mm2(M, ifaceMat(kOfEV(E,Vs[j]), kOfEV(E,Vs[j+1]), bounds[j]));
+  const d=cabs2(M[0]);
+  if (!(d>0) || !isFinite(d)) return {T:0,R:1};
+  return {T:1/d, R:cabs2(M[2])/d};
+}
+// packet-averaged prediction: <T> = int T(k^2/2) |phi(k)|^2 dk,
+// |phi(k)|^2 Gaussian around k0 with sigma_k = 1/(2 sigma)
+function predictT(k0,sigma,segs,n){
+  n=n||401;
+  const sk=1/(2*sigma), lo=Math.max(1e-4,k0-5*sk), hi=k0+5*sk, dk=(hi-lo)/(n-1);
+  let sw=0, swt=0;
+  for (let i=0;i<n;i++){
+    const k=lo+i*dk, w=Math.exp(-2*sigma*sigma*(k-k0)*(k-k0))*((i===0||i===n-1)?0.5:1);
+    sw+=w; swt+=w*transmission(k*k/2,segs).T;
+  }
+  return sw>0 ? swt/sw : 0;
+}
+// local maxima of T(E) on (Elo,Ehi), each refined; used by the resonant preset
+function findResonances(segs,Elo,Ehi){
+  const n=1600, dE=(Ehi-Elo)/(n-1), Ts=new Float64Array(n);
+  for (let i=0;i<n;i++) Ts[i]=transmission(Elo+i*dE,segs).T;
+  const out=[];
+  for (let i=1;i<n-1;i++){
+    if (Ts[i]>Ts[i-1] && Ts[i]>=Ts[i+1] && Ts[i]>0.5){
+      let a=Elo+(i-1)*dE, b=Elo+(i+1)*dE;              // refine by two scan passes
+      for (let pass=0;pass<2;pass++){
+        let bi=0, bT=-1;
+        for (let j=0;j<=40;j++){ const Ej=a+(b-a)*j/40, Tj=transmission(Ej,segs).T;
+          if (Tj>bT){ bT=Tj; bi=j; } }
+        const c=a+(b-a)*bi/40, h=(b-a)/40; a=c-h; b=c+h;
+      }
+      out.push({E:(a+b)/2, T:transmission((a+b)/2,segs).T});
+    }
+  }
+  return out;
+}
+
+/* ==================== packet and grid functionals ================ */
+function makePacket(E0,sigma,x0){
+  const k0=Math.sqrt(2*E0), amp=Math.pow(2*PI*sigma*sigma,-0.25);
+  const pR=new Float64Array(NX), pI=new Float64Array(NX);
+  for (let i=0;i<NX;i++){
+    const g=amp*Math.exp(-(XS[i]-x0)*(XS[i]-x0)/(4*sigma*sigma));
+    pR[i]=g*Math.cos(k0*XS[i]); pI[i]=g*Math.sin(k0*XS[i]);
+  }
+  const raw=gridNorm(pR,pI), s=1/Math.sqrt(raw);
+  for (let i=0;i<NX;i++){ pR[i]*=s; pI[i]*=s; }
+  return {pR,pI,k0,rawNorm:raw, peak:1/(sigma*Math.sqrt(TAU)), amp};
+}
+function gridNorm(pR,pI){ let s=0;
+  for (let i=0;i<NX;i++) s+=pR[i]*pR[i]+pI[i]*pI[i];
+  return s*DX; }
+function probRange(pR,pI,a,b){ let s=0;
+  for (let i=0;i<NX;i++) if (XS[i]>=a && XS[i]<b) s+=pR[i]*pR[i]+pI[i]*pI[i];
+  return s*DX; }
+function meanX(pR,pI){ let s=0,w=0;
+  for (let i=0;i<NX;i++){ const p=pR[i]*pR[i]+pI[i]*pI[i]; s+=p*XS[i]; w+=p; }
+  return w>0?s/w:0; }
+function varX(pR,pI){ const m=meanX(pR,pI); let s=0,w=0;
+  for (let i=0;i<NX;i++){ const p=pR[i]*pR[i]+pI[i]*pI[i]; s+=p*(XS[i]-m)*(XS[i]-m); w+=p; }
+  return w>0?s/w:0; }
+// <H> with the same discrete Laplacian CN uses (hard walls beyond the ends)
+function meanEnergy(pR,pI,V){
+  let s=0;
+  for (let i=0;i<NX;i++){
+    const lR=i>0?pR[i-1]:0, rR=i<NX-1?pR[i+1]:0, lI=i>0?pI[i-1]:0, rI=i<NX-1?pI[i+1]:0;
+    const hR=-(rR-2*pR[i]+lR)/(2*DX*DX)+V[i]*pR[i];
+    const hI=-(rI-2*pI[i]+lI)/(2*DX*DX)+V[i]*pI[i];
+    s+=pR[i]*hR+pI[i]*hI;
+  }
+  return s*DX;
+}
+
+/* =================== Crank-Nicolson (Cayley) stepper =============
+   (1 + i dt H/2) psi' = (1 - i dt H/2) psi, H = -(1/2)d2 + V - iW.
+   Tridiagonal system solved by a complex Thomas sweep with the
+   elimination coefficients precomputed once per potential. Probability
+   removed by the CAP each step is split between the left/right edge
+   zones in proportion to W|psi|^2 there, so norm + absL + absR is
+   conserved to roundoff by construction. */
+function makeStepper(V,W){
+  const OA=-DT/(4*DX*DX), OB=-OA;
+  const BdR=new Float64Array(NX), BdI=new Float64Array(NX);
+  const invR=new Float64Array(NX), invI=new Float64Array(NX);
+  const cpR=new Float64Array(NX), cpI=new Float64Array(NX);
+  const rR=new Float64Array(NX), rI=new Float64Array(NX);
+  const dR=new Float64Array(NX), dI=new Float64Array(NX);
+  for (let i=0;i<NX;i++){
+    const hd=1/(DX*DX)+V[i];
+    BdR[i]=1-(DT/2)*W[i]; BdI[i]=-(DT/2)*hd;
+    let denR=1+(DT/2)*W[i], denI=(DT/2)*hd;           // A diagonal
+    if (i>0){ denR+=OA*cpI[i-1]; denI-=OA*cpR[i-1]; } // Thomas elimination
+    const m=denR*denR+denI*denI;
+    invR[i]=denR/m; invI[i]=-denI/m;
+    cpR[i]=-OA*invI[i]; cpI[i]=OA*invR[i];            // offA * inv(denom)
+  }
+  function stepOnce(pR,pI,book){
+    for (let i=0;i<NX;i++){
+      const sR=(i>0?pR[i-1]:0)+(i<NX-1?pR[i+1]:0);
+      const sI=(i>0?pI[i-1]:0)+(i<NX-1?pI[i+1]:0);
+      rR[i]=BdR[i]*pR[i]-BdI[i]*pI[i]-OB*sI;
+      rI[i]=BdR[i]*pI[i]+BdI[i]*pR[i]+OB*sR;
+    }
+    let tR=rR[0], tI=rI[0];
+    dR[0]=tR*invR[0]-tI*invI[0]; dI[0]=tR*invI[0]+tI*invR[0];
+    for (let i=1;i<NX;i++){
+      tR=rR[i]+OA*dI[i-1]; tI=rI[i]-OA*dR[i-1];
+      dR[i]=tR*invR[i]-tI*invI[i]; dI[i]=tR*invI[i]+tI*invR[i];
+    }
+    pR[NX-1]=dR[NX-1]; pI[NX-1]=dI[NX-1];
+    for (let i=NX-2;i>=0;i--){
+      const xR=pR[i+1], xI=pI[i+1];
+      pR[i]=dR[i]-(cpR[i]*xR-cpI[i]*xI);
+      pI[i]=dI[i]-(cpR[i]*xI+cpI[i]*xR);
+    }
+    let nrm=0;
+    for (let i=0;i<NX;i++) nrm+=pR[i]*pR[i]+pI[i]*pI[i];
+    nrm*=DX;
+    const dN=book.norm-nrm;
+    if (dN!==0){
+      let SL=0, SR=0;
+      for (let i=0;i<NCAPL;i++) SL+=W[i]*(pR[i]*pR[i]+pI[i]*pI[i]);
+      for (let i=ICAPR;i<NX;i++) SR+=W[i]*(pR[i]*pR[i]+pI[i]*pI[i]);
+      const S=SL+SR;
+      if (S>0){ book.absL+=dN*SL/S; book.absR+=dN*SR/S; }
+      else book.absR+=dN;                              // roundoff-scale only
+    }
+    book.norm=nrm;
+  }
+  return { stepOnce,
+           stepMany(pR,pI,book,n){ for (let s=0;s<n;s++) stepOnce(pR,pI,book); } };
+}
+// finite-volume sampling: edge cells get the fractional overlap, so the
+// discrete barrier has exactly the nominal width/strength (a center-membership
+// rule widens a barrier by up to one cell and skews T by several percent)
+function buildPotential(segs){
+  const V=new Float64Array(NX);
+  for (const s of segs)
+    for (let i=0;i<NX;i++){
+      const ov=Math.min(s.b,XS[i]+DX/2)-Math.max(s.a,XS[i]-DX/2);
+      if (ov>0) V[i]+=s.V*ov/DX;
+    }
+  return V;
+}
+
+/* ================= colormap: Mathematica NeonColors ==============
+   Same exact 16-sample table as orbitals.html (idsc-frazzoli/tensor
+   colorscheme/neon.csv, verified against Wolfram's swatch). */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){
+  const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ========================= state and labels ====================== */
+const DEFAULTS={ E0:0.6, sig:7, V1:1.0, w1:1.4, two:false, V2:1.0, w2:1.4, gap:4.0,
+                 speed:30, colorBy:'phase', showRe:true, logT:false };
+const PRESETS={
+  tunnel:  { E0:0.6,  sig:7,  V1:1.0, w1:1.4, two:false },
+  over:    { E0:1.6,  sig:7,  V1:0.8, w1:1.1, two:false },
+  resonant:{ E0:'res',sig:14, V1:1.2, w1:1.2, two:true, V2:1.2, w2:1.2, gap:4.0 },
+  wall:    { E0:0.75, sig:7,  V1:1.5, w1:8,   two:false },
+};
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,+v||lo));
+  c.E0=f(c.E0,0.05,3); c.sig=f(c.sig,2,16);
+  c.V1=f(c.V1,0.05,3); c.w1=f(c.w1,0.4,20);
+  c.V2=f(c.V2,0.05,3); c.w2=f(c.w2,0.4,20); c.gap=f(c.gap,0.5,24);
+  c.speed=Math.round(f(c.speed,1,100)); c.two=!!c.two;
+  return c;
+}
+function fmtT(x){
+  if (!(x>0)) return '0';
+  return x>=0.001 ? x.toFixed(3) : x.toExponential(1);
+}
+function fmt(x,d){ return (+x).toFixed(d===undefined?2:d); }
+function xToPx(x,W){ return (x-XMIN)/LX*W; }
+
+// T(E) curve for the inset
+function computeTcurve(segs,Emax,n){
+  const c=new Float64Array(n);
+  for (let i=0;i<n;i++) c[i]=transmission((i+0.5)/n*Emax,segs).T;
+  return c;
+}
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('wave'), ctx=cv.getContext('2d');
+  const insetCv=$('inset'), insetCtx=insetCv.getContext('2d');
+  if (!ctx || !insetCtx) return;
+  const dpr=(typeof window!=='undefined' && window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let segs=segsOf(state), V=buildPotential(segs), stepper=makeStepper(V,WARR);
+  let run=null;                   // {pR,pI,book,steps,k0,peak,amp,launchSig}
+  let paused=false, pred=0, tCurve=null, tCurveEmax=1;
+  let W=900, H=620;               // CSS-pixel stage size
+  let relaunchTimer=0;
+
+  function relaunch(){
+    const p=makePacket(state.E0,state.sig,X0P);
+    run={ pR:p.pR, pI:p.pI, book:{norm:gridNorm(p.pR,p.pI), absL:0, absR:0},
+          steps:0, k0:p.k0, peak:p.peak, amp:p.amp, launchSig:state.sig };
+    updateReadout();
+  }
+  function rebuildPotential(){
+    segs=segsOf(state); V=buildPotential(segs); stepper=makeStepper(V,WARR);
+    refreshPred(); refreshInset(); updateInfo();
+  }
+  function refreshPred(){ pred=predictT(Math.sqrt(2*state.E0),state.sig,segs); }
+  function insetEmax(){ return Math.max(3.2, 1.25*state.V1, state.two?1.25*state.V2:0, 1.3*state.E0); }
+  function refreshInset(){
+    tCurveEmax=insetEmax();
+    tCurve=computeTcurve(segs,tCurveEmax,240);
+    drawInset();
+  }
+
+  /* ---------- main stage ---------- */
+  function resize(){
+    W=cv.clientWidth||900; H=cv.clientHeight||620;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    ctx.setTransform ? ctx.setTransform(dpr,0,0,dpr,0,0) : ctx.scale(dpr,dpr);
+  }
+  function draw(){
+    const yB=H-34, hUse=H-78;
+    const EmaxD=Math.max(3.2, 1.15*state.V1, state.two?1.15*state.V2:0, 1.15*state.E0);
+    const es=hUse/EmaxD;
+    ctx.clearRect(0,0,W,H);
+
+    // absorbing-edge zones
+    ctx.fillStyle='rgba(255,255,255,0.035)';
+    ctx.fillRect(0,0,xToPx(XMIN+CAPW,W),H);
+    ctx.fillRect(xToPx(XMAX-CAPW,W),0,W-xToPx(XMAX-CAPW,W),H);
+    ctx.strokeStyle='rgba(255,255,255,0.12)'; ctx.lineWidth=1; ctx.setLineDash([3,5]);
+    ctx.beginPath();
+    ctx.moveTo(xToPx(XMIN+CAPW,W),0); ctx.lineTo(xToPx(XMIN+CAPW,W),H);
+    ctx.moveTo(xToPx(XMAX-CAPW,W),0); ctx.lineTo(xToPx(XMAX-CAPW,W),H);
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#555'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('absorbing edge',6,16);
+
+    // baseline + x ticks
+    ctx.strokeStyle='#2a2a30';
+    ctx.beginPath(); ctx.moveTo(0,yB); ctx.lineTo(W,yB); ctx.stroke();
+    ctx.fillStyle='#666';
+    for (let xt=-100;xt<=100;xt+=50) ctx.fillText(String(xt),xToPx(xt,W)-8,yB+16);
+    ctx.fillText('x (a.u.)',W-52,yB+16);
+
+    // barriers on the energy axis
+    for (const s of segs){
+      const xa=xToPx(s.a,W), xb=xToPx(s.b,W), yt=yB-s.V*es;
+      ctx.fillStyle='rgba(205,53,196,0.13)';
+      ctx.fillRect(xa,yt,xb-xa,yB-yt);
+      ctx.strokeStyle='rgba(205,53,196,0.18)'; ctx.lineWidth=6;
+      ctx.beginPath(); ctx.moveTo(xa,yt); ctx.lineTo(xb,yt); ctx.stroke();
+      ctx.strokeStyle='#cd35c4'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(xa,yB); ctx.lineTo(xa,yt); ctx.lineTo(xb,yt); ctx.lineTo(xb,yB); ctx.stroke();
+    }
+    ctx.fillStyle='#cd35c4';
+    ctx.fillText('V₁ = '+fmt(state.V1),xToPx(0,W)+3,yB-state.V1*es-6);
+    if (state.two) ctx.fillText('V₂ = '+fmt(state.V2),xToPx(state.w1+state.gap,W)+3,yB-state.V2*es-6);
+
+    // packet energy line
+    ctx.strokeStyle='rgba(184,236,76,0.8)'; ctx.lineWidth=1; ctx.setLineDash([6,5]);
+    ctx.beginPath(); ctx.moveTo(0,yB-state.E0*es); ctx.lineTo(W,yB-state.E0*es); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#b8ec4c'; ctx.fillText('E₀',W-24,yB-state.E0*es-5);
+
+    if (!run) return;
+    // |psi|^2 columns, additive, NeonColors
+    const pR=run.pR, pI=run.pI;
+    const yscale=0.62*hUse/run.peak, reC=yB-0.30*hUse, reS=0.26*hUse/run.amp;
+    ctx.globalCompositeOperation='lighter';
+    const flatCss=neonCss(0.85);
+    for (let cx=0;cx<W;cx++){
+      const x=XMIN+(cx+0.5)*LX/W, t=(x-XS[0])/DX;
+      let i=Math.floor(t); if (i<0) i=0; if (i>NX-2) i=NX-2;
+      const f=t-i;
+      const vR=pR[i]*(1-f)+pR[i+1]*f, vI=pI[i]*(1-f)+pI[i+1]*f;
+      const p=vR*vR+vI*vI;
+      let h=p*yscale; if (h<0.15) continue;
+      if (h>yB-8) h=yB-8;
+      let tc;
+      if (state.colorBy==='phase') tc=(Math.atan2(vI,vR)+PI)/TAU;
+      else if (state.colorBy==='density') tc=Math.pow(Math.min(1,p/run.peak),0.4);
+      else tc=0.85;
+      ctx.fillStyle = state.colorBy==='flat' ? flatCss : neonCss(tc);
+      ctx.globalAlpha=0.5;  ctx.fillRect(cx,yB-h,1,h);
+      ctx.globalAlpha=0.95; ctx.fillRect(cx,yB-h-1.6,1,1.9);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+
+    // Re psi overlay
+    if (state.showRe){
+      ctx.strokeStyle='rgba(185,215,255,0.75)'; ctx.lineWidth=1;
+      ctx.beginPath();
+      let started=false;
+      for (let cx=0;cx<W;cx+=2){
+        const x=XMIN+(cx+0.5)*LX/W, t=(x-XS[0])/DX;
+        let i=Math.floor(t); if (i<0) i=0; if (i>NX-2) i=NX-2;
+        const f=t-i, vR=pR[i]*(1-f)+pR[i+1]*f;
+        let y=reC-vR*reS;
+        if (y<8) y=8; if (y>yB-2) y=yB-2;
+        if (!started){ ctx.moveTo(cx,y); started=true; } else ctx.lineTo(cx,y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  /* ---------- T(E) inset ---------- */
+  function drawInset(){
+    const IW=insetCv.width, IH=insetCv.height, L=34, R=8, T=10, B=22;
+    const pw=IW-L-R, ph=IH-T-B, c=insetCtx;
+    const logT=state.logT, LMIN=-10;
+    const yOf=v=>{
+      if (!logT) return T+ph*(1-Math.max(0,Math.min(1,v)));
+      const l=Math.log10(Math.max(1e-12,v));
+      return T+ph*(1-Math.max(0,Math.min(1,(l-LMIN)/(-LMIN))));
+    };
+    c.clearRect(0,0,IW,IH);
+    c.strokeStyle='#2a2a30'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(L,T); c.lineTo(L,T+ph); c.lineTo(L+pw,T+ph); c.stroke();
+    c.fillStyle='#777'; c.font='9px -apple-system, sans-serif';
+    if (logT){
+      for (let d=0;d>=LMIN;d-=2){
+        const y=yOf(Math.pow(10,d));
+        c.fillText(d===0?'1':'1e'+d,3,y+3);
+        c.strokeStyle='rgba(255,255,255,0.06)';
+        c.beginPath(); c.moveTo(L,y); c.lineTo(L+pw,y); c.stroke();
+      }
+    } else {
+      for (const v of [0.5,1]){
+        const y=yOf(v);
+        c.fillText(fmt(v,1),8,y+3);
+        c.strokeStyle='rgba(255,255,255,0.06)';
+        c.beginPath(); c.moveTo(L,y); c.lineTo(L+pw,y); c.stroke();
+      }
+      c.fillText('0',8,yOf(0)+3);
+    }
+    for (let e=0;e<=Math.floor(tCurveEmax);e++){
+      const x=L+pw*e/tCurveEmax;
+      c.fillText(String(e),x-2,IH-8);
+    }
+    // packet energy band E(k0 +- 2 sigma_k), then the E0 marker
+    const sk=1/(2*state.sig), k0=Math.sqrt(2*state.E0);
+    const eLo=Math.max(0,(k0-2*sk)*(k0-2*sk)/2), eHi=(k0+2*sk)*(k0+2*sk)/2;
+    c.fillStyle='rgba(255,255,255,0.07)';
+    c.fillRect(L+pw*Math.min(1,eLo/tCurveEmax),T,
+               pw*Math.min(1,(eHi-eLo)/tCurveEmax),ph);
+    c.strokeStyle='rgba(255,255,255,0.55)'; c.setLineDash([3,3]);
+    c.beginPath();
+    c.moveTo(L+pw*Math.min(1,state.E0/tCurveEmax),T);
+    c.lineTo(L+pw*Math.min(1,state.E0/tCurveEmax),T+ph);
+    c.stroke(); c.setLineDash([]);
+    // barrier-height ticks
+    c.strokeStyle='#cd35c4';
+    const vticks=state.two?[state.V1,state.V2]:[state.V1];
+    for (const v of vticks){
+      const x=L+pw*Math.min(1,v/tCurveEmax);
+      c.beginPath(); c.moveTo(x,T+ph); c.lineTo(x,T+ph-6); c.stroke();
+    }
+    // the curve
+    c.strokeStyle='#b8ec4c'; c.lineWidth=1.4;
+    c.beginPath();
+    for (let i=0;i<tCurve.length;i++){
+      const x=L+pw*(i+0.5)/tCurve.length, y=yOf(tCurve[i]);
+      if (i===0) c.moveTo(x,y); else c.lineTo(x,y);
+    }
+    c.stroke();
+    c.fillStyle='#b8ec4c';
+    c.fillText('T(E)',L+6,T+10);
+    c.fillText('⟨T⟩ = '+fmtT(pred),L+pw-72,T+10);
+  }
+
+  /* ---------- readouts ---------- */
+  function structEnd(){ return state.two ? state.w1+state.gap+state.w2 : state.w1; }
+  function updateReadout(){
+    if (!run) return;
+    const b=run.book;
+    const PL=probRange(run.pR,run.pI,XMIN,0), Pin=probRange(run.pR,run.pI,0,structEnd()),
+          PRt=probRange(run.pR,run.pI,structEnd(),XMAX);
+    const Tm=PRt+b.absR, Rm=PL+b.absL;
+    $('roMain').textContent='T '+fmtT(Tm)+' · R '+fmtT(Rm);
+    $('roSub').innerHTML='t = '+fmt(run.steps*DT,1)+' &middot; in flight '+fmt(b.norm,3)+
+      '<br>P<sub>L</sub> '+fmtT(PL)+' &middot; P<sub>in</sub> '+fmtT(Pin)+' &middot; P<sub>R</sub> '+fmtT(PRt)+
+      '<br>⟨T⟩ predicted '+fmtT(pred);
+  }
+  function updateInfo(){
+    const k0=Math.sqrt(2*state.E0), sk=1/(2*state.sig);
+    let s='<b>'+(state.two?'double barrier':'single barrier')+'</b> &mdash; V₁='+fmt(state.V1)+
+      ', w₁='+fmt(state.w1,1)+(state.two?(', V₂='+fmt(state.V2)+', w₂='+fmt(state.w2,1)+
+      ', gap='+fmt(state.gap,1)):'')+'<br>';
+    s+='packet: E₀='+fmt(state.E0)+', k₀='+fmt(k0)+', σ='+fmt(state.sig,1)+
+       ', σ<sub>E</sub>≈'+fmt(k0*sk,3)+'<br>';
+    if (state.E0<state.V1){
+      const kap=Math.sqrt(2*(state.V1-state.E0)), o=kap*state.w1;
+      s+='opacity κ₁w₁ = '+fmt(o)+' &nbsp;(e<sup>−2κ w</sup> ≈ '+fmtT(Math.exp(-2*o))+')<br>';
+    }
+    s+='⟨T⟩ = '+fmtT(pred)+' from the exact transfer-matrix T(E), averaged over the packet’s momentum spread.<br>';
+    s+='Crank–Nicolson (Cayley, unitary) on '+NX+' cells, dt='+DT+
+       '; the shaded edges absorb outgoing waves and feed the T / R tallies. Barrier edits act on the wave mid-flight.';
+    $('info').innerHTML=s;
+  }
+  function paintGradbar(){
+    const g=$('gradbar').getContext('2d');
+    if (!g) return;
+    for (let i=0;i<248;i++){ g.fillStyle=neonCss(i/247); g.fillRect(i,0,1,10); }
+    const lab={phase:['arg ψ = −π','+π'], density:['|ψ|² = 0','peak'], flat:['','']};
+    $('gradLo').innerHTML=lab[state.colorBy][0]; $('gradHi').innerHTML=lab[state.colorBy][1];
+  }
+
+  /* ---------- control wiring ---------- */
+  function syncControls(){
+    $('eE').value=state.E0;    $('eEVal').textContent=fmt(state.E0);
+    $('eSig').value=state.sig; $('eSigVal').textContent=fmt(state.sig,1);
+    $('eV1').value=state.V1;   $('eV1Val').textContent=fmt(state.V1);
+    $('eW1').value=state.w1;   $('eW1Val').textContent=fmt(state.w1,1);
+    $('eV2').value=state.V2;   $('eV2Val').textContent=fmt(state.V2);
+    $('eW2').value=state.w2;   $('eW2Val').textContent=fmt(state.w2,1);
+    $('eGap').value=state.gap; $('eGapVal').textContent=fmt(state.gap,1);
+    $('eSpeed').value=state.speed; $('eSpeedVal').textContent='×'+state.speed;
+    $('b2Chk').checked=state.two;
+    $('reChk').checked=state.showRe; $('logChk').checked=state.logT;
+    for (const id of ['rowV2','rowW2','rowGap'])
+      $(id).classList.toggle('off',!state.two);
+    const cb={phase:'colorPhase',density:'colorDensity',flat:'colorFlat'};
+    for (const k in cb) $(cb[k]).classList.toggle('on',state.colorBy===k);
+  }
+  function packetChanged(){                    // debounce: relaunch after the drag settles
+    refreshPred(); refreshInset(); updateInfo();
+    if (relaunchTimer) clearTimeout(relaunchTimer);
+    relaunchTimer=setTimeout(()=>{ relaunchTimer=0; relaunch(); },280);
+  }
+  function bindSlider(id,key,dec,after){
+    $(id).addEventListener('input',()=>{
+      const s=Object.assign({},state); s[key]=+$(id).value; state=clampState(s);
+      $(id+'Val').textContent=(key==='speed'?'×'+state.speed:fmt(state[key],dec));
+      after();
+    });
+  }
+  bindSlider('eE','E0',2,packetChanged);
+  bindSlider('eSig','sig',1,packetChanged);
+  bindSlider('eV1','V1',2,rebuildPotential);
+  bindSlider('eW1','w1',1,rebuildPotential);
+  bindSlider('eV2','V2',2,rebuildPotential);
+  bindSlider('eW2','w2',1,rebuildPotential);
+  bindSlider('eGap','gap',1,rebuildPotential);
+  bindSlider('eSpeed','speed',0,()=>{});
+  $('b2Chk').addEventListener('change',()=>{
+    state.two=$('b2Chk').checked; syncControls(); rebuildPotential();
+  });
+  function setColor(mode){ state.colorBy=mode; syncControls(); paintGradbar(); }
+  $('colorPhase').addEventListener('click',()=>setColor('phase'));
+  $('colorDensity').addEventListener('click',()=>setColor('density'));
+  $('colorFlat').addEventListener('click',()=>setColor('flat'));
+  $('reChk').addEventListener('change',()=>{ state.showRe=$('reChk').checked; });
+  $('logChk').addEventListener('change',()=>{ state.logT=$('logChk').checked; drawInset(); });
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+  $('relaunchBtn').addEventListener('click',()=>{ relaunch(); });
+  function applyPreset(name){
+    const p=PRESETS[name];
+    const s=Object.assign({},state,p);
+    if (p.E0==='res'){
+      s.E0=0.5;                                  // placeholder until we scan
+      const st=clampState(s), rs=findResonances(segsOf(st),0.03,st.V1-0.03);
+      s.E0=rs.length?rs[0].E:0.5*st.V1;
+    }
+    state=clampState(s);
+    syncControls(); rebuildPotential(); relaunch(); setPaused(false);
+    const ids={tunnel:'pTunnel',over:'pOver',resonant:'pRes',wall:'pWall'};
+    for (const k in ids) $(ids[k]).classList.toggle('on',k===name);
+  }
+  $('pTunnel').addEventListener('click',()=>applyPreset('tunnel'));
+  $('pOver').addEventListener('click',()=>applyPreset('over'));
+  $('pRes').addEventListener('click',()=>applyPreset('resonant'));
+  $('pWall').addEventListener('click',()=>applyPreset('wall'));
+  $('resetBtn').addEventListener('click',()=>{
+    state=clampState(Object.assign({},DEFAULTS));
+    syncControls(); rebuildPotential(); relaunch(); setPaused(false); paintGradbar();
+  });
+  document.addEventListener('keydown',ev=>{
+    if (ev.key===' '){ setPaused(!paused); ev.preventDefault(); }
+    else if (ev.key==='r' || ev.key==='R') relaunch();
+  });
+  if (typeof window!=='undefined')
+    window.addEventListener('resize',()=>{ resize(); draw(); });
+
+  /* ---------- main loop ---------- */
+  function frame(){
+    if (!paused && run){
+      stepper.stepMany(run.pR,run.pI,run.book,state.speed);
+      run.steps+=state.speed;
+      updateReadout();
+    }
+    draw();
+    requestAnimationFrame(frame);
+  }
+  resize(); syncControls(); rebuildPotential(); relaunch(); paintGradbar();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test =========================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+
+  /* --- complex helpers --- */
+  { const a=[0.3,-1.2], b=[-0.7,0.4];
+    const q=cdiv(cmul(a,b),b);
+    ok(approx(q[0],a[0],1e-14)&&approx(q[1],a[1],1e-14),'complex mul/div round trip'); }
+  { const u=cexpi([0.7,0]);
+    ok(approx(u[0]*u[0]+u[1]*u[1],1,1e-14),'e^{i x} stays on the unit circle');
+    const d=cexpi([0,0.9]);
+    ok(approx(d[0],Math.exp(-0.9),1e-14)&&approx(d[1],0,1e-14),'e^{i(iy)} = e^{-y}'); }
+
+  /* --- transfer matrix vs closed forms --- */
+  const analyticT=(E,V,w)=>{
+    if (E===V) return 1/(1+V*w*w/2);
+    if (E<V){ const kap=Math.sqrt(2*(V-E)), s=Math.sinh(kap*w);
+      return 1/(1+V*V*s*s/(4*E*(V-E))); }
+    const kp=Math.sqrt(2*(E-V)), s=Math.sin(kp*w);
+    return 1/(1+V*V*s*s/(4*E*(E-V)));
+  };
+  { let good=true;
+    for (const [E,V,w] of [[0.6,1.0,1.4],[0.3,1.5,2.0],[0.9,1.0,0.6]]){
+      const t=transmission(E,[{a:0,b:w,V:V}]).T;
+      if (Math.abs(t-analyticT(E,V,w))>1e-9*Math.max(t,1e-12)) good=false;
+    }
+    ok(good,'transfer matrix matches analytic tunneling T (E<V)'); }
+  { let good=true;
+    for (const [E,V,w] of [[1.6,0.8,1.1],[2.5,1.0,3.0],[1.01,1.0,5.0]]){
+      const t=transmission(E,[{a:0,b:w,V:V}]).T;
+      if (Math.abs(t-analyticT(E,V,w))>1e-9) good=false;
+    }
+    ok(good,'transfer matrix matches analytic over-barrier T (E>V)'); }
+  { const s=[{a:0,b:1.3,V:1.0}];
+    ok(Math.abs(transmission(1-1e-6,s).T-transmission(1+1e-6,s).T)<1e-4,
+       'T(E) continuous across E = V'); }
+  { let good=true;
+    const segsD=[{a:0,b:1.2,V:1.2},{a:5.2,b:6.4,V:1.2}];
+    for (let i=1;i<=40;i++){
+      const E=i*0.07, r=transmission(E,segsD);
+      if (Math.abs(r.T+r.R-1)>1e-10) good=false;
+    }
+    ok(good,'T + R = 1 across the spectrum (double barrier)'); }
+  { let good=true;
+    for (let i=1;i<=20;i++){
+      const t=transmission(i*0.15,[]).T;
+      if (Math.abs(t-1)>1e-12) good=false;
+    }
+    ok(good,'no barrier means T = 1 at every energy'); }
+  { const segsD=segsOf({V1:1.2,w1:1.2,two:true,V2:1.2,w2:1.2,gap:4.0});
+    const rs=findResonances(segsD,0.03,1.17);
+    ok(rs.length>=2,'double barrier: at least two quasi-bound resonances below V');
+    ok(rs.length>0&&rs[0].T>0.995,'symmetric double barrier: peak T ≈ 1 at resonance');
+    if (rs.length>0){
+      const off=transmission(rs[0].E*0.7,segsD).T;
+      ok(rs[0].T/Math.max(off,1e-12)>5,'resonance is a sharp peak, not a plateau'); } }
+  { const segs1=[{a:0,b:1.0,V:1.0}];
+    const p1=predictT(Math.sqrt(2*0.6),9,segs1), p2=predictT(Math.sqrt(2*0.6),9,segs1,801);
+    ok(Math.abs(p1-p2)<1e-4,'packet-averaged ⟨T⟩ integral converged');
+    ok(p1>0&&p1<1,'⟨T⟩ lies in (0,1)');
+    ok(Math.abs(predictT(1.2,7,[])-1)<1e-9,'⟨T⟩ = 1 with no barrier'); }
+  { const segs1=[{a:0,b:1.4,V:1.0}];
+    ok(transmission(2.9,segs1).T>transmission(0.3,segs1).T,
+       'transmission grows from deep-tunneling to over-barrier'); }
+
+  /* --- packet on the grid --- */
+  { const p=makePacket(0.6,7,X0P);
+    ok(Math.abs(p.rawNorm-1)<0.015,'analytic packet normalization holds on the grid');
+    ok(Math.abs(gridNorm(p.pR,p.pI)-1)<1e-12,'packet renormalized to 1');
+    ok(Math.abs(meanX(p.pR,p.pI)-X0P)<1e-6,'<x> = launch point');
+    const V0=new Float64Array(NX);
+    const E=meanEnergy(p.pR,p.pI,V0), Eth=0.6+1/(8*7*7);
+    ok(Math.abs(E-Eth)/Eth<2e-3,'<H> = E0 + 1/(8 sigma^2) for the free packet');
+    const PL=probRange(p.pR,p.pI,XMIN,0), Pin=probRange(p.pR,p.pI,0,10),
+          PR=probRange(p.pR,p.pI,10,XMAX);
+    ok(Math.abs(PL+Pin+PR-1)<1e-12,'probability partitions sum to the norm'); }
+
+  /* --- Crank-Nicolson core --- */
+  const ZERO=new Float64Array(NX);
+  { // Dirichlet eigenmode advances by the exact Cayley phase (solver test)
+    const q=37, th=PI*q/(NX+1), lam=(1-Math.cos(th))/(DX*DX);
+    const cden=1+(lam*DT/2)*(lam*DT/2);
+    const cRe=(1-(lam*DT/2)*(lam*DT/2))/cden, cIm=-lam*DT/cden;
+    const pR=new Float64Array(NX), pI=new Float64Array(NX);
+    for (let i=0;i<NX;i++) pR[i]=Math.sin(th*(i+1));
+    const st=makeStepper(ZERO,ZERO), book={norm:gridNorm(pR,pI),absL:0,absR:0};
+    st.stepOnce(pR,pI,book);
+    let err=0;
+    for (let i=0;i<NX;i++){
+      const m=Math.sin(th*(i+1));
+      err=Math.max(err,Math.abs(pR[i]-cRe*m),Math.abs(pI[i]-cIm*m));
+    }
+    ok(err<1e-10,'CN step = exact Cayley phase on a box eigenmode (Thomas solver)'); }
+  { const p=makePacket(0.8,6,-20), st=makeStepper(ZERO,ZERO);
+    const book={norm:gridNorm(p.pR,p.pI),absL:0,absR:0};
+    const E0=meanEnergy(p.pR,p.pI,ZERO);
+    st.stepMany(p.pR,p.pI,book,250);
+    ok(Math.abs(book.norm-1)<1e-12,'norm exactly conserved without CAP');
+    const E1=meanEnergy(p.pR,p.pI,ZERO);
+    ok(Math.abs(E1-E0)/E0<1e-10,'<H> conserved by the unitary step'); }
+  { const p=makePacket(0.8,5,-40), st=makeStepper(ZERO,ZERO);
+    const book={norm:1,absL:0,absR:0};
+    const n=600, t=n*DT, k0=Math.sqrt(1.6);
+    const v0=varX(p.pR,p.pI);
+    st.stepMany(p.pR,p.pI,book,n);
+    ok(Math.abs(meanX(p.pR,p.pI)-(-40+k0*t))<0.005*k0*t+1e-6,'free packet drifts at v = k0');
+    const vTh=v0+t*t/(4*v0);
+    ok(Math.abs(varX(p.pR,p.pI)-vTh)/vTh<0.01,'free packet spreads by the analytic variance law'); }
+  { // CAP quality + exact bookkeeping
+    const p=makePacket(1.2,6,30), st=makeStepper(ZERO,WARR);
+    const book={norm:gridNorm(p.pR,p.pI),absL:0,absR:0};
+    st.stepMany(p.pR,p.pI,book,3800);
+    ok(book.norm<4e-3,'right-going packet fully leaves through the CAP');
+    ok(book.absR>0.995,'absorption tally lands on the correct side');
+    ok(book.absL<2e-3,'CAP reflection back across the box is small');
+    ok(Math.abs(book.norm+book.absL+book.absR-1)<1e-9,
+       'norm + absorbed_L + absorbed_R stays exactly 1'); }
+
+  /* --- CN transmission vs analytic packet average --- */
+  const runCN=(st0,nSteps)=>{
+    const st=clampState(st0), sg=segsOf(st), V=buildPotential(sg);
+    const p=makePacket(st.E0,st.sig,-35), sp=makeStepper(V,WARR);
+    const book={norm:gridNorm(p.pR,p.pI),absL:0,absR:0};
+    sp.stepMany(p.pR,p.pI,book,nSteps);
+    const end=st.two?st.w1+st.gap+st.w2:st.w1;
+    return { T:probRange(p.pR,p.pI,end,XMAX)+book.absR,
+             R:probRange(p.pR,p.pI,XMIN,0)+book.absL,
+             Pin:probRange(p.pR,p.pI,0,end),
+             pred:predictT(Math.sqrt(2*st.E0),st.sig,sg) };
+  };
+  { const r=runCN({E0:0.6,sig:9,V1:1.0,w1:1.0,two:false},6500);
+    ok(r.Pin<2e-3,'single barrier: run long enough to settle');
+    ok(Math.abs(r.T-r.pred)<Math.max(0.012,0.04*r.pred),
+       'CN transmission matches the analytic packet average (single barrier)');
+    ok(Math.abs(r.R-(1-r.pred))<0.015,
+       'CN reflection matches 1 - ⟨T⟩ (single barrier)'); }
+  { const r=runCN({E0:1.05,sig:9,V1:1.2,w1:1.2,two:true,V2:1.2,w2:1.2,gap:4.0},6500);
+    ok(Math.abs(r.T-r.pred)<Math.max(0.015,0.05*r.pred),
+       'CN transmission matches the packet average (double barrier, off resonance)'); }
+
+  /* --- geometry, colors, labels --- */
+  { const st=clampState({E0:9,sig:0,V1:-2,w1:99,V2:1,w2:1,gap:0,two:true,speed:500});
+    ok(st.E0===3&&st.sig===2&&st.V1===0.05&&st.w1===20&&st.gap===0.5&&st.speed===100,
+       'state clamps to the slider ranges'); }
+  { const sg=segsOf({V1:1,w1:2,two:true,V2:0.5,w2:3,gap:4});
+    ok(sg.length===2&&sg[0].a===0&&sg[0].b===2&&approx(sg[1].a,6)&&approx(sg[1].b,9),
+       'barrier geometry: [0,w1], then gap, then w2');
+    const V=buildPotential(sg);
+    let sum=0, gapBad=false, over=false;
+    for (let i=0;i<NX;i++){
+      sum+=V[i];
+      if (XS[i]>2.1&&XS[i]<5.9&&V[i]!==0) gapBad=true;
+      if (V[i]>1+1e-12) over=true;
+    }
+    ok(Math.abs(sum*DX-(1*2+0.5*3))<1e-10&&!gapBad&&!over,
+       'potential integrates to V·w exactly (finite-volume edges), gap empty'); }
+  { let good=true;
+    for (let i=0;i<NX;i++){
+      const inCap=XS[i]<XMIN+CAPW||XS[i]>XMAX-CAPW;
+      if (inCap!==(WARR[i]>0)) good=false;
+    }
+    ok(good&&Math.abs(Math.max(WARR[0],WARR[NX-1])-CAPW0*Math.pow((CAPW-DX/2)/CAPW,2))<1e-12,
+       'CAP lives only in the edge zones with the quadratic ramp'); }
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS;
+    ok(approx(c0[0],S[0][1])&&approx(c0[2],S[0][3])&&approx(c1[0],S[15][1])&&approx(c1[2],S[15][3]),
+       'neon endpoints hit the gradient stops');
+    const mid=neon(0.1), f=(0.1-S[1][0])/(S[2][0]-S[1][0]);
+    ok(approx(mid[1],S[1][2]+(S[2][2]-S[1][2])*f,1e-12),'neon interpolates linearly between stops');
+    ok(/^rgb\(\d+,\d+,\d+\)$/.test(neonCss(0.3)),'neonCss emits rgb() strings'); }
+  { ok(fmtT(0.2725)==='0.273'&&fmtT(3.05e-9)==='3.1e-9'&&fmtT(0)==='0','T formatting: fixed vs scientific');
+    ok(Math.abs(xToPx(0,900)-450)<1e-9&&Math.abs(xToPx(XMIN,900))<1e-9,'x -> pixel mapping'); }
+  { const sT=clampState(Object.assign({},DEFAULTS,PRESETS.wall));
+    ok(sT.w1===8&&sT.V1===1.5&&!sT.two,'preset merges into a valid state');
+    const rs=findResonances(segsOf(clampState(Object.assign({},DEFAULTS,PRESETS.resonant,{E0:0.5}))),0.03,1.17);
+    ok(rs.length>0&&rs[0].E>0.03&&rs[0].E<1.2,'resonant preset finds a level under the barrier top'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Visualizing quaternions — interactive recreation</title>
+<!--
+  A from-scratch recreation of the interactive simulation from
+  "Visualizing quaternions: An explorable video series"
+  by Grant Sanderson (3blue1brown) and Ben Eater — https://eater.net/quaternions
+  (intro lesson). No affiliation; educational recreation.
+
+  Single file, no dependencies, works over file://.
+  Math + wireframe renderer are hand-rolled on canvas 2D.
+
+  Convention (matching the video): unit quaternions q = w + xi + yj + zk live on a
+  3-sphere in 4d; we stereographically project from -1 onto the 3-space {w=0}:
+      proj(q) = (x, y, z) / (1 + w)
+  so 1 sits at the origin, i/j/k are unit points on the three axes, the sphere of
+  unit pure-imaginaries projects to the actual unit sphere, and -1 is at infinity.
+
+  Headless self-test: extract the <script> body and run it with
+      osascript -l JavaScript sim.js
+  (when `document` is undefined it runs assertions instead of booting the UI).
+-->
+<style>
+  :root{
+    /* palette lifted from the eater.net production bundle (manim constants):
+       1/real = YELLOW_C, i = GREEN_C, j = RED_C, k = BLUE_C, black stage, grey chrome */
+    --bg:#070b18; --panel:#000000; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --i:#83c167; --j:#fc6255; --k:#58c4dd; --q:#ffff00; --edge:#222228;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap;}
+  nav{margin-left:auto; display:flex; gap:6px;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 11px; border-radius:15px; font-size:12.5px; cursor:pointer;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#777; background:rgba(255,255,255,.06);}
+  #stage{position:relative; width:100%; height:calc(100% - 48px - 108px);}
+  canvas{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:grab;}
+  canvas.dragging{cursor:grabbing;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 17px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #readout .ci{color:var(--i);} #readout .cj{color:var(--j);} #readout .ck{color:var(--k);}
+  #readout .cq{color:var(--q);} #readout .c1{color:var(--q);}
+  #readout .scrub{pointer-events:auto; cursor:ew-resize; border-bottom:1px dotted #555;}
+  #hint{position:absolute; left:14px; bottom:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  footer{height:108px; background:var(--panel); border-top:1px solid var(--edge);
+         padding:8px 14px 10px; display:flex; flex-direction:column; gap:7px;}
+  #captionrow{display:flex; align-items:baseline; gap:14px; min-height:20px;}
+  #caption{color:var(--dim); font-size:12.5px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #credit{color:#666; font-size:11px; white-space:nowrap;}
+  #credit a{color:#cf9090;}
+  .controls{display:none; align-items:center; gap:10px; flex-wrap:wrap;}
+  .controls.active{display:flex;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 12px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--q); color:var(--q);}
+  .ctl{display:flex; align-items:center; gap:6px; color:var(--dim); font-size:12px; white-space:nowrap;}
+  .ctl input[type=range]{width:130px; accent-color:var(--accent);}
+  .ctl input[type=checkbox]{accent-color:var(--accent);}
+  .seg{display:flex; border:1px solid var(--edge); border-radius:14px; overflow:hidden;}
+  .seg button{background:var(--panel2); border:0; color:var(--dim); padding:4px 11px;
+              cursor:pointer; font-size:12px; font-family:Georgia, serif; font-style:italic;}
+  .seg button.on{background:rgba(88,196,221,.14); color:var(--text);}
+  .gap{width:8px;}
+  #errbox{position:absolute; left:12px; top:12px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Visualizing quaternions</h1>
+  <span class="sub">an interactive recreation after the explorable series at eater.net/quaternions</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="readout"></div>
+  <div id="hint"></div>
+  <div id="errbox"></div>
+</div>
+<footer>
+  <div id="captionrow">
+    <div id="caption"></div>
+    <div id="credit">after Grant Sanderson &amp; Ben Eater — <a href="https://eater.net/quaternions" target="_blank" rel="noreferrer">eater.net/quaternions</a></div>
+  </div>
+  <div id="controlbar"></div>
+</footer>
+<script>
+'use strict';
+/* ================================================================== *
+ *  math — 3-vectors, quaternions [w,x,y,z], stereographic projection *
+ * ================================================================== */
+const TAU = Math.PI*2;
+const clamp = (v,a,b)=> v<a?a : v>b?b : v;
+
+const v3 = {
+  add:(a,b)=>[a[0]+b[0], a[1]+b[1], a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0], a[1]-b[1], a[2]-b[2]],
+  scale:(a,s)=>[a[0]*s, a[1]*s, a[2]*s],
+  dot:(a,b)=> a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+  len:a=> Math.hypot(a[0],a[1],a[2]),
+  norm:a=>{ const l=Math.hypot(a[0],a[1],a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+
+function qmul(a,b){
+  return [
+    a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],
+    a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+    a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],
+    a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0],
+  ];
+}
+const qconj = q=>[q[0],-q[1],-q[2],-q[3]];
+const qlen  = q=> Math.hypot(q[0],q[1],q[2],q[3]);
+const qnormalize = q=>{ const l=qlen(q)||1; return [q[0]/l,q[1]/l,q[2]/l,q[3]/l]; };
+// q = cos(theta) + sin(theta)(n·(i,j,k)), n a unit 3-vector; theta is the
+// hypersphere angle (this q rotates 3d vectors by 2*theta via conjugation).
+const qexp = (n,theta)=>{ const s=Math.sin(theta); return [Math.cos(theta), n[0]*s, n[1]*s, n[2]*s]; };
+function qaxisangle(q){
+  const w = clamp(q[0],-1,1), theta = Math.acos(w), s = Math.sin(theta);
+  return { angle: theta, axis: s<1e-9 ? null : [q[1]/s, q[2]/s, q[3]/s] };
+}
+function qpow(q,t,fallbackAxis){
+  const {axis,angle} = qaxisangle(q);
+  return qexp(axis || fallbackAxis || [1,0,0], angle*t);
+}
+// rotate a 3-vector by unit quaternion (conjugation p -> q p q*)
+function qrotate(v,q){
+  const p = qmul(qmul(q,[0,v[0],v[1],v[2]]), qconj(q));
+  return [p[1],p[2],p[3]];
+}
+
+const POLE_EPS = 1e-7;
+// S^3 from -1 onto {w=0}
+function stereo4(q){
+  const d = 1+q[0];
+  if (d < POLE_EPS) return null;
+  return [q[1]/d, q[2]/d, q[3]/d];
+}
+// exact inverse: every 3d point is the shadow of exactly one unit quaternion
+function invStereo4(p){
+  const r2 = p[0]*p[0]+p[1]*p[1]+p[2]*p[2], s = 1/(1+r2);
+  return [(1-r2)*s, 2*p[0]*s, 2*p[1]*s, 2*p[2]*s];
+}
+// S^2 from (0,0,-1) onto {z=0}
+function stereo3(v){
+  const d = 1+v[2];
+  if (d < POLE_EPS) return null;
+  return [v[0]/d, v[1]/d];
+}
+// unit circle from -1 onto the imaginary axis: e^{i t} -> tan(t/2)
+const stereo2 = t=> Math.tan(t/2);
+
+/* ============================ palette ============================= */
+// component colors match the original site exactly: 1/real=YELLOW_C, i=GREEN_C,
+// j=RED_C, k=BLUE_C on a pure black stage (from the eater.net bundle).
+const PAL = {
+  bg:'#070b18',
+  one:'#ffff00', neg:'#9a9ab0',
+  i:'#83c167', j:'#fc6255', k:'#58c4dd',
+  q:'#ffff00',
+  axisArrow:'#caa3e8',
+  sphere:'#7f88b4',
+  coord:{ '1jk':'#6f9a86', '1ik':'#a3837f', '1ij':'#7d92ad' },
+  latPos:'#52b8a8', latNeg:'#a874c8',
+  radial:'#7a7f98',
+  arcA:'#58c4dd', arcB:'#1c758a',
+  dotRed:'#fc6255', pink:'#d147bd',
+  frame:'#ffffff',
+  grid:'#2c2c38', gridBright:'#3a3a48',
+  label:'#e8e8f0', accent:'#58c4dd',
+};
+
+/* ==================== 3d camera + draw pipeline =================== *
+ * Wireframe painter renderer: scenes emit depth-keyed items          *
+ * (polyline chunks / dots / labels); we sort far-to-near and stroke. *
+ * All screen math in CSS px; ctx is pre-scaled by devicePixelRatio.  */
+const RCLIP = 20;         // drop projected geometry farther than this from origin (matches the original's shader discard)
+const CHUNK = 8;          // segments per depth-sorted chunk
+
+function makeCamera(theta,phi,dist){
+  return { theta, phi, dist, fov:0.82, W:800, H:600 };
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), st=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const eye=[cam.dist*cp*ct, cam.dist*cp*st, cam.dist*sp];   // z-up orbit around origin
+  const fwd=v3.norm(v3.scale(eye,-1));
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up, f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function projectPoint(cam,B,p){
+  const d=v3.sub(p,B.eye), z=v3.dot(d,B.fwd);
+  if (z<0.05) return null;                                   // behind / at camera
+  return { x: cam.W/2 + B.f*v3.dot(d,B.right)/z,
+           y: cam.H/2 - B.f*v3.dot(d,B.up)/z,
+           z, s:B.f/z };
+}
+function screenRay(cam,B,px,py){
+  return { orig:B.eye,
+           dir: v3.norm(v3.add(B.fwd, v3.add(v3.scale(B.right,(px-cam.W/2)/B.f),
+                                             v3.scale(B.up,(cam.H/2-py)/B.f)))) };
+}
+// intersect pointer ray with the camera-facing plane through p0 (for dragging)
+function dragPlanePoint(cam,B,px,py,p0){
+  const {orig,dir}=screenRay(cam,B,px,py);
+  const denom=v3.dot(dir,B.fwd);
+  if (Math.abs(denom)<1e-9) return null;
+  const t=v3.dot(v3.sub(p0,orig),B.fwd)/denom;
+  return t>0 ? v3.add(orig, v3.scale(dir,t)) : null;
+}
+
+// pts: array of [x,y,z] | null.  Splits at nulls, at the RCLIP horizon, and at
+// pole-crossing chords (a segment much longer than its distance from the
+// origin is the classic stereographic artifact, not real geometry).
+function emitCurve3D(items,cam,B,pts,style){
+  let run=[], rsum=0, prev=null;
+  const flush=()=>{
+    if (run.length>=2){
+      for (let i=0;i<run.length-1;i+=CHUNK){
+        const end=Math.min(run.length-1,i+CHUNK);
+        const seg=run.slice(i,end+1);
+        let zs=0, rs=0;
+        for (const p of seg){ zs+=p.z; rs+=p.r; }
+        items.push({kind:'path', z:zs/seg.length, r:rs/seg.length, pts:seg, style});
+      }
+    }
+    run=[]; prev=null;
+  };
+  for (const p of pts){
+    if (!p){ flush(); continue; }
+    const r=Math.hypot(p[0],p[1],p[2]);
+    if (r>RCLIP){ flush(); continue; }
+    if (prev){
+      const d=Math.hypot(p[0]-prev[0],p[1]-prev[1],p[2]-prev[2]);
+      const rmin=Math.min(r, Math.hypot(prev[0],prev[1],prev[2]));
+      if (d > 0.9*Math.max(1,rmin)) flush();
+    }
+    const s=projectPoint(cam,B,p);
+    if (!s){ flush(); continue; }
+    s.r=r; run.push(s); prev=p;
+  }
+  flush();
+}
+
+function strokePts(ctx,pts,color,alpha,width,dash){
+  ctx.globalAlpha=clamp(alpha,0,1); ctx.strokeStyle=color; ctx.lineWidth=Math.max(width,0.4);
+  ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.setLineDash(dash||[]);
+  ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+  for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+function drawDot(ctx,x,y,px,color,alpha,ring){
+  ctx.globalAlpha=clamp(alpha*0.35,0,1);
+  ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,px*2.1,0,TAU); ctx.fill();
+  ctx.globalAlpha=clamp(alpha,0,1);
+  if (ring){ ctx.strokeStyle=color; ctx.lineWidth=2;
+             ctx.beginPath(); ctx.arc(x,y,px+3.5,0,TAU); ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(x,y,px,0,TAU); ctx.fill();
+}
+function drawLabel(ctx,x,y,text,color,alpha,size){
+  ctx.globalAlpha=clamp(alpha,0,1);
+  ctx.font='italic '+(size||15)+'px Georgia, "Times New Roman", serif';
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.lineWidth=4; ctx.strokeStyle='rgba(6,6,14,0.85)';
+  ctx.strokeText(text,x,y); ctx.fillStyle=color; ctx.fillText(text,x,y);
+}
+function renderItems(ctx,cam,items){
+  items.sort((a,b)=> b.z-a.z);
+  for (const it of items){
+    if (it.kind!=='path') continue;
+    const st=it.style;
+    const depthA=clamp(1.45 - it.z/(cam.dist*2.4), 0.18, 1);
+    const radialA=1/(1+(it.r/16)*(it.r/16));
+    const a=st.alpha*depthA*radialA;
+    if (a<0.012) continue;
+    const w=clamp(st.width*it.pts[0].s, 0.55, 5.5);
+    if (st.glow) strokePts(ctx,it.pts,st.color,a*0.22,w*3.4,st.dash);
+    strokePts(ctx,it.pts,st.color,a,w,st.dash);
+  }
+  for (const it of items){
+    if (it.kind==='dot') drawDot(ctx,it.x,it.y,it.px,it.color,it.alpha,it.ring);
+  }
+  for (const it of items){
+    if (it.kind==='label') drawLabel(ctx,it.x,it.y,it.text,it.color,it.alpha,it.size);
+  }
+}
+
+/* ====================== curve construction ======================= */
+// great circle cos(t) A + sin(t) B on S^3 (A,B orthonormal 4-vectors)
+function greatCircle4(A,B,n,closed){
+  const pts=[];
+  for (let s=0;s<=n;s++){
+    const t = closed ? TAU*s/n : -Math.PI + TAU*s/n;
+    const c=Math.cos(t), si=Math.sin(t);
+    pts.push([A[0]*c+B[0]*si, A[1]*c+B[1]*si, A[2]*c+B[2]*si, A[3]*c+B[3]*si]);
+  }
+  return pts;
+}
+// wireframe of the 2-sphere {w=w0} in S^3 (radius sqrt(1-w0^2) of pure-imaginary part)
+function latitudeSphereCurves4(w0,nLon,nLat,n){
+  const s=Math.sqrt(Math.max(0,1-w0*w0)), curves=[];
+  for (let L=0;L<nLon;L++){
+    const a=Math.PI*L/nLon, ca=Math.cos(a), sa=Math.sin(a), pts=[];
+    for (let m=0;m<=n;m++){
+      const t=TAU*m/n, ct=Math.cos(t), st=Math.sin(t);
+      pts.push([w0, s*st*ca, s*st*sa, s*ct]);           // meridian through ±z^ of the imag 3-space
+    }
+    curves.push(pts);
+  }
+  for (let L=1;L<=nLat;L++){
+    const z=-1+2*L/(nLat+1), rr=Math.sqrt(1-z*z), pts=[];
+    for (let m=0;m<=n;m++){
+      const t=TAU*m/n;
+      pts.push([w0, s*rr*Math.cos(t), s*rr*Math.sin(t), s*z]);
+    }
+    curves.push(pts);
+  }
+  return curves;
+}
+// great 2-sphere of S^3 spanned by orthonormal 4-vectors A,B,C (poles at ±A):
+// points cos(u)A + sin(u)(cos(v)B + sin(v)C), drawn as meridians + latitudes
+function greatSphere4(A,B,C,nMer,nLat,n){
+  const P=(u,v)=>{
+    const cu=Math.cos(u), su=Math.sin(u), cv=Math.cos(v), sv=Math.sin(v);
+    const out=new Array(4);
+    for (let d=0;d<4;d++) out[d]=A[d]*cu + (B[d]*cv + C[d]*sv)*su;
+    return out;
+  };
+  const curves=[];
+  for (let m=0;m<nMer;m++){
+    const v=Math.PI*m/nMer, pts=[];
+    for (let s=0;s<=n;s++) pts.push(P(TAU*s/n, v));
+    curves.push(pts);
+  }
+  for (let L=1;L<=nLat;L++){
+    const u=Math.PI*L/(nLat+1), pts=[];
+    for (let s=0;s<=n;s++) pts.push(P(u, TAU*s/n));
+    curves.push(pts);
+  }
+  return curves;
+}
+
+// unit 2-sphere wireframe in plain 3d (for the sphere→plane scene)
+function sphereWire3(nLon,nLat,n){
+  const curves=[];
+  for (let L=0;L<nLon;L++){
+    const a=Math.PI*L/nLon, ca=Math.cos(a), sa=Math.sin(a), pts=[];
+    for (let m=0;m<=n;m++){
+      const t=TAU*m/n, st=Math.sin(t);
+      pts.push([st*ca, st*sa, Math.cos(t)]);
+    }
+    curves.push({pts, type:'lon'});
+  }
+  for (let L=1;L<=nLat;L++){
+    const z=-1+2*L/(nLat+1), rr=Math.sqrt(1-z*z), pts=[];
+    for (let m=0;m<=n;m++){
+      const t=TAU*m/n;
+      pts.push([rr*Math.cos(t), rr*Math.sin(t), z]);
+    }
+    curves.push({pts, type:'lat', z});
+  }
+  return curves;
+}
+
+// the full element vocabulary of the original's 3d scene: 6 great circles
+// (1i,1j,1k project to the axes; ij,ik,jk are the unit circles) and 4 great
+// spheres (ijk = the unit sphere of pure imaginaries; 1jk,1ik,1ij project to
+// the coordinate planes at q=1), plus latitude spheres and radial lines as
+// extras from the companion video.
+function buildHyperCurves(){
+  const E1=[1,0,0,0], EI=[0,1,0,0], EJ=[0,0,1,0], EK=[0,0,0,1];
+  const curves=[];
+  // 1i / 1j / 1k circles (project to straight coordinate lines)
+  curves.push({pts4:greatCircle4(E1,EI,720,false), style:{color:PAL.i,width:0.022,alpha:0.95,glow:true}, group:'axisCircles'});
+  curves.push({pts4:greatCircle4(E1,EJ,720,false), style:{color:PAL.j,width:0.022,alpha:0.95,glow:true}, group:'axisCircles'});
+  curves.push({pts4:greatCircle4(E1,EK,720,false), style:{color:PAL.k,width:0.022,alpha:0.95,glow:true}, group:'axisCircles'});
+  // jk / ik / ij unit circles; each colored by the axis it pairs with
+  // (1i-line + jk-circle are the two invariant circles of the i-flow)
+  curves.push({pts4:greatCircle4(EJ,EK,320,true), style:{color:PAL.i,width:0.020,alpha:0.85,glow:true}, group:'circles'});
+  curves.push({pts4:greatCircle4(EK,EI,320,true), style:{color:PAL.j,width:0.020,alpha:0.85,glow:true}, group:'circles'});
+  curves.push({pts4:greatCircle4(EI,EJ,320,true), style:{color:PAL.k,width:0.020,alpha:0.85,glow:true}, group:'circles'});
+  // ijk sphere: the unit sphere of pure imaginaries {w=0}
+  for (const pts of latitudeSphereCurves4(0,8,5,192))
+    curves.push({pts4:pts, style:{color:PAL.sphere,width:0.010,alpha:0.38}, group:'sphere'});
+  // 1jk / 1ik / 1ij great spheres (coordinate planes through 0 and ∞ at q=1)
+  const coordSpheres=[['1jk',E1,EJ,EK],['1ik',E1,EI,EK],['1ij',E1,EI,EJ]];
+  for (const [name,A,B,C] of coordSpheres)
+    for (const pts of greatSphere4(A,B,C,6,3,256))
+      curves.push({pts4:pts, style:{color:PAL.coord[name],width:0.009,alpha:0.33}, group:'coord'});
+  // latitude spheres {w=c}: hypersphere cross-sections, nested shadows around 1
+  for (const w0 of [0.75,0.45])
+    for (const pts of latitudeSphereCurves4(w0,6,3,128))
+      curves.push({pts4:pts, style:{color:PAL.latPos,width:0.009,alpha:0.30}, group:'lats'});
+  for (const w0 of [-0.45,-0.75])
+    for (const pts of latitudeSphereCurves4(w0,6,3,128))
+      curves.push({pts4:pts, style:{color:PAL.latNeg,width:0.009,alpha:0.26}, group:'lats'});
+  // radial great circles through 1 in mixed directions (project to lines through 0)
+  const dirs=[[1,1,0],[1,-1,0],[1,0,1],[1,0,-1],[0,1,1],[0,1,-1]];
+  for (const d of dirs){
+    const n=v3.norm(d);
+    curves.push({pts4:greatCircle4(E1,[0,n[0],n[1],n[2]],480,false),
+                 style:{color:PAL.radial,width:0.009,alpha:0.30}, group:'radial'});
+  }
+  return curves;
+}
+const HYPER_MARKERS = [
+  {q:[ 1,0,0,0], label:'1',  color:PAL.one, size:17},
+  {q:[-1,0,0,0], label:'−1', color:PAL.neg, size:15},
+  {q:[0, 1,0,0], label:'i',  color:PAL.i,   size:17},
+  {q:[0,-1,0,0], label:'−i', color:PAL.i,   size:14, dim:true},
+  {q:[0,0, 1,0], label:'j',  color:PAL.j,   size:17},
+  {q:[0,0,-1,0], label:'−j', color:PAL.j,   size:14, dim:true},
+  {q:[0,0,0, 1], label:'k',  color:PAL.k,   size:17},
+  {q:[0,0,0,-1], label:'−k', color:PAL.k,   size:14, dim:true},
+];
+
+/* ========================= formatting ============================ */
+const fmt = (v,dp)=>{
+  const s=v.toFixed(dp===undefined?2:dp);
+  return s==='-0.00'||s==='-0.000' ? s.slice(1) : s;
+};
+/* ======================= scene: hypersphere ======================= */
+function SceneHyper(env){
+  const cam=makeCamera(0.96,0.38,6.8);
+  const curves=buildHyperCurves();
+  const show={axisCircles:true, circles:true, sphere:true, coord:false, lats:false, radial:false, frame:true};
+  const st={
+    Q:[1,0,0,0],            // the multiplier quaternion
+    axis:[1,0,0],           // remembered flow/slider axis (Q's axis when defined)
+    side:'L',               // 'L' q·p · 'R' p·q · 'C' q·p·q⁻¹
+    angleForm:false,
+    flow:false, flowSpeed:0.55, flowAxis:null,
+    anim:null,              // {target, t0}  "1→q" ease
+    dragMode:null,
+  };
+  const setQ=(q,keepAnim)=>{
+    st.Q=qnormalize(q);
+    const aa=qaxisangle(st.Q);
+    if (aa.axis) st.axis=aa.axis;
+    if (!keepAnim) st.anim=null;
+    env.requestReadout();
+  };
+  // set one component and rescale the other three to stay on the unit hypersphere
+  // (this is how the original's scrubbable formula numbers behave)
+  function setComponent(q,idx,val){
+    val=clamp(val,-1,1);
+    const out=q.slice(); out[idx]=val;
+    const rest2=1-q[idx]*q[idx], target2=1-val*val;
+    if (rest2>1e-9){
+      const k=Math.sqrt(target2/rest2);
+      for (let d=0;d<4;d++) if (d!==idx) out[d]*=k;
+    } else {
+      const spare = idx===0?1:0;
+      for (let d=0;d<4;d++) if (d!==idx) out[d]=0;
+      out[spare]=Math.sqrt(Math.max(0,target2));
+    }
+    return out;
+  }
+  const SNAPS=[0, Math.SQRT1_2, -Math.SQRT1_2, 1, -1];
+  const snapVal=v=>{ for (const s of SNAPS) if (Math.abs(v-s)<0.033) return s; return v; };
+  const chips=[
+    {label:'1', q:[1,0,0,0]},
+    {label:'i', q:[0,1,0,0]},
+    {label:'j', q:[0,0,1,0]},
+    {label:'k', q:[0,0,0,1]},
+    {label:'−1', q:[-1,0,0,0]},
+    {label:'(1+i)/√2', q:qnormalize([1,1,0,0])},
+    {label:'½(1+i+j+k)', q:[0.5,0.5,0.5,0.5]},
+  ];
+  let thetaSlider, flowBtn;
+
+  function buildControls(el){
+    const chipwrap=h('div',{class:'ctl'});
+    chipwrap.appendChild(h('span',{},'q ='));
+    for (const c of chips){
+      const b=h('button',{class:'chip', title:'animate 1 → '+c.label}, c.label);
+      b.addEventListener('click',()=>{ st.flow=false; syncFlowBtn();
+        st.anim={target:c.q.slice(), t0:env.now()}; });
+      chipwrap.appendChild(b);
+    }
+    el.appendChild(chipwrap);
+
+    thetaSlider=h('input',{type:'range',min:'-180',max:'180',step:'1',value:'0'});
+    thetaSlider.addEventListener('input',()=>{
+      st.flow=false; syncFlowBtn(); st.anim=null;
+      setQ(qexp(st.axis, thetaSlider.value*Math.PI/180));
+    });
+    el.appendChild(h('label',{class:'ctl'},'θ ',thetaSlider));
+
+    const seg=h('div',{class:'seg'});
+    const mbtns=[];
+    for (const [m,lab] of [['L','q·p'],['R','p·q'],['C','q·p·q⁻¹']]){
+      const b=h('button',{},lab);
+      if (m==='L') b.classList.add('on');
+      b.addEventListener('click',()=>{ st.side=m;
+        for (const x of mbtns) x.classList.toggle('on', x===b); env.requestReadout(); });
+      mbtns.push(b); seg.appendChild(b);
+    }
+    el.appendChild(h('label',{class:'ctl'},'act ',seg));
+
+    flowBtn=h('button',{class:'chip'},'▶ flow');
+    flowBtn.addEventListener('click',()=>{
+      st.flow=!st.flow; st.anim=null;
+      // capture the axis once: re-deriving it every frame flips sign past −1
+      if (st.flow) st.flowAxis=st.axis.slice();
+      syncFlowBtn();
+    });
+    el.appendChild(flowBtn);
+
+    const af=h('input',{type:'checkbox'});
+    af.addEventListener('change',()=>{ st.angleForm=af.checked; env.requestReadout(); });
+    el.appendChild(h('label',{class:'ctl'},af,'angle form'));
+
+    for (const [key,name] of [['circles','ij·ik·jk'],['sphere','ijk sphere'],['coord','1ij·1ik·1jk'],
+                              ['lats','latitudes'],['radial','radials'],['frame','xyz']]){
+      const cb=h('input',{type:'checkbox'}); cb.checked=show[key];
+      cb.addEventListener('change',()=>{ show[key]=cb.checked; });
+      el.appendChild(h('label',{class:'ctl'},cb,name));
+    }
+    const rst=h('button',{class:'chip'},'reset');
+    rst.addEventListener('click',()=>{ st.flow=false; syncFlowBtn(); st.anim=null;
+      setQ([1,0,0,0]); cam.theta=0.96; cam.phi=0.38; cam.dist=6.8; });
+    el.appendChild(rst);
+  }
+  function syncFlowBtn(){
+    if (!flowBtn) return;
+    flowBtn.textContent = st.flow ? '❚❚ flow' : '▶ flow';
+    flowBtn.classList.toggle('on', st.flow);
+  }
+  function easeInOut(u){ return u<0.5 ? 2*u*u : 1-2*(1-u)*(1-u); }
+
+  function update(dt){
+    if (st.flow){
+      st.Q=qnormalize(qmul(qexp(st.flowAxis||st.axis, st.flowSpeed*dt), st.Q));
+      env.requestReadout();
+    } else if (st.anim){
+      const u=clamp((env.now()-st.anim.t0)/1600, 0, 1);
+      setQ(qpow(st.anim.target, easeInOut(u), st.axis), true);
+      if (u>=1){ setQ(st.anim.target); }
+    }
+    if (thetaSlider && document.activeElement!==thetaSlider){
+      const aa=qaxisangle(st.Q);
+      thetaSlider.value=Math.round(aa.angle*180/Math.PI);
+    }
+  }
+
+  function draw(ctx,dt){
+    update(dt);
+    const B=camBasis(cam), items=[];
+    const M=st.Q, Mc=qconj(M);
+    const apply = st.side==='L' ? (p=>qmul(M,p))
+                : st.side==='R' ? (p=>qmul(p,M))
+                :                 (p=>qmul(qmul(M,p),Mc));
+    for (const c of curves){
+      if (!show[c.group]) continue;
+      const out=new Array(c.pts4.length);
+      for (let i=0;i<c.pts4.length;i++) out[i]=stereo4(apply(c.pts4[i]));
+      emitCurve3D(items,cam,B,out,c.style);
+    }
+    // static xyz reference frame — part of the stage, not of the hypersphere
+    if (show.frame){
+      for (const [d,name] of [[[1,0,0],'x'],[[0,1,0],'y'],[[0,0,1],'z']]){
+        const line=[];
+        for (let s=0;s<=40;s++){ const t=-5.2+10.4*s/40; line.push([d[0]*t,d[1]*t,d[2]*t]); }
+        emitCurve3D(items,cam,B,line,{color:PAL.frame,width:0.006,alpha:0.20});
+        const lp=projectPoint(cam,B,v3.scale(d,5.45));
+        if (lp) items.push({kind:'label', z:lp.z, x:lp.x, y:lp.y, text:name,
+                            color:'#8b8b98', alpha:0.75, size:13});
+      }
+    }
+    // purple rotation-axis arrow, shown with the angle form (as in the original)
+    if (st.angleForm){
+      const ax=qaxisangle(st.Q).axis||st.axis;
+      const shaft=[];
+      for (let s=0;s<=24;s++) shaft.push(v3.scale(ax,1.35*s/24));
+      emitCurve3D(items,cam,B,shaft,{color:PAL.axisArrow,width:0.018,alpha:0.95,glow:true});
+      let u=v3.cross(ax,[0,0,1]); if (v3.len(u)<1e-6) u=v3.cross(ax,[0,1,0]);
+      u=v3.norm(u);
+      const vv=v3.norm(v3.cross(ax,u)), tip=v3.scale(ax,1.35);
+      for (const w of [u,vv,v3.scale(u,-1),v3.scale(vv,-1)]){
+        const base=v3.add(v3.scale(ax,1.16), v3.scale(w,0.07));
+        const head=[];
+        for (let s=0;s<=6;s++) head.push(v3.add(v3.scale(base,1-s/6), v3.scale(tip,s/6)));
+        emitCurve3D(items,cam,B,head,{color:PAL.axisArrow,width:0.016,alpha:0.95});
+      }
+    }
+    for (const m of HYPER_MARKERS){
+      const p=stereo4(apply(m.q)); if (!p) continue;
+      const r=v3.len(p); if (r>RCLIP) continue;
+      const s=projectPoint(cam,B,p); if (!s) continue;
+      const fade=(m.dim?0.55:1)/(1+(r/10)*(r/10));
+      items.push({kind:'dot', z:s.z, x:s.x, y:s.y, px:clamp(0.05*s.s,2.5,6.5),
+                  color:m.color, alpha:fade});
+      items.push({kind:'label', z:s.z-1e-4, x:s.x+9, y:s.y-9, text:m.label,
+                  color:m.color, alpha:clamp(fade*1.2,0,1), size:m.size});
+    }
+    // the draggable yellow ring marks q itself; under q·p and p·q it coincides
+    // with the transformed 1, under conjugation 1 stays home and the ring is free
+    const hp=stereo4(st.Q);
+    if (hp){
+      const r=v3.len(hp);
+      if (r<=RCLIP){
+        const s=projectPoint(cam,B,hp);
+        if (s){
+          const fade=1/(1+(r/10)*(r/10));
+          items.push({kind:'dot', z:s.z, x:s.x, y:s.y, px:clamp(0.055*s.s,3,7),
+                      color:PAL.q, alpha:fade, ring:true});
+          if (st.side==='C')
+            items.push({kind:'label', z:s.z-1e-4, x:s.x+10, y:s.y+18, text:'q',
+                        color:PAL.q, alpha:fade, size:14});
+        }
+      }
+    }
+    renderItems(ctx,cam,items);
+  }
+
+  const sgn=v=> v<0 ? ' − ' : ' + ';
+  const qPlain=q=> fmt(q[0])+sgn(q[1])+fmt(Math.abs(q[1]))+'i'+sgn(q[2])+fmt(Math.abs(q[2]))+'j'+
+                   sgn(q[3])+fmt(Math.abs(q[3]))+'k';
+  function readoutHTML(){
+    const q=st.Q, aa=qaxisangle(q), ax=aa.axis||st.axis;
+    const deg=aa.angle*180/Math.PI;
+    const modeStr = st.side==='L' ? 'p ↦ q·p' : st.side==='R' ? 'p ↦ p·q' : 'p ↦ q·p·q⁻¹ — a rotation';
+    const sc=(key,html)=>'<span class="scrub" data-s="'+key+'">'+html+'</span>';
+    if (st.angleForm){
+      const th='<span class="c1">'+fmt(deg,0)+'°</span>';
+      return '<span class="cq">q</span> = cos('+sc('t',th)+') + sin('+th+')('+
+        sc('a0','<span class="ci">'+fmt(ax[0])+'</span>')+'<span class="ci">i</span> + '+
+        sc('a1','<span class="cj">'+fmt(ax[1])+'</span>')+'<span class="cj">j</span> + '+
+        sc('a2','<span class="ck">'+fmt(ax[2])+'</span>')+'<span class="ck">k</span>)'+
+        '<span class="sub">= '+qPlain(q)+' &nbsp;·&nbsp; '+modeStr+'</span>';
+    }
+    return '<span class="cq">q</span> = '+sc('r0','<span class="c1">'+fmt(q[0])+'</span>')+
+      sgn(q[1])+sc('r1','<span class="ci">'+fmt(Math.abs(q[1]))+'</span>')+'<span class="ci">i</span>'+
+      sgn(q[2])+sc('r2','<span class="cj">'+fmt(Math.abs(q[2]))+'</span>')+'<span class="cj">j</span>'+
+      sgn(q[3])+sc('r3','<span class="ck">'+fmt(Math.abs(q[3]))+'</span>')+'<span class="ck">k</span>'+
+      '<span class="sub">θ = '+fmt(deg,0)+'° &nbsp; axis ('+fmt(ax[0])+', '+fmt(ax[1])+', '+fmt(ax[2])+')'+
+      ' &nbsp;·&nbsp; '+modeStr+'</span>';
+  }
+
+  // horizontal drag on a formula number, exactly like the original: snap points
+  // at 0 and ±0.7071 for components, 45° multiples for the angle
+  function scrubBegin(key){
+    st.flow=false; syncFlowBtn(); st.anim=null;
+    const aa=qaxisangle(st.Q);
+    if (key==='t')      return aa.angle*180/Math.PI;
+    if (key[0]==='a')   return (aa.axis||st.axis)[+key[1]];
+    return st.Q[+key[1]];
+  }
+  function scrubMove(key,base,dx){
+    if (key[0]==='r'){
+      setQ(setComponent(st.Q, +key[1], snapVal(clamp(base+dx*0.006,-1,1))));
+    } else if (key==='t'){
+      let deg=base+dx*0.4;
+      const snapped=Math.round(deg/45)*45;
+      if (Math.abs(deg-snapped)<3) deg=snapped;
+      deg=((deg+180)%360+360)%360-180;
+      setQ(qexp(st.axis, deg*Math.PI/180));
+    } else if (key[0]==='a'){
+      const n=(qaxisangle(st.Q).axis||st.axis).slice();
+      n[+key[1]]=snapVal(clamp(base+dx*0.006,-1,1));
+      if (v3.len(n)>1e-6){
+        const nn=v3.norm(n), th=qaxisangle(st.Q).angle;
+        st.axis=nn;
+        setQ(qexp(nn,th));
+      }
+    }
+  }
+
+  // dragging: grab the yellow ring (the transformed 1) to steer q; the ring's
+  // 3d position IS proj(q), and every 3d point is proj of exactly one unit q.
+  function qHandlePos(){ return stereo4(st.Q); }
+  function pointer(type,e){
+    const B=camBasis(cam);
+    if (type==='down'){
+      const hp=qHandlePos();
+      if (hp){
+        const s=projectPoint(cam,B,hp);
+        if (s && Math.hypot(s.x-e.x, s.y-e.y) < 26){ st.dragMode='q'; return; }
+      }
+      st.dragMode='orbit';
+    } else if (type==='move'){
+      if (st.dragMode==='q'){
+        const p0=qHandlePos()||[0,0,0];
+        const P=dragPlanePoint(cam,B,e.x,e.y,p0);
+        if (P){
+          const r=v3.len(P);
+          const Pc = r>16 ? v3.scale(P,16/r) : P;   // keep clear of the point at infinity
+          st.flow=false; syncFlowBtn(); st.anim=null;
+          setQ(invStereo4(Pc));
+        }
+      } else if (st.dragMode==='orbit'){
+        cam.theta-=e.dx*0.0052; cam.phi=clamp(cam.phi+e.dy*0.0052,-1.35,1.35);
+      }
+    } else if (type==='up'){ st.dragMode=null; }
+  }
+  function wheel(dy){ cam.dist=clamp(cam.dist*Math.exp(dy*0.0011), 5.5, 30); }
+
+  return {
+    id:'hypersphere', title:'Hypersphere → 3d',
+    caption:"The intro's interactive: unit quaternions form a hypersphere in 4d, stereographically projected into 3d — 1 at the origin, i, j, k one unit out, −1 at infinity. Multiplying by q drags all of space along; conjugation q·p·q⁻¹ turns it into a pure rotation.",
+    hint:'drag — orbit · yellow ring or number-scrub — set q · scroll — zoom',
+    buildControls, draw, pointer, wheel, readoutHTML, scrubBegin, scrubMove,
+    _st:st, _cam:cam,
+  };
+}
+
+/* ==================== scene: sphere → plane ====================== */
+function SceneSphere(env){
+  const cam=makeCamera(0.55,0.42,8.2);
+  const wire=sphereWire3(10,5,160);
+  const st={ R:[1,0,0,0], spin:false, dragMode:null };
+  const marked=v3.norm([0.55,0.35,0.76]);
+
+  function buildControls(el){
+    const spin=h('input',{type:'checkbox'});
+    spin.addEventListener('change',()=>{ st.spin=spin.checked; });
+    el.appendChild(h('label',{class:'ctl'},spin,'auto-rotate'));
+    const rst=h('button',{class:'chip'},'reset');
+    rst.addEventListener('click',()=>{ st.R=[1,0,0,0]; cam.theta=0.55; cam.phi=0.42; cam.dist=8.2; spin.checked=st.spin=false; });
+    el.appendChild(rst);
+  }
+
+  function draw(ctx,dt){
+    if (st.spin) st.R=qnormalize(qmul(qexp(v3.norm([0.2,0.15,0.97]),0.18*dt), st.R));
+    const B=camBasis(cam), items=[];
+    // reference grid on the projection plane z=0
+    for (let m=-12;m<=12;m++){
+      const a = m===0?0.16:0.07;
+      const l1=[],l2=[];
+      for (let s=0;s<=24;s++){ const t=-12+s; l1.push([m,t,0]); l2.push([t,m,0]); }
+      emitCurve3D(items,cam,B,l1,{color:PAL.grid,width:0.008,alpha:a});
+      emitCurve3D(items,cam,B,l2,{color:PAL.grid,width:0.008,alpha:a});
+    }
+    // imaginary tick labels on the plane, as in the original ("2i", "2j")
+    for (const [pos,lab] of [[[2,0,0],'2i'],[[0,2,0],'2j']]){
+      const lp=projectPoint(cam,B,pos);
+      if (lp) items.push({kind:'label', z:lp.z, x:lp.x+6, y:lp.y-4, text:lab,
+                          color:'#8b8b98', alpha:0.75, size:12});
+    }
+    // the sphere (rotated), plus its stereographic shadow on the plane;
+    // the equator is the thin yellow circle, like the original's flatland scene
+    for (const c of wire){
+      const rot=c.pts.map(p=>qrotate(p,st.R));
+      const isEq = c.type==='lat' && Math.abs(c.z)<1e-9;
+      const col = isEq ? PAL.q : '#c7cbdf';
+      emitCurve3D(items,cam,B,rot,{color:col,width:isEq?0.012:0.010,alpha:isEq?0.55:0.30});
+      const sh=rot.map(p=>{ const s2=stereo3(p); return s2 ? [s2[0],s2[1],0] : null; });
+      emitCurve3D(items,cam,B,sh,{color:col,width:isEq?0.015:0.013,alpha:isEq?0.95:0.70,glow:true});
+    }
+    // projection point (the sphere's own “−1”, drawn yellow like the original),
+    // a pink orientation dot, and its dashed shadow ray
+    const pole=[0,0,-1];
+    const ps=projectPoint(cam,B,pole);
+    if (ps){
+      items.push({kind:'dot', z:ps.z, x:ps.x, y:ps.y, px:4, color:PAL.q, alpha:0.95});
+      items.push({kind:'label', z:ps.z-1e-4, x:ps.x+9, y:ps.y+14, text:'−1 (project from here)', color:PAL.q, alpha:0.75, size:12});
+    }
+    const mp=qrotate(marked,st.R);
+    const sh2=stereo3(mp);
+    if (sh2){
+      const ray=[]; for (let s=0;s<=20;s++){
+        const u=s/20; ray.push([pole[0]+(sh2[0]-pole[0])*u, pole[1]+(sh2[1]-pole[1])*u, pole[2]+(0-pole[2])*u]);
+      }
+      emitCurve3D(items,cam,B,ray,{color:'#bbbbbb',width:0.007,alpha:0.5,dash:[6,6]});
+      const a=projectPoint(cam,B,mp), b=projectPoint(cam,B,[sh2[0],sh2[1],0]);
+      if (a) items.push({kind:'dot', z:a.z, x:a.x, y:a.y, px:4.5, color:PAL.pink, alpha:1});
+      if (b) items.push({kind:'dot', z:b.z, x:b.x, y:b.y, px:4.5, color:PAL.pink, alpha:0.9, ring:true});
+    }
+    renderItems(ctx,cam,items);
+  }
+
+  function pointer(type,e){
+    if (type==='down'){ st.dragMode = (e.button===2||e.alt) ? 'orbit' : 'sphere'; }
+    else if (type==='move'){
+      if (st.dragMode==='sphere'){
+        const B=camBasis(cam);
+        const dq=qmul(qexp(B.up,-e.dx*0.0035), qexp(B.right,-e.dy*0.0035));
+        st.R=qnormalize(qmul(dq,st.R));
+      } else if (st.dragMode==='orbit'){
+        cam.theta-=e.dx*0.0052; cam.phi=clamp(cam.phi+e.dy*0.0052,-1.35,1.35);
+      }
+    } else if (type==='up'){ st.dragMode=null; }
+  }
+  function wheel(dy){ cam.dist=clamp(cam.dist*Math.exp(dy*0.0011), 5.5, 30); }
+
+  return {
+    id:'sphere', title:'Sphere → plane',
+    caption:"From the '3d stereographic projection' lesson: project the unit sphere from its pole onto the plane. Felix the Flatlander sees only the shadow — rotate the sphere and his plane swirls, yet circles stay circles.",
+    hint:'drag — rotate sphere · right-drag / ⌥-drag — orbit · scroll — zoom',
+    buildControls, draw, pointer, wheel,
+    readoutHTML:()=>{
+      const a=2*qaxisangle(st.R).angle*180/Math.PI;
+      const ang=a>180 ? 360-a : a;
+      return 'Rotation = <span style="color:'+PAL.accent+'">'+fmt(ang,0)+'°</span>';
+    },
+    _st:st, _cam:cam,
+  };
+}
+
+/* ==================== scene: circle → line ======================= */
+function SceneCircleLine(env){
+  const st={ theta:Math.PI/5, play:false, dragging:false };
+  let slider;
+
+  function buildControls(el){
+    slider=h('input',{type:'range',min:'-180',max:'180',step:'1',value:String(Math.round(st.theta*180/Math.PI))});
+    slider.addEventListener('input',()=>{ st.theta=slider.value*Math.PI/180; st.play=false; syncPlay(); env.requestReadout(); });
+    el.appendChild(h('label',{class:'ctl'},'θ ',slider));
+    playBtn=h('button',{class:'chip'},'▶ rotate');
+    playBtn.addEventListener('click',()=>{ st.play=!st.play; syncPlay(); });
+    el.appendChild(playBtn);
+  }
+  let playBtn;
+  function syncPlay(){ if (playBtn){ playBtn.textContent=st.play?'❚❚ rotate':'▶ rotate'; playBtn.classList.toggle('on',st.play); } }
+
+  function geom(W,H){
+    const scl=Math.min(W,H)/3.6;
+    return { scl, cx:W/2-scl*0.55, cy:H/2,
+             w2s:function(p){ return [this.cx+p[0]*this.scl, this.cy-p[1]*this.scl]; } };
+  }
+
+  function draw(ctx,dt,cam){
+    if (st.play){ st.theta+=0.5*dt; if (st.theta>Math.PI) st.theta-=TAU; env.requestReadout();
+                  if (slider && document.activeElement!==slider) slider.value=Math.round(st.theta*180/Math.PI); }
+    const {W,H}=cam, g=geom(W,H);
+    const line_x=g.w2s([0,0])[0];
+    const SEG=16, SUB=14;
+
+    // Linus's line, faint under the projected segments
+    ctx.globalAlpha=0.3; ctx.strokeStyle='#777'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(line_x,8); ctx.lineTo(line_x,H-8); ctx.stroke();
+
+    // the circle as 16 alternating arcs, with identically alternating segments
+    // on the line — the original's arc ↔ segment correspondence (BLUE_C/BLUE_E)
+    for (let sg=0;sg<SEG;sg++){
+      const a0=st.theta + TAU*sg/SEG;
+      const col = sg%2 ? PAL.arcB : PAL.arcA;
+      ctx.globalAlpha=0.95; ctx.strokeStyle=col; ctx.lineWidth=4; ctx.lineCap='butt';
+      ctx.beginPath();
+      for (let s=0;s<=SUB;s++){
+        const a=a0+(TAU/SEG)*s/SUB;
+        const p=g.w2s([Math.cos(a),Math.sin(a)]);
+        if (s===0) ctx.moveTo(p[0],p[1]); else ctx.lineTo(p[0],p[1]);
+      }
+      ctx.stroke();
+      ctx.beginPath();
+      let pen=false;
+      for (let s=0;s<=SUB;s++){
+        const t=stereo2(a0+(TAU/SEG)*s/SUB);
+        if (!isFinite(t)||Math.abs(t)>1e3){ pen=false; continue; }
+        const p=g.w2s([0,t]);
+        if (p[1]<-40||p[1]>H+40){ pen=false; continue; }
+        if (!pen){ ctx.moveTo(p[0],p[1]); pen=true; } else ctx.lineTo(p[0],p[1]);
+      }
+      ctx.stroke();
+    }
+
+    // anchors on the circle and tick marks on the line
+    for (const [a,lab,col] of [[0,'1',PAL.label],[Math.PI/2,'i',PAL.i],[Math.PI,'−1',PAL.neg],[-Math.PI/2,'−i',PAL.neg]]){
+      const p=g.w2s([Math.cos(a),Math.sin(a)]);
+      drawDot(ctx,p[0],p[1],2.5,col,0.8);
+      drawLabel(ctx,p[0]+8,p[1]-8,lab,col,0.85,13);
+    }
+    for (const [v,lab] of [[0,'0'],[1,'1'],[-1,'−1']]){
+      const p=g.w2s([0,v]);
+      ctx.globalAlpha=0.8; ctx.strokeStyle=PAL.label; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(p[0]-5,p[1]); ctx.lineTo(p[0]+5,p[1]); ctx.stroke();
+      drawLabel(ctx,p[0]-22,p[1]+4,lab,'#9a9ab2',0.7,12);
+    }
+    // −1's image: red ∞ markers at both ends of the line, as in the original
+    ctx.globalAlpha=0.9; ctx.strokeStyle=PAL.dotRed; ctx.lineWidth=2; ctx.lineCap='round';
+    for (const [ey,dir] of [[16,1],[H-16,-1]]){
+      ctx.beginPath();
+      ctx.moveTo(line_x-6, ey+7*dir); ctx.lineTo(line_x, ey); ctx.lineTo(line_x+6, ey+7*dir);
+      ctx.stroke();
+    }
+    drawLabel(ctx,line_x+10,22,'∞',PAL.dotRed,0.85,14);
+    drawLabel(ctx,line_x+10,H-8,'∞',PAL.dotRed,0.85,14);
+
+    // z: red draggable dot on the circle, dashed projection ray from −1, image on line
+    const za=st.theta;
+    const zC=g.w2s([Math.cos(za),Math.sin(za)]);
+    const t=stereo2(za);
+    const minus1=g.w2s([-1,0]);
+    if (isFinite(t)&&Math.abs(t)<1e3){
+      const zL=g.w2s([0,t]);
+      if (zL[1]>-40 && zL[1]<H+40){
+        ctx.setLineDash([5,5]); ctx.globalAlpha=0.55; ctx.strokeStyle='#bbbbbb'; ctx.lineWidth=1.2;
+        const ext=1.12;
+        ctx.beginPath(); ctx.moveTo(minus1[0],minus1[1]);
+        ctx.lineTo(minus1[0]+(zL[0]-minus1[0])*ext, minus1[1]+(zL[1]-minus1[1])*ext); ctx.stroke();
+        ctx.setLineDash([]);
+        drawDot(ctx,zL[0],zL[1],4.5,PAL.dotRed,0.95,true);
+      }
+    }
+    drawDot(ctx,zC[0],zC[1],5.5,PAL.dotRed,1);
+    drawLabel(ctx,zC[0]+9,zC[1]-9,'z',PAL.dotRed,1,16);
+  }
+
+  function pointer(type,e,cam){
+    const g=geom(cam.W,cam.H);
+    if (type==='down'||((type==='move')&&st.dragging)){
+      const zC=g.w2s([Math.cos(st.theta),Math.sin(st.theta)]);
+      if (type==='down' && Math.hypot(e.x-zC[0],e.y-zC[1])>40 ) return;
+      st.dragging=true; st.play=false; syncPlay();
+      // 1° angle snapping while dragging, like the original's constrained dots
+      const raw=Math.atan2(-(e.y-g.cy)/g.scl,(e.x-g.cx)/g.scl);
+      st.theta=Math.round(raw*180/Math.PI)*Math.PI/180;
+      env.requestReadout();
+      if (slider) slider.value=Math.round(st.theta*180/Math.PI);
+    } else if (type==='up'){ st.dragging=false; }
+  }
+
+  return {
+    id:'circleline', title:'Circle → line',
+    caption:"From the '2d stereographic projection' lesson: each ray from −1 carries a point of the circle to the line — matching colors show where each arc lands. 1 goes to 0, i to 1, −1 to infinity. Rotate the circle and Linus the Linelander sees every point slide.",
+    hint:'drag z around the circle · slider rotates',
+    buildControls, draw, pointer, wheel:()=>{},
+    readoutHTML:()=>{
+      const c=Math.cos(st.theta), s=Math.sin(st.theta);
+      return 'z = '+fmt(c)+(s<0?' − ':' + ')+'<span class="ci">'+fmt(Math.abs(s))+'i</span>'+
+             '<span class="sub">proj(z) = tan(θ/2) = '+(Math.abs(Math.tan(st.theta/2))>999?'∞':fmt(Math.tan(st.theta/2)))+'</span>';
+    },
+    _st:st,
+  };
+}
+
+/* ==================== scene: complex products ==================== */
+function SceneComplex(env){
+  const st={ z:[Math.SQRT1_2,Math.SQRT1_2], snap:false, dragging:false };
+  const cmul=(a,b)=>[a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]];
+
+  function buildControls(el){
+    const cb=h('input',{type:'checkbox'});
+    cb.addEventListener('change',()=>{ st.snap=cb.checked; if (st.snap){ const l=Math.hypot(st.z[0],st.z[1])||1; st.z=[st.z[0]/l,st.z[1]/l]; env.requestReadout(); }});
+    el.appendChild(h('label',{class:'ctl'},cb,'snap |z| = 1'));
+    for (const [lab,z] of [['z = i',[0,1]],['z = (1+i)/√2',[Math.SQRT1_2,Math.SQRT1_2]],['z = −1',[-1,0]],['z = 1',[1,0]]]){
+      const b=h('button',{class:'chip'},lab);
+      b.addEventListener('click',()=>{ st.z=z.slice(); env.requestReadout(); });
+      el.appendChild(b);
+    }
+  }
+
+  function geom(W,H){ const scl=Math.min(W,H)/6.8;
+    return { scl, cx:W/2, cy:H/2, w2s:function(p){ return [this.cx+p[0]*this.scl, this.cy-p[1]*this.scl]; } }; }
+
+  function arrow(ctx,g,from,to,color,alpha,width){
+    const a=g.w2s(from), b=g.w2s(to);
+    const dx=b[0]-a[0], dy=b[1]-a[1], L=Math.hypot(dx,dy)||1;
+    const ux=dx/L, uy=dy/L;
+    ctx.globalAlpha=alpha; ctx.strokeStyle=color; ctx.fillStyle=color; ctx.lineWidth=width;
+    ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0]-ux*9,b[1]-uy*9); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(b[0],b[1]);
+    ctx.lineTo(b[0]-ux*11-uy*4.5, b[1]-uy*11+ux*4.5);
+    ctx.lineTo(b[0]-ux*11+uy*4.5, b[1]-uy*11-ux*4.5);
+    ctx.closePath(); ctx.fill();
+  }
+
+  function draw(ctx,dt,cam){
+    const {W,H}=cam, g=geom(W,H), M=7;
+    // static grid + unit circle
+    for (let m=-M;m<=M;m++){
+      const a=m===0?0.28:0.10;
+      ctx.globalAlpha=a; ctx.strokeStyle=PAL.gridBright; ctx.lineWidth=1;
+      let p=g.w2s([m,-M]), q=g.w2s([m,M]);
+      ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke();
+      p=g.w2s([-M,m]); q=g.w2s([M,m]);
+      ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke();
+    }
+    ctx.globalAlpha=0.35; ctx.strokeStyle='#9aa0bd'; ctx.lineWidth=1.3;
+    ctx.beginPath(); ctx.arc(g.cx,g.cy,g.scl,0,TAU); ctx.stroke();
+
+    // transformed grid: the image of every grid line under w ↦ z·w (lines stay lines)
+    for (let m=-M;m<=M;m++){
+      for (const seg of [[[m,-M],[m,M]], [[-M,m],[M,m]]]){
+        const a=cmul(st.z,seg[0]), b=cmul(st.z,seg[1]);
+        const p=g.w2s(a), q=g.w2s(b);
+        ctx.globalAlpha=m===0?0.5:0.20; ctx.strokeStyle=PAL.accent; ctx.lineWidth=1.1;
+        ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(q[0],q[1]); ctx.stroke();
+      }
+    }
+    // image of the unit circle: radius |z|
+    const r=Math.hypot(st.z[0],st.z[1]);
+    ctx.globalAlpha=0.55; ctx.strokeStyle=PAL.q; ctx.lineWidth=1.4; ctx.setLineDash([6,6]);
+    ctx.beginPath(); ctx.arc(g.cx,g.cy,g.scl*r,0,TAU); ctx.stroke(); ctx.setLineDash([]);
+
+    // anchors
+    for (const [p,lab,col] of [[[1,0],'1',PAL.one],[[0,1],'i',PAL.i],[[-1,0],'−1',PAL.neg],[[0,-1],'−i',PAL.neg]]){
+      const s=g.w2s(p); drawDot(ctx,s[0],s[1],3,col,0.6); drawLabel(ctx,s[0]+7,s[1]-7,lab,col,0.75,13);
+    }
+    // 1 ↦ z (yellow), i ↦ iz (red): multiplication rotates AND scales
+    const iz=cmul(st.z,[0,1]);
+    arrow(ctx,g,[0,0],st.z,PAL.q,0.95,2);
+    arrow(ctx,g,[0,0],iz,PAL.i,0.9,2);
+    const zs=g.w2s(st.z), izs=g.w2s(iz);
+    drawDot(ctx,zs[0],zs[1],5,PAL.q,1);
+    drawLabel(ctx,zs[0]+9,zs[1]-9,'z',PAL.q,1,16);
+    drawDot(ctx,izs[0],izs[1],4,PAL.i,0.95);
+    drawLabel(ctx,izs[0]+9,izs[1]-9,'z·i',PAL.i,0.95,14);
+  }
+
+  function pointer(type,e,cam){
+    const g=geom(cam.W,cam.H);
+    if (type==='down'){
+      const zs=g.w2s(st.z);
+      if (Math.hypot(e.x-zs[0],e.y-zs[1])<40) st.dragging=true;
+    }
+    if ((type==='move'&&st.dragging)||type==='down'&&st.dragging){
+      let z=[(e.x-g.cx)/g.scl, -(e.y-g.cy)/g.scl];
+      if (st.snap){ const l=Math.hypot(z[0],z[1])||1; z=[z[0]/l,z[1]/l]; }
+      st.z=z; env.requestReadout();
+    }
+    if (type==='up') st.dragging=false;
+  }
+
+  return {
+    id:'complex', title:'Complex products',
+    caption:'Warm-up in 2d: multiplying by a complex number z rotates and scales the whole plane — 1 lands on z, i lands on z·i, and the grid follows rigidly. Quaternions play this same game in 4d.',
+    hint:'drag z anywhere',
+    buildControls, draw, pointer, wheel:()=>{},
+    readoutHTML:()=>{
+      const [a,b]=st.z, r=Math.hypot(a,b), ang=Math.atan2(b,a)*180/Math.PI;
+      return 'z = '+fmt(a)+(b<0?' − ':' + ')+'<span class="ci">'+fmt(Math.abs(b))+'i</span>'+
+             '<span class="sub">|z| = '+fmt(r)+' &nbsp; arg z = '+fmt(ang,0)+'°</span>';
+    },
+    _st:st,
+  };
+}
+
+/* ===================== tiny DOM helper =========================== */
+function h(tag,attrs){
+  const el=document.createElement(tag);
+  if (attrs) for (const k in attrs) el.setAttribute(k,attrs[k]);
+  for (let i=2;i<arguments.length;i++){
+    const c=arguments[i];
+    el.appendChild(typeof c==='string' ? document.createTextNode(c) : c);
+  }
+  return el;
+}
+
+/* ========================= application =========================== */
+function boot(){
+  const canvas=document.getElementById('view');
+  const ctx=canvas.getContext('2d');
+  const stage=document.getElementById('stage');
+  const tabsEl=document.getElementById('tabs');
+  const controlbar=document.getElementById('controlbar');
+  const readoutEl=document.getElementById('readout');
+  const captionEl=document.getElementById('caption');
+  const hintEl=document.getElementById('hint');
+
+  window.addEventListener('error', e=>{
+    const box=document.getElementById('errbox');
+    box.style.display='block';
+    box.textContent='error: '+e.message+' ('+(e.lineno||'?')+')';
+  });
+
+  const cam2d={W:800,H:600};      // shared width/height record for the 2d scenes
+  let readoutDirty=true;
+  const env={ now:()=>performance.now(), requestReadout:()=>{ readoutDirty=true; } };
+
+  const scenes=[SceneComplex(env), SceneCircleLine(env), SceneSphere(env), SceneHyper(env)];
+  let active=null;
+
+  const controlPanes={};
+  for (const sc of scenes){
+    const pane=h('div',{class:'controls'});
+    sc.buildControls(pane);
+    controlPanes[sc.id]=pane;
+    controlbar.appendChild(pane);
+    const b=h('button',{},sc.title);
+    b.addEventListener('click',()=>selectScene(sc.id));
+    b.dataset.scene=sc.id;
+    tabsEl.appendChild(b);
+  }
+  function selectScene(id){
+    active=scenes.find(s=>s.id===id)||scenes[scenes.length-1];
+    for (const b of tabsEl.children) b.classList.toggle('active', b.dataset.scene===active.id);
+    for (const k in controlPanes) controlPanes[k].classList.toggle('active', k===active.id);
+    captionEl.textContent=active.caption;
+    hintEl.textContent=active.hint;
+    readoutDirty=true;
+    if (history.replaceState) history.replaceState(null,'','#'+active.id);
+  }
+
+  function resize(){
+    const r=stage.getBoundingClientRect();
+    const dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    cam2d.W=r.width; cam2d.H=r.height;
+    for (const sc of scenes){ if (sc._cam){ sc._cam.W=r.width; sc._cam.H=r.height; } }
+  }
+  window.addEventListener('resize',resize);
+  resize();
+
+  // pointer plumbing: normalize to {x,y,dx,dy,button,alt} in CSS px
+  let lastPt=null, pointerDown=false;
+  function evt(e){
+    const r=canvas.getBoundingClientRect();
+    return { x:e.clientX-r.left, y:e.clientY-r.top,
+             dx:lastPt?e.clientX-lastPt[0]:0, dy:lastPt?e.clientY-lastPt[1]:0,
+             button:e.button||0, alt:e.altKey||false };
+  }
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    pointerDown=true; lastPt=[e.clientX,e.clientY];
+    canvas.classList.add('dragging');
+    active.pointer('down',evt(e),activeCam());
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if (!pointerDown) return;
+    active.pointer('move',evt(e),activeCam());
+    lastPt=[e.clientX,e.clientY];
+    readoutDirty=true;
+  });
+  const up=e=>{ if (!pointerDown) return; pointerDown=false; lastPt=null;
+                canvas.classList.remove('dragging'); active.pointer('up',evt(e),activeCam()); };
+  canvas.addEventListener('pointerup',up);
+  canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); active.wheel(e.deltaY); },{passive:false});
+  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  function activeCam(){ return active._cam||cam2d; }
+
+  // scrub-to-edit numbers in the formula readout. Listeners go on window: the
+  // readout's innerHTML is rebuilt every frame, so the span under the pointer
+  // does not survive the drag (pointer capture on it would silently die).
+  let scrub=null;
+  readoutEl.addEventListener('pointerdown',e=>{
+    const t=e.target;
+    if (!t || !t.dataset || t.dataset.s===undefined || !active.scrubBegin) return;
+    scrub={key:t.dataset.s, x:e.clientX, base:active.scrubBegin(t.dataset.s)};
+    e.preventDefault();
+  });
+  window.addEventListener('pointermove',e=>{
+    if (scrub && active.scrubMove){ active.scrubMove(scrub.key, scrub.base, e.clientX-scrub.x); readoutDirty=true; }
+  });
+  for (const t of ['pointerup','pointercancel'])
+    window.addEventListener(t,()=>{ scrub=null; });
+
+  const startId=(location.hash||'').slice(1);
+  selectScene(scenes.some(s=>s.id===startId)?startId:'hypersphere');
+
+  let lastT=performance.now();
+  function frame(t){
+    const dt=clamp((t-lastT)/1000,0,0.05); lastT=t;
+    ctx.setTransform(window.devicePixelRatio||1,0,0,window.devicePixelRatio||1,0,0);
+    ctx.fillStyle=PAL.bg; ctx.globalAlpha=1;
+    ctx.fillRect(0,0,cam2d.W,cam2d.H);
+    active.draw(ctx,dt,activeCam());
+    if (readoutDirty || active.id==='hypersphere' || active.id==='sphere'){
+      readoutEl.innerHTML=active.readoutHTML();
+      readoutDirty=false;
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ===================== headless self-test ======================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,eps)=> Math.abs(a-b) <= (eps||1e-12);
+  const qapprox=(a,b,eps)=> a && b && a.every((v,i)=>approx(v,b[i],eps||1e-12));
+  const rnd=()=>{ let s=12345; return ()=>{ s=(s*1103515245+12345)&0x7fffffff; return s/0x7fffffff*2-1; }; };
+  const R=rnd();
+  const rq=()=>qnormalize([R(),R(),R(),R()]);
+
+  const I=[0,1,0,0], J=[0,0,1,0], K=[0,0,0,1], ONE=[1,0,0,0];
+  ok(qapprox(qmul(I,I),[-1,0,0,0]),'i² = −1');
+  ok(qapprox(qmul(J,J),[-1,0,0,0]),'j² = −1');
+  ok(qapprox(qmul(K,K),[-1,0,0,0]),'k² = −1');
+  ok(qapprox(qmul(I,J),K),'ij = k');
+  ok(qapprox(qmul(J,K),I),'jk = i');
+  ok(qapprox(qmul(K,I),J),'ki = j');
+  ok(qapprox(qmul(J,I),[0,0,0,-1]),'ji = −k');
+  ok(qapprox(qmul(qmul(I,J),K),[-1,0,0,0]),'ijk = −1');
+
+  let assocOK=true, normOK=true;
+  for (let n=0;n<200;n++){
+    const a=rq(), b=rq(), c=rq();
+    const l=qmul(qmul(a,b),c), r=qmul(a,qmul(b,c));
+    if (!qapprox(l,r,1e-12)) assocOK=false;
+    if (!approx(qlen(qmul(a,b)),1,1e-12)) normOK=false;
+  }
+  ok(assocOK,'associativity (200 random triples)');
+  ok(normOK,'|qp| = |q||p| on the unit sphere');
+
+  ok(qapprox(invStereo4([0,0,0]),ONE),'invStereo4(0) = 1');
+  const s4i=stereo4(I);
+  ok(s4i && approx(s4i[0],1)&&approx(s4i[1],0)&&approx(s4i[2],0),'stereo4(i) = (1,0,0)');
+  ok(stereo4([-1,0,0,0])===null,'stereo4(−1) = point at infinity');
+  let rtOK=true;
+  for (let n=0;n<200;n++){
+    const q=rq();
+    const p=stereo4(q);
+    if (p && !qapprox(invStereo4(p),q,1e-9)) rtOK=false;
+    if (p){ if (!approx(qlen(invStereo4(p)),1,1e-12)) rtOK=false; }
+  }
+  ok(rtOK,'stereo4 / invStereo4 round-trip (200 random)');
+
+  const qe=qexp([0,0,1],Math.PI/4);
+  const v=qrotate([1,0,0],qe);
+  ok(approx(v[0],0,1e-12)&&approx(v[1],1,1e-12)&&approx(v[2],0,1e-12),
+     'exp(π/4 k) conjugation rotates x̂ to ŷ (angle 2θ)');
+  const qq=rq();
+  ok(qapprox(qpow(qq,1,[1,0,0]),qq,1e-9)||qq[0]<0,'qpow(q,1) = q (up to axis branch)');
+  ok(qapprox(qpow(qq,0,[1,0,0]),ONE,1e-12),'qpow(q,0) = 1');
+
+  const s3=stereo3([0,0,1]);
+  ok(s3 && approx(s3[0],0)&&approx(s3[1],0),'stereo3(north) = 0');
+  const s3e=stereo3([1,0,0]);
+  ok(s3e && approx(s3e[0],1)&&approx(s3e[1],0),'stereo3(equator) stays unit');
+  ok(approx(stereo2(0),0)&&approx(stereo2(Math.PI/2),1),'stereo2: 1↦0, i↦1');
+
+  // pipeline smoke test: transform the whole intro grid by q=(1+i)/√2 and project
+  const cam=makeCamera(0.96,0.38,6.8); cam.W=1200; cam.H=800;
+  const B=camBasis(cam);
+  const curves=buildHyperCurves();
+  const Q=qnormalize([1,1,0,0]);
+  const items=[];
+  let finite=true, npts=0;
+  for (const c of curves){
+    const out=c.pts4.map(p=>stereo4(qmul(Q,p)));
+    emitCurve3D(items,cam,B,out,c.style);
+  }
+  for (const it of items){
+    if (it.kind!=='path') continue;
+    for (const p of it.pts){ npts++;
+      if (!isFinite(p.x)||!isFinite(p.y)||Math.abs(p.x)>1e5||Math.abs(p.y)>1e5) finite=false; }
+  }
+  ok(items.length>200,'pipeline produces chunks ('+items.length+')');
+  ok(npts>3000,'pipeline produces points ('+npts+')');
+  ok(finite,'all projected coordinates finite and sane');
+
+  // scrubbing keeps q on the unit hypersphere and snaps at √½ (via a headless scene instance)
+  const scEnv={ now:()=>0, requestReadout:()=>{} };
+  const sc=SceneHyper(scEnv);
+  sc.scrubMove('r1', 0, 118);            // 118px · 0.006 = 0.708 → snaps to 0.7071…
+  ok(approx(sc._st.Q[1],Math.SQRT1_2,1e-9) && approx(qlen(sc._st.Q),1,1e-12),
+     'scrub snaps i-component to √½ and q stays unit');
+  sc.scrubMove('t', 45, 0);
+  ok(approx(qaxisangle(sc._st.Q).angle*180/Math.PI,45,1e-6),'angle scrub sets θ = 45°');
+
+  let gsOK=true;
+  for (const pts of greatSphere4([1,0,0,0],[0,0,1,0],[0,0,0,1],4,2,64))
+    for (const p of pts) if (!approx(qlen(p),1,1e-12)) gsOK=false;
+  ok(gsOK,'greatSphere4 points lie on S³');
+
+  let conjOK=true;
+  for (let n=0;n<50;n++){
+    const q=rq(), v=qnormalize([0,R(),R(),R()]);
+    const t=qmul(qmul(q,v),qconj(q));
+    if (!approx(t[0],0,1e-12)||!approx(qlen(t),1,1e-12)) conjOK=false;
+  }
+  ok(conjOK,'q·v·q⁻¹ keeps unit pure imaginaries pure (rotation)');
+
+  // multiplication by i maps the 1i-axis line into itself (y=z=0 stays true)
+  const axis1i=greatCircle4([1,0,0,0],[0,1,0,0],720,false);
+  let planar=true;
+  for (const p of axis1i){
+    const t=qmul([0,1,0,0],p);
+    const s=stereo4(t);
+    if (s && (Math.abs(s[1])>1e-9||Math.abs(s[2])>1e-9)) planar=false;
+  }
+  ok(planar,'i·(1i-line) stays on the 1i-line');
+  // and it carries the jk-circle to itself
+  const jk=greatCircle4([0,0,1,0],[0,0,0,1],320,true);
+  let onJK=true;
+  for (const p of jk){
+    const t=qmul([0,1,0,0],p);
+    if (Math.abs(t[0])>1e-12||Math.abs(t[1])>1e-12) onJK=false;   // stays pure j,k
+    if (!approx(Math.hypot(t[2],t[3]),1,1e-12)) onJK=false;
+  }
+  ok(onJK,'i·(jk-circle) = jk-circle (rotated)');
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

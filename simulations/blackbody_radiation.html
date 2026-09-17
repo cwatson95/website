@@ -1,0 +1,1339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blackbody radiation — Planck, Wien &amp; the ultraviolet catastrophe</title>
+<!--
+  Blackbody radiation in real SI units (exact 2019 CODATA h, c, k; sigma,
+  Wien's b, the radiation constant a and zeta(3) are DERIVED at boot and
+  self-tested against the literature values).
+
+  SPECTRUM view: the Planck curve
+      B_lam = (2 h c^2 / lam^5) / (e^{h c / lam k T} - 1)
+  on wavelength or frequency axes, linear or log-log, with overlays:
+  Rayleigh-Jeans 2 c k T / lam^4 (the classical result — it leaves the top of
+  the plot and its integral diverges: the ultraviolet catastrophe), the Wien
+  approximation, and the locus of peaks B_peak = C lam^-5 (Wien displacement:
+  lam_max T = b = 2.898e-3 m K; on the nu axis nu_max = 2.821 k T / h, and
+  c / nu_max is NOT lam_max — the peak depends on the axis). "Hold" keeps
+  ghost curves, each drawn in the true glow color of its temperature.
+  The inset shows the glowing object itself: CIE 1931 color-matching
+  functions (Wyman-Sloan-Shirley single-lobe Gaussian fit, anchored in the
+  self-tests to the Illuminant-A chromaticity and the 6500 K Planckian-locus
+  point) integrated against B_lam, converted to sRGB, with McCamy's CCT as a
+  live round-trip check; brightness is log-compressed with the Draper point
+  (798 K, first visible glow) called out.
+
+  PHOTON GAS view: an ideal photon gas at temperature T. Dot wavelengths are
+  EXACT inverse-CDF samples of the photon-count spectrum
+      n_lam proportional to lam^-4 / (e^{h c / lam k T} - 1)
+  (photons re-thermalize with a fresh sample at every wall bounce), so the
+  live histogram converges to the analytic curve. Readouts are absolute:
+  n = 16 pi zeta(3) (kT/hc)^3 (the CMB's 411 photons per cm^3), mean photon
+  energy pi^4/(30 zeta3) kT = 2.701 kT, u = aT^4, radiation pressure u/3.
+
+  QUANTUM vs CLASSICAL view: the resolution of the catastrophe. Reduced
+  spectral energy density x^3/(e^x - 1), x = h nu / k T, against the
+  classical x^2; a probe frequency picks one cavity mode, whose Boltzmann
+  ladder (levels n h nu, occupation p_n = (1 - e^-x) e^{-n x}) shows
+  equipartition kT surviving only while h nu << k T: mean energy
+  h nu / (e^x - 1) freezes out for x >> 1, so the integral converges.
+
+  Aesthetic matches orbitals / quantum_tunneling / particles_in_a_box /
+  harmonic_oscillator: black stage, Mathematica NeonColors accents, same
+  chrome. Curve columns can be colored by the actual spectral color of each
+  wavelength (the CMF fit renders 380-750 nm; IR and UV columns fall back to
+  fixed dim warm/violet tones — display-only), by NeonColors height, or flat.
+  Object colors carry a 700 K floor: below it the fit's ybar tail overpowers
+  xbar (an artifact — the true tables stay red), so colder-than-ember objects
+  show the extrapolated 700 K red; they are below the Draper point and
+  effectively black on screen anyway.
+
+  Single file, no dependencies, works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript bb_test.js
+  — with `document` undefined it runs the assertion suite (derived constants
+  vs literature, Stefan-Boltzmann and photon-density quadratures vs closed
+  forms, Wien fixed points, B_lam/B_nu consistency, RJ and Wien limits,
+  CMB / Sun / solar-constant / visible-fraction anchors, CMF-fit anchors and
+  McCamy round-trips, sRGB monotonicity, seeded 20k-draw sampler moments and
+  KS distance, Bose-Einstein ladder identities, format/clamp/label logic)
+  instead of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0;}
+  #wave{position:absolute; inset:0; width:100%; height:100%; display:block;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:76px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:56px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; gap:12px; flex-wrap:wrap; margin-top:6px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #gradbar{display:block; width:100%; height:10px; border-radius:5px; margin:6px 0 3px;}
+  #gradlabels{display:flex; justify-content:space-between; font-size:10.5px; color:#777;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Blackbody radiation</h1>
+  <span class="sub">Planck's law in real units &mdash; Wien displacement &middot; the ultraviolet catastrophe &middot; the color of heat</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="wave"></canvas>
+    <div id="hint">presets are real objects &middot; hold curves, then log&ndash;log, to compare temperatures</div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    <canvas id="inset" width="300" height="150"></canvas>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>view</h3>
+      <div class="chips">
+        <button class="chip on" id="viewS">spectrum</button>
+        <button class="chip" id="viewP">photon gas</button>
+        <button class="chip" id="viewQ" title="why quantization tames the catastrophe">quantum vs classical</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>temperature</h3>
+      <div class="sliderrow"><label for="eT">T (log)</label>
+        <input type="range" id="eT" min="0.4353" max="4.4772" step="0.0005">
+        <span class="val" id="eTVal"></span></div>
+      <div class="chips">
+        <button class="chip" id="pCMB" title="the cosmic microwave background, 2.725 K">CMB</button>
+        <button class="chip" id="pHuman" title="human body, 310 K">you</button>
+        <button class="chip" id="pLava" title="molten lava, 1300 K">lava</button>
+        <button class="chip" id="pBulb" title="incandescent filament, 2850 K">bulb</button>
+        <button class="chip" id="pSun" title="the Sun's effective temperature, 5772 K">Sun</button>
+        <button class="chip" id="pSirius" title="Sirius A, 9940 K">Sirius</button>
+        <button class="chip" id="pOstar" title="a hot O-type star, 30 000 K">O star</button>
+      </div>
+      <div class="btnrow"><button id="resetBtn" title="back to the defaults">reset all</button></div>
+    </div>
+
+    <div class="grp" id="grpSpectrum">
+      <h3>axes &amp; overlays</h3>
+      <div class="chips">
+        <button class="chip on" id="axLam">&lambda; axis</button>
+        <button class="chip" id="axNu">&nu; axis</button>
+        <button class="chip" id="scLin" >linear</button>
+        <button class="chip" id="scLog">log&ndash;log</button>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="rjChk" checked> Rayleigh&ndash;Jeans</label>
+        <label><input type="checkbox" id="wienChk"> Wien approx.</label>
+        <label><input type="checkbox" id="locusChk" checked> peak locus</label>
+      </div>
+      <div class="btnrow">
+        <button id="holdBtn" title="keep the current curve as a ghost, in its glow color">hold curve</button>
+        <button id="clearBtn">clear held</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpPhotons" hidden>
+      <h3>photon gas</h3>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0.2" max="3" step="0.1">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow"><button id="pauseBtn">pause</button></div>
+    </div>
+
+    <div class="grp" id="grpQuantum" hidden>
+      <h3>probe mode</h3>
+      <div class="sliderrow"><label for="eProbe">x = h&nu;/kT</label>
+        <input type="range" id="eProbe" min="0.25" max="12" step="0.05">
+        <span class="val" id="eProbeVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>color</h3>
+      <div class="chips" id="colorRow">
+        <button class="chip on" id="colorSpectral" title="each column in the true color of its wavelength">spectral</button>
+        <button class="chip" id="colorNeon">NeonColors</button>
+        <button class="chip" id="colorFlat">uniform</button>
+      </div>
+      <canvas id="gradbar" width="248" height="10"></canvas>
+      <div id="gradlabels"><span id="gradLo"></span><span id="gradHi"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* =================== exact constants (SI 2019) =================== */
+const PI = Math.PI, TAU = 2*PI;
+const H  = 6.62607015e-34;          // J s
+const C  = 2.99792458e8;            // m/s
+const KB = 1.380649e-23;            // J/K
+const EV = 1.602176634e-19;         // J
+const HC = H*C;
+const SIGMA = 2*Math.pow(PI,5)*Math.pow(KB,4)/(15*Math.pow(H,3)*C*C);
+const A_RAD = 4*SIGMA/C;
+function zetaSeries(p){                        // zeta(p) with midpoint tail
+  let s=0;
+  for (let n=1;n<=20000;n++) s+=Math.pow(n,-p);
+  return s+Math.pow(20000.5,1-p)/(p-1);
+}
+const ZETA3 = zetaSeries(3);
+function wienFix(k){ let x=k;                  // solves x = k (1 - e^-x)
+  for (let i=0;i<200;i++) x=k*(1-Math.exp(-x));
+  return x; }
+const X5 = wienFix(5);                         // lambda peak of B_lam
+const X3 = wienFix(3);                         // nu peak of B_nu
+const X4 = wienFix(4);                         // lambda peak of the photon count
+const B_WIEN   = HC/(KB*X5);                   // lam_max T
+const NU_PER_T = X3*KB/H;                      // nu_max / T
+const MEAN_E_KT = Math.pow(PI,4)/(30*ZETA3);   // <E_photon>/kT = 2.7012
+const LOCUS_C  = 2*H*C*C/Math.expm1(X5);       // B(lam_max) = LOCUS_C lam^-5
+const LOCUS_CN = 2*H/(C*C)/Math.expm1(X3);     // B_nu(nu_max) = LOCUS_CN nu^3
+
+/* ======================= Planck functions ======================== */
+function blam(lam,T){ const x=HC/(lam*KB*T);
+  return x>700 ? 0 : 2*H*C*C/Math.pow(lam,5)/Math.expm1(x); }
+function bnu(nu,T){ const x=H*nu/(KB*T);
+  return x>700 ? 0 : 2*H*nu*nu*nu/(C*C)/Math.expm1(x); }
+function nlamPhot(lam,T){ const x=HC/(lam*KB*T);          // photons / m^3 / m
+  return x>700 ? 0 : 8*PI/Math.pow(lam,4)/Math.expm1(x); }
+function rjLam(lam,T){ return 2*C*KB*T/Math.pow(lam,4); }
+function rjNu(nu,T){ return 2*nu*nu*KB*T/(C*C); }
+function wienLam(lam,T){ const x=HC/(lam*KB*T);
+  return 2*H*C*C/Math.pow(lam,5)*Math.exp(-x); }
+function lamMax(T){ return B_WIEN/T; }
+function qlog(f,a,b,N){                        // Simpson in u = ln lam
+  N=N||4001;
+  const la=Math.log(a), st=(Math.log(b)-la)/(N-1);
+  let s=0;
+  for (let i=0;i<N;i++){
+    const lam=Math.exp(la+i*st), w=(i===0||i===N-1)?1:(i%2?4:2);
+    s+=w*f(lam)*lam;
+  }
+  return s*st/3;
+}
+function stefanQuad(T){ const lm=lamMax(T);
+  return PI*qlog(l=>blam(l,T),lm/50,lm*400); }
+function photonDensity(T){ return 16*PI*ZETA3*Math.pow(KB*T/HC,3); }
+function uDensity(T){ return A_RAD*Math.pow(T,4); }
+const VIS_LO=380e-9, VIS_HI=750e-9;
+function visFracPower(T){
+  return PI*qlog(l=>blam(l,T),VIS_LO,VIS_HI,801)/(SIGMA*Math.pow(T,4));
+}
+function visFracPhotons(T){
+  return qlog(l=>nlamPhot(l,T),VIS_LO,VIS_HI,801)/photonDensity(T);
+}
+
+/* ============ CIE color: Wyman-Sloan-Shirley CMF fit ============= */
+function lobe(x,mu,s1,s2){ const s=x<mu?s1:s2, d=(x-mu)/s;
+  return Math.exp(-0.5*d*d); }
+function cieX(l){ return 1.056*lobe(l,599.8,37.9,31.0)+0.362*lobe(l,442.0,16.0,26.7)
+                       -0.065*lobe(l,501.1,20.4,26.2); }
+function cieY(l){ return 0.821*lobe(l,568.8,46.9,40.5)+0.286*lobe(l,530.9,16.3,31.1); }
+function cieZ(l){ return 1.217*lobe(l,437.0,11.8,36.0)+0.681*lobe(l,459.0,26.0,13.8); }
+function xyzOfT(T){
+  // color floor 700 K: below it the visible spectrum is all deep-red tail,
+  // where the Gaussian CMF fit's ybar tail overpowers xbar (a fit artifact —
+  // the true tables keep xbar/ybar ~ 2.7, i.e. red). Colder objects display
+  // the extrapolated 700 K ember red; they are below the Draper point anyway.
+  const Tc=Math.max(T,700);
+  let X=0,Y=0,Z=0;
+  for (let l=380;l<=780;l+=2){
+    const B=blam(l*1e-9,Tc);
+    X+=B*cieX(l); Y+=B*cieY(l); Z+=B*cieZ(l);
+  }
+  return [X,Y,Z];
+}
+function srgbGamma(v){ return v<=0.0031308 ? 12.92*v : 1.055*Math.pow(v,1/2.4)-0.055; }
+function xyzToRgb(X,Y,Z){
+  let r= 3.2406*X-1.5372*Y-0.4986*Z,
+      g=-0.9689*X+1.8758*Y+0.0415*Z,
+      b= 0.0557*X-0.2040*Y+1.0570*Z;
+  const m=Math.max(r,g,b);
+  if (m<=0) return [0,0,0];
+  r=Math.max(0,r)/m; g=Math.max(0,g)/m; b=Math.max(0,b)/m;
+  return [srgbGamma(r),srgbGamma(g),srgbGamma(b)];
+}
+function bbRgb(T){ const w=xyzOfT(T);
+  const s=w[0]+w[1]+w[2];
+  if (s<=0) return [0,0,0];
+  return xyzToRgb(w[0]/w[1],1,w[2]/w[1]); }
+const _bbCache={};
+function bbCss(T,alpha){
+  const key=Math.round(T);
+  let c=_bbCache[key];
+  if (!c) c=_bbCache[key]=bbRgb(key||60);
+  const pre=alpha===undefined?'rgb(':'rgba(';
+  return pre+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+
+         (alpha===undefined?')':','+alpha+')');
+}
+function chromaOfT(T){ const w=xyzOfT(T), s=w[0]+w[1]+w[2];
+  return [w[0]/s,w[1]/s]; }
+function mccamyCCT(x,y){ const n=(x-0.3320)/(y-0.1858);
+  return -449*n*n*n+3525*n*n-6823.3*n+5520.33; }
+function spectralRgb(lnm){                     // monochromatic display color
+  if (lnm<380||lnm>780) return null;
+  return xyzToRgb(cieX(lnm),cieY(lnm),cieZ(lnm));
+}
+const IR_RGB=[0.30,0.17,0.11], UV_RGB=[0.27,0.20,0.42];   // display-only fallbacks
+function spectralCss(lam){                     // lam in meters
+  const lnm=lam*1e9;
+  let c;
+  if (lnm<380) c=UV_RGB; else if (lnm>750) c=IR_RGB; else c=spectralRgb(lnm)||IR_RGB;
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+let _lref=0;
+function visLuminance(T){ let s=0;               // brightness path: no color floor
+  for (let l=380;l<=780;l+=2) s+=blam(l*1e-9,Math.max(T,60))*cieY(l);
+  return s; }
+function glowAlpha(T){
+  if (!_lref) _lref=visLuminance(6500);
+  const r=visLuminance(T)/_lref;
+  if (r<=0) return 0;
+  return Math.max(0,Math.min(1,1+Math.log10(r)/14));
+}
+const DRAPER=798;                              // K, first visible glow
+
+/* ================== photon sampler (inverse CDF) ================= */
+function mulberry32(seed){ let a=seed>>>0;
+  return function(){ a|=0; a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296; }; }
+function buildPhotonCDF(T){
+  const G=1600, lm=lamMax(T), la=Math.log(lm/25), lb=Math.log(lm*300);
+  const st=(lb-la)/(G-1), lams=new Float64Array(G), cdf=new Float64Array(G);
+  let acc=0, prev=0;
+  for (let i=0;i<G;i++){
+    const lam=Math.exp(la+i*st);
+    lams[i]=lam;
+    const f=nlamPhot(lam,T)*lam;               // density in u = ln lam
+    if (i>0) acc+=0.5*(f+prev)*st;
+    prev=f; cdf[i]=acc;
+  }
+  for (let i=0;i<G;i++) cdf[i]/=acc;
+  return {lams,cdf,T};
+}
+function samplePhoton(cd,u){
+  const cdf=cd.cdf, lams=cd.lams;
+  let lo=0, hi=cdf.length-1;
+  while (hi-lo>1){ const mid=(lo+hi)>>1;
+    if (cdf[mid]<u) lo=mid; else hi=mid; }
+  const f=(u-cdf[lo])/((cdf[hi]-cdf[lo])||1);
+  return lams[lo]+(lams[hi]-lams[lo])*f;
+}
+function cdfAt(cd,lam){
+  const lams=cd.lams, cdf=cd.cdf;
+  if (lam<=lams[0]) return 0;
+  if (lam>=lams[lams.length-1]) return 1;
+  let lo=0, hi=lams.length-1;
+  while (hi-lo>1){ const mid=(lo+hi)>>1;
+    if (lams[mid]<lam) lo=mid; else hi=mid; }
+  const f=(lam-lams[lo])/(lams[hi]-lams[lo]);
+  return cdf[lo]+(cdf[hi]-cdf[lo])*f;
+}
+
+/* =================== Bose-Einstein mode ladder =================== */
+function nbar(x){ return 1/Math.expm1(x); }
+function eOverKT(x){ return x/Math.expm1(x); }             // <E>/kT of one mode
+function pLevel(n,x){ return (1-Math.exp(-x))*Math.exp(-n*x); }
+function uReduced(x){ return x*x*x/Math.expm1(x); }        // spectral shape
+const U_PEAK=uReduced(X3);
+
+/* ================= colormap: Mathematica NeonColors ==============
+   Same exact 16-sample table as the other sims in this collection
+   (idsc-frazzoli/tensor colorscheme/neon.csv, verified vs Wolfram). */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){
+  const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ======================== state and labels ======================= */
+const T_MIN=2.725, T_MAX=30000;
+const DEFAULTS={ view:'spectrum', T:5772, axis:'lam', scale:'lin',
+                 showRJ:true, showWien:false, showLocus:true,
+                 colorBy:'spectral', speed:1, probeX:1 };
+const PRESETS=[
+  {id:'pCMB',    T:2.725, name:'cosmic microwave background'},
+  {id:'pHuman',  T:310,   name:'human body'},
+  {id:'pLava',   T:1300,  name:'molten lava'},
+  {id:'pBulb',   T:2850,  name:'incandescent filament'},
+  {id:'pSun',    T:5772,  name:'the Sun'},
+  {id:'pSirius', T:9940,  name:'Sirius A'},
+  {id:'pOstar',  T:30000, name:'an O-type star'},
+];
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,+v||lo));
+  c.T=f(c.T,T_MIN,T_MAX);
+  c.probeX=f(c.probeX,0.25,12); c.speed=f(c.speed,0.2,3);
+  if (['spectrum','photons','quantum'].indexOf(c.view)<0) c.view='spectrum';
+  if (c.axis!=='nu') c.axis='lam';
+  if (c.scale!=='log') c.scale='lin';
+  if (['spectral','neon','flat'].indexOf(c.colorBy)<0) c.colorBy='spectral';
+  return c;
+}
+function presetOf(T){
+  for (const p of PRESETS) if (Math.abs(Math.log(T/p.T))<0.002) return p;
+  return null;
+}
+function fmtT(T){
+  if (T<10) return (T+1e-9).toFixed(2)+' K';   // epsilon: decimal half-up (2.725 -> 2.73)
+  if (T<100) return (T+1e-9).toFixed(1)+' K';
+  return Math.round(T)+' K';
+}
+function mainLabel(T){
+  const p=presetOf(T);
+  return 'T = '+fmtT(T)+(p?' — '+p.name:'');
+}
+const SUP={'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵',
+           '6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'};
+function sup(n){ return String(n).split('').map(c=>SUP[c]||'').join(''); }
+function fmtExp(v,unit){
+  if (v===0) return '0'+(unit?' '+unit:'');
+  const e=Math.floor(Math.log10(Math.abs(v)));
+  if (e>=-2&&e<=3) return (+ (+v).toPrecision(3))+(unit?' '+unit:'');
+  const m=v/Math.pow(10,e);
+  return m.toFixed(2)+'×10'+sup(e)+(unit?' '+unit:'');
+}
+function fmtLam(m){
+  if (m>=1e-3) return +(m*1e3).toPrecision(3)+' mm';
+  if (m>=1e-6) return +(m*1e6).toPrecision(3)+' µm';
+  return +(m*1e9).toPrecision(3)+' nm';
+}
+function fmtNu(hz){
+  if (hz>=1e12) return +(hz/1e12).toPrecision(3)+' THz';
+  if (hz>=1e9) return +(hz/1e9).toPrecision(3)+' GHz';
+  return +(hz/1e6).toPrecision(3)+' MHz';
+}
+function fmtPct(f){
+  const p=f*100;
+  if (p<0.1) return '<0.1%';
+  return p.toFixed(1)+'%';
+}
+function draperNote(T){
+  if (T<DRAPER) return 'below the Draper point (798 K) — no visible glow';
+  if (T<1300) return 'faint red — just past the Draper point (798 K)';
+  return '';
+}
+function sliderToT(v){ return Math.pow(10,+v); }
+function tToSlider(T){ return Math.log10(T); }
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('wave'), ctx=cv.getContext('2d');
+  const insetCv=$('inset'), insetCtx=insetCv.getContext('2d');
+  if (!ctx || !insetCtx) return;
+  const dpr=(typeof window!=='undefined' && window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let W=900, HGT=620, paused=false;   // HGT, not H: Planck's H must stay visible here
+  const ghosts=[];                              // held temperatures
+  const NPHOT=240;
+  let photons=null, photCDF=null;
+  const rnd=mulberry32(20260721);
+
+  /* ---------- plot geometry ---------- */
+  const PLOT={x0:64,y0:30,x1:0,y1:0};
+  function plotBox(){ PLOT.x1=W-20; PLOT.y1=HGT-64;
+    return {x0:PLOT.x0,y0:PLOT.y0,pw:PLOT.x1-PLOT.x0,ph:PLOT.y1-PLOT.y0}; }
+
+  function axisWindow(){
+    // returns {toPx(v), ofPx(px), lo, hi} for the active spectral x axis
+    const b=plotBox(), st=state;
+    let lo,hi;
+    if (st.scale==='log'){
+      if (st.axis==='lam'){ lo=3e-8; hi=1e-2; } else { lo=1e10; hi=3e15; }
+      const ll=Math.log(lo), lh=Math.log(hi);
+      return {lo,hi,log:true,
+        toPx:v=>b.x0+b.pw*(Math.log(v)-ll)/(lh-ll),
+        ofPx:px=>Math.exp(ll+(px-b.x0)/b.pw*(lh-ll))};
+    }
+    let top=st.axis==='lam' ? 6*lamMax(state.T) : 4.5*NU_PER_T*state.T;
+    lo=0; hi=top;
+    return {lo,hi,log:false,
+      toPx:v=>b.x0+b.pw*v/hi,
+      ofPx:px=>(px-b.x0)/b.pw*hi};
+  }
+  function specValue(v,T){ return state.axis==='lam' ? blam(v,T) : bnu(v,T); }
+  function peakOf(T){
+    return state.axis==='lam'
+      ? {v:lamMax(T), B:blam(lamMax(T),T)}
+      : {v:NU_PER_T*T, B:bnu(NU_PER_T*T,T)};
+  }
+  function yWindow(){
+    const b=plotBox();
+    let pk=peakOf(state.T).B;
+    for (const g of ghosts) pk=Math.max(pk,peakOf(g.T).B);
+    if (state.scale==='log'){
+      const top=Math.pow(10,Math.floor(Math.log10(pk))+1), dec=14;
+      const lt=Math.log10(top);
+      return {top,log:true,dec,
+        toPx:v=>{ if (v<=0) return b.y0+b.ph+40;
+          return b.y0+b.ph*(1-(Math.log10(v)-(lt-dec))/dec); }};
+    }
+    const top=1.06*pk;
+    return {top,log:false,toPx:v=>b.y0+b.ph*(1-v/top)};
+  }
+
+  /* ---------- axis furniture ---------- */
+  function drawAxes(ax,yw){
+    const b=plotBox();
+    ctx.strokeStyle='#2a2a30'; ctx.lineWidth=1;
+    ctx.strokeRect(b.x0,b.y0,b.pw,b.ph);
+    ctx.fillStyle='#666'; ctx.font='10px -apple-system, sans-serif';
+    if (ax.log){
+      for (let d=Math.ceil(Math.log10(ax.lo));Math.pow(10,d)<=ax.hi;d++){
+        const v=Math.pow(10,d), px=ax.toPx(v);
+        ctx.strokeStyle='#1a1a20';
+        ctx.beginPath(); ctx.moveTo(px,b.y0); ctx.lineTo(px,b.y0+b.ph); ctx.stroke();
+        ctx.fillText(state.axis==='lam'?fmtLam(v):fmtNu(v),px-14,b.y0+b.ph+14);
+      }
+    } else {
+      const n=6;
+      for (let i=1;i<=n;i++){
+        const v=ax.hi*i/n, px=ax.toPx(v);
+        ctx.strokeStyle='#1a1a20';
+        ctx.beginPath(); ctx.moveTo(px,b.y0); ctx.lineTo(px,b.y0+b.ph); ctx.stroke();
+        ctx.fillText(state.axis==='lam'?fmtLam(v):fmtNu(v),px-16,b.y0+b.ph+14);
+      }
+    }
+    ctx.fillStyle='#888';
+    ctx.fillText(state.axis==='lam'?'λ':'ν',b.x0+b.pw-8,b.y0+b.ph+26);
+    ctx.save();
+    ctx.translate(14,b.y0+b.ph/2); ctx.rotate(-PI/2);
+    ctx.fillText(state.axis==='lam'?'Bλ  (W m⁻² sr⁻¹ m⁻¹)'
+                                   :'Bν  (W m⁻² sr⁻¹ Hz⁻¹)',-52,0);
+    ctx.restore();
+    if (yw.log){
+      ctx.fillStyle='#555';
+      const lt=Math.log10(yw.top);
+      for (let d=0;d<=yw.dec;d+=2){
+        const v=Math.pow(10,lt-d);
+        ctx.fillText('10'+sup(Math.round(Math.log10(v))),PLOT.x0-34,yw.toPx(v)+3);
+      }
+    }
+  }
+  function drawVisibleBand(ax){
+    const b=plotBox();
+    let pLo,pHi;
+    if (state.axis==='lam'){ pLo=ax.toPx(VIS_LO); pHi=ax.toPx(VIS_HI); }
+    else { pLo=ax.toPx(C/VIS_HI); pHi=ax.toPx(C/VIS_LO); }
+    if (pHi<b.x0||pLo>b.x0+b.pw) return;
+    const lo=Math.max(pLo,b.x0), hi=Math.min(pHi,b.x0+b.pw);
+    ctx.fillStyle='rgba(255,255,255,0.05)';
+    ctx.fillRect(lo,b.y0,hi-lo,b.ph);
+    // rainbow strip on the axis
+    const n=Math.max(8,Math.round(hi-lo));
+    for (let i=0;i<n;i++){
+      const px=lo+(hi-lo)*i/n;
+      const v=ax.ofPx(px);
+      const lam=state.axis==='lam'?v:C/v;
+      ctx.fillStyle=spectralCss(lam);
+      ctx.fillRect(px,b.y0+b.ph+1,Math.max(1,(hi-lo)/n),4);
+    }
+    ctx.fillStyle='#888'; ctx.font='9px -apple-system, sans-serif';
+    ctx.fillText('visible',lo+(hi-lo)/2-14,b.y0+b.ph+14);
+  }
+  function strokeCurve(fn,css,dash,lw){
+    // fn(px) -> y in device units or null; clipped to the plot
+    const b=plotBox();
+    ctx.save();
+    ctx.beginPath(); ctx.rect(b.x0,b.y0,b.pw,b.ph); ctx.clip();
+    ctx.strokeStyle=css; ctx.lineWidth=lw||1.2;
+    if (dash) ctx.setLineDash(dash);
+    ctx.beginPath();
+    let started=false;
+    for (let px=b.x0;px<=b.x0+b.pw;px+=2){
+      const y=fn(px);
+      if (y===null||!isFinite(y)){ started=false; continue; }
+      if (!started){ ctx.moveTo(px,y); started=true; } else ctx.lineTo(px,y);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  /* ---------- spectrum view ---------- */
+  function drawSpectrum(){
+    ctx.clearRect(0,0,W,HGT);
+    const ax=axisWindow(), yw=yWindow(), b=plotBox();
+    drawAxes(ax,yw);
+    drawVisibleBand(ax);
+    // filled Planck curve, per-pixel columns
+    const T=state.T, pk=peakOf(T);
+    ctx.globalCompositeOperation='lighter';
+    const flatCss=neonCss(0.85);
+    for (let px=Math.round(b.x0);px<b.x0+b.pw;px++){
+      const v=ax.ofPx(px+0.5);
+      if (v<=0) continue;
+      const B=specValue(v,T);
+      if (B<=0) continue;
+      const y=yw.toPx(B);
+      if (y>=b.y0+b.ph) continue;
+      const yTop=Math.max(y,b.y0), hh=b.y0+b.ph-yTop;
+      let css;
+      if (state.colorBy==='spectral') css=spectralCss(state.axis==='lam'?v:C/v);
+      else if (state.colorBy==='neon') css=neonCss(Math.pow(Math.min(1,B/pk.B),0.35));
+      else css=flatCss;
+      ctx.fillStyle=css;
+      ctx.globalAlpha=0.42; ctx.fillRect(px,yTop,1,hh);
+      ctx.globalAlpha=0.95; ctx.fillRect(px,yTop,1,1.8);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+    // ghosts, each in its own glow color
+    for (const g of ghosts){
+      strokeCurve(px=>{ const v=ax.ofPx(px+0.5);
+        if (v<=0) return null;
+        const B=specValue(v,g.T);
+        return B>0?yw.toPx(B):null; }, bbCss(g.T,0.75), null, 1.3);
+      const gp=peakOf(g.T), gx=ax.toPx(gp.v), gy=yw.toPx(gp.B);
+      if (gx>b.x0&&gx<b.x0+b.pw&&gy>b.y0){
+        ctx.fillStyle=bbCss(g.T,0.9); ctx.font='10px -apple-system, sans-serif';
+        ctx.fillText(fmtT(g.T),gx-12,Math.max(b.y0+10,gy-6));
+      }
+    }
+    // overlays
+    if (state.showRJ)
+      strokeCurve(px=>{ const v=ax.ofPx(px+0.5);
+        if (v<=0) return null;
+        return yw.toPx(state.axis==='lam'?rjLam(v,T):rjNu(v,T)); },
+        'rgba(184,236,76,0.85)',[6,5],1.3);
+    if (state.showWien&&state.axis==='lam')
+      strokeCurve(px=>{ const v=ax.ofPx(px+0.5);
+        if (v<=0) return null;
+        const Bv=wienLam(v,T);
+        return Bv>0?yw.toPx(Bv):null; },'rgba(185,215,255,0.55)',[2,4],1);
+    if (state.showLocus)
+      strokeCurve(px=>{ const v=ax.ofPx(px+0.5);
+        if (v<=0) return null;
+        const Bv=state.axis==='lam'?LOCUS_C/Math.pow(v,5):LOCUS_CN*v*v*v;
+        return yw.toPx(Bv); },'rgba(205,53,196,0.55)',[3,4],1);
+    // peak marker
+    const pxk=ax.toPx(pk.v), pyk=yw.toPx(pk.B);
+    if (pxk>b.x0&&pxk<b.x0+b.pw){
+      ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.setLineDash([3,4]);
+      ctx.beginPath(); ctx.moveTo(pxk,pyk); ctx.lineTo(pxk,b.y0+b.ph); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle='#fff';
+      ctx.beginPath(); ctx.arc(pxk,pyk,3,0,TAU); ctx.fill();
+      ctx.font='10px -apple-system, sans-serif';
+      ctx.fillText(state.axis==='lam'?fmtLam(pk.v):fmtNu(pk.v),pxk+6,Math.max(b.y0+12,pyk-6));
+    }
+    // labels for the overlays
+    ctx.font='10px -apple-system, sans-serif';
+    if (state.showRJ){ ctx.fillStyle='rgba(184,236,76,0.9)';
+      ctx.fillText('Rayleigh–Jeans (classical, ∫ = ∞)',b.x0+8,b.y0+14); }
+    if (state.showLocus){ ctx.fillStyle='rgba(205,53,196,0.8)';
+      ctx.fillText(state.axis==='lam'?'peak locus ∝ λ⁻⁵':'peak locus ∝ ν³',
+                   b.x0+8,b.y0+(state.showRJ?28:14)); }
+  }
+  function drawGlowInset(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height;
+    c.clearRect(0,0,IW,IH);
+    const T=state.T, al=glowAlpha(T), cx=64, cy=IH/2, R=44;
+    const col=bbCss(T);
+    if (al>0.003&&c.createRadialGradient){
+      const g=c.createRadialGradient(cx,cy,2,cx,cy,R);
+      g.addColorStop(0,bbCss(T,Math.min(1,al*1.5)));
+      g.addColorStop(0.55,bbCss(T,al));
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      c.fillStyle=g;
+      c.beginPath(); c.arc(cx,cy,R,0,TAU); c.fill();
+    }
+    c.strokeStyle=al>0.003?col:'#333';
+    c.lineWidth=1;
+    c.beginPath(); c.arc(cx,cy,R*0.55,0,TAU); c.stroke();
+    c.font='10px -apple-system, sans-serif';
+    c.fillStyle='#aaa';
+    c.fillText('the object itself',130,26);
+    c.fillStyle=col;
+    c.fillRect(130,36,16,16);
+    c.strokeStyle='#333'; c.strokeRect(130,36,16,16);
+    c.fillStyle='#888';
+    if (T>=1500&&T<=12000){
+      const xy=chromaOfT(T);
+      c.fillText('CCT ≈ '+Math.round(mccamyCCT(xy[0],xy[1]))+' K  (McCamy)',152,48);
+    } else c.fillText('CCT: outside 1.5–12 kK fit',152,48);
+    c.fillStyle='#666';
+    c.fillText(al<=0.003?'too cold to glow visibly':'brightness log-compressed',130,70);
+    c.fillText('visible share of σT⁴: '+fmtPct(visFracPower(T)),130,88);
+    const dn=draperNote(T);
+    if (dn) c.fillText(dn.slice(0,40),130,106);
+  }
+
+  /* ---------- photon-gas view ---------- */
+  function cavityBox(){ const b=plotBox();
+    return {x0:b.x0+10,y0:b.y0+14,x1:b.x0+b.pw-10,y1:b.y0+b.ph-6}; }
+  function initPhotons(keepPos){
+    photCDF=buildPhotonCDF(state.T);
+    const cb=cavityBox();
+    if (!photons||!keepPos){
+      photons=[];
+      for (let i=0;i<NPHOT;i++){
+        const th=rnd()*TAU;
+        photons.push({x:cb.x0+rnd()*(cb.x1-cb.x0),y:cb.y0+rnd()*(cb.y1-cb.y0),
+                      vx:Math.cos(th),vy:Math.sin(th),lam:samplePhoton(photCDF,rnd())});
+      }
+    } else {
+      for (const p of photons) p.lam=samplePhoton(photCDF,rnd());
+    }
+  }
+  function photClass(lam){ const lnm=lam*1e9;
+    return lnm<380?2:(lnm>750?1:0); }          // 0 visible, 1 IR, 2 UV
+  function stepPhotons(){
+    const cb=cavityBox(), sp=2.6*state.speed;
+    for (const p of photons){
+      p.x+=p.vx*sp; p.y+=p.vy*sp;
+      let hit=false;
+      if (p.x<cb.x0){ p.x=cb.x0; hit=true; }
+      if (p.x>cb.x1){ p.x=cb.x1; hit=true; }
+      if (p.y<cb.y0){ p.y=cb.y0; hit=true; }
+      if (p.y>cb.y1){ p.y=cb.y1; hit=true; }
+      if (hit){                                // wall re-thermalizes the photon
+        const th=rnd()*TAU;
+        p.vx=Math.cos(th); p.vy=Math.sin(th);
+        if (p.x===cb.x0&&p.vx<0) p.vx=-p.vx;
+        if (p.x===cb.x1&&p.vx>0) p.vx=-p.vx;
+        if (p.y===cb.y0&&p.vy<0) p.vy=-p.vy;
+        if (p.y===cb.y1&&p.vy>0) p.vy=-p.vy;
+        p.lam=samplePhoton(photCDF,rnd());
+      }
+    }
+  }
+  function drawPhotons(){
+    ctx.clearRect(0,0,W,HGT);
+    const cb=cavityBox(), T=state.T, al=glowAlpha(T);
+    // cavity walls glow in the true blackbody color; cold walls stay dark
+    if (al>0.003){
+      ctx.strokeStyle=bbCss(T,+(0.35*al).toFixed(3)); ctx.lineWidth=7;
+      ctx.strokeRect(cb.x0-5,cb.y0-5,cb.x1-cb.x0+10,cb.y1-cb.y0+10);
+    }
+    ctx.strokeStyle=al>0.003?bbCss(T):'#2f2f36'; ctx.lineWidth=2;
+    ctx.strokeRect(cb.x0-5,cb.y0-5,cb.x1-cb.x0+10,cb.y1-cb.y0+10);
+    ctx.fillStyle='rgba(255,255,255,0.02)';
+    ctx.fillRect(cb.x0,cb.y0,cb.x1-cb.x0,cb.y1-cb.y0);
+    ctx.font='10px -apple-system, sans-serif'; ctx.fillStyle='#777';
+    ctx.fillText('cavity walls at T re-emit every photon they absorb — each bounce redraws λ from the Planck distribution',
+                 cb.x0+8,cb.y0-10);
+    ctx.globalCompositeOperation='lighter';
+    for (const p of photons){
+      const cl=photClass(p.lam);
+      let css;
+      if (cl===0) css=spectralCss(p.lam);
+      else if (cl===1) css='rgb(77,43,28)';
+      else css='rgb(69,51,107)';
+      ctx.strokeStyle=css; ctx.globalAlpha=cl===0?0.85:0.55; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(p.x-p.vx*6,p.y-p.vy*6); ctx.lineTo(p.x,p.y); ctx.stroke();
+      ctx.fillStyle=css;
+      ctx.beginPath(); ctx.arc(p.x,p.y,cl===0?2.2:1.7,0,TAU); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+  }
+  function drawHistInset(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height;
+    c.clearRect(0,0,IW,IH);
+    if (!photCDF) return;
+    const x0=14,y0=12,x1=IW-10,y1=IH-30, pw=x1-x0, ph=y1-y0;
+    const lm=lamMax(state.T), lo=Math.log(lm/25), hi=Math.log(lm*300);
+    const NBins=26, counts=new Array(NBins).fill(0);
+    for (const p of photons){
+      const u=(Math.log(p.lam)-lo)/(hi-lo);
+      const bIdx=Math.max(0,Math.min(NBins-1,Math.floor(u*NBins)));
+      counts[bIdx]++;
+    }
+    const exp=new Array(NBins);
+    let mx=0;
+    for (let i=0;i<NBins;i++){
+      const la=Math.exp(lo+(hi-lo)*i/NBins), lb=Math.exp(lo+(hi-lo)*(i+1)/NBins);
+      exp[i]=(cdfAt(photCDF,lb)-cdfAt(photCDF,la))*photons.length;
+      mx=Math.max(mx,exp[i],counts[i]);
+    }
+    // visible-band shading
+    const px=l=>x0+pw*(Math.log(l)-lo)/(hi-lo);
+    const vLo=Math.max(x0,px(VIS_LO)), vHi=Math.min(x1,px(VIS_HI));
+    if (vHi>vLo){ c.fillStyle='rgba(255,255,255,0.06)'; c.fillRect(vLo,y0,vHi-vLo,ph); }
+    for (let i=0;i<NBins;i++){
+      const bx=x0+pw*i/NBins, bw=pw/NBins-1;
+      const hh=ph*counts[i]/mx;
+      const lamMid=Math.exp(lo+(hi-lo)*(i+0.5)/NBins);
+      c.fillStyle=photClass(lamMid)===0?spectralCss(lamMid):'rgba(140,140,150,0.5)';
+      c.fillRect(bx,y1-hh,bw,hh);
+    }
+    c.strokeStyle='#b8ec4c'; c.lineWidth=1.2;
+    c.beginPath();
+    for (let i=0;i<NBins;i++){
+      const bx=x0+pw*(i+0.5)/NBins, y=y1-ph*exp[i]/mx;
+      if (i===0) c.moveTo(bx,y); else c.lineTo(bx,y);
+    }
+    c.stroke();
+    c.font='9px -apple-system, sans-serif'; c.fillStyle='#888';
+    c.fillText('sampled λ vs the Planck photon spectrum (log λ →)',x0+2,IH-18);
+    let nv=0,ni=0,nu2=0;
+    for (const p of photons){ const cl=photClass(p.lam); if (cl===0) nv++; else if (cl===1) ni++; else nu2++; }
+    c.fillStyle='#aaa';
+    c.fillText('visible '+nv+' · IR '+ni+' · UV '+nu2+'  of '+photons.length,x0+2,IH-6);
+  }
+
+  /* ---------- quantum-vs-classical view ---------- */
+  function drawQuantum(){
+    ctx.clearRect(0,0,W,HGT);
+    const b=plotBox(), T=state.T, XMX=12;
+    const toPx=x=>b.x0+b.pw*x/XMX, ofPx=px=>(px-b.x0)/b.pw*XMX;
+    const yTop=1.06*U_PEAK, toPy=u=>b.y0+b.ph*(1-u/yTop);
+    ctx.strokeStyle='#2a2a30'; ctx.strokeRect(b.x0,b.y0,b.pw,b.ph);
+    ctx.fillStyle='#666'; ctx.font='10px -apple-system, sans-serif';
+    for (let x=2;x<=XMX;x+=2){
+      ctx.strokeStyle='#1a1a20';
+      ctx.beginPath(); ctx.moveTo(toPx(x),b.y0); ctx.lineTo(toPx(x),b.y0+b.ph); ctx.stroke();
+      ctx.fillStyle='#666'; ctx.fillText(String(x),toPx(x)-3,b.y0+b.ph+14);
+    }
+    ctx.fillStyle='#888';
+    ctx.fillText('x = hν / kT',b.x0+b.pw-56,b.y0+b.ph+26);
+    ctx.save(); ctx.translate(14,b.y0+b.ph/2); ctx.rotate(-PI/2);
+    ctx.fillText('uν  ∝  x³/(eˣ−1)',-40,0); ctx.restore();
+    // filled quantum curve, columns colored by the real wavelength at this T
+    ctx.globalCompositeOperation='lighter';
+    const flatCss=neonCss(0.85);
+    for (let px=Math.round(b.x0);px<b.x0+b.pw;px++){
+      const x=ofPx(px+0.5);
+      if (x<=0.01) continue;
+      const u=uReduced(x), y=toPy(u);
+      const hh=b.y0+b.ph-y;
+      if (hh<0.3) continue;
+      const lam=HC/(x*KB*T);
+      let css;
+      if (state.colorBy==='spectral') css=spectralCss(lam);
+      else if (state.colorBy==='neon') css=neonCss(Math.pow(u/U_PEAK,0.35));
+      else css=flatCss;
+      ctx.fillStyle=css;
+      ctx.globalAlpha=0.42; ctx.fillRect(px,y,1,hh);
+      ctx.globalAlpha=0.95; ctx.fillRect(px,y,1,1.8);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+    // classical equipartition curve x^2 — exits the top: the catastrophe
+    ctx.save();
+    ctx.beginPath(); ctx.rect(b.x0,b.y0,b.pw,b.ph); ctx.clip();
+    ctx.strokeStyle='rgba(184,236,76,0.85)'; ctx.setLineDash([6,5]); ctx.lineWidth=1.4;
+    ctx.beginPath();
+    let started=false;
+    for (let px=b.x0;px<=b.x0+b.pw;px+=2){
+      const x=ofPx(px), y=toPy(x*x);
+      if (!started){ ctx.moveTo(px,y); started=true; } else ctx.lineTo(px,y);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
+    ctx.fillStyle='rgba(184,236,76,0.9)'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('classical equipartition: every mode gets kT → u ∝ x², ∫ = ∞',b.x0+8,b.y0+14);
+    ctx.fillStyle='#aaa';
+    ctx.fillText('Planck: high-ν modes freeze out → the integral converges',b.x0+8,b.y0+28);
+    // probe line
+    const xp=state.probeX, pxp=toPx(xp);
+    ctx.strokeStyle='rgba(255,255,255,0.6)';
+    ctx.beginPath(); ctx.moveTo(pxp,b.y0); ctx.lineTo(pxp,b.y0+b.ph); ctx.stroke();
+    ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.arc(pxp,toPy(uReduced(xp)),3,0,TAU); ctx.fill();
+    ctx.fillText('probe',pxp+5,b.y0+b.ph-8);
+  }
+  function drawLadderInset(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height;
+    c.clearRect(0,0,IW,IH);
+    const x=state.probeX, nb=nbar(x);
+    // left: the mode's Boltzmann ladder, energies in kT units
+    const Lm=30,Tm=12,Bm=16, ph=IH-Tm-Bm, pw=112;
+    const eTop=Math.max(3.2,3.2*x);
+    const yOf=e=>Tm+ph*(1-e/eTop);
+    c.strokeStyle='#2a2a30';
+    c.beginPath(); c.moveTo(Lm,Tm); c.lineTo(Lm,Tm+ph); c.lineTo(Lm+pw,Tm+ph); c.stroke();
+    c.font='9px -apple-system, sans-serif';
+    const nMax=Math.min(60,Math.floor(eTop/x));
+    for (let n=0;n<=nMax;n++){
+      const y=yOf(n*x);
+      c.strokeStyle='rgba(255,255,255,0.16)';
+      c.beginPath(); c.moveTo(Lm,y); c.lineTo(Lm+pw,y); c.stroke();
+      const p=pLevel(n,x);
+      if (p>0.004){
+        c.strokeStyle='#b8ec4c'; c.lineWidth=2.2;
+        c.beginPath(); c.moveTo(Lm+2,y); c.lineTo(Lm+2+(pw-6)*p,y); c.stroke();
+        c.lineWidth=1;
+      }
+    }
+    const ykt=yOf(1);
+    c.strokeStyle='rgba(184,236,76,0.8)'; c.setLineDash([4,3]);
+    c.beginPath(); c.moveTo(Lm,ykt); c.lineTo(Lm+pw,ykt); c.stroke(); c.setLineDash([]);
+    c.fillStyle='#b8ec4c'; c.fillText('kT',Lm-16,ykt+3);
+    const yme=yOf(x*nb);
+    c.strokeStyle='#fff';
+    c.beginPath(); c.moveTo(Lm,yme); c.lineTo(Lm+pw,yme); c.stroke();
+    c.fillStyle='#fff'; c.fillText('⟨E⟩',Lm-18,yme+3);
+    c.fillStyle='#999'; c.fillText('levels n·hν · bars pₙ',Lm+2,Tm+2);
+    // right: <E>/kT vs x with the probe marked
+    const rx0=158,ry0=14,rw=IW-rx0-10,rh=IH-ry0-30;
+    c.strokeStyle='#2a2a30'; c.strokeRect(rx0,ry0,rw,rh);
+    const toX=v=>rx0+rw*(v-0.25)/(12-0.25), toY=v=>ry0+rh*(1-v);
+    c.strokeStyle='rgba(184,236,76,0.8)'; c.setLineDash([4,3]);
+    c.beginPath(); c.moveTo(rx0,toY(1)); c.lineTo(rx0+rw,toY(1)); c.stroke(); c.setLineDash([]);
+    c.strokeStyle='#ddd';
+    c.beginPath();
+    for (let i=0;i<=60;i++){
+      const v=0.25+(12-0.25)*i/60, y=toY(eOverKT(v));
+      if (i===0) c.moveTo(toX(v),y); else c.lineTo(toX(v),y);
+    }
+    c.stroke();
+    c.fillStyle='#fff';
+    c.beginPath(); c.arc(toX(x),toY(eOverKT(x)),2.5,0,TAU); c.fill();
+    c.fillStyle='#888';
+    c.fillText('⟨E⟩/kT vs x · classical = 1',rx0+4,IH-8);
+  }
+
+  /* ---------- readouts / info ---------- */
+  function updateReadout(){
+    $('roMain').textContent=mainLabel(state.T);
+    const T=state.T;
+    let sub='';
+    if (state.view==='spectrum'){
+      const lm=lamMax(T), nm=NU_PER_T*T;
+      if (state.axis==='lam')
+        sub='λ_max = '+fmtLam(lm)+' (Wien: λT = 2.898 mm·K)';
+      else
+        sub='ν_max = '+fmtNu(nm)+' · c/ν_max = '+fmtLam(C/nm)+' ≠ λ_max = '+fmtLam(lm);
+      sub+='<br>M = σT⁴ = '+fmtExp(SIGMA*Math.pow(T,4),'W/m²')+
+           ' · visible '+fmtPct(visFracPower(T));
+      const dn=draperNote(T);
+      if (dn) sub+='<br>'+dn;
+      if (ghosts.length) sub+='<br>held: '+ghosts.length+' curve'+(ghosts.length>1?'s':'');
+    } else if (state.view==='photons'){
+      const n=photonDensity(T), u=uDensity(T);
+      sub='n = '+fmtExp(n*1e-6,'photons/cm³')+
+          ' · u = '+fmtExp(u,'J/m³')+
+          ' · p = u/3 = '+fmtExp(u/3,'Pa');
+      sub+='<br>⟨Eₖ⟩ = 2.70 kT = '+fmtExp(MEAN_E_KT*KB*T/EV,'eV')+
+           ' · analytic visible: '+fmtPct(visFracPhotons(T));
+      if (photons){
+        let nv=0;
+        for (const p of photons) if (photClass(p.lam)===0) nv++;
+        sub+='<br>sample: '+nv+'/'+photons.length+' visible ('+fmtPct(nv/photons.length)+')';
+      }
+    } else {
+      const x=state.probeX, nu=x*KB*T/H, lam=HC/(x*KB*T);
+      sub='probe: ν = '+fmtNu(nu)+' · λ = '+fmtLam(lam)+
+          '<br>n̄ = '+(+nbar(x).toPrecision(3))+
+          ' · ⟨E⟩ = '+(+eOverKT(x).toPrecision(3))+' kT (classical: 1 kT)'+
+          '<br>p₀ = '+fmtPct(pLevel(0,x));
+    }
+    $('roSub').innerHTML=sub;
+  }
+  function updateInfo(){
+    let s='';
+    if (state.view==='spectrum'){
+      s='<b>Planck’s law</b> in SI units: Bλ = (2hc²/λ⁵)/(e^{hc/λkT}−1). '+
+        'The dashed chartreuse <b>Rayleigh–Jeans</b> curve is what classical physics predicts '+
+        '— it diverges (the ultraviolet catastrophe). The magenta locus ∝ λ⁻⁵ '+
+        'threads every peak (Wien: λ_max T = b, B_peak ∝ T⁵). Switch to the ν axis '+
+        'to see that the “peak” moves: c/ν_max ≠ λ_max. The inset glows in the '+
+        'true CIE color of the spectrum.';
+    } else if (state.view==='photons'){
+      s='<b>Ideal photon gas</b>: every dot’s λ is an exact inverse-CDF sample of the '+
+        'photon-count spectrum ∝ λ⁻⁴/(e^{hc/λkT}−1); each wall bounce '+
+        're-thermalizes it. Live histogram vs the analytic curve; absolute readouts: '+
+        'n ∝ T³ (the CMB’s 411 photons/cm³ fills all of space), '+
+        '⟨E⟩ = 2.701 kT, u = aT⁴, pressure u/3.';
+    } else {
+      s='<b>Why quantization saves physics</b>: a cavity mode of frequency ν holds n photons '+
+        'with pₙ ∝ e^{−nhν/kT}. While hν ≪ kT many levels are populated and '+
+        '⟨E⟩ → kT (equipartition); for hν ≫ kT the mode freezes into its ground '+
+        'state and ⟨E⟩ → 0 exponentially — so uν ∝ x³/(eˣ−1) '+
+        'turns over where the classical x² blows up. Slide the probe to watch the ladder empty.';
+    }
+    s+='<br>h, c, k exact (SI 2019); σ, b, a, ζ(3) derived and self-tested.';
+    $('info').innerHTML=s;
+  }
+  function paintGradbar(){
+    const g=$('gradbar').getContext('2d');
+    if (!g) return;
+    for (let i=0;i<248;i++){
+      if (state.colorBy==='spectral'){
+        const lam=(380+(750-380)*i/247)*1e-9;
+        g.fillStyle=spectralCss(lam);
+      } else g.fillStyle=neonCss(i/247);
+      g.fillRect(i,0,1,10);
+    }
+    const lab=state.colorBy==='spectral'?['380 nm','750 nm']:
+              state.colorBy==='neon'?['B = 0','peak']:['',''];
+    $('gradLo').innerHTML=lab[0]; $('gradHi').innerHTML=lab[1];
+  }
+
+  /* ---------- control wiring ---------- */
+  function syncControls(){
+    const st=state;
+    $('viewS').classList.toggle('on',st.view==='spectrum');
+    $('viewP').classList.toggle('on',st.view==='photons');
+    $('viewQ').classList.toggle('on',st.view==='quantum');
+    $('grpSpectrum').hidden=st.view!=='spectrum';
+    $('grpPhotons').hidden=st.view!=='photons';
+    $('grpQuantum').hidden=st.view!=='quantum';
+    $('eT').value=tToSlider(st.T); $('eTVal').textContent=fmtT(st.T);
+    for (const p of PRESETS) $(p.id).classList.toggle('on',!!presetOf(st.T)&&presetOf(st.T).id===p.id);
+    $('axLam').classList.toggle('on',st.axis==='lam');
+    $('axNu').classList.toggle('on',st.axis==='nu');
+    $('scLin').classList.toggle('on',st.scale==='lin');
+    $('scLog').classList.toggle('on',st.scale==='log');
+    $('rjChk').checked=st.showRJ; $('wienChk').checked=st.showWien;
+    $('locusChk').checked=st.showLocus;
+    $('eSpeed').value=st.speed; $('eSpeedVal').textContent='×'+st.speed.toFixed(1);
+    $('eProbe').value=st.probeX; $('eProbeVal').textContent='x = '+st.probeX.toFixed(2);
+    const cb={spectral:'colorSpectral',neon:'colorNeon',flat:'colorFlat'};
+    for (const k in cb) $(cb[k]).classList.toggle('on',st.colorBy===k);
+  }
+  function applyChange(){
+    state=clampState(state); syncControls();
+    if (state.view==='photons'&&(!photCDF||Math.abs(Math.log(photCDF.T/state.T))>1e-9))
+      initPhotons(true);
+    updateInfo(); updateReadout(); paintGradbar();
+  }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  chip('viewS',()=>{ state.view='spectrum'; });
+  chip('viewP',()=>{ state.view='photons'; if (!photons) initPhotons(false); });
+  chip('viewQ',()=>{ state.view='quantum'; });
+  for (const p of PRESETS) chip(p.id,()=>{ state.T=p.T; });
+  chip('axLam',()=>{ state.axis='lam'; });
+  chip('axNu',()=>{ state.axis='nu'; });
+  chip('scLin',()=>{ state.scale='lin'; });
+  chip('scLog',()=>{ state.scale='log'; });
+  $('eT').addEventListener('input',()=>{ state.T=sliderToT($('eT').value); applyChange(); });
+  $('eSpeed').addEventListener('input',()=>{ state.speed=+$('eSpeed').value;
+    state=clampState(state); syncControls(); });
+  $('eProbe').addEventListener('input',()=>{ state.probeX=+$('eProbe').value; applyChange(); });
+  $('rjChk').addEventListener('change',()=>{ state.showRJ=$('rjChk').checked; });
+  $('wienChk').addEventListener('change',()=>{ state.showWien=$('wienChk').checked; });
+  $('locusChk').addEventListener('change',()=>{ state.showLocus=$('locusChk').checked; });
+  $('holdBtn').addEventListener('click',()=>{
+    if (state.view!=='spectrum') return;
+    ghosts.push({T:state.T});
+    if (ghosts.length>5) ghosts.shift();
+    updateReadout();
+  });
+  $('clearBtn').addEventListener('click',()=>{ ghosts.length=0; updateReadout(); });
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+  $('resetBtn').addEventListener('click',()=>{
+    state=clampState(Object.assign({},DEFAULTS));
+    ghosts.length=0; setPaused(false);
+    syncControls(); updateInfo(); updateReadout(); paintGradbar();
+  });
+  function setColor(m){ state.colorBy=m; syncControls(); paintGradbar(); }
+  $('colorSpectral').addEventListener('click',()=>setColor('spectral'));
+  $('colorNeon').addEventListener('click',()=>setColor('neon'));
+  $('colorFlat').addEventListener('click',()=>setColor('flat'));
+  function resize(){
+    W=cv.clientWidth||900; HGT=cv.clientHeight||620;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(HGT*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+  }
+  if (typeof window!=='undefined')
+    window.addEventListener('resize',()=>{ resize(); });
+
+  /* ---------- main loop ---------- */
+  let frameCount=0;
+  function frame(){
+    frameCount++;
+    if (state.view==='spectrum'){
+      drawSpectrum(); drawGlowInset();
+    } else if (state.view==='photons'){
+      if (!photons) initPhotons(false);
+      if (!paused) stepPhotons();
+      drawPhotons(); drawHistInset();
+      if (frameCount%12===0) updateReadout();
+    } else {
+      drawQuantum(); drawLadderInset();
+    }
+    requestAnimationFrame(frame);
+  }
+  resize(); syncControls(); updateInfo(); updateReadout(); paintGradbar();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test =========================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+  const rel=(a,b)=>Math.abs(a/b-1);
+
+  /* --- derived constants vs literature --- */
+  ok(rel(SIGMA,5.670374419e-8)<1e-9,'sigma = 2 pi^5 k^4 / 15 h^3 c^2 = 5.670374419e-8');
+  ok(rel(ZETA3,1.202056903159594)<1e-9,'zeta(3) from the series = 1.2020569');
+  ok(approx(X5,4.965114231744276,1e-12),'Wien fixed point x5 = 4.96511423');
+  ok(approx(X3,2.821439372122079,1e-12),'nu-peak fixed point x3 = 2.82143937');
+  ok(approx(X4,3.920690394873,1e-9),'photon-count peak x4 = 3.92069039');
+  ok(rel(B_WIEN,2.897771955e-3)<1e-9,'b = hc/(k x5) = 2.897771955e-3 m K');
+  ok(rel(NU_PER_T,5.878925757e10)<1e-9,'nu_max/T = 5.878925757e10 Hz/K');
+  ok(rel(A_RAD,7.565733250e-16)<1e-8,'radiation constant a = 4 sigma / c');
+  ok(rel(B_WIEN*NU_PER_T/C,0.568253)<1e-5,'lam_max nu_max / c = x3/x5 = 0.5683 (axis-dependent peak!)');
+  ok(rel(blam(lamMax(4000),4000),LOCUS_C/Math.pow(lamMax(4000),5))<1e-12,
+     'peak locus: B(lam_max) = C lam_max^-5 exactly');
+  ok(rel(blam(lamMax(5000),5000)/Math.pow(5000,5),4.095675e-6/1)<1e-5,
+     'Wien 2nd law: B_peak/T^5 = 4.0957e-6');
+
+  /* --- Planck function identities and limits --- */
+  for (const T of [300,5772])
+    ok(rel(stefanQuad(T),SIGMA*Math.pow(T,4))<1e-6,
+       'quadrature pi ∫B dlam = sigma T^4 at T='+T);
+  { let good=true;
+    for (const lam of [3e-7,1e-6,1e-3])
+      if (rel(blam(lam,4000),bnu(C/lam,4000)*C/(lam*lam))>1e-12) good=false;
+    ok(good,'B_lam = B_nu c / lam^2 (consistency across axes)'); }
+  { const T=300, lam=HC/(KB*T)/1e-3;            // x = 1e-3
+    ok(rel(blam(lam,T),rjLam(lam,T))<6e-4,'RJ limit: B -> 2ckT/lam^4 as x -> 0');
+    const lam2=HC/(KB*T)/30;                    // x = 30
+    ok(rel(blam(lam2,T),wienLam(lam2,T))<1e-12,'Wien limit: B -> Wien approx as x -> 30'); }
+  { const T=5772;
+    const n=qlog(l=>nlamPhot(l,T),lamMax(T)/60,lamMax(T)*2000,8001);
+    ok(rel(n,photonDensity(T))<1e-4,'photon density quadrature = 16 pi zeta3 (kT/hc)^3');
+    const u=(4*PI/C)*qlog(l=>blam(l,T),lamMax(T)/60,lamMax(T)*2000,8001);
+    ok(rel(u,uDensity(T))<1e-6,'u = (4 pi / c) ∫B dlam = a T^4');
+    const e1=qlog(l=>nlamPhot(l,T)*HC/l,lamMax(T)/60,lamMax(T)*2000,8001)/n;
+    ok(rel(e1/(KB*T),MEAN_E_KT)<1e-4,'<E_photon> = pi^4/(30 zeta3) kT = 2.70118 kT'); }
+
+  /* --- famous-object anchors (pre-audited in Python) --- */
+  ok(rel(lamMax(2.725),1.0634e-3)<1e-4,'CMB peaks at 1.063 mm');
+  ok(rel(NU_PER_T*2.725,1.602e11)<1e-3,'CMB nu_max = 160.2 GHz');
+  ok(rel(photonDensity(2.725)*1e-6,410.50)<1e-3,'CMB holds 410.5 photons per cm^3');
+  ok(rel(uDensity(2.725),4.1717e-14)<1e-4,'CMB energy density u = 4.17e-14 J/m^3');
+  ok(rel(lamMax(5772),502.04e-9)<1e-4,'Sun peaks at 502 nm');
+  ok(rel(SIGMA*Math.pow(5772,4),6.2939e7)<1e-4,'solar exitance sigma T^4 = 6.294e7 W/m^2');
+  { const L=4*PI*6.957e8*6.957e8*SIGMA*Math.pow(5772,4);
+    ok(rel(L,3.828e26)<1e-3,'solar luminosity 4 pi R^2 sigma T^4 = 3.828e26 W');
+    ok(rel(L/(4*PI*1.495979e11*1.495979e11),1361.2)<1e-3,
+       'the solar constant: L / 4 pi AU^2 = 1361 W/m^2'); }
+  ok(approx(visFracPower(5772),0.4377,4e-3),'Sun: 43.8% of sigma T^4 lands in 380-750 nm');
+  ok(approx(visFracPower(2850),0.0888,2e-3),'incandescent bulb: only 8.9% visible');
+  ok(approx(visFracPhotons(5772),0.2649,4e-3),'Sun: 26.5% of photons are visible');
+  ok(visFracPower(300)<1e-20,'at 300 K the visible fraction is essentially zero');
+  ok(rel(SIGMA*Math.pow(310,4),523.7)<1e-3,'your skin radiates 524 W/m^2');
+
+  /* --- CIE color pipeline anchors --- */
+  { let IX=0,IY=0,IZ=0;
+    for (let l=380;l<=780;l++){ IX+=cieX(l); IY+=cieY(l); IZ+=cieZ(l); }
+    ok(Math.abs(IX/IY-1)<0.01&&Math.abs(IZ/IY-1)<0.01,
+       'CMF fit integrals near-equal (CIE normalization)'); }
+  { const a=chromaOfT(2855.54);
+    ok(approx(a[0],0.4464,4e-3)&&approx(a[1],0.4085,4e-3),'Illuminant-A chromaticity from the fit');
+    ok(Math.abs(a[0]-0.44758)<6e-3&&Math.abs(a[1]-0.40745)<6e-3,
+       'and within 0.006 of the official CIE (0.4476, 0.4074)'); }
+  { const p=chromaOfT(6500);
+    ok(approx(p[0],0.3135,4e-3)&&approx(p[1],0.3238,4e-3),
+       'Planckian-locus 6500 K point (0.3135, 0.3238)'); }
+  { let good=true;
+    for (const T of [3000,6500,10000]){
+      const xy=chromaOfT(T);
+      if (Math.abs(mccamyCCT(xy[0],xy[1])/T-1)>0.03) good=false;
+    }
+    ok(good,'McCamy CCT round-trips Planck within 3% (3000-10000 K)'); }
+  { const c3=bbRgb(3000), c65=bbRgb(6500), c15=bbRgb(15000);
+    ok(c3[0]>0.9999&&approx(c3[1],0.725,0.03)&&approx(c3[2],0.429,0.04),
+       'sRGB anchor 3000 K = (1, 0.73, 0.43)');
+    ok(Math.min(c65[0],c65[1],c65[2])>0.93,'6500 K renders near-neutral white');
+    ok(c15[2]>0.9999&&approx(c15[0],0.710,0.03),'15000 K is blue: (0.71, 0.79, 1)');
+    // below ~2500 K the blue channel is gamut-clamped to exactly 0 (ties), so
+    // the strict warm-to-cool invariant is tested on the unclamped chromaticity
+    let monoX=true, monoCh=true, prevX=1e9, prevB=-1, prevRr=2;
+    for (const T of [1000,2000,4000,8000,16000,32000]){
+      const x=chromaOfT(T)[0], cc=bbRgb(T);
+      if (x>=prevX) monoX=false;
+      if (cc[2]<prevB-1e-12||cc[0]>prevRr+1e-12) monoCh=false;
+      prevX=x; prevB=cc[2]; prevRr=cc[0];
+    }
+    ok(monoX,'Planckian-locus chromaticity x falls strictly with T (warm to cool)');
+    ok(monoCh,'blue channel never falls, red never rises, as T grows'); }
+  { const b=spectralRgb(460), g=spectralRgb(550), r=spectralRgb(640);
+    ok(b[2]>0.9999&&b[0]<0.2&&b[1]<0.2,'460 nm renders blue');
+    ok(g[1]>0.9999&&g[0]<0.05&&g[2]<0.05,'550 nm renders green');
+    ok(r[0]>0.9999&&r[1]<0.05&&r[2]<0.05,'640 nm renders red'); }
+  { ok(glowAlpha(300)===0&&glowAlpha(6500)>0.99,'glow: dark at 300 K, full at 6500 K');
+    const aDr=glowAlpha(DRAPER);
+    ok(aDr>0.03&&aDr<0.5,'glow just turning on at the Draper point (798 K)');
+    let mono=true, prev=-1;
+    for (const T of [300,800,1500,3000,6500]){
+      const a=glowAlpha(T);
+      if (a<prev) mono=false;
+      prev=a;
+    }
+    ok(mono,'glow brightness monotone in T'); }
+
+  /* --- photon sampler: exact inverse CDF --- */
+  { const T=5772, cd=buildPhotonCDF(T), rng=mulberry32(1234);
+    const N=20000, xs=new Float64Array(N);
+    let mE=0;
+    for (let i=0;i<N;i++){ const lam=samplePhoton(cd,rng());
+      xs[i]=lam; mE+=HC/lam; }
+    mE/=N;
+    ok(Math.abs(mE/(KB*T)-2.7013)<0.05,'20k sampled photons: <E> = 2.70 kT');
+    const sorted=Array.from(xs).sort((a,b)=>a-b);
+    let ks=0;
+    for (let i=0;i<N;i+=7)
+      ks=Math.max(ks,Math.abs((i+0.5)/N-cdfAt(cd,sorted[i])));
+    ok(ks<0.02,'sampled CDF within KS 0.02 of the analytic CDF');
+    let nv=0;
+    for (let i=0;i<N;i++) if (xs[i]>=VIS_LO&&xs[i]<=VIS_HI) nv++;
+    ok(Math.abs(nv/N-0.2649)<0.015,'sampled visible fraction matches 26.5%');
+    ok(Math.abs((cdfAt(cd,VIS_HI)-cdfAt(cd,VIS_LO))-0.2649)<4e-3,
+       'CDF(750nm) - CDF(380nm) = analytic visible fraction'); }
+
+  /* --- Bose-Einstein ladder --- */
+  { ok(approx(nbar(0.5),1.541494,1e-6),'nbar(0.5) = 1/(e^0.5 - 1)');
+    let good=true;
+    for (const x of [0.25,0.5,3]){
+      let s=0, sn=0;
+      for (let n=0;n<200;n++){ const p=pLevel(n,x); s+=p; sn+=n*p; }
+      if (Math.abs(s-1)>1e-10||rel(sn,nbar(x))>1e-9) good=false;
+    }
+    ok(good,'ladder sums: sum p_n = 1, sum n p_n = nbar (200 terms)');
+    ok(approx(eOverKT(0.001),0.9995,1e-4),'x -> 0: <E> -> kT (equipartition recovered)');
+    ok(eOverKT(12)<8e-5,'x = 12: the mode is frozen out');
+    let mx=0, argm=0;
+    for (let x=2;x<4;x+=0.001) if (uReduced(x)>mx){ mx=uReduced(x); argm=x; }
+    ok(Math.abs(argm-X3)<0.005&&rel(mx,1.42144)<1e-4,'u(x) peaks at x3 with value 1.4214');
+    ok(approx(Math.sqrt(U_PEAK),1.1922,1e-3),'RJ x^2 crosses the quantum peak height at x = 1.19'); }
+
+  /* --- state, formats, labels --- */
+  { const st=clampState({view:'bogus',T:1e9,probeX:99,speed:9,axis:'q',scale:'x',colorBy:'zz'});
+    ok(st.view==='spectrum'&&st.T===T_MAX&&st.probeX===12&&st.speed===3&&
+       st.axis==='lam'&&st.scale==='lin'&&st.colorBy==='spectral','clamps to sane state');
+    ok(clampState({T:0.001}).T===T_MIN,'T clamps at the CMB floor'); }
+  { ok(fmtT(2.725)==='2.73 K'&&fmtT(77)==='77.0 K'&&fmtT(5772)==='5772 K','temperature formatting');
+    ok(fmtLam(5.0204e-7)==='502 nm'&&fmtLam(9.348e-6)==='9.35 µm'&&fmtLam(1.0634e-3)==='1.06 mm',
+       'wavelength auto-units');
+    ok(fmtNu(1.602e11)==='160 GHz'&&fmtNu(3.393e14)==='339 THz','frequency auto-units');
+    ok(fmtExp(6.2939e7,'W/m²')==='6.29×10⁷ W/m²'&&
+       fmtExp(523.7,'W/m²')==='524 W/m²','scientific formatting with superscripts');
+    ok(fmtPct(0.4377)==='43.8%'&&fmtPct(1e-6)==='<0.1%','percent formatting');
+    ok(mainLabel(5772)==='T = 5772 K — the Sun'&&mainLabel(4321)==='T = 4321 K',
+       'preset names attach to the readout');
+    ok(draperNote(500).indexOf('below the Draper point')>=0&&
+       draperNote(1000).indexOf('faint red')>=0&&draperNote(5772)==='','Draper-point notes');
+    ok(approx(sliderToT(tToSlider(1234)),1234,1e-6),'log slider round-trips'); }
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS;
+    ok(approx(c0[0],S[0][1])&&approx(c0[2],S[0][3])&&approx(c1[0],S[15][1])&&approx(c1[2],S[15][3]),
+       'neon endpoints hit the gradient stops');
+    ok(/^rgb\(\d+,\d+,\d+\)$/.test(neonCss(0.44)),'neonCss emits rgb() strings'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

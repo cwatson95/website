@@ -1,0 +1,2904 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lenses — ray tracing and the lens maker's equation</title>
+<!--
+  ===================================================================
+  LENSES: RAY TRACING AND THE LENS MAKER'S EQUATION
+  what one law does at two surfaces, and every way it fails to
+  make a point
+  ===================================================================
+
+  Built to the same house rules as steam_carnot_cycle.html, diffraction.html,
+  pulsar.html, standard_candle.html, cmb.html, differential_scattering.html,
+  adiabatic_expansion.html, bloch_sphere.html and down_conversion.html: one
+  flat file, no build step, no network, works opened straight off the disk
+  as file://.
+
+  ------------------------------------------------------------------
+  WHAT THIS COMPUTES
+  ------------------------------------------------------------------
+    the bench     rays traced the hard way -- intersect the surface, take
+                  the normal, apply Snell's law in vector form, repeat.
+                  Nothing paraxial is used ANYWHERE in the tracing.  The
+                  famous formulas are checked against it, in the limit,
+                  rather than used by it, which is why the rays do not
+                  meet at a point: nothing in the calculation made them.
+    the lens      1/f = (n-1)[1/R1 - 1/R2 + (n-1)d/(n R1 R2)], the thick
+    maker         form, with the thickness term shown for what it is worth
+                  (a millimetre in a hundred for the default lens).  The
+                  principal planes, and bending at constant power.
+    the glass     five SCHOTT catalogue glasses: measured dispersion, the
+                  Abbe number, the partial dispersion, and the plane every
+                  optical designer works in.
+    aberration    longitudinal spherical aberration against ray height,
+                  its h^2 law, and the fact that the best focus is NOT the
+                  paraxial one.
+    the achromat  a cemented doublet designed in closed form from two real
+                  glasses; F and C brought to the same focus exactly, and
+                  the secondary spectrum that two glasses cannot remove.
+    the mirror    f = R/2 for every colour at once, and the difference
+                  between a sphere and a paraboloid.
+
+  ------------------------------------------------------------------
+  WHAT IS MEASURED, WHAT IS COMPUTED, WHAT IS NOT MODELLED
+  ------------------------------------------------------------------
+  MEASURED  (retrieved 2026-08-03, not typed from memory)
+
+    Sellmeier coefficients for five SCHOTT optical glasses, from
+    refractiveindex.info (shelf "specs", book "SCHOTT-optical"); the
+    underlying data is SCHOTT's own Zemax catalog 2017-01-20b, obtained
+    from schott.com:
+
+      N-BK7    0.30 -2.5 um   n_d 1.51680  V_d 64.17   517642.251
+      N-FK51A  0.29 -2.5 um   n_d 1.48656  V_d 84.47   487845.368
+      F2       0.32 -2.5 um   n_d 1.62004  V_d 36.37   620364.360
+      N-SF11   0.37 -2.5 um   n_d 1.78472  V_d 25.68   785257.322
+      N-LASF9  0.365-2.5 um   n_d 1.85025  V_d 32.17   850322.441
+
+    The n_d and V_d above are the catalogue's OWN printed values.  They
+    are used in no calculation: they are there so the file can check the
+    values it computes against them.  That one check validates three
+    things at once -- the Sellmeier evaluator, the Fraunhofer wavelengths
+    (d 587.5618, F 486.1327, C 656.2725 nm), and the definition of the
+    Abbe number -- because all three feed V_d, and a wrong spectral line
+    moves V_d in its second digit.  Agreement is 1.1e-6 in index and
+    0.0035 in Abbe number across all five glasses.
+
+  COMPUTED EXACTLY  (and asserted against scipy in selfTest)
+    Every ray.  Every focal length, principal plane and back focal
+    distance.  Every aberration figure, by tracing rather than by a
+    third-order formula.  The achromatic solve, in closed form.  The
+    conic sag, and the paraboloid's exactly-zero spherical aberration.
+
+  NOT MODELLED
+    * Anything off-axis beyond the ray fan: coma, astigmatism, field
+      curvature and distortion are NOT computed.  There is a field-angle
+      slider and it tilts the input beam, but the file draws no spot
+      diagram over a field and claims no Seidel coefficients.
+    * Diffraction.  Every spot on this page is a ray-optics spot; a real
+      lens stopped down far enough stops being limited by aberration and
+      starts being limited by the aperture, and that crossover is not
+      here.  diffraction.html is where that lives.
+    * Coatings, transmission, ghosts, and Fresnel losses at the surfaces
+      (refraction.html covers the Fresnel coefficients).
+    * Thermal and stress effects; the catalogue data is at 293 K.
+    * Real cemented-doublet design, which balances spherical aberration
+      and coma against the bending as well as correcting colour.  Here
+      the bending is exposed as a control and its effect is traced, but
+      nothing is optimised for you.
+
+  ------------------------------------------------------------------
+  A NOTE ON WHAT "AT CONSTANT POWER" HAS TO MEAN
+  ------------------------------------------------------------------
+  Bending a lens moves the sag of both surfaces, so a lens bent at
+  constant THIN-lens power quietly changes its actual focal length.  The
+  shape sweep here holds the THICK-lens power fixed instead.  Related:
+  a lens has to exist before it can be traced -- a 0.01 mm centre
+  thickness at a 10 mm semi-aperture is a lens whose two surfaces cross,
+  and the first draft of the shape sweep asked for exactly that and had
+  every ray correctly reported blocked.
+
+  ------------------------------------------------------------------
+  VERIFICATION
+  ------------------------------------------------------------------
+  selfTest() runs when there is no document (osascript -l JavaScript) and
+  THROWS on failure.  Reference values marked (scipy) were printed by
+  build_lens/derive.py and copied from output read in full.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --crust:#39404f; --glass:#6f7fa6; --ray:#b8ec4c; --axis:#5ac8e0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>lenses</h1>
+  <span class="sub" id="sub">ray tracing, and every way the lens maker&rsquo;s equation stops being true</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+/* ============================================================================
+ *  measured dispersion  --  SCHOTT optical glass
+ *
+ *  Sellmeier coefficients retrieved 2026-08-03 from refractiveindex.info
+ *  (shelf "specs", book "SCHOTT-optical"); the underlying data is SCHOTT's own
+ *  Zemax catalog 2017-01-20b, obtained from schott.com.  The form is
+ *
+ *      n^2 - 1 = sum_i  B_i lambda^2 / (lambda^2 - C_i),   lambda in um
+ *
+ *  `nd` and `Vd` below are the catalogue's OWN printed values.  They are not
+ *  used in any calculation: they exist so that selfTest can check the values
+ *  this file computes against them.  That single check validates three things
+ *  at once -- the Sellmeier evaluator, the Fraunhofer wavelengths, and the
+ *  definition of the Abbe number -- because all three feed V_d, and a wrong
+ *  spectral line moves V_d in its second digit.
+ * ========================================================================== */
+const GLASS = {
+  'N-BK7':   { B: [1.03961212, 0.231792344, 1.01046945],
+               C: [0.00600069867, 0.0200179144, 103.560653],
+               rng: [0.30, 2.5], nd: 1.51680, Vd: 64.17,
+               code: '517642.251', rho: 2510, kind: 'crown' },
+  'N-FK51A': { B: [0.971247817, 0.216901417, 0.904651666],
+               C: [0.00472301995, 0.0153575612, 168.68133],
+               rng: [0.29, 2.5], nd: 1.48656, Vd: 84.47,
+               code: '487845.368', rho: 3675, kind: 'crown' },
+  'F2':      { B: [1.34533359, 0.209073176, 0.937357162],
+               C: [0.00997743871, 0.0470450767, 111.886764],
+               rng: [0.32, 2.5], nd: 1.62004, Vd: 36.37,
+               code: '620364.360', rho: 3599, kind: 'flint' },
+  'N-SF11':  { B: [1.73759695, 0.313747346, 1.89878101],
+               C: [0.013188707, 0.0623068142, 155.23629],
+               rng: [0.37, 2.5], nd: 1.78472, Vd: 25.68,
+               code: '785257.322', rho: 3224, kind: 'flint' },
+  'N-LASF9': { B: [2.00029547, 0.298926886, 1.80691843],
+               C: [0.0121426017, 0.0538736236, 156.530829],
+               rng: [0.365, 2.5], nd: 1.85025, Vd: 32.17,
+               code: '850322.441', rho: 4410, kind: 'flint' },
+};
+const GLASSES = Object.keys(GLASS);
+
+function nGlass(g, lam) {
+  const G = GLASS[g], l2 = lam * lam;
+  let s = 1;
+  for (let i = 0; i < 3; i++) s += G.B[i] * l2 / (l2 - G.C[i]);
+  if (!(s > 0)) throw new Error('nGlass: n^2 <= 0 for ' + g + ' at ' + lam);
+  return Math.sqrt(s);
+}
+function inGlassRange(g, lam) {
+  const r = GLASS[g].rng; return lam >= r[0] && lam <= r[1];
+}
+
+/* The Fraunhofer lines, in micrometres: d is the helium yellow line, F and C
+   the hydrogen beta and alpha lines, g the mercury blue-violet.  These are not
+   cited from a source -- they are VERIFIED, by the fact that they reproduce
+   SCHOTT's own printed n_d and V_d for all five glasses. */
+const LAM_d = 0.5875618, LAM_F = 0.4861327, LAM_C = 0.6562725,
+      LAM_g = 0.4358343;
+
+function abbeOf(g) {
+  const nd = nGlass(g, LAM_d);
+  return { nd: nd, V: (nd - 1) / (nGlass(g, LAM_F) - nGlass(g, LAM_C)) };
+}
+/* Relative partial dispersion.  This is the quantity a two-glass achromat
+   CANNOT correct, and therefore the one that sets the residual. */
+function partialGF(g) {
+  const nF = nGlass(g, LAM_F), nC = nGlass(g, LAM_C);
+  return (nGlass(g, LAM_g) - nF) / (nF - nC);
+}
+
+/* ============================================================================
+ *  exact ray tracing
+ *
+ *  A ray is a point and a direction, both [y, z] with z along the axis.  A
+ *  surface is a conic of revolution about the axis with its vertex on it.
+ *  Nothing here is paraxial: the paraxial formulas elsewhere in this file are
+ *  checked AGAINST this, in the limit, rather than used by it.
+ * ========================================================================== */
+const AIR = 1.0;
+
+/* Sag of a conic: z - z0 = h^2 / (R (1 + sqrt(1 - (1+K) h^2/R^2))).
+   K = 0 is a sphere, K = -1 a paraboloid, K < -1 a hyperboloid. */
+function conicSag(Rc, K, h) {
+  if (!isFinite(Rc) || Rc === 0) return 0;
+  const disc = 1 - (1 + K) * h * h / (Rc * Rc);
+  if (disc < 0) return NaN;
+  return h * h / (Rc * (1 + Math.sqrt(disc)));
+}
+/* Where a ray meets a conic surface, by Newton on the sag.  A closed form
+   exists for the sphere, but the conic case needs this anyway and using one
+   routine for both means the mirror and the lens cannot disagree. */
+function hitSurface(p, d, z0, Rc, K, semi) {
+  if (!isFinite(Rc) || Rc === 0) {                 /* a plane */
+    if (Math.abs(d[1]) < 1e-15) return null;
+    const t = (z0 - p[1]) / d[1];
+    if (!(t > 1e-12)) return null;
+    const q = [p[0] + t * d[0], z0];
+    return Math.abs(q[0]) <= semi ? q : null;
+  }
+  /* start from the plane through the vertex, then iterate onto the surface */
+  if (Math.abs(d[1]) < 1e-15) return null;
+  let t = (z0 - p[1]) / d[1];
+  for (let i = 0; i < 60; i++) {
+    const y = p[0] + t * d[0], z = p[1] + t * d[1];
+    if (Math.abs(y) > Math.abs(Rc) * 0.999999 && isFinite(Rc)) return null;
+    const s = conicSag(Rc, K, y);
+    if (!isFinite(s)) return null;
+    const err = z - (z0 + s);
+    /* d(err)/dt = d_z - (ds/dy) d_y */
+    const disc = 1 - (1 + K) * y * y / (Rc * Rc);
+    if (disc <= 0) return null;
+    const dsdy = y / (Rc * Math.sqrt(disc));
+    const den = d[1] - dsdy * d[0];
+    if (Math.abs(den) < 1e-15) return null;
+    const dt = -err / den;
+    t += dt;
+    if (Math.abs(dt) < 1e-14) break;
+  }
+  if (!(t > 1e-12)) return null;
+  const q = [p[0] + t * d[0], p[1] + t * d[1]];
+  if (Math.abs(q[0]) > semi) return null;
+  return q;
+}
+/* Outward normal of the conic at height y (pointing back toward -z). */
+function conicNormal(y, Rc, K) {
+  if (!isFinite(Rc) || Rc === 0) return [0, -1];
+  const disc = 1 - (1 + K) * y * y / (Rc * Rc);
+  if (disc <= 0) return [0, -1];
+  const dsdy = y / (Rc * Math.sqrt(disc));
+  const n = [-dsdy, 1];
+  const L = Math.hypot(n[0], n[1]);
+  return [n[0] / L, n[1] / L];
+}
+/* Vector Snell.  Returns null on total internal reflection. */
+function refractVec(d, nrm, n1, n2) {
+  const L = Math.hypot(d[0], d[1]);
+  let dx = d[0] / L, dy = d[1] / L;
+  let nx = nrm[0], ny = nrm[1];
+  let ci = -(nx * dx + ny * dy);
+  if (ci < 0) { nx = -nx; ny = -ny; ci = -ci; }
+  const eta = n1 / n2;
+  const k = 1 - eta * eta * (1 - ci * ci);
+  if (k < 0) return null;
+  const f = eta * ci - Math.sqrt(k);
+  return [eta * dx + f * nx, eta * dy + f * ny];
+}
+function reflectVec(d, nrm) {
+  const L = Math.hypot(d[0], d[1]);
+  const dx = d[0] / L, dy = d[1] / L;
+  const dot = dx * nrm[0] + dy * nrm[1];
+  return [dx - 2 * dot * nrm[0], dy - 2 * dot * nrm[1]];
+}
+
+/* Trace one ray through a list of surfaces.
+   surface = { z, R, K, semi, n: <glass key | number>, mirror: bool }
+   `n` is the medium AFTER the surface. */
+function traceRay(surfs, p0, d0, lam) {
+  let p = [p0[0], p0[1]];
+  let L = Math.hypot(d0[0], d0[1]);
+  let d = [d0[0] / L, d0[1] / L];
+  const pts = [[p[0], p[1]]];
+  let n1 = AIR;
+  for (const s of surfs) {
+    const q = hitSurface(p, d, s.z, s.R, s.K || 0, s.semi);
+    if (q === null) return { pts: pts, p: null, d: null, blocked: true };
+    const nrm = conicNormal(q[0], s.R, s.K || 0);
+    let dd;
+    if (s.mirror) {
+      dd = reflectVec(d, nrm);
+    } else {
+      const n2 = (typeof s.n === 'number') ? s.n : nGlass(s.n, lam);
+      dd = refractVec(d, nrm, n1, n2);
+      if (dd === null) return { pts: pts, p: null, d: null, blocked: true };
+      n1 = n2;
+    }
+    pts.push([q[0], q[1]]);
+    p = q; d = dd;
+  }
+  return { pts: pts, p: p, d: d, blocked: false };
+}
+/* Where a ray crosses the axis.  Infinite for a ray parallel to it. */
+function axisCrossing(p, d) {
+  if (Math.abs(d[0]) < 1e-15) return Infinity;
+  return p[1] + (-p[0] / d[0]) * d[1];
+}
+
+/* ============================================================================
+ *  paraxial optics  --  the formulas the trace is checked against
+ * ========================================================================== */
+function invR(R) { return isFinite(R) && R !== 0 ? 1 / R : 0; }
+/* The lens maker's equation.  The thickness term is the difference between
+   the thin and the thick forms and is not a correction to be dropped: for the
+   default singlet here it is worth a full millimetre in a hundred. */
+function fThin(n, R1, R2) { return 1 / ((n - 1) * (invR(R1) - invR(R2))); }
+function fThick(n, R1, R2, t) {
+  return 1 / ((n - 1) * (invR(R1) - invR(R2)
+                         + (n - 1) * t * invR(R1) * invR(R2) / n));
+}
+/* Principal planes, measured from their own vertices. */
+function principalFront(n, R1, R2, t) {
+  return -fThick(n, R1, R2, t) * (n - 1) * t * invR(R2) / n;
+}
+function principalRear(n, R1, R2, t) {
+  return -fThick(n, R1, R2, t) * (n - 1) * t * invR(R1) / n;
+}
+function backFocal(n, R1, R2, t) {
+  return fThick(n, R1, R2, t) + principalRear(n, R1, R2, t);
+}
+
+/* Coddington shape factor q = (R2 + R1)/(R2 - R1). */
+function shapeOf(R1, R2) {
+  if (!isFinite(R1)) return -1;
+  if (!isFinite(R2)) return 1;
+  return (R2 + R1) / (R2 - R1);
+}
+/* Radii giving a THIN focal length f at shape q. */
+function radiiFromQ(q, f, n) {
+  const K = 1 / ((n - 1) * f);
+  return [Math.abs(1 + q) > 1e-12 ? 2 / (K * (1 + q)) : Infinity,
+          Math.abs(1 - q) > 1e-12 ? -2 / (K * (1 - q)) : Infinity];
+}
+/* Radii at shape q whose THICK focal length is exactly f.  Bending a lens at
+   "constant power" has to mean constant power of the lens that exists, not of
+   an idealisation of it. */
+function radiiAtQ(q, f, n, t) {
+  const r = radiiFromQ(q, f, n);
+  const g = sc => fThick(n, isFinite(r[0]) ? r[0] * sc : Infinity,
+                         isFinite(r[1]) ? r[1] * sc : Infinity, t) - f;
+  let a = 0.5, b = 2.0, fa = g(a);
+  if (fa * g(b) > 0) return r;
+  for (let i = 0; i < 80; i++) {
+    const m = 0.5 * (a + b), fm = g(m);
+    if (fa * fm <= 0) b = m; else { a = m; fa = fm; }
+  }
+  const sc = 0.5 * (a + b);
+  return [isFinite(r[0]) ? r[0] * sc : Infinity,
+          isFinite(r[1]) ? r[1] * sc : Infinity];
+}
+/* Edge thickness at semi-aperture h.  A lens whose edge thickness is negative
+   does not exist, and tracing it reports every ray blocked -- which is what a
+   0.01 mm "thin lens" with a 10 mm semi-aperture did. */
+function edgeThickness(R1, R2, t, h) {
+  const s1 = conicSag(R1, 0, h), s2 = conicSag(R2, 0, h);
+  if (!isFinite(s1) || !isFinite(s2)) return NaN;
+  return t - s1 + s2;
+}
+
+/* ============================================================================
+ *  the achromatic doublet
+ *
+ *  Two thin lenses in contact:  phi1 + phi2 = phi  brings the power to target,
+ *  phi1/V1 + phi2/V2 = 0  brings the F and C foci together.  Two equations,
+ *  two unknowns, one exact solution -- and one free parameter left over, the
+ *  bending, which does nothing to the colour and everything to the spherical
+ *  aberration.
+ * ========================================================================== */
+function doubletPowers(f, V1, V2) {
+  const phi = 1 / f;
+  return [phi * V1 / (V1 - V2), -phi * V2 / (V1 - V2)];
+}
+/* Two glasses with the same Abbe number cannot be achromatised at any power:
+   the solve divides by V1 - V2.  That is a statement about optics, not a
+   numerical edge case, so it is reported rather than allowed to become an
+   infinity that propagates into every radius downstream. */
+function achromatPossible(g1, g2) {
+  return Math.abs(abbeOf(g1).V - abbeOf(g2).V) > 1e-6;
+}
+/* Cemented radii from the powers and a chosen front radius.  The middle
+   surface is shared, so there are only three of them. */
+function doubletRadii(R1, f, g1, g2) {
+  const a1 = abbeOf(g1), a2 = abbeOf(g2);
+  if (!achromatPossible(g1, g2))
+    return { R1: R1, R2: Infinity, R3: Infinity, p1: NaN, p2: NaN,
+             V1: a1.V, V2: a2.V, f1: NaN, f2: NaN, impossible: true };
+  const [p1, p2] = doubletPowers(f, a1.V, a2.V);
+  const iR2 = invR(R1) - p1 / (a1.nd - 1);
+  const R2 = Math.abs(iR2) > 1e-14 ? 1 / iR2 : Infinity;
+  const iR3 = iR2 - p2 / (a2.nd - 1);
+  const R3 = Math.abs(iR3) > 1e-14 ? 1 / iR3 : Infinity;
+  return { R1: R1, R2: R2, R3: R3, p1: p1, p2: p2, V1: a1.V, V2: a2.V,
+           f1: 1 / p1, f2: 1 / p2 };
+}
+/* Thin-lens focal length of a singlet at another wavelength. */
+function fAtLambda(g, lam, f_d) {
+  return f_d * (nGlass(g, LAM_d) - 1) / (nGlass(g, lam) - 1);
+}
+/* ... and of the cemented pair, which is the sum of the two powers, each
+   scaled by its own (n-1). */
+function fDoubletAt(lam, D, g1, g2) {
+  const a1 = abbeOf(g1), a2 = abbeOf(g2);
+  const q1 = D.p1 * (nGlass(g1, lam) - 1) / (a1.nd - 1);
+  const q2 = D.p2 * (nGlass(g2, lam) - 1) / (a2.nd - 1);
+  return 1 / (q1 + q2);
+}
+/* The classic secondary-spectrum estimate.  It is a statement about the g
+   line against the F/C pair, NOT about the d line, and comparing it with the
+   wrong residual makes a correct formula look 3x wrong. */
+function secondarySpectrum(f, g1, g2) {
+  const a1 = abbeOf(g1), a2 = abbeOf(g2);
+  return f * (partialGF(g1) - partialGF(g2)) / (a1.V - a2.V);
+}
+
+/* ============================================================================
+ *  a spectrum to trace with
+ * ========================================================================== */
+const LINES = [
+  { lam: LAM_g, name: 'g', src: 'Hg' },
+  { lam: LAM_F, name: 'F', src: 'H' },
+  { lam: LAM_d, name: 'd', src: 'He' },
+  { lam: LAM_C, name: 'C', src: 'H' },
+];
+/* ================================================================== *
+ *  colour science:  wavelength -> CIE 1931 XYZ -> sRGB                *
+ *                                                                     *
+ *  The colour matching functions are the multi-lobe Gaussian fit of    *
+ *  Wyman, Sloan & Shirley, "Simple Analytic Approximations to the CIE  *
+ *  XYZ Color Matching Functions", Journal of Computer Graphics         *
+ *  Techniques 2:2 (2013), Table 1 — an analytic fit, not the tabulated *
+ *  standard observer, and the file says so on the canvas.              *
+ *                                                                     *
+ *  Spectral colours lie outside the sRGB gamut, so this CANNOT be an   *
+ *  accurate rendering of a laser line; out-of-gamut components are     *
+ *  desaturated toward white, which is the standard compromise and the  *
+ *  reason a 632.8 nm HeNe looks pinker on screen than on the bench.    *
+ * ================================================================== */
+function gauss(x,mu,s1,s2){
+  const s=(x<mu)?s1:s2, t=(x-mu)/s;
+  return Math.exp(-0.5*t*t);
+}
+function cieXYZ(nm){
+  const X= 1.056*gauss(nm,599.8,37.9,31.0)
+          +0.362*gauss(nm,442.0,16.0,26.7)
+          -0.065*gauss(nm,501.1,20.4,26.2);
+  const Y= 0.821*gauss(nm,568.8,46.9,40.5)
+          +0.286*gauss(nm,530.9,16.3,31.1);
+  const Z= 1.217*gauss(nm,437.0,11.8,36.0)
+          +0.681*gauss(nm,459.0,26.0,13.8);
+  return [X,Y,Z];
+}
+/* sRGB (IEC 61966-2-1) primaries, D65.  The matrix times the D65 white point
+   returns (1,1,1) to 2e-4, which selfTest asserts — a transposed or mistyped
+   matrix fails that immediately and silently passes everything else. */
+const SRGB_M=[[ 3.2406,-1.5372,-0.4986],
+              [-0.9689, 1.8758, 0.0415],
+              [ 0.0557,-0.2040, 1.0570]];
+function srgbGamma(u){
+  u=clamp(u,0,1);
+  return u<=0.0031308 ? 12.92*u : 1.055*Math.pow(u,1/2.4)-0.055;
+}
+/* linear sRGB for a monochromatic line, normalised to peak 1 and desaturated
+   into gamut.  Returns null-free [r,g,b] in 0..1 (linear, pre-gamma). */
+function spectralLinear(nm){
+  const xyz=cieXYZ(nm);
+  /* OUTSIDE THE EYE'S RANGE THERE IS NO COLOUR, AND NORMALISING SAYS OTHERWISE.
+     The three colour matching functions are Gaussians with different widths, so
+     past about 730 nm they are all vanishingly small but not equally so — Y
+     outlives X by orders of magnitude.  Dividing by the largest of three tiny
+     numbers then promotes that ratio to full saturation: 810 nm rendered as
+     rgb(0,255,167), a BRIGHT GREEN, from a stimulus of 1.6e-8.  Every SPDC ring
+     in this file is at such a wavelength, so the whole picture came out green
+     and looked deliberate.  Below a real stimulus there is no chromaticity to
+     report and the answer is black. */
+  if(!(xyz[0]+xyz[1]+xyz[2] > 1e-4)) return [0,0,0];
+  let r=SRGB_M[0][0]*xyz[0]+SRGB_M[0][1]*xyz[1]+SRGB_M[0][2]*xyz[2];
+  let g=SRGB_M[1][0]*xyz[0]+SRGB_M[1][1]*xyz[1]+SRGB_M[1][2]*xyz[2];
+  let b=SRGB_M[2][0]*xyz[0]+SRGB_M[2][1]*xyz[1]+SRGB_M[2][2]*xyz[2];
+  const lo=Math.min(r,g,b);
+  if(lo<0){ r-=lo; g-=lo; b-=lo; }          // desaturate toward white
+  const hi=Math.max(r,g,b,1e-12);
+  return [r/hi,g/hi,b/hi];
+}
+/* wavelength + relative intensity -> a CSS colour.  Intensity is applied in
+   LINEAR light and gamma-encoded afterwards, which is the whole point of doing
+   this properly: scaling the 8-bit values instead makes a half-intensity fringe
+   look far too bright. */
+function spectralCss(nm,inten){
+  const c=spectralLinear(nm), I=clamp(inten,0,1);
+  return 'rgb('+Math.round(255*srgbGamma(c[0]*I))+','
+               +Math.round(255*srgbGamma(c[1]*I))+','
+               +Math.round(255*srgbGamma(c[2]*I))+')';
+}
+/* ================================================================== *
+ *  drawing helpers                                                    *
+ *                                                                     *
+ *  Text is wrapped on a MEASURED width, never on a character count —   *
+ *  a character budget overran the panel edge in wind_tunnel.html and   *
+ *  is on this project's Known-bad list.                                *
+ * ================================================================== */
+/* Canvas text is not HTML: fillText draws "&rsquo;" as seven characters on the
+   screen.  The readout and the info panel ARE HTML and use entities correctly,
+   and prose gets copied between the two, so rather than trusting nobody ever
+   pastes the wrong way, caption() decodes the handful this file uses. */
+const ENTS={'&rsquo;':'\u2019','&lsquo;':'\u2018','&mdash;':'\u2014','&ndash;':'\u2013',
+            '&times;':'\u00d7','&deg;':'\u00b0','&nbsp;':' ','&minus;':'\u2212',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'\u2026'};
+function plain(s){ return String(s).replace(/&[a-z]+;/g,m=>ENTS[m]!==undefined?ENTS[m]:m); }
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  /* Accumulating by += leaves float dust where the tick should be exactly
+     zero, and the significant-figures formatter then prints it in full:
+     a Delta-k axis spanning zero was labelled "5.2x10^-18" instead of "0". */
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step)
+    out.push(Math.abs(t)<step*1e-6?0:t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis — a
+     magnitude scale, where brighter is up — silently gets one tick label and
+     no grid.  Sort the range before asking for ticks; the placement below
+     already handles either direction.  (Found by looking at the picture: the
+     audit cannot see a label that was never drawn.) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(plain(o.xfmt?o.xfmt(t):fmt(t,2)),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(plain(o.yfmt?o.yfmt(t):fmt(t,2)),b.x-6,Y);
+  }
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-6); }
+  ctx.restore();
+}
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  let started=false;
+  const n=Math.min(xs.length,ys.length);
+  for(let i=0;i<n;i++){
+    const X=b.x+b.w*(xs[i]-xlo)/(xhi-xlo||1);
+    const Y=b.y1-b.h*(ys[i]-ylo)/(yhi-ylo||1);
+    if(!isFinite(X)||!isFinite(Y)) { started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else ctx.lineTo(X,Y);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* ============================================================================
+ *  views
+ *
+ *  The floating readout sits over the top right of the stage -- about 344 px
+ *  wide and up to 556 tall -- so nothing that has to be READ goes there.  RO
+ *  below is that reserved rectangle and every layout in this file respects it.
+ * ========================================================================== */
+/* --------------------------------------------------------------------------
+ *  formatting.  `sg` is the significant-figures formatter; it is NOT called
+ *  `sig` because tools/ui_drive.js declares `const sig` at top level and
+ *  concatenating the two for a headless UI run would be a SyntaxError, not a
+ *  subtle bug.  Renaming here keeps the shared harness usable unmodified.
+ * ------------------------------------------------------------------------ */
+function fmt(x, n){ return isFinite(x) ? Number(x).toFixed(n === undefined ? 3 : n) : '\u2014'; }
+function sup(e){
+  const d = '\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079';
+  let s = (e < 0 ? '\u207b' : ''), a = Math.abs(e) + '';
+  for (const ch of a) s += d[+ch];
+  return s;
+}
+function fmtExp(x, n){
+  if (!isFinite(x)) return '\u2014';
+  if (x === 0) return '0';
+  const e = Math.floor(Math.log10(Math.abs(x)));
+  return fmt(x / Math.pow(10, e), n === undefined ? 2 : n) + '\u00d710' + sup(e);
+}
+const RO = { w: 344, h: 556 };
+const C_GREEN = '#b8ec4c', C_ORANGE = '#e8843a', C_MAG = '#cd35c4', C_CYAN = '#5ac8e0';
+const C_DIM = '#8b93a6', C_TXT = '#cfd4de', C_FAINT = '#4a5165';
+
+function clipTo(ctx, b, fn){
+  ctx.save();
+  ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.clip();
+  fn();
+  ctx.restore();
+}
+/* polyline from [[x,y],...] pairs, always clipped to its box */
+function pl(ctx, b, pts, xlo, xhi, ylo, yhi, col, lw, dash){
+  if (!pts || !pts.length) return;
+  clipTo(ctx, b, () => polyline(ctx, b, pts.map(q => q[0]), pts.map(q => q[1]),
+                                xlo, xhi, ylo, yhi, col, lw, dash));
+}
+function px(b, x, xlo, xhi){ return b.x + b.w * (x - xlo) / (xhi - xlo || 1); }
+function py(b, y, ylo, yhi){ return b.y1 - b.h * (y - ylo) / (yhi - ylo || 1); }
+function dot(ctx, b, x, y, xlo, xhi, ylo, yhi, col, r){
+  const X = px(b, x, xlo, xhi), Y = py(b, y, ylo, yhi);
+  if (X < b.x - 2 || X > b.x1 + 2 || Y < b.y - 2 || Y > b.y1 + 2) return false;
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X, Y, r || 4, 0, TAU); ctx.fill();
+  return true;
+}
+/* Legends have now been placed on top of the curves they label three times --
+   free expansion, the parcel, and reduced coordinates -- because "which corner
+   is empty" was decided by looking at one configuration.  legend() therefore
+   records its own rectangle in LEGEND_BOXES, and selfTest asserts that no data
+   polyline passes through one, over every view and every gas. */
+let LEGEND_BOXES = [];
+function legend(ctx, x, y, entries, align){
+  /* the recorded box is the TEXT area only.  The key marks are strokes drawn by
+     this function itself, and including them would make every legend report a
+     curve running through it. */
+  /* Record the WHOLE legend -- key marks included -- and note how many path
+     vertices this function is about to contribute itself (one moveTo and one
+     lineTo per entry).  Recording only the text box was too generous: a
+     mutation sweep put the legend back on top of the curves in two views and
+     the assertion stayed green, because the curves crossed the key column
+     rather than the words. */
+  let wmax = 0;
+  for (const e of entries) wmax = Math.max(wmax, plain(e[1]).length * 6.2 + 34);
+  LEGEND_BOXES.push({ x: align === 'right' ? x - 28 - wmax : x, y: y - 9,
+                      w: wmax + 6, h: entries.length * 15 + 4, own: entries.length * 2 });
+  ctx.save();
+  ctx.font = '11px -apple-system, sans-serif'; ctx.textBaseline = 'middle';
+  let yy = y;
+  for (const [col, lab, dash] of entries){
+    ctx.strokeStyle = col; ctx.lineWidth = 2;
+    if (dash) ctx.setLineDash(dash);
+    ctx.beginPath();
+    if (align === 'right'){ ctx.moveTo(x - 22, yy); ctx.lineTo(x - 4, yy); }
+    else { ctx.moveTo(x, yy); ctx.lineTo(x + 18, yy); }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = C_DIM; ctx.textAlign = align === 'right' ? 'right' : 'left';
+    ctx.fillText(plain(lab), align === 'right' ? x - 28 : x + 24, yy);
+    yy += 15;
+  }
+  ctx.restore();
+  return yy - y;
+}
+/* Tick labels sized to the tick SPACING.  fmt(t,2) prints "318.00" whatever
+   the range, and six of those do not fit in a 210 px panel -- the audit caught
+   them overlapping each other, not the frame.  This prints only the digits the
+   spacing actually distinguishes. */
+function tickfmt(ticks){
+  let step = Infinity;
+  for (let i = 1; i < ticks.length; i++) step = Math.min(step, Math.abs(ticks[i] - ticks[i - 1]));
+  if (!isFinite(step) || step <= 0) step = 1;
+  const d = Math.max(0, Math.min(4, Math.ceil(-Math.log10(step) + 0.3)));
+  return (t) => Number(t).toFixed(d);
+}
+function ticksN(lo, hi, n){ return ticksFor(Math.min(lo, hi), Math.max(lo, hi), n); }
+function sg(x, n){
+  if (!isFinite(x)) return '\u2014';
+  const a = Math.abs(x);
+  if (a === 0) return '0';
+  if (a >= 1e5 || a < 1e-3) return fmtExp(x, Math.max(0, (n || 3) - 1));
+  const d = Math.max(0, (n || 3) - 1 - Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d, 6));
+}
+/* --------------------------------------------------------------------------
+ *  Lay the stage out from the BOTTOM up.
+ *
+ *  The caption and the footnote are wrapped text, so their height depends on
+ *  the canvas width and cannot be a constant.  Guessing one put the caption
+ *  UNDER the footnote at 520x340 and pushed both off a 340 px canvas -- found
+ *  by the resize sweep, not by looking.  stage() measures both first and hands
+ *  the plot whatever vertical space is left.
+ * ------------------------------------------------------------------------ */
+const CAP_FONT  = '11.5px -apple-system, sans-serif';
+const FOOT_FONT = '10.5px "SF Mono", ui-monospace, monospace';
+function stage(ctx, W, H, capTxt, footTxt, capW){
+  const fl = footTxt ? wrapText(ctx, plain(footTxt), W - 40, FOOT_FONT).length : 0;
+  const cl = capTxt  ? wrapText(ctx, plain(capTxt),  capW,  CAP_FONT).length  : 0;
+  const footY = H - 8 - fl * 13;
+  const capY  = footY - 10 - cl * 14;
+  const top = 54;
+  /* axes() draws tick labels at b.y1 + 5 and the axis title at b.y1 + 21, so
+     the box must end at least ~40 px above the caption or the two collide --
+     which is exactly what the display-list audit reported on six views. */
+  return { top: top, capY: capY, footY: footY, capW: capW, cap: capTxt, foot: footTxt,
+           plotH: Math.max(90, capY - 44 - top) };
+}
+function drawStage(ctx, W, H, L){
+  if (L.cap)  caption(ctx, 66, L.capY, L.cap, L.capW, C_TXT, CAP_FONT);
+  if (L.foot) caption(ctx, 18, L.footY, L.foot, W - 40, '#5c6478', FOOT_FONT);
+}
+/* A legend drawn over live curves needs its own background.  There is no
+   corner that is reliably empty: cos2(a-b) returns to +1 at BOTH ends of the
+   correlation panel, and S(b) sweeps the full height of the CHSH panel, so a
+   bare legend in any corner ends up with a curve or a bound line through it.
+   Drawn opaque, because an alpha panel over a dashed line composites twice. */
+function legendBox(ctx, x, y, items, opt) {
+  const o = opt || {};
+  ctx.save();
+  ctx.font = '10.5px -apple-system, sans-serif';
+  let wmax = 0;
+  for (const it of items)
+    wmax = Math.max(wmax, ctx.measureText(plain(it[1])).width);
+  const w = wmax + 30, hh = items.length * 14 + 9;
+  const X = o.right ? x - w : x, Y = o.up ? y - hh : y;
+  ctx.fillStyle = 'rgb(9,11,17)';
+  ctx.fillRect(X, Y, w, hh);
+  ctx.strokeStyle = '#232838'; ctx.lineWidth = 1;
+  ctx.strokeRect(X + 0.5, Y + 0.5, w - 1, hh - 1);
+  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+  let yy = Y + 5;
+  for (const it of items) {
+    ctx.fillStyle = it[0]; ctx.fillRect(X + 8, yy + 4, 10, 3);
+    ctx.fillStyle = C_DIM; ctx.fillText(plain(it[1]), X + 23, yy);
+    yy += 14;
+  }
+  ctx.restore();
+  return { w: w, h: hh };
+}
+
+const PLOT_L = 68, PLOT_R = 22, PLOT_GAP = 66;
+function twoBoxes(W, top, hgt) {
+  const bw = Math.max(60, (W - PLOT_L - PLOT_R - PLOT_GAP) / 2);
+  return [box(PLOT_L, top, bw, hgt), box(PLOT_L + bw + PLOT_GAP, top, bw, hgt)];
+}
+
+/* ============================================================================
+ *  state and model
+ * ========================================================================== */
+const VIEWS = [['bench',  'the bench'],
+               ['maker',  'the lens maker'],
+               ['glass',  'the glass'],
+               ['aberr',  'aberration'],
+               ['achrom', 'the achromat'],
+               ['mirror', 'the mirror']];
+
+const DEFAULTS = {
+  view: 'bench',
+  system: 'singlet',
+  glass: 'N-BK7',
+  glass1: 'N-BK7',            /* crown */
+  glass2: 'F2',               /* flint */
+  fTarget: 100,               /* mm */
+  shapeQ: 0,                  /* Coddington bending of the singlet */
+  thick: 6,                   /* mm, centre thickness */
+  semi: 12,                   /* mm, semi-aperture */
+  bendR1: 60,                 /* mm, front radius of the doublet */
+  mirrorR: 200,               /* mm, mirror radius (concave) */
+  conicK: 0,                  /* 0 sphere, -1 paraboloid */
+  objDist: 0,                 /* mm in front; 0 means collimated */
+  fieldDeg: 0,                /* field angle, degrees */
+  nRays: 15,
+  lam: LAM_d,
+  showLines: true,            /* trace g, F, d, C rather than one colour */
+  showParaxial: true,
+  showPrincipal: false,
+};
+
+const PRESETS = [
+  { id: 'plano',  name: 'plano-convex, right way',
+    st: { system: 'singlet', glass: 'N-BK7', shapeQ: 1, thick: 5, semi: 12 } },
+  { id: 'planoR', name: 'plano-convex, turned round',
+    st: { system: 'singlet', glass: 'N-BK7', shapeQ: -1, thick: 5, semi: 12 } },
+  { id: 'best',   name: 'best-form singlet',
+    st: { system: 'singlet', glass: 'N-BK7', shapeQ: 0.7276, thick: 5,
+          semi: 12 } },
+  { id: 'ach',    name: 'cemented achromat',
+    st: { system: 'doublet', glass1: 'N-BK7', glass2: 'F2', bendR1: 60,
+          thick: 5, semi: 12 } },
+  { id: 'para',   name: 'parabolic mirror',
+    st: { system: 'mirror', mirrorR: 200, conicK: -1, semi: 40 } },
+];
+
+/* ---------------------------------------------------------------------------
+ *  Build the surface list.  Everything the views draw and everything the
+ *  readout prints comes from here, so no drawing code re-derives a radius.
+ * ------------------------------------------------------------------------- */
+function buildSystem(st) {
+  const semi = st.semi;
+  if (st.system === 'mirror') {
+    return { kind: 'mirror', semi: semi,
+             surfs: [{ z: 0, R: -Math.abs(st.mirrorR), K: st.conicK,
+                       semi: semi, mirror: true }],
+             back: 0 };
+  }
+  if (st.system === 'doublet') {
+    const D = doubletRadii(st.bendR1, st.fTarget, st.glass1, st.glass2);
+    const t1 = st.thick, t2 = Math.max(1.2, st.thick * 0.55);
+    return { kind: 'doublet', semi: semi, D: D,
+             surfs: [{ z: 0, R: D.R1, K: 0, semi: semi, n: st.glass1 },
+                     { z: t1, R: D.R2, K: 0, semi: semi, n: st.glass2 },
+                     { z: t1 + t2, R: D.R3, K: 0, semi: semi, n: AIR }],
+             back: t1 + t2 };
+  }
+  const n = nGlass(st.glass, LAM_d);
+  const r = radiiAtQ(st.shapeQ, st.fTarget, n, st.thick);
+  return { kind: 'singlet', semi: semi, R1: r[0], R2: r[1],
+           surfs: [{ z: 0, R: r[0], K: 0, semi: semi, n: st.glass },
+                   { z: st.thick, R: r[1], K: 0, semi: semi, n: AIR }],
+           back: st.thick };
+}
+
+/* A ray leaving the object at height y0 on the entrance plane.  A zero object
+   distance means a collimated beam, tilted by the field angle. */
+function startRay(st, y, zStart) {
+  const th = st.fieldDeg * DEG;
+  if (!(st.objDist > 0))
+    return { p: [y + zStart * Math.tan(th), zStart],
+             d: [Math.sin(th), Math.cos(th)] };
+  const yo = st.objDist * Math.tan(th);
+  const zo = -st.objDist;
+  return { p: [yo, zo], d: [y - yo, zStart - zo + Math.abs(zStart)] };
+}
+
+function buildModel(st) {
+  const S = buildSystem(st);
+  const warn = [];
+  const zStart = -Math.max(40, st.fTarget * 0.45);
+
+  /* --- paraxial reference --- */
+  let par = null;
+  if (S.kind === 'singlet') {
+    const n = nGlass(st.glass, LAM_d);
+    par = { n: n,
+            fThin: fThin(n, S.R1, S.R2),
+            f: fThick(n, S.R1, S.R2, st.thick),
+            H: principalFront(n, S.R1, S.R2, st.thick),
+            Hp: principalRear(n, S.R1, S.R2, st.thick),
+            bfd: backFocal(n, S.R1, S.R2, st.thick),
+            q: shapeOf(S.R1, S.R2),
+            edge: edgeThickness(S.R1, S.R2, st.thick, st.semi) };
+    if (!(par.edge > 0))
+      warn.push('the edge thickness is ' + fmt(par.edge, 2)
+                + ' mm: at this aperture the two surfaces cross and the lens '
+                + 'does not exist');
+  } else if (S.kind === 'mirror') {
+    par = { f: -Math.abs(st.mirrorR) / 2, bfd: -Math.abs(st.mirrorR) / 2 };
+  } else {
+    par = { f: st.fTarget, bfd: st.fTarget, D: S.D };
+  }
+
+  /* --- the paraxial focus, found by tracing a vanishingly low ray --- */
+  const tinyR = traceRay(S.surfs, [1e-6, zStart], [0, 1], st.lam);
+  const zPar = tinyR.p ? axisCrossing(tinyR.p, tinyR.d) : NaN;
+
+  /* --- the ray fan the bench view draws --- */
+  const lines = st.showLines ? LINES : [{ lam: st.lam, name: '', src: '' }];
+  const fans = [];
+  for (const L of lines) {
+    const rays = [];
+    const N = Math.max(2, st.nRays | 0);
+    for (let i = 0; i < N; i++) {
+      const y = -st.semi + 2 * st.semi * i / (N - 1);
+      if (Math.abs(y) < 1e-9) continue;
+      const r0 = startRay(st, y, zStart);
+      const tr = traceRay(S.surfs, r0.p, r0.d, L.lam);
+      rays.push({ y0: y, tr: tr,
+                  cross: tr.p ? axisCrossing(tr.p, tr.d) : NaN });
+    }
+    const tiny = traceRay(S.surfs, startRay(st, 1e-6, zStart).p,
+                          startRay(st, 1e-6, zStart).d, L.lam);
+    fans.push({ lam: L.lam, name: L.name, rays: rays,
+                zPar: tiny.p ? axisCrossing(tiny.p, tiny.d) : NaN });
+  }
+
+  /* --- longitudinal spherical aberration against ray height --- */
+  const lsa = [];
+  const NL = 60;
+  for (let i = 1; i <= NL; i++) {
+    const h = st.semi * i / NL;
+    const r0 = startRay(st, h, zStart);
+    const tr = traceRay(S.surfs, r0.p, r0.d, st.lam);
+    if (!tr.p) { lsa.push({ h: h, z: NaN, sa: NaN }); continue; }
+    const z = axisCrossing(tr.p, tr.d);
+    lsa.push({ h: h, z: z, sa: z - zPar });
+  }
+  /* The outermost ray that actually gets through.  Taking the outermost SLOT
+     returns NaN as soon as the edge ray is vignetted -- which happens at any
+     field angle -- and that NaN then reached a label as an em-dash where a
+     magnification should have been. */
+  let lsaMax = NaN, hEdge = NaN;
+  for (const p2 of lsa) if (isFinite(p2.sa)) { lsaMax = p2.sa; hEdge = p2.h; }
+  const vignetted = isFinite(hEdge) && hEdge < st.semi * 0.999;
+
+  /* --- the spot: where do the rays land on the best-focus plane? --- */
+  const spot = spotAt(S, st, zPar);
+  const best = bestFocus(S, st, zPar);
+
+  /* --- chromatic behaviour --- */
+  const chrom = [];
+  for (let i = 0; i <= 120; i++) {
+    const lam = 0.42 + (0.72 - 0.42) * i / 120;
+    let fs = NaN, fdo = NaN;
+    if (inGlassRange(st.glass, lam)) fs = fAtLambda(st.glass, lam, st.fTarget);
+    if (inGlassRange(st.glass1, lam) && inGlassRange(st.glass2, lam))
+      fdo = fDoubletAt(lam, doubletRadii(st.bendR1, st.fTarget, st.glass1,
+                                         st.glass2), st.glass1, st.glass2);
+    chrom.push({ lam: lam, fs: fs, fd: fdo });
+  }
+  const Dq = doubletRadii(st.bendR1, st.fTarget, st.glass1, st.glass2);
+  const a1 = abbeOf(st.glass1), a2 = abbeOf(st.glass2);
+  const ach = {
+    D: Dq, V1: a1.V, V2: a2.V, dV: a1.V - a2.V,
+    fF: fDoubletAt(LAM_F, Dq, st.glass1, st.glass2),
+    fC: fDoubletAt(LAM_C, Dq, st.glass1, st.glass2),
+    fd: fDoubletAt(LAM_d, Dq, st.glass1, st.glass2),
+    fg: fDoubletAt(LAM_g, Dq, st.glass1, st.glass2),
+    est: secondarySpectrum(st.fTarget, st.glass1, st.glass2),
+    sF: fAtLambda(st.glass, LAM_F, st.fTarget),
+    sC: fAtLambda(st.glass, LAM_C, st.fTarget),
+  };
+  ach.resid = ach.fg - ach.fF;
+  ach.singletSpread = ach.sF - ach.sC;
+
+  /* --- every glass, for the Abbe diagram --- */
+  const glasses = GLASSES.map(g => {
+    const a = abbeOf(g);
+    return { g: g, nd: a.nd, V: a.V, P: partialGF(g),
+             ndCat: GLASS[g].nd, VCat: GLASS[g].Vd, kind: GLASS[g].kind };
+  });
+
+  if (!inGlassRange(st.glass, st.lam))
+    warn.push(fmt(st.lam * 1000, 0) + ' nm is outside the '
+              + fmt(GLASS[st.glass].rng[0] * 1000, 0) + '–'
+              + fmt(GLASS[st.glass].rng[1] * 1000, 0) + ' nm range of '
+              + st.glass);
+
+  if (vignetted)
+    warn.push('the edge of the aperture is vignetted: rays above '
+              + fmt(hEdge, 2) + ' mm miss a surface, so the figures below are '
+              + 'for the ' + fmt(hEdge, 2) + ' mm that get through');
+
+  return { st: st, S: S, par: par, zPar: zPar, zStart: zStart,
+           fans: fans, lsa: lsa, lsaMax: lsaMax, hEdge: hEdge,
+           vignetted: vignetted, spot: spot, best: best,
+           chrom: chrom, ach: ach, glasses: glasses, warn: warn };
+}
+
+/* RMS and full spread of the ray heights on a given plane. */
+function spotAt(S, st, zPlane) {
+  if (!isFinite(zPlane)) return { rms: NaN, max: NaN, n: 0 };
+  const zStart = -Math.max(40, st.fTarget * 0.45);
+  let s2 = 0, mx = 0, n = 0;
+  const N = 41;
+  for (let i = 0; i < N; i++) {
+    const h = -st.semi + 2 * st.semi * i / (N - 1);
+    if (Math.abs(h) < 1e-9) continue;
+    const r0 = startRay(st, h, zStart);
+    const tr = traceRay(S.surfs, r0.p, r0.d, st.lam);
+    if (!tr.p) continue;
+    const t = (zPlane - tr.p[1]) / tr.d[1];
+    const y = tr.p[0] + t * tr.d[0];
+    s2 += y * y; mx = Math.max(mx, Math.abs(y)); n++;
+  }
+  return n ? { rms: Math.sqrt(s2 / n), max: mx, n: n }
+           : { rms: NaN, max: NaN, n: 0 };
+}
+/* The plane of least RMS spot -- NOT the paraxial focus, which is where a
+   lens with spherical aberration is at its worst. */
+function bestFocus(S, st, zPar) {
+  if (!isFinite(zPar)) return { z: NaN, rms: NaN };
+  const span = Math.max(1e-3, Math.abs(st.fTarget) * 0.09);
+  let a = zPar - span, b = zPar + span;
+  const f = z => spotAt(S, st, z).rms;
+  /* golden-section on a unimodal RMS */
+  const gr = (Math.sqrt(5) - 1) / 2;
+  let c = b - gr * (b - a), d = a + gr * (b - a);
+  let fc = f(c), fd = f(d);
+  for (let i = 0; i < 70; i++) {
+    if (!(isFinite(fc) && isFinite(fd))) break;
+    if (fc < fd) { b = d; d = c; fd = fc; c = b - gr * (b - a); fc = f(c); }
+    else { a = c; c = d; fc = fd; d = a + gr * (b - a); fd = f(d); }
+  }
+  const z = 0.5 * (a + b);
+  return { z: z, rms: f(z) };
+}
+
+/* Wavelengths here are MICROMETRES; spectralCss takes NANOMETRES.  Same trap
+   as down_conversion.html, same wrapper. */
+function lineColour(lam, inten) { return spectralCss(lam * 1000, inten); }
+
+/* ============================================================================
+ *  readout, equation bar, canvas tag
+ * ========================================================================== */
+function row(lab, val, cls) {
+  return '<tr><td>' + lab + '</td><td class="v' + (cls ? ' ' + cls : '') + '">'
+       + val + '</td></tr>';
+}
+function hd(t) { return '<tr><td class="hd" colspan="2">' + t + '</td></tr>'; }
+function mm(x, n) {
+  return (x === null || !isFinite(x)) ? '—' : sg(x, n === undefined ? 5 : n)
+         + ' mm';
+}
+
+function readoutHTML(M) {
+  const st = M.st, S = M.S;
+  const NAME = { singlet: 'a singlet', doublet: 'a cemented achromat',
+                 mirror: 'a concave mirror' };
+  const SUB = { singlet: st.glass + ', bent to q = ' + sg(st.shapeQ, 3),
+                doublet: st.glass1 + ' + ' + st.glass2,
+                mirror: st.conicK === 0 ? 'spherical'
+                        : (st.conicK === -1 ? 'paraboloid'
+                           : 'conic K = ' + sg(st.conicK, 3)) };
+  let s = '<div class="rname">' + NAME[st.system]
+        + '<small>' + SUB[st.system] + '</small></div><table>';
+
+  if (S.kind === 'singlet') {
+    s += hd('the surfaces');
+    s += row('R₁', mm(S.R1, 6));
+    s += row('R₂', mm(S.R2, 6));
+    s += row('centre thickness', mm(st.thick, 4));
+    s += row('edge thickness', mm(M.par.edge, 4),
+             M.par.edge > 0 ? '' : 'bad');
+    s += row('semi-aperture', mm(st.semi, 4));
+    s += row('f-number', sg(st.fTarget / (2 * st.semi), 4));
+    s += hd('the lens maker');
+    s += row('n at the d line', sg(M.par.n, 7));
+    s += row('thin-lens f', mm(M.par.fThin, 6));
+    s += row('thick-lens f', mm(M.par.f, 6), 'good');
+    s += row('the thickness term', mm(M.par.fThin - M.par.f, 3));
+    s += row('front principal H', mm(M.par.H, 4));
+    s += row('rear principal H′', mm(M.par.Hp, 4));
+    s += row('back focal distance', mm(M.par.bfd, 6));
+  } else if (S.kind === 'doublet') {
+    const D = S.D;
+    s += hd('the design');
+    s += row('crown ' + st.glass1 + ' V', sg(D.V1, 5));
+    s += row('flint ' + st.glass2 + ' V', sg(D.V2, 5));
+    s += row('ΔV', sg(D.V1 - D.V2, 4));
+    s += row('crown f₁', mm(D.f1, 5));
+    s += row('flint f₂', mm(D.f2, 5));
+    s += hd('the three radii');
+    s += row('R₁ (bending)', mm(D.R1, 5));
+    s += row('R₂ (cemented)', mm(D.R2, 5));
+    s += row('R₃', mm(D.R3, 5));
+  } else {
+    s += hd('the mirror');
+    s += row('radius', mm(-Math.abs(st.mirrorR), 5));
+    s += row('f = R/2', mm(M.par.f, 5));
+    s += row('conic constant K', sg(st.conicK, 4));
+    s += row('semi-aperture', mm(st.semi, 4));
+    s += row('f-number', sg(Math.abs(M.par.f) / (2 * st.semi), 4));
+  }
+
+  s += hd('where the light goes');
+  s += row('paraxial focus', mm(M.zPar, 7));
+  s += row('marginal focus', mm(isFinite(M.lsaMax) ? M.zPar + M.lsaMax : NaN, 7));
+  s += row('longitudinal SA', mm(M.lsaMax, 4),
+           Math.abs(M.lsaMax) < 0.02 ? 'good' : '');
+  s += row('best-focus plane', mm(M.best.z, 7));
+  s += row('RMS spot, paraxial', mm(M.spot.rms, 4));
+  s += row('RMS spot, best focus', mm(M.best.rms, 4), 'good');
+  s += row('improvement', isFinite(M.spot.rms / M.best.rms)
+           ? '×' + sg(M.spot.rms / M.best.rms, 3) : '—');
+
+  if (st.view === 'achrom' || st.system === 'doublet') {
+    const A = M.ach;
+    s += hd('colour');
+    s += row('singlet f(F) − f(C)', mm(A.singletSpread, 4), 'bad');
+    s += row('doublet f(F) − f(C)', mm(A.fF - A.fC, 3), 'good');
+    s += row('residual f(g) − f(F)', mm(A.resid, 4));
+    s += row('classic estimate', mm(A.est, 4));
+    s += row('estimate / measured', sg(A.est / A.resid, 5));
+  }
+  s += '</table>';
+
+  if (M.warn.length)
+    s += '<div class="note"><b>note:</b> ' + M.warn.join('; ') + '.</div>';
+  s += '<div class="note"><b>source:</b> Sellmeier coefficients from the '
+     + 'SCHOTT Zemax catalog 2017-01-20b via refractiveindex.info. Every ray '
+     + 'above is traced exactly — the paraxial formulas are checked against '
+     + 'the trace, never used by it.</div>';
+  return s;
+}
+
+function eqbarText(M) {
+  const v = M.st.view;
+  if (v === 'bench')
+    return '<span class="lhs">n₁ sin θ₁</span> = n₂ sin θ₂, '
+      + '<span class="hl">at every surface, exactly</span>'
+      + '<span class="sm">One law, applied twice. Everything else on this page '
+      + 'is a consequence of it — including all the ways it fails to make a '
+      + 'point.</span>';
+  if (v === 'maker')
+    return '<span class="lhs">1/f</span> = (n − 1) [ 1/R₁ − 1/R₂ + '
+      + '<span class="hl">(n − 1) d / (n R₁ R₂)</span> ]'
+      + '<span class="sm">The highlighted term is the thickness. Dropping it is '
+      + 'the "thin lens", and for the lens on screen it is worth a whole '
+      + 'millimetre in a hundred.</span>';
+  if (v === 'glass')
+    return '<span class="lhs">V<sub>d</sub></span> = (n<sub>d</sub> − 1) / '
+      + '(<span class="hl">n<sub>F</sub> − n<sub>C</sub></span>)'
+      + '<span class="sm">One number for how much a glass bends light, one for '
+      + 'how much it separates colours. Nearly every glass ever made lives in '
+      + 'a narrow band of that plane.</span>';
+  if (v === 'aberr')
+    return '<span class="lhs">LSA</span> ∝ <span class="hl">h²</span> '
+      + '&nbsp;&nbsp;— and the best focus is <em>not</em> the paraxial one'
+      + '<span class="sm">A lens with spherical aberration is at its worst at '
+      + 'the focus the textbook formula gives you.</span>';
+  if (v === 'achrom')
+    return '<span class="lhs">φ₁ + φ₂ = φ</span> &nbsp;and&nbsp; '
+      + '<span class="hl">φ₁/V₁ + φ₂/V₂ = 0</span>'
+      + '<span class="sm">Two equations, two unknowns, one exact solution — and '
+      + 'a third colour that still misses, by an amount two glasses cannot '
+      + 'fix.</span>';
+  return '<span class="lhs">f</span> = R / 2, '
+    + '<span class="hl">for every wavelength at once</span>'
+    + '<span class="sm">A mirror has no dispersion, which is why every large '
+    + 'telescope ever built has one at the bottom of it.</span>';
+}
+
+function tagText(M) {
+  const T = { bench: '<b>the bench.</b> rays, traced exactly',
+              maker: '<b>the lens maker.</b> where 1/f comes from',
+              glass: '<b>the glass.</b> two numbers describe it',
+              aberr: '<b>aberration.</b> what the paraxial formula hides',
+              achrom: '<b>the achromat.</b> two glasses, two colours',
+              mirror: '<b>the mirror.</b> no dispersion at all' };
+  return T[M.st.view] + '<br>' + (M.st.system === 'singlet' ? M.st.glass
+         : M.st.system === 'doublet' ? M.st.glass1 + ' + ' + M.st.glass2
+         : 'mirror') + ', f = ' + sg(M.par.f, 5) + ' mm';
+}
+
+/* ============================================================================
+ *  the optical layout, drawn to scale
+ *
+ *  Equal aspect throughout: a lens is a SHAPE, and the whole subject of the
+ *  page is the difference between where rays actually go and where a formula
+ *  says they go, so the axes must not be free to rescale independently.  The
+ *  focal detail is shown in an inset with its magnification printed instead.
+ * ========================================================================== */
+function lensProfile(R, semi, zv, sign) {
+  /* polyline of one surface, from -semi to +semi */
+  const out = [];
+  const N = 64;
+  for (let i = 0; i <= N; i++) {
+    const y = -semi + 2 * semi * i / N;
+    const s = conicSag(R, 0, y);
+    if (!isFinite(s)) return null;
+    out.push([zv + s, y]);
+  }
+  return out;
+}
+
+function drawBench(ctx, W, H, M, S) {
+  const st = M.st, SY = M.S;
+  const capW = Math.min(430, W - RO.w - 60);
+  const cap = 'Everything here is at EQUAL SCALE — a lens is a shape, and the '
+    + 'whole subject is where rays go against where a formula says they go, so '
+    + 'the two axes are not free to rescale independently. '
+    + (st.showLines
+       ? 'The four colours are drawn on top of one another and are genuinely '
+         + 'indistinguishable at this scale: they separate only within a '
+         + 'millimetre or so of focus, which is what the inset is for. '
+       : '')
+    + 'The inset magnifies the focal region, and prints by how much.';
+  const foot = (st.showLines
+      ? 'Four Fraunhofer lines traced at once: g (436 nm, Hg), F (486 nm, H), '
+        + 'd (588 nm, He), C (656 nm, H). Colours are real — wavelength → CIE '
+        + 'XYZ → sRGB.'
+      : 'One wavelength, ' + sg(st.lam * 1000, 4) + ' nm.')
+    + '  ' + (st.objDist > 0 ? 'Object at ' + sg(st.objDist, 4) + ' mm.'
+                             : 'Collimated input.');
+  const L = stage(ctx, W, H, cap, foot, capW);
+
+  const b = box(PLOT_L, L.top + 10, W - PLOT_L - PLOT_R,
+                Math.max(90, L.plotH - 10));
+  /* world extent: from the ray start to a little past the focus */
+  const zLo = M.zStart, zHi = Math.max(M.zPar, SY.back) * 1.18 + 8;
+  const yMax = st.semi * 1.35;
+  /* Drag pans and the wheel zooms; both go through THIS mapping, so a frame
+     that does not repaint after either is immediately visible as a picture
+     that did not move. */
+  const sc = Math.min(b.w / (zHi - zLo), b.h / (2 * yMax)) * S.zoom;
+  /* EQUAL ASPECT costs vertical space: a 170 mm x 32 mm bench in a 1310 x 620
+     box uses two fifths of the height and leaves the rest blank.  Frame the
+     area the drawing actually occupies rather than the whole box, and let the
+     inset have the space that frees. */
+  const usedH = Math.min(b.h, 2 * yMax * sc);
+  const bd = box(b.x, b.y + (b.h - usedH) / 2, b.w, usedH);
+  const X = z => b.x + (z - zLo) * sc + (b.w - (zHi - zLo) * sc) / 2 + S.pan;
+  const Y = y => bd.y + bd.h / 2 - y * sc;
+
+  frame(ctx, bd, '#242a3a');
+  clipTo(ctx, bd, () => {
+    /* the axis */
+    ctx.strokeStyle = '#2a3040'; ctx.lineWidth = 1;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(b.x, Y(0)); ctx.lineTo(b.x1, Y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+    drawElement(ctx, M, X, Y);
+    /* the rays */
+    for (const fan of M.fans) {
+      const col = lineColour(fan.lam, 1);
+      for (const r of fan.rays) {
+        const pts = r.tr.pts.slice();
+        if (r.tr.p) {
+          /* continue past the last surface to just beyond the focus */
+          const zEnd = zHi;
+          const t = (zEnd - r.tr.p[1]) / r.tr.d[1];
+          pts.push([r.tr.p[0] + t * r.tr.d[0], zEnd]);
+        }
+        ctx.beginPath();
+        for (let i = 0; i < pts.length; i++) {
+          const px = X(pts[i][1]), py = Y(pts[i][0]);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        /* Four fans follow almost the same path until they reach focus, so at
+           high alpha the LAST one drawn hides the other three and the bundle
+           reads as one colour.  Half alpha lets the overlap blend. */
+        ctx.strokeStyle = r.tr.blocked ? rgba(C_DIM, 0.22) : rgba(col, 0.5);
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+      }
+    }
+    /* the paraxial focus */
+    if (st.showParaxial && isFinite(M.zPar)) {
+      ctx.strokeStyle = rgba(C_CYAN, 0.85); ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(X(M.zPar), Y(0) - 16); ctx.lineTo(X(M.zPar), Y(0) + 16);
+      ctx.stroke();
+    }
+    /* principal planes */
+    if (st.showPrincipal && SY.kind === 'singlet') {
+      /* H and H' can be a couple of millimetres apart on a thick lens, which
+         is a few pixels here, so the labels go one above and one below rather
+         than side by side -- they collided in the layout audit otherwise. */
+      const HH = [[M.par.H, 'H', 1], [SY.back + M.par.Hp, 'H′', -1]];
+      for (const [zz, lab, side] of HH) {
+        ctx.strokeStyle = rgba(C_MAG, 0.7); ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(X(zz), Y(st.semi * 1.2)); ctx.lineTo(X(zz), Y(-st.semi * 1.2));
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = C_MAG; ctx.font = '11px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = side > 0 ? 'bottom' : 'top';
+        ctx.fillText(lab, X(zz), Y(side * st.semi * 1.2) - side * 3);
+      }
+    }
+  });
+  /* the scale bar, and the inset */
+  ctx.font = '10.5px -apple-system, sans-serif';
+  ctx.fillStyle = C_DIM; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  const barMm = niceBar((b.w / sc) * 0.22);
+  const bx = b.x + 12, by = bd.y1 - 12;
+  ctx.strokeStyle = C_DIM; ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + barMm * sc, by);
+  ctx.stroke();
+  ctx.fillText(sg(barMm, 3) + ' mm', bx, by - 4);
+
+  /* the inset lives in whatever space the equal-aspect framing freed up,
+     below the bench, and never in the top right where the readout floats */
+  drawFocusInset(ctx, b, bd, M, st, sc);
+  drawStage(ctx, W, H, L);
+}
+function niceBar(x) {
+  const e = Math.pow(10, Math.floor(Math.log10(Math.max(1e-9, x))));
+  const m = x / e;
+  return (m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10) * e;
+}
+
+/* The glass body, filled between its two surfaces. */
+function drawElement(ctx, M, X, Y) {
+  const st = M.st, SY = M.S;
+  if (SY.kind === 'mirror') {
+    const p = lensProfile(SY.surfs[0].R, st.semi, 0);
+    if (!p) return;
+    ctx.beginPath();
+    for (let i = 0; i < p.length; i++) {
+      const px = X(p[i][0]), py = Y(p[i][1]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.strokeStyle = '#9aa6c2'; ctx.lineWidth = 3; ctx.stroke();
+    return;
+  }
+  const cols = ['rgb(34,44,68)', 'rgb(46,38,64)'];
+  for (let k = 0; k < SY.surfs.length - 1; k++) {
+    const a = lensProfile(SY.surfs[k].R, st.semi, SY.surfs[k].z);
+    const c = lensProfile(SY.surfs[k + 1].R, st.semi, SY.surfs[k + 1].z);
+    if (!a || !c) continue;
+    ctx.beginPath();
+    for (let i = 0; i < a.length; i++) {
+      const px = X(a[i][0]), py = Y(a[i][1]);
+      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    for (let i = c.length - 1; i >= 0; i--) ctx.lineTo(X(c[i][0]), Y(c[i][1]));
+    ctx.closePath();
+    ctx.fillStyle = cols[k % 2]; ctx.fill();
+    ctx.strokeStyle = '#6f7fa6'; ctx.lineWidth = 1.2; ctx.stroke();
+  }
+}
+
+/* A magnified view of the focal region, with the factor printed.  Without it
+   the whole subject of the page -- a fraction of a millimetre of aberration
+   on a hundred-millimetre lens -- is a single pixel. */
+function drawFocusInset(ctx, b, bd, M, st, mainScale) {
+  if (!isFinite(M.zPar)) return;
+  const below = b.y1 - bd.y1;          /* free space under the bench */
+  const hh = Math.min(230, Math.max(bd.h * 0.5, below - 20));
+  const ww = Math.min(b.w * 0.46, hh * 2.3);
+  const sz = hh;
+  if (hh < 60 || ww < 120) return;
+  /* BOTTOM right.  The floating readout occupies the top right of the stage
+     -- about 344 x 556 px -- so an inset placed there is not merely hard to
+     read, it is completely hidden, which is what the display-list audit
+     reported for six of these views. */
+  const ib = box(b.x1 - ww - 12, b.y1 - hh - 6, ww, hh);
+  const half = Math.max(1e-4, Math.abs(M.lsaMax) * 1.5 + st.semi * 0.02);
+  const sc = ww / (2 * half);
+  const X = z => ib.x + ww / 2 + (z - M.zPar) * sc;
+  const Y = y => ib.y + hh / 2 - y * sc;
+  ctx.fillStyle = 'rgb(7,9,14)';
+  ctx.fillRect(ib.x, ib.y, ib.w, ib.h);
+  clipTo(ctx, ib, () => {
+    ctx.strokeStyle = '#2a3040'; ctx.lineWidth = 1; ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.moveTo(ib.x, Y(0)); ctx.lineTo(ib.x1, Y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+    for (const fan of M.fans) {
+      const col = lineColour(fan.lam, 1);
+      for (const r of fan.rays) {
+        if (!r.tr.p) continue;
+        const p = r.tr.p, d = r.tr.d;
+        const z0 = M.zPar - half * 1.6, z1 = M.zPar + half * 1.6;
+        const t0 = (z0 - p[1]) / d[1], t1 = (z1 - p[1]) / d[1];
+        ctx.beginPath();
+        ctx.moveTo(X(z0), Y(p[0] + t0 * d[0]));
+        ctx.lineTo(X(z1), Y(p[0] + t1 * d[0]));
+        ctx.strokeStyle = rgba(col, 0.8); ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = rgba(C_CYAN, 0.9); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(X(M.zPar), ib.y); ctx.lineTo(X(M.zPar), ib.y1);
+    ctx.stroke();
+    if (isFinite(M.best.z)) {
+      ctx.strokeStyle = rgba(C_GREEN, 0.9); ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.moveTo(X(M.best.z), ib.y); ctx.lineTo(X(M.best.z), ib.y1);
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+  });
+  frame(ctx, ib, '#3a4256');
+  ctx.font = '10px -apple-system, sans-serif';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  /* ABOVE the box: inside it, the label sat across the rays it is describing.
+     The magnification is relative to the main panel and is printed rather
+     than implied. */
+  ctx.fillStyle = C_DIM;
+  ctx.fillText('the focus, ×' + sg(sc / mainScale, 3) + ' — this box spans '
+               + sg(2 * half, 3) + ' mm', ib.x, ib.y - 4);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = C_CYAN; ctx.fillText('paraxial', ib.x1 - 76, ib.y - 4);
+  ctx.fillStyle = C_GREEN; ctx.fillText('best focus', ib.x1, ib.y - 4);
+}
+
+/* ============================================================================
+ *  view 2 -- the lens maker
+ * ========================================================================== */
+function drawMaker(ctx, W, H, M, S) {
+  const st = M.st, SY = M.S;
+  const capW = Math.min(430, W - RO.w - 60);
+  const cap = SY.kind === 'singlet'
+    ? 'Left: the lens itself, with the two centres of curvature on the axis '
+      + 'and the principal planes marked. Right: bending the lens at constant '
+      + 'power leaves 1/f alone by construction and changes the spherical '
+      + 'aberration by a factor of four.'
+    : 'The lens maker\'s equation is a statement about ONE element. Switch to '
+      + 'a singlet to see it; the doublet view shows the design instead.';
+  const foot = 'Constant power means constant THICK-lens power: bending moves '
+    + 'the sag of both surfaces, so a lens bent at constant thin-lens power '
+    + 'quietly changes its focal length.';
+  const L = stage(ctx, W, H, cap, foot, capW);
+  const top = L.top + 16, hgt = Math.max(90, L.plotH - 16);
+  const [bA, bB] = twoBoxes(W, top, hgt);
+
+  /* ---- left: the element with its centres of curvature ---- */
+  frame(ctx, bA, '#242a3a');
+  if (SY.kind === 'singlet') {
+    const R1 = SY.R1, R2 = SY.R2;
+    /* The centres of curvature are a hundred millimetres away and the lens is
+       six thick.  Nothing sensible fits both at one scale: equal aspect gives
+       a 13 px element, and exaggerating the vertical turns it into a needle
+       (both were tried).  So the frame is the LENS, at true shape, and each
+       centre is indicated by an arrow running off the panel with its distance
+       written on it. */
+    const sagMax = Math.max(Math.abs(conicSag(R1, 0, st.semi) || 0),
+                            Math.abs(conicSag(R2, 0, st.semi) || 0));
+    const zHalf = (st.thick + 2 * sagMax) * 0.9 + st.semi * 0.55;
+    const sc = Math.min(bA.w / (2 * zHalf), bA.h / (2.5 * st.semi));
+    const cx = bA.x + bA.w / 2, cy = bA.y + bA.h / 2;
+    const X = z => cx + (z - st.thick / 2) * sc, Y = y => cy - y * sc;
+    clipTo(ctx, bA, () => {
+      ctx.strokeStyle = '#2a3040'; ctx.lineWidth = 1; ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(bA.x, cy); ctx.lineTo(bA.x1, cy); ctx.stroke();
+      ctx.setLineDash([]);
+      drawElement(ctx, M, X, Y);
+      /* an arrow toward each centre of curvature, labelled with the radius */
+      const cc = [[R1, 0, C_CYAN, 'C₁', 'R₁'], [R2, st.thick, C_ORANGE, 'C₂', 'R₂']];
+      let ny = 0;
+      for (const [R, zv, col, lab, rlab] of cc) {
+        const yv = st.semi * 0.62;
+        const zs = zv + conicSag(R, 0, yv);
+        if (!isFinite(zs)) continue;
+        const dir = isFinite(R) ? Math.sign(R) : 0;
+        if (dir === 0) {
+          ctx.fillStyle = col; ctx.font = '11px -apple-system, sans-serif';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+          ctx.fillText(rlab + ' = flat', X(zs), Y(yv) - 8);
+          continue;
+        }
+        /* the line from the surface point toward its centre */
+        const zc = zv + R;
+        const L2 = Math.hypot(zc - zs, -yv);
+        const ux = (zc - zs) / L2, uy = (0 - yv) / L2;
+        const reach = (bA.w / 2) * 0.92 / sc;
+        const zEnd = zs + ux * reach, yEnd = yv + uy * reach;
+        ctx.strokeStyle = rgba(col, 0.55); ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(X(zs), Y(yv)); ctx.lineTo(X(zEnd), Y(yEnd));
+        ctx.stroke(); ctx.setLineDash([]);
+        /* an arrowhead at the far end */
+        const ax = X(zEnd), ay = Y(yEnd);
+        const th2 = Math.atan2(-(uy * sc), ux * sc);
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax - 9 * Math.cos(th2 - 0.4), ay + 9 * Math.sin(th2 - 0.4));
+        ctx.lineTo(ax - 9 * Math.cos(th2 + 0.4), ay + 9 * Math.sin(th2 + 0.4));
+        ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+        ctx.fillStyle = col; ctx.font = '11px -apple-system, sans-serif';
+        ctx.textAlign = dir > 0 ? 'right' : 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(lab + ', ' + sg(Math.abs(R), 5) + ' mm this way',
+                     ax + (dir > 0 ? -12 : 12), ay - 6 - ny);
+        ny += 14;
+      }
+      /* principal planes */
+      const HH = [[M.par.H, 'H', 1], [st.thick + M.par.Hp, 'H′', -1]];
+      for (const [zz, lab, side] of HH) {
+        ctx.strokeStyle = rgba(C_MAG, 0.8); ctx.lineWidth = 1.2;
+        ctx.setLineDash([4, 3]);
+        ctx.beginPath();
+        ctx.moveTo(X(zz), Y(st.semi * 1.15)); ctx.lineTo(X(zz), Y(-st.semi * 1.15));
+        ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = C_MAG; ctx.font = '11px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = side > 0 ? 'bottom' : 'top';
+        ctx.fillText(lab, X(zz), Y(side * st.semi * 1.15) - side * 3);
+      }
+    });
+    ctx.font = 'italic 13px Georgia, serif'; ctx.fillStyle = '#aeb6c6';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText('the element, at true shape', bA.x, bA.y - 6);
+    ctx.font = '10.5px -apple-system, sans-serif'; ctx.fillStyle = C_DIM;
+    ctx.textAlign = 'right';
+    ctx.fillText('equal scale; the centres of curvature are off the panel',
+                 bA.x1, bA.y - 6);
+    legendBox(ctx, bA.x + 8, bA.y1 - 8,
+      [[C_CYAN, 'toward C₁, centre of surface 1'],
+       [C_ORANGE, 'toward C₂, centre of surface 2'],
+       [C_MAG, 'principal planes H, H′']], { up: true });
+  } else {
+    caption(ctx, bA.x + 14, bA.y + 16,
+      'The lens maker\'s equation describes a single element. This system has '
+      + (SY.kind === 'mirror' ? 'a mirror, whose focal length is R/2 and needs '
+         + 'no glass at all' : 'two cemented elements, and its design is set '
+         + 'out in the achromat view')
+      + '. Choose the singlet to see the equation at work.',
+      bA.w - 28, C_TXT);
+  }
+
+  /* ---- right: aberration against bending ---- */
+  if (SY.kind === 'singlet') {
+    const qs = [], sas = [];
+    const n = M.par.n;
+    for (let i = 0; i <= 48; i++) {
+      const q = -2 + 5 * i / 48;
+      const r = radiiAtQ(q, st.fTarget, n, st.thick);
+      const surfs = [{ z: 0, R: r[0], K: 0, semi: st.semi, n: st.glass },
+                     { z: st.thick, R: r[1], K: 0, semi: st.semi, n: AIR }];
+      const t1 = traceRay(surfs, [st.semi * 0.85, M.zStart], [0, 1], st.lam);
+      const t0 = traceRay(surfs, [1e-6, M.zStart], [0, 1], st.lam);
+      qs.push(q);
+      sas.push((t1.p && t0.p)
+               ? axisCrossing(t1.p, t1.d) - axisCrossing(t0.p, t0.d) : NaN);
+    }
+    const fin = sas.filter(isFinite);
+    const lo = fin.length ? Math.min(...fin) : -1;
+    const hi = fin.length ? Math.max(...fin, 0) : 1;
+    const pad = 0.12 * (hi - lo || 1);
+    axes(ctx, bB, -2, 3, lo - pad, hi + pad,
+         { xlab: 'shape factor q = (R₂ + R₁)/(R₂ − R₁)',
+           ylab: 'longitudinal SA  (mm)',
+           title: 'bending at constant power',
+           xfmt: t => sg(t, 3), yfmt: t => sg(t, 3) });
+    clipTo(ctx, bB, () => {
+      const Y0 = bB.y1 - bB.h * (0 - (lo - pad)) / ((hi + pad) - (lo - pad) || 1);
+      ctx.strokeStyle = rgba(C_CYAN, 0.45); ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(bB.x, Y0); ctx.lineTo(bB.x1, Y0); ctx.stroke();
+      ctx.setLineDash([]);
+      polyline(ctx, bB, qs, sas, -2, 3, lo - pad, hi + pad, C_GREEN, 2);
+      /* the current shape */
+      const Xc = bB.x + bB.w * (clamp(st.shapeQ, -2, 3) + 2) / 5;
+      ctx.strokeStyle = rgba(C_MAG, 0.8); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(Xc, bB.y); ctx.lineTo(Xc, bB.y1); ctx.stroke();
+      /* the minimum */
+      let bi = -1, bv = Infinity;
+      for (let i = 0; i < sas.length; i++)
+        if (isFinite(sas[i]) && Math.abs(sas[i]) < bv) { bv = Math.abs(sas[i]); bi = i; }
+      if (bi >= 0) {
+        const Xm = bB.x + bB.w * (qs[bi] + 2) / 5;
+        const Ym = bB.y1 - bB.h * (sas[bi] - (lo - pad)) / ((hi + pad) - (lo - pad) || 1);
+        ctx.beginPath(); ctx.arc(Xm, Ym, 4.5, 0, TAU);
+        ctx.fillStyle = C_ORANGE; ctx.fill();
+      }
+    });
+    legendBox(ctx, bB.x + 8, bB.y + 6,
+      [[C_GREEN, 'traced SA at h = ' + sg(st.semi * 0.85, 3) + ' mm'],
+       [C_ORANGE, 'least-aberration shape'],
+       [C_MAG, 'this lens, q = ' + sg(st.shapeQ, 3)]]);
+  } else {
+    frame(ctx, bB, '#242a3a');
+    caption(ctx, bB.x + 12, bB.y + 12,
+      'Bending applies to a singlet. For the doublet the same freedom exists '
+      + '— the front radius can be chosen without disturbing the colour '
+      + 'correction at all — and it is the bending slider in the panel.',
+      bB.w - 24, '#767e92');
+  }
+  drawStage(ctx, W, H, L);
+}
+
+/* ============================================================================
+ *  view 3 -- the glass
+ * ========================================================================== */
+function drawGlass(ctx, W, H, M, S) {
+  const st = M.st;
+  const capW = Math.min(430, W - RO.w - 60);
+  const cap = 'Left: the plane every optical designer works in. The vertical '
+    + 'axis is how much a glass bends light; the horizontal is how little it '
+    + 'separates colours — reversed, by convention, so that "good" is to the '
+    + 'left. Right: the measured dispersion behind those two numbers, with the '
+    + 'three Fraunhofer lines that define them marked.';
+  const foot = 'Points are computed from the Sellmeier fit; the crosses are '
+    + 'SCHOTT\'s own printed n_d and V_d. They agree to '
+    + sg(worstCatalogue(M).n, 2) + ' in index and '
+    + sg(worstCatalogue(M).v, 2) + ' in Abbe number, which is what confirms '
+    + 'the spectral lines used here.';
+  const L = stage(ctx, W, H, cap, foot, capW);
+  const top = L.top + 16, hgt = Math.max(90, L.plotH - 16);
+  /* The Abbe diagram carries a NAME beside every point, and the floating
+     readout covers the top right of the stage, where the high-index low-V
+     glasses land.  Flipping the labels to the other side of their markers is
+     not enough -- the markers themselves are under the panel -- so the
+     labelled scatter goes in the LEFT box and the unlabelled curves in the
+     right one. */
+  const [bB, bA] = twoBoxes(W, top, hgt);
+
+  /* ---- right: n against wavelength ---- */
+  const wlo = 350, whi = 900;
+  let nlo = 9, nhi = 0;
+  const curves = [];
+  for (const G of M.glasses) {
+    const xs = [], ys = [];
+    for (let i = 0; i <= 220; i++) {
+      const nm = wlo + (whi - wlo) * i / 220, lam = nm / 1000;
+      if (!inGlassRange(G.g, lam)) { xs.push(nm); ys.push(NaN); continue; }
+      const n = nGlass(G.g, lam);
+      xs.push(nm); ys.push(n);
+      nlo = Math.min(nlo, n); nhi = Math.max(nhi, n);
+    }
+    curves.push({ g: G.g, xs: xs, ys: ys });
+  }
+  const pad = 0.04 * (nhi - nlo || 1);
+  axes(ctx, bA, wlo, whi, nlo - pad, nhi + pad,
+       { xlab: 'wavelength  (nm)', ylab: 'refractive index',
+         title: 'measured dispersion', xfmt: t => sg(t, 3),
+         yfmt: t => sg(t, 4) });
+  clipTo(ctx, bA, () => {
+    for (const [lam, nm2] of [[LAM_F, 'F'], [LAM_d, 'd'], [LAM_C, 'C']]) {
+      const X = bA.x + bA.w * (lam * 1000 - wlo) / (whi - wlo);
+      ctx.strokeStyle = rgba(lineColour(lam, 1), 0.55); ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(X, bA.y); ctx.lineTo(X, bA.y1); ctx.stroke();
+      ctx.fillStyle = lineColour(lam, 1);
+      ctx.font = 'italic 12px Georgia, serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      /* at the BOTTOM: the top of this box is under the readout */
+      ctx.fillText(nm2, X, bA.y1 - 4);
+    }
+    for (let i = 0; i < curves.length; i++) {
+      const sel = curves[i].g === st.glass || curves[i].g === st.glass1
+                  || curves[i].g === st.glass2;
+      polyline(ctx, bA, curves[i].xs, curves[i].ys, wlo, whi,
+               nlo - pad, nhi + pad,
+               sel ? neonCss(i / (curves.length - 1))
+                   : rgba(neonCss(i / (curves.length - 1)), 0.32),
+               sel ? 2.2 : 1.2);
+    }
+  });
+  legendBox(ctx, bA.x + 8, bA.y1 - 8,
+    M.glasses.map((G, i) => [neonCss(i / (M.glasses.length - 1)),
+                             G.g + '  (' + GLASS[G.g].kind + ')']),
+    { up: true });
+
+  /* ---- left: the Abbe diagram ---- */
+  const Vs = M.glasses.map(G => G.V), Ns = M.glasses.map(G => G.nd);
+  const vlo = Math.max(0, Math.min(...Vs) - 8), vhi = Math.max(...Vs) + 8;
+  const ylo2 = Math.min(...Ns) - 0.05, yhi2 = Math.max(...Ns) + 0.05;
+  /* the Abbe axis runs BACKWARDS by convention */
+  axes(ctx, bB, vhi, vlo, ylo2, yhi2,
+       { xlab: 'Abbe number V_d   (reversed, as the catalogues draw it)',
+         ylab: 'n_d', title: 'the Abbe diagram',
+         xfmt: t => sg(t, 3), yfmt: t => sg(t, 4) });
+  clipTo(ctx, bB, () => {
+    const PX = v => bB.x + bB.w * (v - vhi) / (vlo - vhi);
+    const PY = n => bB.y1 - bB.h * (n - ylo2) / (yhi2 - ylo2);
+    /* join the achromat pair */
+    if (st.glass1 !== st.glass2) {
+      const A = M.glasses.find(G => G.g === st.glass1);
+      const B = M.glasses.find(G => G.g === st.glass2);
+      if (A && B) {
+        ctx.strokeStyle = rgba(C_MAG, 0.55); ctx.lineWidth = 1.4;
+        ctx.setLineDash([5, 4]);
+        ctx.beginPath();
+        ctx.moveTo(PX(A.V), PY(A.nd)); ctx.lineTo(PX(B.V), PY(B.nd));
+        ctx.stroke(); ctx.setLineDash([]);
+      }
+    }
+    for (let i = 0; i < M.glasses.length; i++) {
+      const G = M.glasses[i];
+      const col = neonCss(i / (M.glasses.length - 1));
+      /* the catalogue's own value, as a cross */
+      ctx.strokeStyle = rgba(C_DIM, 0.9); ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(PX(G.VCat) - 5, PY(G.ndCat)); ctx.lineTo(PX(G.VCat) + 5, PY(G.ndCat));
+      ctx.moveTo(PX(G.VCat), PY(G.ndCat) - 5); ctx.lineTo(PX(G.VCat), PY(G.ndCat) + 5);
+      ctx.stroke();
+      /* ours, as a filled disc */
+      ctx.beginPath(); ctx.arc(PX(G.V), PY(G.nd), 5.5, 0, TAU);
+      ctx.fillStyle = col; ctx.fill();
+      ctx.fillStyle = C_TXT; ctx.font = '10.5px -apple-system, sans-serif';
+      ctx.textBaseline = 'middle';
+      /* Put the label on whichever side keeps it out of the floating readout,
+         which covers the top right of the whole stage and not merely the
+         corner of this box. */
+      const roL = W - RO.w - 10;
+      const wantLeft = PX(G.V) + 70 > roL && PY(G.nd) < RO.h;
+      ctx.textAlign = wantLeft ? 'right' : 'left';
+      ctx.fillText(G.g, PX(G.V) + (wantLeft ? -10 : 10), PY(G.nd));
+    }
+  });
+  legendBox(ctx, bB.x + 8, bB.y + 6,
+    [[C_DIM, 'cross: SCHOTT\'s printed n_d, V_d'],
+     [C_GREEN, 'disc: computed from the Sellmeier fit'],
+     [C_MAG, 'the pair in use']]);
+  drawStage(ctx, W, H, L);
+}
+function worstCatalogue(M) {
+  let n = 0, v = 0;
+  for (const G of M.glasses) {
+    n = Math.max(n, Math.abs(G.nd - G.ndCat));
+    v = Math.max(v, Math.abs(G.V - G.VCat));
+  }
+  return { n: n, v: v };
+}
+
+/* ============================================================================
+ *  view 4 -- aberration
+ * ========================================================================== */
+function drawAberr(ctx, W, H, M, S) {
+  const st = M.st;
+  const capW = Math.min(430, W - RO.w - 60);
+  const cap = 'Left: where each ray crosses the axis, against the height it '
+    + 'entered at — the classical longitudinal aberration curve, plotted the '
+    + 'way lens designers draw it, with ray height up the page. Right: the '
+    + 'RMS spot against the plane you put the detector in.';
+  const foot = 'The best focus is NOT the paraxial focus. Marked below, the '
+    + 'two differ by ' + sg(Math.abs(M.best.z - M.zPar), 3) + ' mm and the '
+    + 'spot by a factor of ' + sg(M.spot.rms / M.best.rms, 3) + '.';
+  const L = stage(ctx, W, H, cap, foot, capW);
+  const top = L.top + 16, hgt = Math.max(90, L.plotH - 16);
+  const [bA, bB] = twoBoxes(W, top, hgt);
+
+  /* ---- left: longitudinal aberration, h against dz ---- */
+  const sas = M.lsa.filter(p => isFinite(p.sa)).map(p => p.sa);
+  const lim = sas.length ? Math.max(1e-4, Math.max(...sas.map(Math.abs)) * 1.15)
+                         : 1;
+  axes(ctx, bA, -lim, lim, 0, st.semi,
+       { xlab: 'axis crossing − paraxial focus   (mm)',
+         ylab: 'ray height at the lens  (mm)',
+         title: 'longitudinal spherical aberration',
+         xfmt: t => sg(t, 3), yfmt: t => sg(t, 3) });
+  clipTo(ctx, bA, () => {
+    const X0 = bA.x + bA.w * (0 + lim) / (2 * lim);
+    ctx.strokeStyle = rgba(C_CYAN, 0.6); ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(X0, bA.y); ctx.lineTo(X0, bA.y1); ctx.stroke();
+    pl(ctx, bA, M.lsa.filter(p => isFinite(p.sa)).map(p => [p.sa, p.h]),
+       -lim, lim, 0, st.semi, C_GREEN, 2.2);
+    /* the h^2 law through the outermost point */
+    const last = M.lsa.filter(p => isFinite(p.sa)).slice(-1)[0];
+    if (last) {
+      const k = last.sa / (last.h * last.h);
+      const q = [];
+      for (let i = 0; i <= 40; i++) {
+        const h = st.semi * i / 40;
+        q.push([k * h * h, h]);
+      }
+      pl(ctx, bA, q, -lim, lim, 0, st.semi, C_ORANGE, 1.4, [5, 4]);
+    }
+    if (isFinite(M.best.z)) {
+      const Xb = bA.x + bA.w * (M.best.z - M.zPar + lim) / (2 * lim);
+      ctx.strokeStyle = rgba(C_MAG, 0.8); ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(Xb, bA.y); ctx.lineTo(Xb, bA.y1); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  });
+  legendBox(ctx, bA.x + 8, bA.y + 6,
+    [[C_GREEN, 'traced rays'], [C_ORANGE, 'a pure h² law through the edge ray'],
+     [C_CYAN, 'paraxial focus'], [C_MAG, 'best focus']]);
+
+  /* ---- right: RMS spot against focal plane ---- */
+  const span = Math.max(1e-3, Math.abs(M.best.z - M.zPar) * 3
+                        + Math.abs(M.lsaMax) * 1.2 + 0.05);
+  const zs = [], rs = [];
+  for (let i = 0; i <= 90; i++) {
+    const z = M.zPar - span + 2 * span * i / 90;
+    zs.push(z - M.zPar);
+    rs.push(spotAt(M.S, st, z).rms);
+  }
+  const rfin = rs.filter(isFinite);
+  const rhi = rfin.length ? Math.max(...rfin) * 1.1 : 1;
+  axes(ctx, bB, -span, span, 0, rhi,
+       { xlab: 'detector plane − paraxial focus   (mm)',
+         ylab: 'RMS spot radius  (mm)', title: 'where to put the detector',
+         xfmt: t => sg(t, 3), yfmt: t => sg(t, 3) });
+  clipTo(ctx, bB, () => {
+    polyline(ctx, bB, zs, rs, -span, span, 0, rhi, C_GREEN, 2.2);
+    for (const [zz, col] of [[0, C_CYAN], [M.best.z - M.zPar, C_MAG]]) {
+      const X = bB.x + bB.w * (zz + span) / (2 * span);
+      ctx.strokeStyle = rgba(col, 0.8); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(X, bB.y); ctx.lineTo(X, bB.y1); ctx.stroke();
+    }
+    if (isFinite(M.best.rms)) {
+      const X = bB.x + bB.w * (M.best.z - M.zPar + span) / (2 * span);
+      const Y = bB.y1 - bB.h * M.best.rms / (rhi || 1);
+      ctx.beginPath(); ctx.arc(X, Y, 4.5, 0, TAU);
+      ctx.fillStyle = C_MAG; ctx.fill();
+    }
+  });
+  legendBox(ctx, bB.x1 - 8, bB.y1 - 8,
+    [[C_CYAN, 'paraxial focus: RMS ' + sg(M.spot.rms, 3) + ' mm'],
+     [C_MAG, 'best focus: RMS ' + sg(M.best.rms, 3) + ' mm']],
+    { right: true, up: true });
+  drawStage(ctx, W, H, L);
+}
+
+/* ============================================================================
+ *  view 5 -- the achromat
+ * ========================================================================== */
+function drawAchrom(ctx, W, H, M, S) {
+  const st = M.st, A = M.ach;
+  const capW = Math.min(430, W - RO.w - 60);
+  const cap = 'Left: focal length against colour. A singlet\'s runs straight '
+    + 'through the band; a doublet\'s comes back on itself, touching the same '
+    + 'value at F and C exactly. Right: what is left over. The residual is not '
+    + 'an imperfection of the solve — it is exact — but of there being only '
+    + 'two glasses to satisfy three colours.';
+  const foot = 'Design: φ₁ + φ₂ = 1/f and φ₁/V₁ + φ₂/V₂ = 0, solved in closed '
+    + 'form. The bending R₁ is free and does not enter either equation, which '
+    + 'is why it can be spent on spherical aberration instead.';
+  const L = stage(ctx, W, H, cap, foot, capW);
+  const top = L.top + 16, hgt = Math.max(90, L.plotH - 16);
+  const [bA, bB] = twoBoxes(W, top, hgt);
+
+  /* ---- left: f against wavelength ---- */
+  const xs = M.chrom.map(c => c.lam * 1000);
+  const fs = M.chrom.map(c => c.fs), fd = M.chrom.map(c => c.fd);
+  const all = fs.concat(fd).filter(isFinite);
+  const flo = Math.min(...all), fhi = Math.max(...all);
+  const pad = 0.08 * (fhi - flo || 1);
+  axes(ctx, bA, 420, 720, flo - pad, fhi + pad,
+       { xlab: 'wavelength  (nm)', ylab: 'focal length  (mm)',
+         title: 'focus against colour', xfmt: t => sg(t, 3),
+         yfmt: t => sg(t, 5) });
+  clipTo(ctx, bA, () => {
+    for (const [lam, nm2] of [[LAM_g, 'g'], [LAM_F, 'F'], [LAM_d, 'd'],
+                              [LAM_C, 'C']]) {
+      const X = bA.x + bA.w * (lam * 1000 - 420) / 300;
+      ctx.strokeStyle = rgba(lineColour(lam, 1), 0.4); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(X, bA.y); ctx.lineTo(X, bA.y1); ctx.stroke();
+      ctx.fillStyle = lineColour(lam, 1);
+      ctx.font = 'italic 12px Georgia, serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillText(nm2, X, bA.y + 4);
+    }
+    polyline(ctx, bA, xs, fs, 420, 720, flo - pad, fhi + pad, C_ORANGE, 2.2);
+    polyline(ctx, bA, xs, fd, 420, 720, flo - pad, fhi + pad, C_GREEN, 2.2);
+  });
+  legendBox(ctx, bA.x + 8, bA.y + bA.h * 0.42,
+    [[C_ORANGE, 'singlet, ' + st.glass + ': spread '
+                + sg(Math.abs(A.singletSpread), 3) + ' mm'],
+     [C_GREEN, 'doublet ' + st.glass1 + ' + ' + st.glass2 + ': F and C exact']]);
+
+  /* ---- right: the residual, magnified ---- */
+  const fd2 = M.chrom.map(c => c.fd);
+  const fin2 = fd2.filter(isFinite);
+  if (fin2.length) {
+    const lo2 = Math.min(...fin2), hi2 = Math.max(...fin2);
+    const p2 = 0.12 * (hi2 - lo2 || 1e-3);
+    axes(ctx, bB, 420, 720, lo2 - p2, hi2 + p2,
+         { xlab: 'wavelength  (nm)', ylab: 'doublet focal length  (mm)',
+           title: 'the secondary spectrum, magnified',
+           xfmt: t => sg(t, 3), yfmt: t => sg(t, 7) });
+    clipTo(ctx, bB, () => {
+      const YY = v => bB.y1 - bB.h * (v - (lo2 - p2)) / ((hi2 + p2) - (lo2 - p2));
+      ctx.strokeStyle = rgba(C_CYAN, 0.5); ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(bB.x, YY(A.fF)); ctx.lineTo(bB.x1, YY(A.fF));
+      ctx.stroke(); ctx.setLineDash([]);
+      polyline(ctx, bB, xs, fd2, 420, 720, lo2 - p2, hi2 + p2, C_GREEN, 2.2);
+      for (const [lam, v, col] of [[LAM_F, A.fF, C_CYAN], [LAM_C, A.fC, C_CYAN],
+                                   [LAM_d, A.fd, C_ORANGE],
+                                   [LAM_g, A.fg, C_MAG]]) {
+        const X = bB.x + bB.w * (lam * 1000 - 420) / 300;
+        ctx.beginPath(); ctx.arc(X, YY(v), 4.5, 0, TAU);
+        ctx.fillStyle = col; ctx.fill();
+      }
+    });
+    legendBox(ctx, bB.x + 8, bB.y + 6,
+      [[C_CYAN, 'F and C: identical, by construction'],
+       [C_ORANGE, 'd: short by ' + sg(Math.abs(A.fd - A.fF), 3) + ' mm'],
+       [C_MAG, 'g: long by ' + sg(Math.abs(A.resid), 3) + ' mm'],
+       [C_DIM, 'classic estimate ' + sg(A.est, 3) + ' mm  ('
+               + sg(100 * Math.abs(A.est / A.resid), 4) + '% of measured)']]);
+  } else {
+    frame(ctx, bB, '#242a3a');
+    caption(ctx, bB.x + 12, bB.y + 12,
+      'One of the two glasses does not cover this band, so there is no '
+      + 'doublet curve to draw.', bB.w - 24, '#767e92');
+  }
+  drawStage(ctx, W, H, L);
+}
+
+/* ============================================================================
+ *  view 6 -- the mirror
+ * ========================================================================== */
+function drawMirror(ctx, W, H, M, S) {
+  const st = M.st;
+  const capW = Math.min(430, W - RO.w - 60);
+  const cap = 'A mirror has no dispersion: every colour reflects at the same '
+    + 'angle, so f = R/2 for all of them at once. What it does have is '
+    + 'spherical aberration — unless the surface is a paraboloid, where the '
+    + 'aberration is not small but exactly zero on axis.';
+  const sagDiff = Math.abs(conicSag(-Math.abs(st.mirrorR), 0, st.semi)
+                           - conicSag(-Math.abs(st.mirrorR), -1, st.semi));
+  const foot = 'Both curves are traced through the same routine as the lenses; '
+    + 'the only difference is that the direction is reflected instead of '
+    + 'refracted. Conic constant K = 0 is a sphere, K = −1 a paraboloid. '
+    + 'At f/' + sg(Math.abs(st.mirrorR) / (4 * st.semi), 3) + ' the two '
+    + 'surfaces differ by ' + fmtExp(sagDiff, 2) + ' mm of sag, which is '
+    + (sagDiff * 200 > 1
+       ? 'just about visible on the left.'
+       : 'FAR too little to see on the left — the two curves there lie on top '
+         + 'of one another, and the difference only shows in the aberration '
+         + 'plot beside it. Open the aperture to separate them.');
+  const L = stage(ctx, W, H, cap, foot, capW);
+  const top = L.top + 16, hgt = Math.max(90, L.plotH - 16);
+  const [bA, bB] = twoBoxes(W, top, hgt);
+
+  /* ---- left: the two surfaces and their rays ---- */
+  const Rm = -Math.abs(st.mirrorR), semi = st.semi;
+  const zLo = Rm / 2 * 1.25, zHi = Math.abs(conicSag(Rm, 0, semi)) + 14;
+  const sc = Math.min(bA.w / (zHi - zLo), bA.h / (2.3 * semi));
+  const X = z => bA.x + bA.w / 2 + (z - (zLo + zHi) / 2) * sc;
+  const Y = y => bA.y + bA.h / 2 - y * sc;
+  frame(ctx, bA, '#242a3a');
+  clipTo(ctx, bA, () => {
+    ctx.strokeStyle = '#2a3040'; ctx.lineWidth = 1; ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(bA.x, Y(0)); ctx.lineTo(bA.x1, Y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+    for (const [K, col, lw] of [[0, C_ORANGE, 2.4], [-1, C_GREEN, 2.4]]) {
+      const surfs = [{ z: 0, R: Rm, K: K, semi: semi, mirror: true }];
+      const prof = [];
+      for (let i = 0; i <= 80; i++) {
+        const y = -semi + 2 * semi * i / 80;
+        const s = conicSag(Rm, K, y);
+        if (isFinite(s)) prof.push([s, y]);
+      }
+      ctx.beginPath();
+      for (let i = 0; i < prof.length; i++) {
+        const px = X(prof[i][0]), py = Y(prof[i][1]);
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.stroke();
+      /* the rays */
+      for (let i = 0; i < 9; i++) {
+        const y = -semi + 2 * semi * i / 8;
+        if (Math.abs(y) < 1e-9) continue;
+        const tr = traceRay(surfs, [y, -Math.abs(Rm)], [0, 1], st.lam);
+        if (!tr.p) continue;
+        const zc = axisCrossing(tr.p, tr.d);
+        ctx.beginPath();
+        ctx.moveTo(X(-Math.abs(Rm)), Y(y));
+        ctx.lineTo(X(tr.p[1]), Y(tr.p[0]));
+        ctx.lineTo(X(zc), Y(0));
+        ctx.strokeStyle = rgba(col, 0.32); ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = rgba(C_CYAN, 0.85); ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    ctx.moveTo(X(Rm / 2), Y(0) - 14); ctx.lineTo(X(Rm / 2), Y(0) + 14);
+    ctx.stroke();
+  });
+  ctx.font = 'italic 13px Georgia, serif'; ctx.fillStyle = '#aeb6c6';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+  ctx.fillText('sphere against paraboloid', bA.x, bA.y - 6);
+  legendBox(ctx, bA.x + 8, bA.y + 6,
+    [[C_ORANGE, 'sphere, K = 0'], [C_GREEN, 'paraboloid, K = −1'],
+     [C_CYAN, 'f = R/2 = ' + sg(Rm / 2, 5) + ' mm']]);
+
+  /* ---- right: LSA against height for both ---- */
+  const hs = [], sa0 = [], sa1 = [], law = [];
+  for (let i = 1; i <= 70; i++) {
+    const h = semi * i / 70;
+    hs.push(h);
+    for (const [K, arr] of [[0, sa0], [-1, sa1]]) {
+      const surfs = [{ z: 0, R: Rm, K: K, semi: semi, mirror: true }];
+      const tr = traceRay(surfs, [h, -Math.abs(Rm)], [0, 1], st.lam);
+      arr.push(tr.p ? axisCrossing(tr.p, tr.d) - Rm / 2 : NaN);
+    }
+    law.push(-h * h / (4 * Rm));
+  }
+  const fin = sa0.concat(law).filter(isFinite);
+  const hi = fin.length ? Math.max(...fin) * 1.15 : 1;
+  axes(ctx, bB, 0, semi, Math.min(0, hi * -0.08), hi,
+       { xlab: 'ray height  (mm)', ylab: 'axis crossing − R/2   (mm)',
+         title: 'the aberration, and the h² law',
+         xfmt: t => sg(t, 3), yfmt: t => sg(t, 3) });
+  clipTo(ctx, bB, () => {
+    polyline(ctx, bB, hs, sa0, 0, semi, Math.min(0, hi * -0.08), hi,
+             C_ORANGE, 2.2);
+    polyline(ctx, bB, hs, law, 0, semi, Math.min(0, hi * -0.08), hi,
+             C_CYAN, 1.4, [5, 4]);
+    polyline(ctx, bB, hs, sa1, 0, semi, Math.min(0, hi * -0.08), hi,
+             C_GREEN, 2.4);
+  });
+  legendBox(ctx, bB.x + 8, bB.y + 6,
+    [[C_ORANGE, 'sphere: ' + sg(sa0[sa0.length - 1], 3) + ' mm at the edge'],
+     [C_CYAN, 'the leading law, −h²/(4R)'],
+     [C_GREEN, 'paraboloid: ' + fmtExp(Math.abs(sa1[sa1.length - 1]) + 1e-300, 1)
+               + ' mm — zero, to floating point']]);
+  drawStage(ctx, W, H, L);
+}
+
+/* ============================================================================
+ *  dispatch
+ * ========================================================================== */
+function drawView(ctx, W, H, M, S) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#070b18'; ctx.fillRect(0, 0, W, H);
+  const v = M.st.view;
+  if (v === 'bench') drawBench(ctx, W, H, M, S);
+  else if (v === 'maker') drawMaker(ctx, W, H, M, S);
+  else if (v === 'glass') drawGlass(ctx, W, H, M, S);
+  else if (v === 'aberr') drawAberr(ctx, W, H, M, S);
+  else if (v === 'achrom') drawAchrom(ctx, W, H, M, S);
+  else drawMirror(ctx, W, H, M, S);
+}
+
+/* ------------------------------------------------------------------------ */
+function makeScene(canvas) {
+  const st = Object.assign({}, DEFAULTS);
+  const cam = { W: 900, H: 600 };
+  let M = null;
+  const S = {
+    st: st, cam: cam, zoom: 1, pan: 0,
+    model() { if (!M) S.rebuild(); return M; },
+    rebuild() { M = buildModel(st); },
+    resetView() { S.zoom = 1; S.pan = 0; },
+    orbit(dx) { S.pan += dx; },
+    readout() { return readoutHTML(S.model()); },
+    eqbar() { return eqbarText(S.model()); },
+    tag() { return tagText(S.model()); },
+    draw() { drawView(canvas.getContext('2d'), cam.W, cam.H, S.model(), S); },
+  };
+  return S;
+}
+
+/* ============================================================================
+ *  the control panel and the frame loop
+ * ========================================================================== */
+const INFO = {
+  bench:
+    'Every ray on this page is traced the hard way: intersect the surface, '
+    + 'take the normal, apply Snell\'s law in vector form, repeat. No paraxial '
+    + 'approximation is used anywhere in the tracing — the famous formulas are '
+    + 'checked <b>against</b> it, in the limit of a vanishingly low ray, rather '
+    + 'than used by it. That is why the rays here do not all meet at a point: '
+    + 'nothing in the calculation made them.',
+  maker:
+    'The lens maker\'s equation is what you get by applying refraction twice '
+    + 'and then throwing away everything beyond first order in the ray height. '
+    + 'It gives one number, 1/f, from two radii and an index. The thickness '
+    + 'term is usually dropped and usually should not be: for the lens on '
+    + 'screen it is worth a full millimetre in a hundred. What survives is the '
+    + 'idea of <b>principal planes</b> — the two planes about which a thick '
+    + 'lens behaves exactly like a thin one.',
+  glass:
+    'Two numbers describe an optical glass well enough to design with. '
+    + '<b>n_d</b> is how much it bends light at a yellow helium line; '
+    + '<b>V_d</b> is that bending divided by the difference between blue and '
+    + 'red, so a big V means colours stay together. Crowns have high V, flints '
+    + 'low. Every glass ever melted lies in a narrow diagonal band of that '
+    + 'plane, and the whole craft of achromatic design is about finding pairs '
+    + 'that are far apart along it.',
+  aberr:
+    'Spherical aberration is not a defect of manufacture. It is what a '
+    + 'spherical surface <b>does</b>: outer rays are bent too much, and they '
+    + 'cross the axis short. The amount grows as the square of the ray height, '
+    + 'so it is the outermost zone of a lens that ruins the image, which is why '
+    + 'stopping a lens down improves it so dramatically. The best place for the '
+    + 'detector is not the paraxial focus but a little inside it, where the '
+    + 'marginal and paraxial rays trade places.',
+  achrom:
+    'A single glass cannot focus two colours at the same place, because its '
+    + 'power and its dispersion are locked together. Two glasses can: give one '
+    + 'positive power and the other negative, in the ratio of their Abbe '
+    + 'numbers, and the blue and red foci coincide <b>exactly</b>. What is left '
+    + 'is the secondary spectrum — the third colour still misses, because the '
+    + 'two glasses disagree about the <i>shape</i> of their dispersion as well '
+    + 'as its size, and two free parameters cannot fix three constraints.',
+  mirror:
+    'A mirror sidesteps the entire problem. Reflection does not care about '
+    + 'wavelength, so a mirror has no chromatic aberration of any kind and '
+    + 'f = R/2 for every colour at once. That is why every large telescope has '
+    + 'a mirror at the bottom of it. A spherical mirror still has spherical '
+    + 'aberration — but a <b>paraboloid</b> has none at all on axis, exactly, '
+    + 'because a parabola is defined as the curve that brings parallel rays to '
+    + 'a point.',
+};
+
+function boot() {
+  const canvas = document.getElementById('scene');
+  const panel  = document.getElementById('panel');
+  const tabsEl = document.getElementById('tabs');
+  const roEl   = document.getElementById('readout');
+  const eqEl   = document.getElementById('eqbar');
+  const tagEl  = document.getElementById('tag');
+  const hintEl = document.getElementById('hint');
+  const errEl  = document.getElementById('errbox');
+  const S = makeScene(canvas), st = S.st;
+
+  function fail(e) { errEl.style.display = 'block';
+                     errEl.textContent = String(e && e.stack || e); }
+  window.addEventListener('error', ev => fail(ev.error || ev.message));
+
+  VIEWS.forEach(([k, lab]) => {
+    tabsEl.appendChild(h('button', { class: st.view === k ? 'active' : '',
+      onclick: () => {
+        st.view = k;
+        [].forEach.call(tabsEl.children,
+          (b, i) => b.className = VIEWS[i][0] === k ? 'active' : '');
+        S.rebuild(); syncPanel(); refresh();
+      } }, lab));
+  });
+
+  const rows = {};
+  function slider(key, lab, lo, hi, step, fmtf) {
+    const inp = h('input', { type: 'range', min: lo, max: hi, step: step,
+                             value: st[key] });
+    const val = h('span', { class: 'val' });
+    const rowEl = h('div', { class: 'sliderrow' }, h('label', null, lab),
+                    inp, val);
+    const sync = () => { inp.value = st[key]; val.textContent = fmtf(st[key]); };
+    inp.addEventListener('input', () => {
+      st[key] = parseFloat(inp.value); val.textContent = fmtf(st[key]);
+      S.rebuild(); syncPanel(); refresh();
+    });
+    rows[key] = { row: rowEl, sync: sync, inp: inp }; sync(); return rowEl;
+  }
+  function checkbox(key, lab) {
+    const inp = h('input', { type: 'checkbox' }); inp.checked = st[key];
+    inp.addEventListener('change', () => {
+      st[key] = inp.checked; S.rebuild(); syncPanel(); refresh();
+    });
+    return h('label', null, inp, lab);
+  }
+  function chipRow(list, key, idf, namef, after) {
+    const wrapEl = h('div', { class: 'chips' });
+    list.forEach(o => {
+      wrapEl.appendChild(h('button',
+        { class: 'chip' + (st[key] === idf(o) ? ' on' : ''),
+          onclick: () => {
+            st[key] = idf(o);
+            if (after) after(o);
+            [].forEach.call(wrapEl.children, (b, i) =>
+              b.className = 'chip' + (idf(list[i]) === st[key] ? ' on' : ''));
+            S.rebuild(); syncPanel(); refresh();
+          } }, namef(o)));
+    });
+    wrapEl._sync = () => [].forEach.call(wrapEl.children, (b, i) =>
+      b.className = 'chip' + (idf(list[i]) === st[key] ? ' on' : ''));
+    return wrapEl;
+  }
+  const chipRows = [];
+  /* .grp and .grp h3 are what the stylesheet actually defines; two of the
+     recent sims use 'group'/'gtitle', which match nothing. */
+  function group(title) {
+    const kids = [].slice.call(arguments, 1);
+    const g = h('div', { class: 'grp' }, h('h3', null, title));
+    for (const k of kids) if (k) g.appendChild(k);
+    panel.appendChild(g); return g;
+  }
+
+  const presetChips = chipRow(PRESETS, '_preset', o => o.id, o => o.name,
+                              o => { Object.assign(st, o.st); });
+  chipRows.push(presetChips);
+  const sysChips = chipRow(
+    [{ k: 'singlet', n: 'singlet' }, { k: 'doublet', n: 'achromat' },
+     { k: 'mirror', n: 'mirror' }], 'system', o => o.k, o => o.n);
+  chipRows.push(sysChips);
+  const glassChips = chipRow(GLASSES.map(g => ({ k: g })), 'glass',
+                             o => o.k, o => o.k);
+  chipRows.push(glassChips);
+  const crownChips = chipRow(
+    GLASSES.filter(g => GLASS[g].kind === 'crown').map(g => ({ k: g })),
+    'glass1', o => o.k, o => o.k);
+  chipRows.push(crownChips);
+  const flintChips = chipRow(
+    GLASSES.filter(g => GLASS[g].kind === 'flint').map(g => ({ k: g })),
+    'glass2', o => o.k, o => o.k);
+  chipRows.push(flintChips);
+
+  group('a real design', presetChips);
+  group('the system', sysChips);
+  const gGlass = group('the glass', glassChips);
+  const gPair = group('the achromat pair', crownChips, flintChips,
+    slider('bendR1', 'front radius R₁', 25, 400, 0.5, v => sg(v, 4) + ' mm'));
+  group('the lens',
+    slider('fTarget', 'focal length', 40, 300, 1, v => sg(v, 4) + ' mm'),
+    slider('shapeQ', 'bending q', -2, 3, 0.01, v => sg(v, 3)),
+    slider('thick', 'centre thickness', 1, 20, 0.1, v => sg(v, 3) + ' mm'),
+    slider('semi', 'semi-aperture', 2, 60, 0.5, v => sg(v, 3) + ' mm'));
+  const gMirror = group('the mirror',
+    slider('mirrorR', 'radius', 60, 600, 1, v => sg(v, 4) + ' mm'),
+    slider('conicK', 'conic constant K', -2, 0.5, 0.01, v => sg(v, 3)));
+  group('the light',
+    slider('objDist', 'object distance', 0, 1200, 5,
+           v => v > 0 ? sg(v, 4) + ' mm' : 'collimated'),
+    slider('fieldDeg', 'field angle', 0, 6, 0.1, v => sg(v, 3) + '°'),
+    slider('nRays', 'rays drawn', 3, 41, 2, v => String(v | 0)),
+    slider('lam', 'wavelength', 0.40, 0.78, 0.001,
+           v => sg(v * 1000, 4) + ' nm'),
+    checkbox('showLines', ' trace g, F, d and C at once'),
+    checkbox('showParaxial', ' mark the paraxial focus'),
+    checkbox('showPrincipal', ' mark the principal planes'));
+
+  const infoEl = h('div', { id: 'info' });
+  panel.appendChild(infoEl);
+  panel.appendChild(h('button', { class: 'chip', style: 'margin-top:10px',
+    onclick: () => { Object.assign(st, DEFAULTS); S.resetView(); S.rebuild();
+                     syncPanel(); refresh(); } }, 'reset all'));
+
+  function syncPanel() {
+    for (const k in rows) rows[k].sync();
+    for (const c of chipRows) if (c._sync) c._sync();
+    gGlass.hidden = st.system !== 'singlet';
+    gPair.hidden = st.system !== 'doublet';
+    gMirror.hidden = st.system !== 'mirror';
+    rows.shapeQ.row.hidden = st.system !== 'singlet';
+    rows.fTarget.row.hidden = st.system === 'mirror';
+    rows.thick.row.hidden = st.system === 'mirror';
+    infoEl.innerHTML = INFO[st.view] || '';
+  }
+
+  /* Nothing animates on its own, so every interaction must mark the canvas
+     dirty or the picture silently fails to follow. */
+  let dirty = true;
+  function refresh() { dirty = true; }
+  function frame() {
+    if (dirty) {
+      dirty = false;
+      try {
+        S.draw();
+        roEl.innerHTML = S.readout();
+        eqEl.innerHTML = S.eqbar();
+        tagEl.innerHTML = S.tag();
+      } catch (e) { fail(e); }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function resize() {
+    const r = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    S.cam.W = Math.max(320, Math.round(r.width));
+    S.cam.H = Math.max(240, Math.round(r.height));
+    canvas.width = Math.round(S.cam.W * dpr);
+    canvas.height = Math.round(S.cam.H * dpr);
+    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    refresh();
+  }
+  window.addEventListener('resize', resize);
+
+  let drag = null;
+  canvas.addEventListener('pointerdown', e => {
+    drag = { x: e.clientX };
+    canvas.classList.add('dragging');
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove', e => {
+    if (!drag) return;
+    S.orbit(e.clientX - drag.x);
+    drag = { x: e.clientX };
+    refresh();
+  });
+  canvas.addEventListener('pointerup', () => {
+    drag = null; canvas.classList.remove('dragging');
+  });
+  canvas.addEventListener('wheel', e => {
+    e.preventDefault();
+    S.zoom = clamp(S.zoom * (e.deltaY > 0 ? 0.92 : 1.087), 0.4, 12);
+    refresh();
+  }, { passive: false });
+  window.addEventListener('keydown', e => {
+    const i = VIEWS.findIndex(v => v[0] === st.view);
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const j = (i + (e.key === 'ArrowRight' ? 1 : VIEWS.length - 1))
+                % VIEWS.length;
+      st.view = VIEWS[j][0];
+      [].forEach.call(tabsEl.children,
+        (b, k) => b.className = VIEWS[k][0] === st.view ? 'active' : '');
+      S.rebuild(); syncPanel(); refresh();
+    } else if (e.key === 'r' || e.key === 'R') { S.resetView(); refresh(); }
+  });
+
+  hintEl.textContent = 'drag to pan · scroll to zoom · ←/→ views · R resets';
+  syncPanel(); resize(); S.rebuild(); refresh(); frame();
+}
+
+/* ============================================================================
+ *  selfTest -- runs when there is no document
+ *
+ *  Reference values tagged (scipy) were printed by build_lens/derive.py and
+ *  copied from output read IN FULL.
+ * ========================================================================== */
+function selfTest() {
+  let pass = 0, fail = 0;
+  const bad = [];
+  function ok(c, n) { if (c) pass++; else { fail++; bad.push(n); } }
+  function close(a, b, tol, n) {
+    if (isFinite(a) && isFinite(b) && Math.abs(a - b) <= tol) pass++;
+    else { fail++; bad.push(n + '  (got ' + a + ', want ' + b + ')'); }
+  }
+  function rel(a, b, r, n) {
+    if (isFinite(a) && isFinite(b)
+        && Math.abs(a - b) <= r * Math.max(1e-300, Math.abs(b))) pass++;
+    else { fail++; bad.push(n + '  (got ' + a + ', want ' + b + ')'); }
+  }
+
+  /* ---------- 1. the glasses, against the catalogue's own numbers ---------- */
+  let wn = 0, wv = 0;
+  for (const g of GLASSES) {
+    const a = abbeOf(g);
+    wn = Math.max(wn, Math.abs(a.nd - GLASS[g].nd));
+    wv = Math.max(wv, Math.abs(a.V - GLASS[g].Vd));
+  }
+  close(wn, 0, 3e-5, 'every n_d matches SCHOTT (worst ' + wn.toExponential(2) + ')');
+  close(wv, 0, 0.02, 'every V_d matches SCHOTT (worst ' + wv.toFixed(5) + ')');
+  ok(wn > 1e-9, 'and they are COMPUTED, not the catalogue values echoed back');
+  close(nGlass('N-BK7', LAM_d), 1.5168000345, 1e-9, 'n_d of N-BK7 (scipy)');
+  close(abbeOf('N-BK7').V, 64.1673362375, 1e-8, 'V_d of N-BK7 (scipy)');
+  close(abbeOf('F2').V, 36.3664912531, 1e-8, 'V_d of F2 (scipy)');
+  close(partialGF('N-BK7'), 0.534930221629, 1e-10, 'P_gF of N-BK7 (scipy)');
+  close(partialGF('F2'), 0.582791691172, 1e-10, 'P_gF of F2 (scipy)');
+  /* the glass code IS n_d and V_d, to three and three digits */
+  for (const g of GLASSES) {
+    const a = abbeOf(g), code = GLASS[g].code;
+    close(Math.round((a.nd - 1) * 1000), parseInt(code.slice(0, 3), 10), 0.51,
+          'glass code encodes n_d for ' + g);
+    close(Math.round(a.V * 10), parseInt(code.slice(3, 6), 10), 0.51,
+          'glass code encodes V_d for ' + g);
+  }
+  ok(GLASS['N-BK7'].kind === 'crown' && GLASS['F2'].kind === 'flint',
+     'crowns and flints are labelled');
+  for (const g of GLASSES)
+    ok((GLASS[g].kind === 'crown') === (abbeOf(g).V > 50),
+       g + ' is on the right side of the crown/flint divide');
+
+  /* ---------- 2. the lens maker, and the exact trace ---------- */
+  const n = nGlass('N-BK7', LAM_d);
+  close(fThin(n, 100, -100), 96.7492195474, 1e-8, 'thin-lens f (scipy)');
+  close(fThick(n, 100, -100, 6), 97.748356271, 1e-8, 'thick-lens f (scipy)');
+  close(principalFront(n, 100, -100, 6), 1.99827344716, 1e-9, 'H (scipy)');
+  close(principalRear(n, 100, -100, 6), -1.99827344716, 1e-9, 'H prime (scipy)');
+  close(backFocal(n, 100, -100, 6), 95.7500828238, 1e-8, 'back focal (scipy)');
+  ok(fThin(n, 100, -100) < fThick(n, 100, -100, 6),
+     'the thickness term is not negligible: it moves f by 1 mm in 100');
+  /* a thin lens IS the thick formula at zero thickness */
+  close(fThick(n, 100, -100, 0), fThin(n, 100, -100), 1e-12,
+        'at zero thickness the two formulas coincide exactly');
+  /* and a flat surface contributes nothing */
+  close(fThin(n, Infinity, -100), 1 / ((n - 1) / 100), 1e-12,
+        'an infinite radius drops out of the equation');
+
+  const SUR = [{ z: 0, R: 100, K: 0, semi: 30, n: 'N-BK7' },
+               { z: 6, R: -100, K: 0, semi: 30, n: AIR }];
+  {
+    const t = traceRay(SUR, [1e-6, -50], [0, 1], LAM_d);
+    ok(!t.blocked, 'the paraxial probe ray gets through');
+    close(axisCrossing(t.p, t.d) - 6, backFocal(n, 100, -100, 6), 1e-6,
+          'the EXACT trace reproduces the paraxial formula in the limit');
+  }
+  close(axisCrossing(...(function () { const t = traceRay(SUR, [10, -50], [0, 1],
+        LAM_d); return [t.p, t.d]; })()) - 6 - backFocal(n, 100, -100, 6),
+        -1.62889833019, 1e-8, 'LSA at h = 10 mm (scipy)');
+  {
+    /* it must go as h^2 */
+    const sa = hh => {
+      const t = traceRay(SUR, [hh, -50], [0, 1], LAM_d);
+      return axisCrossing(t.p, t.d) - 6 - backFocal(n, 100, -100, 6);
+    };
+    for (const h of [1, 2]) {
+      const r = sa(2 * h) / sa(h);
+      close(r, 4, 0.02, 'LSA quadruples when the ray height doubles (h=' + h + ')');
+    }
+    ok(sa(10) < 0, 'and it is NEGATIVE: outer rays cross short, always');
+  }
+  /* Snell itself, at one surface, against the scalar law */
+  {
+    const nrm = [0, -1];
+    for (const ang of [5, 20, 40, 60]) {
+      const th = ang * DEG;
+      const d = refractVec([Math.sin(th), Math.cos(th)], nrm, 1, 1.5);
+      const th2 = Math.atan2(d[0], d[1]);
+      close(Math.sin(th), 1.5 * Math.sin(th2), 1e-14,
+            'vector Snell obeys n1 sin th1 = n2 sin th2 at ' + ang + ' deg');
+    }
+    ok(refractVec([Math.sin(60 * DEG), Math.cos(60 * DEG)], nrm, 1.5, 1)
+       === null, 'and it reports total internal reflection rather than NaN');
+  }
+  /* reflection is exact and angle-preserving */
+  {
+    const nrm = [0, -1];
+    const d = reflectVec([0.3, 0.9], nrm);
+    close(Math.hypot(d[0], d[1]), 1, 1e-15, 'reflection preserves length');
+    close(d[1], -0.9 / Math.hypot(0.3, 0.9), 1e-15, 'and flips only the normal part');
+  }
+
+  /* ---------- 3. shape factor ---------- */
+  for (const q of [-2, -0.5, 0, 0.5, 2]) {
+    const r = radiiFromQ(q, 100, n);
+    close(fThin(n, r[0], r[1]), 100, 1e-9, 'radiiFromQ gives f = 100 at q=' + q);
+    close(shapeOf(r[0], r[1]), q, 1e-9, 'and recovers q = ' + q);
+  }
+  close(shapeOf(Infinity, -50), -1, 0, 'a flat front face is q = -1 exactly');
+  close(shapeOf(50, Infinity), 1, 0, 'a flat rear face is q = +1 exactly');
+  for (const q of [-1.5, 0, 1.5]) {
+    const r = radiiAtQ(q, 100, n, 4);
+    close(fThick(n, r[0], r[1], 4), 100, 1e-9,
+          'radiiAtQ holds the THICK focal length at q=' + q);
+  }
+  {
+    /* the least-aberration bending, and the plano-convex asymmetry */
+    const sa = q => {
+      const r = radiiAtQ(q, 100, n, 4);
+      const S2 = [{ z: 0, R: r[0], K: 0, semi: 12, n: 'N-BK7' },
+                  { z: 4, R: r[1], K: 0, semi: 12, n: AIR }];
+      const a = traceRay(S2, [5, -60], [0, 1], LAM_d);
+      const b = traceRay(S2, [1e-6, -60], [0, 1], LAM_d);
+      if (!a.p || !b.p) return NaN;
+      return axisCrossing(a.p, a.d) - axisCrossing(b.p, b.d);
+    };
+    close(sa(0), -0.397842827255, 1e-7, 'LSA of an equiconvex lens (scipy)');
+    close(sa(1), -0.272984857821, 1e-7, 'LSA plano-convex, curved out (scipy)');
+    close(sa(-1), -1.08130444703, 1e-7, 'LSA plano-convex, flat out (scipy)');
+    rel(sa(-1) / sa(1), 3.9610, 2e-3,
+        'turning a plano-convex lens round costs a factor of 3.96');
+    /* the minimum, found rather than quoted */
+    let bq = 0, bv = Infinity;
+    for (let i = 0; i <= 200; i++) {
+      const q = -1 + 3 * i / 200, v = Math.abs(sa(q));
+      if (isFinite(v) && v < bv) { bv = v; bq = q; }
+    }
+    close(bq, 0.72756606723, 0.02, 'least-aberration shape q* (scipy)');
+    ok(bv < Math.abs(sa(0)), 'and it really is better than equiconvex');
+  }
+  {
+    /* a lens whose surfaces cross does not exist, and edgeThickness says so */
+    const r = radiiAtQ(0, 100, n, 0.01);
+    ok(edgeThickness(r[0], r[1], 0.01, 10) < 0,
+       'a 0.01 mm lens at a 10 mm semi-aperture has a NEGATIVE edge');
+    const S3 = [{ z: 0, R: r[0], K: 0, semi: 10, n: 'N-BK7' },
+                { z: 0.01, R: r[1], K: 0, semi: 10, n: AIR }];
+    ok(traceRay(S3, [10, -60], [0, 1], LAM_d).blocked,
+       'and tracing it correctly blocks the ray rather than inventing one');
+    ok(edgeThickness(radiiAtQ(0, 100, n, 6)[0], radiiAtQ(0, 100, n, 6)[1], 6, 10)
+       > 0, 'a 6 mm one is a real lens');
+  }
+
+  /* ---------- 4. the achromat ---------- */
+  {
+    const D = doubletRadii(60, 100, 'N-BK7', 'F2');
+    close(D.p1 + D.p2, 0.01, 1e-15, 'the two powers sum to 1/f exactly');
+    close(D.p1 / D.V1 + D.p2 / D.V2, 0, 1e-18,
+          'the achromatic condition is satisfied exactly');
+    close(D.p1, 0.0230810740729, 1e-13, 'crown power (scipy)');
+    close(D.p2, -0.0130810740729, 1e-13, 'flint power (scipy)');
+    close(D.f1, 43.3255400872, 1e-8, 'crown focal length (scipy)');
+    close(D.f2, -76.4463219478, 1e-8, 'flint focal length (scipy)');
+    ok(D.p1 > 0 && D.p2 < 0, 'the crown is positive and the flint negative');
+    /* the radii really do deliver those powers */
+    const nd1 = nGlass('N-BK7', LAM_d), nd2 = nGlass('F2', LAM_d);
+    close((nd1 - 1) * (invR(D.R1) - invR(D.R2)), D.p1, 1e-14,
+          'the crown radii give the crown power');
+    close((nd2 - 1) * (invR(D.R2) - invR(D.R3)), D.p2, 1e-14,
+          'the flint radii give the flint power');
+    /* F and C coincide */
+    const fF = fDoubletAt(LAM_F, D, 'N-BK7', 'F2');
+    const fC = fDoubletAt(LAM_C, D, 'N-BK7', 'F2');
+    close(fF - fC, 0, 1e-11, 'F and C land at the SAME focus, exactly');
+    close(fDoubletAt(LAM_d, D, 'N-BK7', 'F2'), 100, 1e-11,
+          'and the d line is at the target focal length');
+    /* the residual, and the classic estimate for it */
+    const fg = fDoubletAt(LAM_g, D, 'N-BK7', 'F2');
+    close(fg - fF, 0.172627727811, 1e-9, 'secondary spectrum, measured (scipy)');
+    close(secondarySpectrum(100, 'N-BK7', 'F2'), -0.172158326736, 1e-9,
+          'the classic estimate (scipy)');
+    rel(Math.abs(secondarySpectrum(100, 'N-BK7', 'F2')), Math.abs(fg - fF),
+        4e-3, 'and the estimate matches the measurement to 0.3%');
+    /* the residual is NOT zero: two glasses cannot fix three colours */
+    ok(Math.abs(fg - fF) > 0.1, 'the residual is real, not a rounding error');
+    /* A doublet of two IDENTICAL glasses cannot be achromatised at any
+       power: the solve divides by V1 - V2.  Reported, not turned into an
+       infinity that then propagates into every radius. */
+    ok(!achromatPossible('N-BK7', 'N-BK7'),
+       'one glass cannot achromatise itself');
+    ok(achromatPossible('N-BK7', 'F2'), 'a crown and a flint can');
+    ok(doubletRadii(60, 100, 'N-BK7', 'N-BK7').impossible === true,
+       'and the design routine says so rather than returning an infinity');
+  }
+  {
+    /* the singlet shorthand -f/V, and the exact ratio it is off by */
+    const dfs = fAtLambda('N-BK7', LAM_F, 100) - fAtLambda('N-BK7', LAM_C, 100);
+    close(dfs, -1.54921682832, 1e-9, 'singlet f(F) - f(C) (scipy)');
+    const V = abbeOf('N-BK7').V;
+    const nF = nGlass('N-BK7', LAM_F), nC = nGlass('N-BK7', LAM_C);
+    const nd0 = nGlass('N-BK7', LAM_d);
+    close(dfs / (-100 / V), (nd0 - 1) * (nd0 - 1) / ((nF - 1) * (nC - 1)), 1e-13,
+          '-f/V is off by exactly (n_d-1)^2/((n_F-1)(n_C-1))');
+    close(dfs / (-100 / V), 0.994091171276, 1e-10, 'which is 0.9941 (scipy)');
+    ok(Math.abs(dfs / (-100 / V) - 1) > 1e-3,
+       'so the shorthand is a shorthand, not an identity');
+  }
+
+  /* ---------- 5. the mirror ---------- */
+  {
+    const MS = K => [{ z: 0, R: -200, K: K, semi: 70, mirror: true }];
+    const cross = (K, hh) => {
+      const t = traceRay(MS(K), [hh, -240], [0, 1], LAM_d);
+      return t.p ? axisCrossing(t.p, t.d) : NaN;
+    };
+    close(cross(0, 1e-5), -100, 1e-6, 'f = R/2, reproduced by an exact trace');
+    close(cross(-1, 1e-5), -100, 1e-9, 'the paraboloid agrees at the vertex');
+    for (const hh of [10, 40, 60])
+      close(cross(-1, hh), -100, 1e-9,
+            'the paraboloid has ZERO spherical aberration at h = ' + hh);
+    close(cross(0, 60) - (-100), 4.82848367219, 1e-7,
+          'the sphere at h = 60 mm (scipy)');
+    ok(cross(0, 60) > cross(0, 10), 'and the sphere gets worse outward');
+    /* the leading law is -h^2/(4R), fitted rather than remembered */
+    for (const hh of [2, 4, 8]) {
+      const lsa = cross(0, hh) - (-100);
+      rel(lsa, -hh * hh / (4 * -200), 3e-3,
+          'the sphere follows -h^2/(4R) at h = ' + hh);
+    }
+    /* a mirror is achromatic: every wavelength gives the same focus */
+    const a = traceRay(MS(0), [20, -240], [0, 1], 0.45);
+    const b = traceRay(MS(0), [20, -240], [0, 1], 0.70);
+    close(axisCrossing(a.p, a.d), axisCrossing(b.p, b.d), 0,
+          'a mirror focuses every colour at EXACTLY the same place');
+  }
+
+  /* ---------- 6. conic sag and the surface routines ---------- */
+  close(conicSag(100, 0, 0), 0, 0, 'the sag is zero at the vertex');
+  close(conicSag(100, 0, 10), 100 - Math.sqrt(100 * 100 - 100), 1e-12,
+        'a spherical sag is R - sqrt(R^2 - h^2)');
+  close(conicSag(100, -1, 10), 100 / (100 * 2) * 1 * 1 * 0 + 10 * 10 / (2 * 100),
+        1e-12, 'a parabolic sag is exactly h^2/(2R)');
+  ok(!isFinite(conicSag(10, 0, 20)), 'a sphere has no sag beyond its radius');
+  close(conicSag(Infinity, 0, 10), 0, 0, 'a plane has no sag anywhere');
+  {
+    /* the Newton intersection must land ON the surface */
+    let worst = 0;
+    for (const R of [50, -50, 200, Infinity])
+      for (const K of [0, -1, -0.5])
+        for (const hh of [1, 5, 15]) {
+          const q = hitSurface([hh, -60], [0, 1], 3, R, K, 40);
+          if (!q) continue;
+          const s = conicSag(R, K, q[0]);
+          if (isFinite(s)) worst = Math.max(worst, Math.abs(q[1] - (3 + s)));
+        }
+    close(worst, 0, 1e-11, 'every intersection lands on its surface (1e-11)');
+  }
+  ok(hitSurface([50, -60], [0, 1], 0, 100, 0, 12) === null,
+     'a ray outside the clear aperture is blocked');
+
+  /* ---------- 7. the model, off built models ---------- */
+  {
+    const M = buildModel(Object.assign({}, DEFAULTS));
+    close(M.par.f, fThick(n, M.S.R1, M.S.R2, 6), 1e-12,
+          'model: f agrees with the lens maker');
+    ok(M.par.edge > 0, 'model: the default lens exists');
+    ok(M.fans.length === 4, 'model: four Fraunhofer lines are traced');
+    ok(M.best.z < M.zPar, 'model: the best focus is INSIDE the paraxial focus');
+    ok(M.best.rms < M.spot.rms,
+       'model: and the spot there really is smaller');
+    ok(M.lsaMax < 0, 'model: the singlet undercorrects, as a singlet must');
+    /* the four colours do NOT focus together */
+    const zs = M.fans.map(f => f.zPar);
+    ok(Math.max(...zs) - Math.min(...zs) > 0.5,
+       'model: the four colours are spread over more than half a millimetre');
+  }
+  {
+    const M = buildModel(Object.assign({}, DEFAULTS, { system: 'doublet' }));
+    const zs = M.fans.map(f => f.zPar);
+    const sing = buildModel(Object.assign({}, DEFAULTS));
+    const zsS = sing.fans.map(f => f.zPar);
+    ok(Math.max(...zs) - Math.min(...zs)
+       < 0.35 * (Math.max(...zsS) - Math.min(...zsS)),
+       'model: the doublet gathers the colours far more tightly than a singlet');
+    close(M.ach.fF - M.ach.fC, 0, 1e-11, 'model: F and C coincide');
+  }
+  {
+    const M = buildModel(Object.assign({}, DEFAULTS,
+      { system: 'mirror', conicK: -1, semi: 40 }));
+    close(M.lsaMax, 0, 1e-8,
+          'model: a parabolic mirror has no spherical aberration at all');
+    const Ms = buildModel(Object.assign({}, DEFAULTS,
+      { system: 'mirror', conicK: 0, semi: 40 }));
+    ok(Math.abs(Ms.lsaMax) > 1e-3,
+       'model: a spherical one does');
+  }
+
+  /* ---------- 8. nothing produces NaN anywhere ---------- */
+  {
+    let built = 0, panels = 0;
+    for (const sys of ['singlet', 'doublet', 'mirror'])
+      for (const [vk] of VIEWS)
+        for (const q of [-2, 0, 3])
+          for (const semi of [2, 12, 40])
+            for (const th of [1, 6, 20]) {
+              const st = Object.assign({}, DEFAULTS, { system: sys, view: vk,
+                shapeQ: q, semi: semi, thick: th });
+              let M;
+              try { M = buildModel(st); }
+              catch (e) {
+                fail++; bad.push('buildModel threw: ' + sys + '/' + vk + '/'
+                                 + q + '/' + semi + ' — ' + e.message);
+                continue;
+              }
+              built++;
+              for (const v of [M.par.f, M.zPar])
+                if (!isFinite(v)) {
+                  fail++; bad.push('non-finite in model ' + sys + '/' + vk);
+                  break;
+                }
+              const html = readoutHTML(M) + eqbarText(M) + tagText(M);
+              panels++;
+              if (/NaN|undefined|Infinity/.test(html)) {
+                fail++;
+                bad.push('panel text carries NaN/undefined: ' + sys + '/' + vk
+                         + '/' + q + '/' + semi + '/' + th);
+              }
+            }
+    ok(built === 3 * VIEWS.length * 27, 'every combination built (' + built + ')');
+    ok(panels === built, 'every combination produced panel text');
+  }
+  {
+    /* every glass, every wavelength the slider reaches */
+    let bad2 = 0;
+    for (const g of GLASSES)
+      for (let nm = 400; nm <= 780; nm += 10) {
+        try {
+          const v = nGlass(g, nm / 1000);
+          if (!(v > 1 && v < 3)) bad2++;
+        } catch (e) { bad2++; }
+      }
+    ok(bad2 === 0, 'every glass has a sane index across the whole slider range');
+  }
+
+  const total = pass + fail;
+  console.log(pass + ' passed, ' + fail + ' failed  (of ' + total + ')');
+  for (const b of bad) console.log('   FAILED: ' + b);
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+} else {
+  /* THROW on failure: a harness that cannot fail the process is not a
+     harness, and the mutation runner decides "caught" from the exit code. */
+  if (selfTest() > 0) throw new Error('selfTest: assertions failed');
+}
+</script>
+</body>
+</html>

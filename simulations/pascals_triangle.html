@@ -1,0 +1,2666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pascal&rsquo;s Triangle &mdash; residues, primes and the Sierpinski gasket</title>
+<!--
+  ===================================================================
+  pascals_triangle.html — colour C(n,k) by a condition and watch the
+  patterns emerge: parity, residues mod m, divisibility, primality
+  ===================================================================
+
+  Six views. THE TRIANGLE colours every entry by a switchable rule —
+  odd/even (the Sierpinski gasket), multiples of m, all residues mod m,
+  prime values.  THE SIERPINSKI holds rows at 2^j and counts: row n has
+  2^popcount(n) odd entries (Gould's sequence, a corollary of Lucas), so
+  the first 2^j rows hold exactly 3^j — the pattern converges to a set
+  of dimension log 3 / log 2 = 1.585.  THE MODULI draws the triangle
+  mod 2..7 side by side: prime moduli are self-similar by Lucas's
+  theorem; composite squarefree ones are CRT overlays of their prime
+  patterns.  THE CARRIES colours by nu_p(C(n,k)), which by Kummer's
+  theorem is the number of CARRIES when k + (n-k) is added in base p.
+  THE DIAGONALS shows the classic hidden sequences on a small labelled
+  triangle: row sums 2^n, the hockey stick, Fibonacci on the shallow
+  diagonals, 11^n, the Catalan numbers.  THE CENSUS counts cells not
+  divisible by p: rows < p^j hold exactly (p(p+1)/2)^j of them, so each
+  prime's gasket has dimension log(p(p+1)/2)/log p.
+
+  WHAT IS EXACT HERE (all of it — this sim contains no measured data)
+  --------------------------------------------------------------------
+  * Every entry is exact integer arithmetic: BigInt Pascal recurrence
+    for values, the same recurrence mod m for residues.  Reference
+    values (C(100,50), C(255,127), counts, valuations, Fibonacci,
+    Catalan, 11^n) are pinned to the printed output of
+    build_pascal/derive.py (math.comb, trial-division primality —
+    routes independent of the ones used here).
+  * Lucas's theorem (digit products), Kummer's theorem (carries =
+    valuation, three routes agree), Gould's sequence, the (p(p+1)/2)^j
+    census law and the diagonal identities are each implemented twice
+    and asserted against each other and against the Python pins.
+  * Primality is deterministic Miller-Rabin (13 base primes, valid to
+    3.3e24 — far above every value it is asked about) checked against a
+    sieve and against strong-pseudoprime pins.  Interior entries
+    (2 <= k <= n-2) are NEVER prime: C(n,k) >= C(n,2) > n for n >= 4
+    while every prime factor of C(n,k) is <= n — asserted directly over
+    all 2080 entries of the first 64 rows (35 primes, all on C(n,1)).
+
+  NOT MODELLED / NOT CLAIMED
+  --------------------------
+  Nothing here is approximate, but two displays truncate: values beyond
+  24 digits are shown as a TRUNCATED mantissa ("2.884329x10^75"), never
+  rounded, and the census reference line y = N^d is exact only at the
+  lattice points N = p^j (the drawn curve between them is the law, the
+  data wobbles about it — that wobble is real structure, not error).
+
+  Scaffold: the house extracts (style/utils/2-D layer from
+  pupil_plane_interferometry.html, itself from build_doppler, with the
+  sbs_state_surface plain() that decodes numeric entities inside the
+  wide match).  Entirely 2-D; no camera.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the cells the rule selects (the thing computed),
+       orange = the analytic reference (census law, expected counts),
+       magenta = the live marker (hovered cell, census cursor),
+       cyan = structure (frames, diagonal guides). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     number-theory derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the number-theory column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Pascal&rsquo;s Triangle</h1>
+  <span class="sub" id="sub">colour C(n,k) by parity, residue or primality — the Sierpinski gasket and its mod-p cousins emerge, with Kummer&rsquo;s carries and the hidden diagonal sequences</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+/* ================================================================== *
+ *  the mathematics — exact integer arithmetic throughout.  Every      *
+ *  function mirrors build_pascal/derive.py and is pinned to its       *
+ *  printed values (refvals.txt) in selfTest.                          *
+ * ================================================================== */
+
+/* ---- exact binomial coefficients: BigInt Pascal recurrence, cached ---- */
+const BINOM_ROWS=[[1n]];
+function binomRows(N){
+  while(BINOM_ROWS.length<=N){
+    const p=BINOM_ROWS[BINOM_ROWS.length-1], n=BINOM_ROWS.length, r=new Array(n+1);
+    r[0]=1n; r[n]=1n;
+    for(let k=1;k<n;k++) r[k]=p[k-1]+p[k];
+    BINOM_ROWS.push(r);
+  }
+  return BINOM_ROWS;
+}
+function binom(n,k){ if(k<0||k>n||n<0) return 0n; return binomRows(n)[n][k]; }
+
+/* ---- the same recurrence mod m (exact for ANY m, prime or not) ---- */
+function modRows(N,m){
+  const out=new Array(N+1);
+  out[0]=Int32Array.of(1%m);
+  for(let n=1;n<=N;n++){
+    const p=out[n-1], r=new Int32Array(n+1);
+    r[0]=1%m; r[n]=1%m;
+    for(let k=1;k<n;k++){ const s=p[k-1]+p[k]; r[k]=s>=m?s-m:s; }
+    out[n]=r;
+  }
+  return out;
+}
+
+/* ---- Lucas's theorem: C(n,k) mod p = prod over base-p digits (p prime) ---- */
+function lucasCk(n,k,p){
+  let r=1;
+  while(n||k){
+    const nd=n%p, kd=k%p;
+    if(kd>nd) return 0;
+    r=(r*Number(binom(nd,kd)%BigInt(p)))%p;
+    n=Math.floor(n/p); k=Math.floor(k/p);
+  }
+  return r;
+}
+
+/* ---- valuations nu_p(C(n,k)): three independent routes ---- */
+function legendreV(n,p){ let v=0,q=p; while(q<=n){ v+=Math.floor(n/q); q*=p; } return v; }
+function nuLegendre(n,k,p){ return legendreV(n,p)-legendreV(k,p)-legendreV(n-k,p); }
+/* Kummer: nu_p(C(n,k)) = number of carries when k + (n-k) is added in base p */
+function nuCarries(k,m2,p){
+  let carry=0,cnt=0;
+  while(k||m2||carry){
+    const s=k%p+m2%p+carry;
+    carry=s>=p?1:0; cnt+=carry;
+    k=Math.floor(k/p); m2=Math.floor(m2/p);
+  }
+  return cnt;
+}
+function nuDirect(x,p){ const P=BigInt(p); let v=0; while(x>0n&&x%P===0n){ x/=P; v++; } return v; }
+function digitsBase(n,p){ if(n===0) return [0]; const d=[]; while(n){ d.push(n%p); n=Math.floor(n/p); } return d; }
+function baseStr(n,p){ return digitsBase(n,p).slice().reverse().join(''); }
+
+/* ---- primality ---- */
+function sieveTo(N){
+  const s=new Uint8Array(N); s.fill(1); if(N>0) s[0]=0; if(N>1) s[1]=0;
+  for(let i=2;i*i<N;i++) if(s[i]) for(let j=i*i;j<N;j+=i) s[j]=0;
+  return s;
+}
+function powmod(b,e,m){ let r=1n; b%=m; while(e>0n){ if(e&1n) r=r*b%m; b=b*b%m; e>>=1n; } return r; }
+/* Deterministic Miller-Rabin: the first 13 primes as bases decide primality
+   for every x < 3.317e24 (Sorenson & Webster 2015).  The largest value this
+   file ever hands it is C(63,31) = 9.16e17 in the direct rows<64 sweep; the
+   guard throws rather than silently degrading to "probable". */
+const MR_BASES=[2n,3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n,41n];
+const MR_BOUND=3317044064679887385961981n;
+function isPrimeBig(x){
+  if(x<2n) return false;
+  for(const p of MR_BASES){ if(x===p) return true; if(x%p===0n) return false; }
+  if(x>=MR_BOUND) throw new Error('isPrimeBig: beyond the deterministic bound');
+  let d=x-1n,s=0n;
+  while((d&1n)===0n){ d>>=1n; s++; }
+  for(const a of MR_BASES){
+    let v=powmod(a,d,x);
+    if(v===1n||v===x-1n) continue;
+    let hit=false;
+    for(let i=1n;i<s;i++){ v=v*v%x; if(v===x-1n){ hit=true; break; } }
+    if(!hit) return false;
+  }
+  return true;
+}
+/* The prime cells of the triangle.  Interior entries (2 <= k <= n-2) are
+   never prime: every prime factor of C(n,k) divides n!, hence is <= n, while
+   C(n,k) >= C(n,2) = n(n-1)/2 > n for n >= 4 — a prime value would have to
+   BE a prime factor of itself.  So primes live only where C(n,k) = n.
+   Asserted against a direct Miller-Rabin sweep of all 2080 entries of the
+   first 64 rows in selfTest (35 primes, the derive.py count). */
+function isPrimeCell(n,k){
+  if(k<0||k>n) return false;
+  const kk=Math.min(k,n-k);
+  if(kk!==1) return false;
+  return isPrimeBig(BigInt(n));
+}
+
+function gcd(a,b){ while(b){ const t2=a%b; a=b; b=t2; } return a; }
+
+/* ---- Gould's sequence and the census laws (p prime) ---- */
+function popcount(n){ let c=0; while(n){ c+=n&1; n>>>=1; } return c; }
+/* Lucas corollary: entries of row n not divisible by p = prod(digit_i + 1) */
+function rowNonzeroCount(n,p){ let r=1; while(n){ r*=(n%p)+1; n=Math.floor(n/p); } return r; }
+function cumNonzero(N,p){ let s=0; for(let n=0;n<N;n++) s+=rowNonzeroCount(n,p); return s; }
+/* dimension of the mod-p gasket: rows < p^j hold (p(p+1)/2)^j nonzero cells */
+function gasketDim(p){ return Math.log(p*(p+1)/2)/Math.log(p); }
+
+/* ---- the diagonal identities (all BigInt-exact) ---- */
+function rowSum(n){ let s=0n; for(const v of binomRows(n)[n]) s+=v; return s; }         /* = 2^n */
+function altRowSum(n){ let s=0n,sg=1n; for(const v of binomRows(n)[n]){ s+=sg*v; sg=-sg; } return s; }
+function hockeySum(r,n){ let s=0n; for(let i=r;i<=n;i++) s+=binom(i,r); return s; }     /* = C(n+1,r+1) */
+function shallowSum(n){ let s=0n; for(let i=0;2*i<=n;i++) s+=binom(n-i,i); return s; }  /* = F(n+1) */
+function fibTo(N){ const f=[0n,1n]; for(let i=2;i<=N;i++) f.push(f[i-1]+f[i-2]); return f; }
+function catalanSub(n){ return binom(2*n,n)-binom(2*n,n+1); }
+function catalanDiv(n){ return binom(2*n,n)/BigInt(n+1); }                              /* exact division */
+function elevensSum(n){ let s=0n,t=1n; for(let k=0;k<=n;k++){ s+=binom(n,k)*t; t*=10n; } return s; } /* = 11^n */
+
+/* ---- display formatting for exact integers ---- */
+/* Up to 24 digits: exact, thin-space groups of three.  Beyond: a TRUNCATED
+   mantissa — sliced from the digit string, never rounded, because the digits
+   themselves are the subject here (the toFixed-rounds-pi Known-bad). */
+function fmtBig(x){
+  const neg=x<0n, s=(neg?-x:x).toString();
+  if(s.length<=24){
+    let o='';
+    for(let i=0;i<s.length;i++){ if(i&&(s.length-i)%3===0) o+=' '; o+=s[i]; }
+    return (neg?'−':'')+o;
+  }
+  return (neg?'−':'')+s[0]+'.'+s.slice(1,7)+'×10^'+(s.length-1)+' ('+s.length+' digits)';
+}
+function fmtBigShort(x){                      /* for canvas cell labels */
+  const s=x.toString();
+  return s.length<=7?s:s[0]+'.'+s.slice(1,3)+'e'+(s.length-1);
+}
+/* ================================================================== *
+ *  state, model, readout, eqbar                                       *
+ * ================================================================== */
+const TABS=[['tri','the triangle'],['sier','the sierpinski'],['mod','the moduli'],
+            ['car','the carries'],['pri','the primes'],['diag','the diagonals'],
+            ['cen','the census']];
+const RULES=[{id:'parity',name:'odd / even'},{id:'mult',name:'multiples of m'},
+             {id:'res',name:'residues mod m'},{id:'prime',name:'primes'}];
+const PCH=[{id:2,name:'p = 2'},{id:3,name:'p = 3'},{id:5,name:'p = 5'},{id:7,name:'p = 7'}];
+const DMODES=[{id:'sums',name:'row sums'},{id:'stick',name:'hockey stick'},
+              {id:'fib',name:'fibonacci'},{id:'elevens',name:'powers of 11'},
+              {id:'cat',name:'catalan'}];
+const MODULI=[2,3,4,5,6,7];                 /* the moduli view's fixed panels */
+const MAXROWS=256, MODROWCAP=96;            /* moduli panels cap their rows */
+
+const DEFAULTS={view:'tri', rows:128, m:3, p:2, krow:7, rule:'parity',
+                dmode:'sums', dRows:14, hsr:2, sieve:8, labels:true,
+                grow:false, speed:1, zoom:1, panx:0, pany:0,
+                hn:-1, hk:-1, reveal:1e9};
+const ST=Object.assign({},DEFAULTS);
+
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0',
+           dim:'#8b93a6', off:'#161c2c', edge:'#242a3a'};
+const RO_W=300;                             /* the floating readout's reserve */
+/* residue r mod m -> its colour.  ONE function, used by the triangle's
+   residues rule, the moduli panels and the readout legend alike, so the
+   mapping cannot drift between the picture and its key.  0 recedes; the
+   classes 1..m-1 walk the NeonColors ramp (identity use — the ramp's flat
+   lightness is fine for identity, Known-bad forbids it only for magnitude). */
+function resColor(r,m){ return r===0?COL.off:neonCss((r-1)/Math.max(1,m-2)); }
+/* valuation v -> its green.  ONE function for the cells and the readout
+   legend — the formula written twice in two layers is the synth.html trap. */
+function nuColor(v,vmax){ return v===0?COL.off:shade(COL.pos,0.3+0.7*Math.pow(v/Math.max(1,vmax),0.85)); }
+const ZOOM_MIN=1, ZOOM_MAX=64, PAN_MARGIN=90;
+
+/* ---- caches: the grids are small (33k cells), so build them full-depth
+   once per modulus and slice ---- */
+const CACHE={};
+function cached(key,fn){ if(CACHE[key]===undefined) CACHE[key]=fn(); return CACHE[key]; }
+function modGrid(m){ return cached('mod|'+m,()=>modRows(MAXROWS,m)); }
+function nuGrid(p){
+  return cached('nu|'+p,()=>{
+    const out=new Array(MAXROWS+1);
+    for(let n=0;n<=MAXROWS;n++){
+      const r=new Int8Array(n+1);
+      for(let k=0;k<=n;k++) r[k]=nuCarries(k,n-k,p);
+      out[n]=r;
+    }
+    return out;
+  });
+}
+function primeSieve(){ return cached('sieve',()=>sieveTo(MAXROWS+1)); }
+
+function lazyC(obj,name,fn){
+  let has=false,v;
+  Object.defineProperty(obj,name,{get(){ if(!has){ v=fn(); has=true; } return v; },
+                                  configurable:true, enumerable:false});
+}
+
+/* how many rows the current view draws (census/moduli/diagonals ignore the
+   growth animation; the moduli panels are capped for legibility) */
+function rowsFor(st){
+  if(st.view==='sier') return Math.pow(2,st.krow);
+  if(st.view==='diag') return st.dRows;
+  return st.rows;
+}
+function growable(view){ return view==='tri'||view==='sier'||view==='car'; }
+function zoomable(view){ return view==='tri'||view==='sier'||view==='car'||view==='pri'; }
+
+/* ---- the primes tab: staged elimination, every stage a theorem ----
+   sqrt(255) < 17, so six sieve primes settle every row index the cap admits.
+   Codes: 1 = a literal 1 (kk = 0); 2 = interior (C(n,k) > n while every
+   prime factor is <= n — never prime); 3+i = the diagonal value n has a
+   base-SIEVE_PRIMES[i] carry in 1 + (n-1), i.e. the prime divides n
+   (Kummer run as Eratosthenes); 99 = survives everything: n is prime. */
+const SIEVE_PRIMES=[2,3,5,7,11,13];
+const PRI_STAGES=['every cell is a candidate','the 1s are not prime',
+  'the interior is never prime','sieve out the multiples of 2',
+  'sieve out the multiples of 3','sieve out the multiples of 5',
+  'sieve out the multiples of 7','sieve out the multiples of 11',
+  'sieve out the multiples of 13 — done: the survivors are the primes'];
+const PRI_SHORT=['all cells','no 1s','no interior','sieve 2','sieve 3',
+  'sieve 5','sieve 7','sieve 11','done'];
+function priCode(n,k){
+  const kk=Math.min(k,n-k);
+  if(kk===0) return 1;
+  if(kk>=2) return 2;
+  for(let i=0;i<SIEVE_PRIMES.length;i++){
+    const q=SIEVE_PRIMES[i];
+    if(n!==q&&n%q===0) return 3+i;
+  }
+  return 99;
+}
+function priWhy(c,n){
+  if(c===1) return 'a 1 — not prime by definition';
+  if(c===2) return 'interior: C(n,k) > n, yet every prime factor is ≤ n';
+  if(c===99) return 'n = '+n+' is prime — it survives every stage';
+  const q=SIEVE_PRIMES[c-3];
+  return q+' | '+n+': adding 1 + '+(n-1)+' in base '+q+' carries (Kummer)';
+}
+
+/* ================================================================== *
+ *  triangle geometry — pure, so pick() and the pan clamp are          *
+ *  assertable without a canvas.  World: cell (n,k) centred at         *
+ *  wx = (k - n/2) s0, wy = (n + 0.5) s0 from the anchor (cx0, top).   *
+ *  Screen = anchor + world x zoom + pan.                              *
+ * ================================================================== */
+function triGeo(W,H,N,zoom,panx,pany,capH){
+  const top=stageTop()+18, bot=H-(capH||64)-12;
+  const availW=W-48, availH=Math.max(40,bot-top);
+  const s0=Math.min(availW/N,availH/N);
+  const cx0=W>=900?(W-RO_W)/2+12:W/2;
+  const s=s0*zoom;
+  return {W,H,N,top,bot,s0,s,cx0,zoom,panx,pany,
+          X(n,k){ return cx0+(k-n/2)*s0*zoom+panx; },
+          Y(n){ return top+(n+0.5)*s0*zoom+pany; }};
+}
+function triPick(g,x,y){
+  const wy=(y-g.top-g.pany)/g.zoom, wx=(x-g.cx0-g.panx)/g.zoom;
+  const n=Math.floor(wy/g.s0);
+  if(n<0||n>=g.N) return null;
+  const k=Math.round(wx/g.s0+n/2);
+  if(k<0||k>n) return null;
+  if(Math.abs(wx/g.s0+n/2-k)>0.5) return null;
+  return {n,k};
+}
+/* clamp the pan so the triangle's bounding box always keeps PAN_MARGIN px
+   inside the viewport — a pan cannot lose the content off any edge */
+function clampPan(W,H,N,zoom,panx,pany){
+  const g=triGeo(W,H,N,1,0,0,64);           /* base fit for s0/cx0/top */
+  const hw=(N/2)*g.s0*zoom, hgt=N*g.s0*zoom;
+  const lo_x=PAN_MARGIN-g.cx0-hw, hi_x=W-PAN_MARGIN-g.cx0+hw;
+  const lo_y=PAN_MARGIN-g.top-hgt, hi_y=H-PAN_MARGIN-g.top;
+  return [clamp(panx,Math.min(lo_x,hi_x),Math.max(lo_x,hi_x)),
+          clamp(pany,Math.min(lo_y,hi_y),Math.max(lo_y,hi_y))];
+}
+
+/* ================================================================== *
+ *  the model — every number a view draws or the readout prints        *
+ * ================================================================== */
+function buildModel(){
+  const st=ST, view=st.view;
+  const M={view, rule:st.rule, m:st.m, p:st.p, rows:rowsFor(st),
+           dmode:st.dmode, hsr:st.hsr, labels:st.labels, zoom:st.zoom};
+  M.reveal=(st.grow&&growable(view))?clamp(Math.floor(st.reveal),0,M.rows):M.rows;
+  M.total=M.rows*(M.rows+1)/2;
+
+  /* ---- the colour of every cell, per view — in the MODEL so the rule can
+     be asserted and mutated, not buried in a draw call (Known-bad) ---- */
+  if(view==='tri'){
+    const rl=st.rule;
+    if(rl==='parity'){
+      const g=modGrid(2);
+      M.cellColor=(n,k)=>g[n][k]?COL.pos:COL.off;
+      M.cellHit=(n,k)=>g[n][k]===1;
+    } else if(rl==='mult'){
+      const g=modGrid(st.m);
+      M.cellColor=(n,k)=>g[n][k]===0?COL.pos:COL.off;
+      M.cellHit=(n,k)=>g[n][k]===0;
+    } else if(rl==='res'){
+      const g=modGrid(st.m), mm=st.m;
+      M.cellColor=(n,k)=>resColor(g[n][k],mm);
+      M.cellHit=(n,k)=>g[n][k]!==0;
+    } else {                                    /* primes */
+      M.cellColor=(n,k)=>isPrimeCell(n,k)?COL.pos:COL.off;
+      M.cellHit=(n,k)=>isPrimeCell(n,k);
+    }
+  } else if(view==='sier'){
+    const g=modGrid(2);
+    M.cellColor=(n,k)=>g[n][k]?COL.pos:COL.off;
+    M.cellHit=(n,k)=>g[n][k]===1;
+  } else if(view==='pri'){
+    const s2=st.sieve;
+    M.sieve=s2;
+    M.cellColor=(n,k)=>{ const c=priCode(n,k);
+      if(c===99||c>s2) return COL.pos;
+      if(c===s2) return COL.ref;
+      return COL.off; };
+    M.cellHit=(n,k)=>{ const c=priCode(n,k); return c===99||c>s2; };
+    lazyC(M,'primesBelow',()=>{ const sv=primeSieve(); let c=0;
+      for(let n=0;n<M.rows;n++) if(sv[n]) c++; return c; });
+    /* the prime race: pi(x; m, r) for the classes coprime to m, plus the
+       final count of EVERY class (the non-coprime ones stall at <= 1) */
+    lazyC(M,'race',()=>cached('race|'+st.m+'|'+M.rows,()=>{
+      const sv=primeSieve(), m=st.m, N=M.rows;
+      const classes=[];
+      for(let r=0;r<m;r++) if(gcd(r,m)===1) classes.push(r);
+      const series=classes.map(r=>({r,ys:new Int32Array(N)}));
+      const cum=new Int32Array(m);
+      for(let x=0;x<N;x++){
+        if(sv[x]) cum[x%m]++;
+        for(const sr of series) sr.ys[x]=cum[sr.r];
+      }
+      return {classes,series,counts:Array.from(cum)};
+    }));
+  } else if(view==='car'){
+    const nu=nuGrid(st.p);
+    lazyC(M,'numax',()=>{ let mx=0;
+      for(let n=0;n<M.rows;n++) for(let k=0;k<=n;k++) if(nu[n][k]>mx) mx=nu[n][k];
+      return mx; });
+    M.nuOf=(n,k)=>nu[n][k];
+    M.cellColor=(n,k)=>nuColor(nu[n][k],M.numax);
+    M.cellHit=(n,k)=>nu[n][k]>0;
+  }
+
+  /* ---- counts, off the same cellHit the drawing uses ---- */
+  if(M.cellHit) lazyC(M,'hits',()=>{           /* over the REVEALED rows, so the
+    caption's count matches the picture while the growth animation runs */
+    let c=0;
+    for(let n=0;n<M.reveal;n++) for(let k=0;k<=n;k++) if(M.cellHit(n,k)) c++;
+    return c; });
+  if(view==='car') lazyC(M,'nuHist',()=>{
+    const nu=nuGrid(st.p), h=new Array(M.numax+1).fill(0);
+    for(let n=0;n<M.rows;n++) for(let k=0;k<=n;k++) h[nu[n][k]]++;
+    return h; });
+  if(view==='sier'){
+    M.j=st.krow;
+    M.law=Math.pow(3,st.krow);                 /* 3^j odd cells in 2^j rows */
+    lazyC(M,'gould',()=>{ const out=new Int32Array(M.rows);
+      for(let n=0;n<M.rows;n++) out[n]=Math.pow(2,popcount(n)); return out; });
+    lazyC(M,'cum',()=>{ const out=new Float64Array(M.rows+1);
+      for(let n=0;n<M.rows;n++) out[n+1]=out[n]+Math.pow(2,popcount(n)); return out; });
+  }
+
+  /* ---- the census (its own view, and the sierpinski panels) ---- */
+  if(view==='cen'){
+    const p=st.p;
+    M.d=gasketDim(p);
+    lazyC(M,'cum',()=>{ const out=new Float64Array(M.rows+1);
+      for(let n=0;n<M.rows;n++) out[n+1]=out[n]+rowNonzeroCount(n,p); return out; });
+    lazyC(M,'lattice',()=>{ const out=[];
+      for(let q=p,law=p*(p+1)/2;q<=M.rows;q*=p,law*=p*(p+1)/2) out.push([q,law]);
+      return out; });
+    lazyC(M,'frac',()=>{ const out=new Float64Array(M.rows);
+      for(let N=1;N<=M.rows;N++) out[N-1]=M.cum[N]/(N*(N+1)/2); return out; });
+  }
+
+  /* ---- the diagonals view: highlights, side annotations, values ---- */
+  if(view==='diag'){
+    const N=M.rows, mode=st.dmode;
+    lazyC(M,'vals',()=>binomRows(N-1));
+    if(mode==='stick'){
+      M.stickR=Math.min(st.hsr,N-3);
+      M.stickN=N-2;                            /* the run ends two rows up */
+      lazyC(M,'stickSum',()=>hockeySum(M.stickR,M.stickN));
+    }
+    if(mode==='fib') lazyC(M,'fibs',()=>fibTo(N+1));
+    M.diagColor=(n,k)=>{
+      if(mode==='stick'){
+        if(k===M.stickR&&n>=M.stickR&&n<=M.stickN) return COL.pos;
+        if(n===M.stickN+1&&k===M.stickR+1) return COL.live;
+        return COL.off;
+      }
+      if(mode==='fib') return shade(neonCss(((n+k)%8)/7),0.42);
+      if(mode==='cat'){
+        if(n%2===0&&k===n/2) return COL.pos;
+        if(n%2===0&&k===n/2+1) return COL.struct;
+        return COL.off;
+      }
+      return COL.off;                          /* sums, elevens: neutral cells */
+    };
+    /* the right-hand annotation for row n (colour + text), mode-dependent */
+    M.diagSide=(n)=>{
+      if(mode==='sums') return [COL.ref,'= '+fmtBig(rowSum(n))+' = 2^'+n];
+      if(mode==='elevens') return [COL.ref,'11^'+n+' = '+fmtBig(elevensSum(n))];
+      if(mode==='cat'&&n%2===0&&n>0) return [COL.live,'Cat('+(n/2)+') = '+fmtBig(catalanDiv(n/2))];
+      return null;
+    };
+  }
+
+  /* ---- hover ---- */
+  if(st.hn>=0&&st.hn<M.rows&&st.hk>=0&&st.hk<=st.hn&&view!=='mod'&&view!=='cen'){
+    const n=st.hn,k=st.hk;
+    M.hover={n,k};
+    lazyC(M.hover,'val',()=>binom(n,k));
+    M.hover.odd=modGrid(2)[n][k]===1;
+    M.hover.res=modGrid(st.m)[n][k];
+    M.hover.nu=nuGrid(st.p)[n][k];
+    M.hover.prime=isPrimeCell(n,k);
+    M.hover.gould=Math.pow(2,popcount(n));
+    M.hover.kb=baseStr(k,st.p); M.hover.nkb=baseStr(n-k,st.p); M.hover.nb=baseStr(n,st.p);
+    if(view==='pri'){ M.hover.pcode=priCode(n,k); M.hover.why=priWhy(M.hover.pcode,n); }
+  }
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function pct(x){ return fmt(100*x,1)+'%'; }
+
+function ruleName(st){ const r=RULES.find(r=>r.id===st.rule); return r?r.name:st.rule; }
+/* the chip says "mod m"; the caption should say which m is actually live */
+function ruleLabel(st){
+  if(st.rule==='mult') return 'multiples of '+st.m;
+  if(st.rule==='res') return 'residues mod '+st.m;
+  return ruleName(st);
+}
+
+function readoutHTML(M){
+  const st=ST;
+  let s='<div class="rname">Pascal&rsquo;s triangle<small>'
+      +TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='tri'){
+    s+=hd('the rule')+rrow('colour by',ruleLabel(st));
+    if(st.rule==='mult'||st.rule==='res') s+=rrow('modulus m',st.m);
+    s+=rrow('rows',M.rows)+rrow('cells',fmtBig(BigInt(M.total)));
+    s+=hd('the count');
+    const nm=st.rule==='parity'?'odd':(st.rule==='mult'?'&equiv; 0 mod '+st.m
+            :(st.rule==='res'?'&ne; 0 mod '+st.m:'prime'));
+    s+=rrow(nm+' cells',fmtBig(BigInt(M.hits)))
+      +rrow('fraction',pct(M.hits/M.total));
+    if(st.rule==='res'&&st.m>2){
+      s+='<tr><td colspan="2"><div class="legend">';
+      for(let r=1;r<st.m;r++)
+        s+='<span><i style="background:'+resColor(r,st.m)+'"></i>'+r+'</span>';
+      s+='<span><i style="background:'+COL.off+'"></i>0</span></div></td></tr>';
+    }
+    if(st.rule==='prime')
+      s+='<tr><td colspan="2"><div class="note">primes live ONLY on the second diagonal '
+        +'C(n,1) = n: an interior entry exceeds n while all its prime factors are &le; n.</div></td></tr>';
+  }
+  else if(M.view==='sier'){
+    s+=hd('the gasket')+rrow('rows 2^j',M.rows+' (j = '+M.j+')')
+      +rrow('odd cells',fmtBig(BigInt(M.hits)))
+      +rrow('3^j',fmtBig(BigInt(M.law)),M.hits===M.law?'good':'bad')
+      +rrow('fraction',pct(M.hits/M.total))
+      +rrow('dimension',fmt(Math.log(3)/Math.log(2),4));
+  }
+  else if(M.view==='mod'){
+    s+=hd('six moduli')+rrow('rows',Math.min(st.rows,MODROWCAP))
+      +rrow('prime m','2, 3, 5, 7')+rrow('composite m','4, 6');
+    s+='<tr><td colspan="2"><div class="note">prime moduli are self-similar (Lucas); '
+      +'mod 6 is the mod-2 and mod-3 patterns overlaid (CRT); mod 4 is subtler — '
+      +'prime POWERS are not digit products.</div></td></tr>';
+  }
+  else if(M.view==='car'){
+    s+=hd('the valuation')+rrow('prime p',st.p)+rrow('rows',M.rows)
+      +rrow('max &nu;',M.numax)
+      +rrow('&nu; = 0 cells',fmtBig(BigInt(M.nuHist[0])))
+      +rrow('divisible cells',fmtBig(BigInt(M.total-M.nuHist[0])));
+    s+='<tr><td colspan="2"><div class="legend">';
+    for(let v=0;v<=M.numax;v++)
+      s+='<span><i style="background:'+nuColor(v,M.numax)+'"></i>&nu;='+v+': '+M.nuHist[v]+'</span>';
+    s+='</div></td></tr>';
+  }
+  else if(M.view==='pri'){
+    const done=st.sieve>=8;
+    s+=hd('the sieve')+rrow('stage',PRI_SHORT[st.sieve])
+      +rrow('standing cells',fmtBig(BigInt(M.hits)))
+      +rrow('of',fmtBig(BigInt(M.total)));
+    if(done) s+=rrow('survivors','2π('+(M.rows-1)+')−1 = '+(2*M.primesBelow-1),
+                     M.hits===2*M.primesBelow-1?'good':'bad');
+    s+=hd('the rows')+rrow('rows with a prime',M.primesBelow)
+      +rrow('provably prime-free',M.rows-M.primesBelow);
+    s+='<tr><td colspan="2"><div class="note">a row holds a prime iff its index is '
+      +'prime — everything else dies with the interior and the sieve.</div></td></tr>';
+    s+=hd('primes mod '+st.m);
+    s+='<tr><td colspan="2"><div class="legend">';
+    for(let r=0;r<st.m;r++){
+      const cop=gcd(r,st.m)===1;
+      s+='<span><i style="background:'+(cop?resColor(Math.max(1,r),st.m):COL.off)
+        +'"></i>'+r+': '+M.race.counts[r]+(cop?'':' (stalled)')+'</span>';
+    }
+    s+='</div></td></tr>';
+    s+='<tr><td colspan="2"><div class="note">a class sharing a factor with m keeps at '
+      +'most ONE prime (that factor itself); the coprime classes share the rest '
+      +'(Dirichlet).</div></td></tr>';
+  }
+  else if(M.view==='diag'){
+    const N=M.rows;
+    s+=hd('the identity')+rrow('mode',DMODES.find(d=>d.id===st.dmode).name)+rrow('rows',N);
+    if(st.dmode==='sums')
+      s+=rrow('&Sigma; row '+(N-1),fmtBig(rowSum(N-1)))
+        +rrow('2^'+(N-1),fmtBig(1n<<BigInt(N-1)),rowSum(N-1)===(1n<<BigInt(N-1))?'good':'bad')
+        +rrow('alternating &Sigma;','0 (n &ge; 1)');
+    else if(st.dmode==='stick')
+      s+=rrow('&Sigma; C(i,'+M.stickR+'), i&le;'+M.stickN,fmtBig(M.stickSum))
+        +rrow('C('+(M.stickN+1)+','+(M.stickR+1)+')',fmtBig(binom(M.stickN+1,M.stickR+1)),
+              M.stickSum===binom(M.stickN+1,M.stickR+1)?'good':'bad');
+    else if(st.dmode==='fib')
+      s+=rrow('shallow &Sigma; at n='+(N-1),fmtBig(shallowSum(N-1)))
+        +rrow('F('+N+')',fmtBig(M.fibs[N]),shallowSum(N-1)===M.fibs[N]?'good':'bad');
+    else if(st.dmode==='elevens')
+      s+=rrow('row '+(N-1)+' read base 10',fmtBig(elevensSum(N-1)))
+        +rrow('11^'+(N-1),fmtBig(11n**BigInt(N-1)),elevensSum(N-1)===11n**BigInt(N-1)?'good':'bad');
+    else
+      s+=rrow('Cat('+Math.floor((N-1)/2)+')',fmtBig(catalanDiv(Math.floor((N-1)/2))))
+        +rrow('C(2n,n)&minus;C(2n,n+1)',fmtBig(catalanSub(Math.floor((N-1)/2))),
+              catalanDiv(Math.floor((N-1)/2))===catalanSub(Math.floor((N-1)/2))?'good':'bad');
+  }
+  else if(M.view==='cen'){
+    const N=M.rows, cum=M.cum[N];
+    s+=hd('the census')+rrow('prime p',st.p)+rrow('rows N',N)
+      +rrow('&ne; 0 mod p',fmtBig(BigInt(cum)))
+      +rrow('of',fmtBig(BigInt(M.total)))
+      +rrow('fraction',pct(cum/M.total))
+      +rrow('dimension d',fmt(M.d,4));
+    const lat=M.lattice;
+    if(lat.length){ const [q,law]=lat[lat.length-1];
+      s+=rrow('at N = '+st.p+'^'+lat.length+' = '+q,fmtBig(BigInt(law))+' exactly',
+              M.cum[Math.min(q,N)]===law&&q<=N?'good':''); }
+  }
+  /* hover — shared */
+  if(M.hover){
+    const hv=M.hover;
+    s+=hd('the cell')+rrow('n, k',hv.n+', '+hv.k)
+      +rrow('C(n,k)',fmtBig(hv.val));
+    if(M.view==='car')
+      s+=rrow('base '+st.p,hv.kb+' + '+hv.nkb+' = '+hv.nb)
+        +rrow('carries = &nu;',hv.nu,hv.nu>0?'bad':'good')
+        +rrow('p^&nu; ',st.p+'^'+hv.nu+' &#8741; C');
+    else if(M.view==='pri')
+      s+=rrow('verdict',hv.pcode===99?'prime':'eliminated',hv.pcode===99?'good':'bad')
+        +rrow('n mod '+st.m,hv.n%st.m)
+        +'<tr><td colspan="2"><div class="note">'+hv.why+'</div></td></tr>';
+    else
+      s+=rrow('parity',hv.odd?'odd':'even',hv.odd?'good':'')
+        +rrow('mod '+st.m,hv.res)
+        +rrow('prime?',hv.prime?'yes':'no',hv.prime?'good':'')
+        +rrow('odd in row n','2^popcount = '+hv.gould);
+  } else if(M.view!=='mod'&&M.view!=='cen'){
+    s+='<tr><td colspan="2"><div class="note">hover a cell for its exact value.</div></td></tr>';
+  }
+  s+='</table>';
+  s+='<div class="note">All integer arithmetic is exact (BigInt); every law shown is '
+    +'asserted against build_pascal/derive.py pins in selfTest.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const st=ST;
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='tri'){
+    if(st.rule==='prime') return E('C(n,k) prime &nbsp;&hArr;&nbsp; k &isin; {1, n&minus;1} and n prime',
+      'an interior entry exceeds n, but every prime factor of C(n,k) divides n! and is at most n');
+    return E('C(n,k) = C(n&minus;1,k&minus;1) + C(n&minus;1,k)',
+      'one addition builds everything — each colour rule reads the same triangle through a different remainder');
+  }
+  if(M.view==='sier') return E('#odd in row n = 2<sup>popcount(n)</sup> &nbsp;&rArr;&nbsp; rows &lt; 2<sup>j</sup> hold <span class="hl">3<sup>j</sup></span> odd cells',
+    'Gould&rsquo;s sequence; the odd cells converge to the Sierpinski gasket, dimension log 3 / log 2 = 1.585');
+  if(M.view==='mod') return E('C(n,k) &equiv; &Pi;<sub>i</sub> C(n<sub>i</sub>,k<sub>i</sub>) (mod p)',
+    'Lucas, 1878: read n and k in base p, digit by digit — the whole pattern is the one-digit pattern, nested');
+  if(M.view==='car') return E('&nu;<sub>p</sub>(C(n,k)) = # carries of k + (n&minus;k) in base p',
+    'Kummer, 1852: the exact power of p dividing C(n,k) counts the carries in one base-p addition');
+  if(M.view==='pri'){
+    return E('C(n,k) prime &hArr; min(k,n&minus;k) = 1 and n prime; &nbsp; p | n &hArr; 1 + (n&minus;1) carries in base p',
+      'every stage is a theorem: the interior falls by size vs factors, the multiples fall by Kummer&rsquo;s carries, and what stands is exactly the primes');
+  }
+  if(M.view==='diag'){
+    if(st.dmode==='sums') return E('&Sigma;<sub>k</sub> C(n,k) = 2<sup>n</sup>, &nbsp; &Sigma;<sub>k</sub> (&minus;1)<sup>k</sup> C(n,k) = 0',
+      'count all subsets, or cancel them in pairs — the binomial theorem at x = 1 and x = &minus;1');
+    if(st.dmode==='stick') return E('&Sigma;<sub>i=r..n</sub> C(i,r) = <span class="hl2">C(n+1,r+1)</span>',
+      'the hockey stick: telescope the Pascal recurrence down the diagonal');
+    if(st.dmode==='fib') return E('&Sigma;<sub>i</sub> C(n&minus;i,i) = F(n+1)',
+      'the shallow diagonals sum to Fibonacci — the recurrence splits a sum into the two above it');
+    if(st.dmode==='elevens') return E('&Sigma;<sub>k</sub> C(n,k) 10<sup>k</sup> = 11<sup>n</sup>',
+      'each row IS a power of 11 once the carrying is done — rows 0&ndash;4 read off directly');
+    return E('Cat(n) = C(2n,n)/(n+1) = C(2n,n) &minus; C(2n,n+1)',
+      'the central column, corrected by its neighbour — ballot paths that never dip below zero');
+  }
+  return E('#{C(n,k) &#8802; 0 mod p : n &lt; p<sup>j</sup>} = <span class="hl">(p(p+1)/2)<sup>j</sup></span>',
+    'sum the digit-product law over all j-digit strings — each prime&rsquo;s gasket has dimension log(p(p+1)/2)/log p');
+}
+
+function tagHTML(M){
+  const st=ST;
+  if(M.view==='tri') return '<b>the triangle</b> — '+plainRule(st);
+  if(M.view==='sier') return '<b>the sierpinski</b> — 2<sup>'+M.j+'</sup> = '+M.rows+' rows, '
+    +fmtBig(BigInt(M.hits))+' odd cells = 3<sup>'+M.j+'</sup>';
+  if(M.view==='mod') return '<b>the moduli</b> — one triangle, six remainders';
+  if(M.view==='car') return '<b>the carries</b> — brightness = &nu;<sub>'+st.p+'</sub>(C(n,k))';
+  if(M.view==='pri') return '<b>the primes</b> — '+PRI_SHORT[st.sieve]+', '
+    +fmtBig(BigInt(M.hits))+' cells standing';
+  if(M.view==='diag') return '<b>the diagonals</b> — '+DMODES.find(d=>d.id===st.dmode).name;
+  return '<b>the census</b> — how much of the triangle p leaves untouched';
+}
+function plainRule(st){
+  if(st.rule==='parity') return 'odd entries in green';
+  if(st.rule==='mult') return 'multiples of '+st.m+' in green';
+  if(st.rule==='res') return 'every residue mod '+st.m+' its own colour';
+  return 'prime entries in green';
+}
+/* ================================================================== *
+ *  drawing helpers and the cell renderer                              *
+ * ================================================================== */
+/* caption reserve: two lines beside the readout when wide, up to four lines
+   full-width when narrow (a fixed 60 px lost three-line captions off the
+   bottom of a 560x380 canvas — measured by the first layout sweep) */
+function capHFor(W){ return W>=900?60:96; }
+function drawCap(ctx,W,H,full,short){
+  const narrow=W<900;
+  /* the band is opaque on purpose: a zoomed triangle's cells run underneath
+     the caption zone, and grey prose on bright green cells is unreadable */
+  ctx.fillStyle='#070b18';
+  ctx.fillRect(0,H-capHFor(W),W,capHFor(W));
+  caption(ctx,28,H-capHFor(W)+8,narrow?short:full,narrow?W-56:W-RO_W-60);
+}
+
+function txt(ctx,t,x,y,col,font,align,base){
+  ctx.fillStyle=col||COL.dim; ctx.font=font||'11px -apple-system, sans-serif';
+  ctx.textAlign=align||'left'; ctx.textBaseline=base||'alphabetic';
+  ctx.fillText(plain(t),x,y);
+}
+function ptitle(ctx,b,t){ txt(ctx,t,b.x,b.y-9,'#aeb6c6','italic 13px Georgia, serif','left','bottom'); }
+
+/* generalised triangle geometry inside an explicit box (the view-specific
+   geos below share it, so the pick and the drawing cannot drift apart) */
+function triGeoBox(x0,x1,top,bot,N,zoom,panx,pany,W,H){
+  const s0=Math.min((x1-x0)/N,(bot-top)/N);
+  const cx0=(x0+x1)/2, s=s0*zoom;
+  return {W,H,N,top,bot,s0,s,cx0,zoom,panx,pany,
+          X(n,k){ return cx0+(k-n/2)*s0*zoom+panx; },
+          Y(n){ return top+(n+0.5)*s0*zoom+pany; }};
+}
+function triGeo(W,H,N,zoom,panx,pany){
+  const top=stageTop()+18, bot=H-capHFor(W)-10;
+  const x1=W>=900?W-RO_W-8:W-24;
+  return triGeoBox(24,x1,top,bot,N,zoom,panx,pany,W,H);
+}
+function sierGeo(W,H,N,zoom,panx,pany){
+  const top=stageTop()+18, bot=H-capHFor(W)-10;
+  const x1=W>=900?W*0.52:W-24;
+  return triGeoBox(24,x1,top,bot,N,zoom,panx,pany,W,H);
+}
+function diagGeo(W,H,N){
+  const top=stageTop()+26, bot=H-capHFor(W)-14;
+  const x1=W>=900?W-RO_W-230:W-190;          /* leave the annotation staircase room */
+  return triGeoBox(40,x1,top,bot,N,1,0,0,W,H);
+}
+
+/* is a label pass feasible?  All-or-none: sized against the WIDEST value the
+   drawn triangle contains, so no cell drops its label while its neighbour
+   keeps one */
+function labelPlan(g,N){
+  if(g.s<15) return null;
+  const len=Math.max(3,binom(N-1,(N-1)>>1).toString().length>7?7:binom(N-1,(N-1)>>1).toString().length);
+  const fs=Math.min(13,(g.s*0.94)/(len*0.6));
+  return fs>=7?{fs}:null;
+}
+function cellTextColor(c){
+  const [r,g2,b]=toRgb(c);
+  return 0.2126*r+0.7152*g2+0.0722*b>110?'#0d1120':'#9aa2b4';
+}
+
+/* the one cell renderer every triangle view uses: batches rects by colour
+   (one fill per colour class — 33k cells stay a dozen canvas ops), culls to
+   the viewport, honours the growth reveal, returns how many cells it drew */
+function drawCells(ctx,g,M,colorOf){
+  const N=Math.min(g.N,M.reveal!==undefined?M.reveal:g.N);
+  const gap=g.s>=6?Math.max(0.5,g.s*0.09):0;
+  const d=Math.max(0.6,g.s-gap);
+  const buckets=new Map();
+  for(let n=0;n<N;n++){
+    const y=g.Y(n);
+    if(y<-g.s||y>g.H+g.s) continue;
+    for(let k=0;k<=n;k++){
+      const x=g.X(n,k);
+      if(x<-g.s||x>g.W+g.s) continue;
+      const c=colorOf(n,k);
+      let b=buckets.get(c); if(!b){ b=[]; buckets.set(c,b); }
+      b.push(x,y);
+    }
+  }
+  let cells=0;
+  for(const [c,arr] of buckets){
+    ctx.fillStyle=c; ctx.beginPath();
+    for(let i=0;i<arr.length;i+=2) ctx.rect(arr[i]-d/2,arr[i+1]-d/2,d,d);
+    ctx.fill();
+    cells+=arr.length/2;
+  }
+  const lp=labelPlan(g,g.N);
+  if(M.labels&&lp){
+    ctx.font=lp.fs+'px -apple-system, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    const rows=binomRows(g.N-1);
+    for(let n=0;n<N;n++){
+      const y=g.Y(n);
+      if(y<-g.s||y>g.H+g.s) continue;
+      /* labels clamp to the stage: a zoomed triangle runs under the caption
+         band and off every edge, and a half-off label is an off-canvas text
+         op the audit rightly rejects (cells may continue; text may not) */
+      if(y<10||y>g.bot) continue;
+      for(let k=0;k<=n;k++){
+        const x=g.X(n,k);
+        if(x<14||x>g.W-14) continue;
+        ctx.fillStyle=cellTextColor(colorOf(n,k));
+        ctx.fillText(fmtBigShort(rows[n][k]),x,y);
+      }
+    }
+  }
+  return cells;
+}
+function drawHover(ctx,g,M){
+  if(!M.hover) return;
+  const {n,k}=M.hover;
+  if(n>=(M.reveal!==undefined?M.reveal:g.N)) return;
+  const d=Math.max(2,g.s-(g.s>=6?g.s*0.09:0));
+  ctx.strokeStyle=COL.live; ctx.lineWidth=2;
+  ctx.strokeRect(g.X(n,k)-d/2-1.5,g.Y(n)-d/2-1.5,d+3,d+3);
+}
+function growthNote(ctx,g,M){
+  if(M.reveal<g.N)
+    txt(ctx,'growing — row '+M.reveal+' of '+g.N,g.cx0,g.top-6,COL.live,
+        '11px -apple-system, sans-serif','center','bottom');
+}
+function zoomNote(M){
+  return M.zoom>1.001?' · zoom ×'+fmt(M.zoom,1)+' (r resets)':'';
+}
+
+/* ================================================================== *
+ *  view: the triangle — one rule at a time, the patterns emerge       *
+ * ================================================================== */
+function drawTri(ctx,W,H,M){
+  const st=ST;
+  const g=triGeo(W,H,M.rows,st.zoom,st.panx,st.pany);
+  drawCells(ctx,g,M,M.cellColor);
+  drawHover(ctx,g,M);
+  growthNote(ctx,g,M);
+  const nm=st.rule==='parity'?'odd':(st.rule==='mult'?'divisible-by-'+st.m
+          :(st.rule==='res'?'nonzero-mod-'+st.m:'prime'));
+  const capN=Math.min(M.rows,M.reveal);
+  const count=fmtBig(BigInt(M.hits))+' of '+fmtBig(BigInt(capN*(capN+1)/2))
+    +' cells '+nm+' ('+pct(M.hits/Math.max(1,capN*(capN+1)/2))+')';
+  drawCap(ctx,W,H,
+    ruleLabel(st)+' over '+capN+' rows — '+count
+    +(st.rule==='parity'?' — the Sierpinski gasket':'')
+    +(st.rule==='mult'?' — the gasket generalises to every modulus':'')
+    +(st.rule==='res'?' — each residue class is its own colour, 0 recedes':'')
+    +(st.rule==='prime'?' — every green cell sits on C(n,1) = n':'')
+    +zoomNote(M),
+    count+zoomNote(M));
+}
+
+/* ================================================================== *
+ *  view: the sierpinski — 2^j rows, Gould's counts, the 3^j law       *
+ * ================================================================== */
+function drawSier(ctx,W,H,M){
+  const st=ST;
+  const g=sierGeo(W,H,M.rows,st.zoom,st.panx,st.pany);
+  drawCells(ctx,g,M,M.cellColor);
+  drawHover(ctx,g,M);
+  growthNote(ctx,g,M);
+  drawCap(ctx,W,H,
+    '2^'+M.j+' = '+M.rows+' rows hold exactly 3^'+M.j+' = '+fmtBig(BigInt(M.law))
+    +' odd cells ('+pct(M.law/M.total)+') — halve the scale, triple the count: '
+    +'dimension log 3 / log 2 = '+fmt(Math.log(3)/Math.log(2),3)+zoomNote(M),
+    '3^'+M.j+' = '+fmtBig(BigInt(M.law))+' odd cells in 2^'+M.j+' rows — dimension 1.585'
+    +zoomNote(M));
+  if(W<900) return;                          /* narrow stage: the gasket alone */
+  const x0=W*0.52+56, x1=W-36;
+  const pTop=Math.max(452,stageTop()+30), pBot=H-capHFor(W)-24;
+  const avail=pBot-pTop;
+  if(avail<130||x1-x0<220){
+    txt(ctx,'heighten the window for the counting panels',x0,Math.min(pTop+20,H-20),COL.dim);
+    return;
+  }
+  /* below ~260 px there is honest room for ONE panel — draw the primary
+     (the cumulative census) rather than two unreadable ones */
+  const two=avail>=260;
+  const hgt=two?(avail-52)/2:avail-6;
+  if(two){
+    /* (a) Gould's sequence: odd cells in row n = 2^popcount(n) */
+    const bA=box(x0,pTop,x1-x0,hgt);
+    axes(ctx,bA,0,M.rows,0,M.j+1.4,{xlab:'row n',ylab:'log2 of odd count',
+      title:'odd cells per row — 2^popcount(n)',nx:5,ny:Math.max(2,Math.floor(hgt/30)),
+      xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,0)});
+    const xs=[],ys=[];
+    for(let n=0;n<M.rows;n++){ xs.push(n,n+1); const v=Math.log2(M.gould[n]); ys.push(v,v); }
+    polyline(ctx,bA,xs,ys,0,M.rows,0,M.j+1.4,COL.pos,1.3);
+  }
+  /* (b) the cumulative census, log2-log2, against the exact 3^j lattice */
+  const bB=two?box(x0,pTop+hgt+52,x1-x0,hgt):box(x0,pTop,x1-x0,hgt);
+  const xmax=M.j+0.3, ymax=M.j*Math.log2(3)+0.5;
+  axes(ctx,bB,0,xmax,0,ymax,{xlab:'log2 N (rows)',ylab:'log2 count',
+    title:'odd cells in the first N rows',nx:5,ny:Math.max(2,Math.floor(hgt/30)),
+    xticks:intTicks(0,M.j),
+    xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,0)});
+  { const xs=[],ys=[];
+    for(let N2=1;N2<=M.rows;N2++){ xs.push(Math.log2(N2)); ys.push(Math.log2(M.cum[N2])); }
+    polyline(ctx,bB,xs,ys,0,xmax,0,ymax,COL.pos,1.6);
+    /* the law: slope log2 3 through the origin, exact at every lattice point */
+    polyline(ctx,bB,[0,xmax],[0,xmax*Math.log2(3)],0,xmax,0,ymax,COL.ref,1.2,[4,3]);
+    ctx.fillStyle=COL.ref;
+    for(let j=0;j<=M.j;j++){
+      const X=bB.x+bB.w*j/xmax, Y=bB.y1-bB.h*(j*Math.log2(3))/ymax;
+      ctx.beginPath(); ctx.arc(X,Y,2.6,0,TAU); ctx.fill();
+    }
+    legendAuto(ctx,bB,[[COL.pos,'measured count'],[COL.ref,'slope log2 3 = 1.585, dots 3^j']]);
+  }
+}
+/* ================================================================== *
+ *  view: the moduli — one triangle, six remainders                    *
+ * ================================================================== */
+const MOD_NOTES={2:'prime — self-similar (Lucas)',3:'prime — self-similar (Lucas)',
+                 4:'2² — a prime power, NOT a digit product',
+                 5:'prime — self-similar (Lucas)',
+                 6:'2 × 3 — the mod-2 and mod-3 patterns overlaid (CRT)',
+                 7:'prime — self-similar (Lucas)'};
+function drawMod(ctx,W,H,M){
+  const st=ST, mrows=Math.min(st.rows,MODROWCAP);
+  const ax0=24, ax1=W>=900?W-RO_W-8:W-24;
+  const top=stageTop()+30, bot=H-capHFor(W)-8;
+  const gapx=26;
+  /* slot layout: each row owns its panel PLUS its wrapped footnote, so the
+     notes can never spill into the caption or the next row (the first sweep
+     put "Davis-Webb" off-canvas and two notes on top of each other) */
+  const slotH=(bot-top-18)/2, noteH=30;
+  const pw=(ax1-ax0-2*gapx)/3, ph=slotH-noteH;
+  MODULI.forEach((m,i)=>{
+    const bx=ax0+(i%3)*(pw+gapx), by=top+Math.floor(i/3)*(slotH+18);
+    const b=box(bx,by,pw,ph);
+    frame(ctx,b,COL.edge);
+    ptitle(ctx,b,'mod '+m);
+    const tg=triGeoBox(bx+4,bx+pw-4,by+6,by+ph-8,mrows,1,0,0,W,H);
+    const grid=modGrid(m);
+    drawCells(ctx,tg,{reveal:mrows,labels:false},(n,k)=>resColor(grid[n][k],m));
+    if(ph>=70)
+      caption(ctx,bx,by+ph+5,MOD_NOTES[m],pw-4,m===4||m===6?COL.ref:'#767e92',
+              '9.5px -apple-system, sans-serif');
+  });
+  drawCap(ctx,W,H,
+    'the same '+mrows+' rows under six moduli — a prime modulus repeats its own first p rows '
+    +'inside itself for ever (Lucas); mod 6 is exactly the mod-2 and mod-3 pictures laid over '
+    +'each other; mod 4 is neither — prime powers obey Davis–Webb, not Lucas',
+    mrows+' rows mod 2..7 — primes self-similar; 6 = 2 × 3 overlaid; 4 = 2² layered');
+}
+
+/* ================================================================== *
+ *  view: the carries — brightness = the power of p dividing C(n,k)    *
+ * ================================================================== */
+function drawCar(ctx,W,H,M){
+  const st=ST;
+  const g=triGeo(W,H,M.rows,st.zoom,st.panx,st.pany);
+  drawCells(ctx,g,M,M.cellColor);
+  drawHover(ctx,g,M);
+  growthNote(ctx,g,M);
+  const div=M.total-M.nuHist[0];
+  drawCap(ctx,W,H,
+    'ν_'+st.p+'(C(n,k)) = carries when k + (n−k) is added in base '+st.p
+    +' (Kummer) — brighter green, more carries (max ν = '+M.numax+' here); the dim ν = 0 cells are '
+    +'exactly the Lucas pattern; '+pct(div/M.total)+' of cells are divisible by '+st.p
+    +zoomNote(M),
+    'ν_'+st.p+' = base-'+st.p+' carries (Kummer); max ν = '+M.numax+'; '
+    +pct(div/M.total)+' divisible'+zoomNote(M));
+}
+
+/* ================================================================== *
+ *  view: the primes — a staged sieve where every stage is a theorem   *
+ * ================================================================== */
+function drawPri(ctx,W,H,M){
+  const st=ST;
+  const g=sierGeo(W,H,M.rows,st.zoom,st.panx,st.pany);
+  drawCells(ctx,g,M,M.cellColor);
+  drawHover(ctx,g,M);
+  const dead=M.rows-M.primesBelow;
+  drawCap(ctx,W,H,
+    PRI_STAGES[st.sieve]+' — '+fmtBig(BigInt(M.hits))+' of '+fmtBig(BigInt(M.total))
+    +' cells standing (orange fell this stage); a row holds a prime iff its index is prime, so '
+    +dead+' of '+M.rows+' rows are provably prime-free; primes beyond m land only in the '
+    +'classes coprime to m'+zoomNote(M),
+    PRI_SHORT[st.sieve]+': '+fmtBig(BigInt(M.hits))+' standing · '+dead+'/'+M.rows
+    +' rows prime-free'+zoomNote(M));
+  if(W<900) return;                          /* narrow stage: the sieve alone */
+  const x0=W*0.52+56, x1=W-36;
+  /* 486, not 452: the legend's favourite corner is the panel's top right,
+     which at 452 sits inside the floating readout's reserve (audit) */
+  const pTop=Math.max(486,stageTop()+30), pBot=H-capHFor(W)-24;
+  if(pBot-pTop<130||x1-x0<220){
+    txt(ctx,'heighten the window for the prime race',x0,Math.min(pTop+20,H-20),COL.dim);
+    return;
+  }
+  const b=box(x0,pTop,x1-x0,pBot-pTop-6);
+  const R=M.race, N=M.rows;
+  let top2=1;
+  for(const sr of R.series) top2=Math.max(top2,sr.ys[N-1]);
+  const ymax=top2*1.12+0.5;
+  axes(ctx,b,0,N-1,0,ymax,{xlab:'x (row index)',ylab:'primes ≤ x in the class',
+    title:'the prime race — π(x; '+st.m+', r) by residue class',
+    nx:6,ny:Math.max(2,Math.floor(b.h/34)),xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,0)});
+  for(const sr of R.series){
+    const xs=[],ys=[];
+    for(let x=0;x<N;x++){ xs.push(x,x+1); ys.push(sr.ys[x],sr.ys[x]); }
+    polyline(ctx,b,xs,ys,0,N-1,0,ymax,resColor(sr.r,st.m),1.6);
+  }
+  legendAuto(ctx,b,R.series.map(sr=>[resColor(sr.r,st.m),
+    'n ≡ '+sr.r+' (mod '+st.m+') — '+sr.ys[N-1]+' primes']));
+}
+
+/* ================================================================== *
+ *  view: the diagonals — the classic hidden sequences, numbers on     *
+ * ================================================================== */
+function drawDiag(ctx,W,H,M){
+  const st=ST, N=M.rows, mode=st.dmode;
+  const g=diagGeo(W,H,N);
+  drawCells(ctx,g,M,M.diagColor);
+  drawHover(ctx,g,M);
+  /* right-slope annotations (sums, elevens, catalan) */
+  for(let n=0;n<N;n++){
+    const side=M.diagSide(n);
+    if(!side) continue;
+    txt(ctx,side[1],g.X(n,n)+g.s/2+12,g.Y(n),side[0],
+        '10.5px "SF Mono", Menlo, monospace','left','middle');
+  }
+  if(mode==='stick'){
+    /* annotate at the ROW EDGE, not beside the target cell — inside the
+       triangle the text lands on the neighbouring labels (first sweep) */
+    const n=M.stickN+1, k=M.stickR+1;
+    const tx=g.X(n,n)+g.s/2+14;
+    ctx.setLineDash([3,3]); ctx.strokeStyle=rgba(COL.live,0.7); ctx.lineWidth=1;
+    const cy2=g.Y(n)+g.s*0.42;      /* skim UNDER the row's labels */
+    ctx.beginPath(); ctx.moveTo(g.X(n,k)+g.s/2,cy2); ctx.lineTo(tx-4,cy2); ctx.stroke();
+    ctx.setLineDash([]);
+    txt(ctx,'= the green run: '+fmtBig(M.stickSum),
+        tx,g.Y(n),COL.live,'11px "SF Mono", Menlo, monospace','left','middle');
+  }
+  if(mode==='fib'){
+    ctx.setLineDash([3,3]); ctx.strokeStyle=rgba(COL.struct,0.65); ctx.lineWidth=1;
+    for(let d2=1;d2<N;d2++){
+      const i1=Math.floor(d2/2);
+      ctx.beginPath();
+      ctx.moveTo(g.X(d2,0)-g.s*0.75,g.Y(d2)+g.s*0.5);
+      ctx.lineTo(g.X(d2-i1,i1)+g.s*0.4,g.Y(d2-i1)-g.s*0.27);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    for(let d2=0;d2<N;d2++)
+      txt(ctx,''+M.fibs[d2+1],g.X(d2,0)-g.s/2-10,g.Y(d2)+(d2>0?g.s*0.42:0),COL.live,
+          '11px "SF Mono", Menlo, monospace','right','middle');
+  }
+  const caps={
+    sums:'each row sums to 2^n (all subsets of n things) and alternates to 0 — the '
+      +'binomial theorem at x = 1 and x = −1; values on the right',
+    stick:'slide down a diagonal and stop anywhere: the green run sums to the magenta cell '
+      +'one step down-right — Σ C(i,'+(M.stickR||0)+') = C(n+1,'+((M.stickR||0)+1)+') (the hockey stick)',
+    fib:'sum each shallow diagonal (dashed) and Fibonacci appears on the left — '
+      +'the Pascal recurrence splits every diagonal into the two above it',
+    elevens:'read each row as digits and it IS 11^n — rows 0–4 directly, later rows '
+      +'after carrying: Σ C(n,k) 10^k = 11^n exactly (values on the right)',
+    cat:'the central column C(2n,n) (green) minus its neighbour (cyan) gives the Catalan '
+      +'numbers — C(2n,n)/(n+1), the ballot-path count (values on the right)'};
+  const shorts={sums:'Σ row n = 2^n; alternating Σ = 0',
+    stick:'Σ C(i,'+(M.stickR||0)+') = C(n+1,'+((M.stickR||0)+1)+') — the hockey stick',
+    fib:'shallow diagonals sum to Fibonacci (left)',
+    elevens:'each row read as digits = 11^n (right)',
+    cat:'central column − neighbour = Catalan numbers'};
+  drawCap(ctx,W,H,caps[mode],shorts[mode]);
+}
+
+/* ================================================================== *
+ *  view: the census — how much of the triangle p leaves untouched     *
+ * ================================================================== */
+function drawCen(ctx,W,H,M){
+  const st=ST, N=M.rows, p=st.p;
+  const x0=64, x1=W>=900?W-RO_W-40:W-30;
+  const top=stageTop()+34, bot=H-capHFor(W)-30;
+  /* one panel when the stage is short — two 90 px panels are two unreadable
+     ones, and the second ran into the caption at 560x380 (first sweep) */
+  const two=(bot-top)>=290;
+  const mainH=two?Math.max(120,(bot-top)*0.60):bot-top, gap=54;
+  const bA=box(x0,top,x1-x0,mainH);
+  const xmax=Math.log2(Math.max(2,N)), cumN=M.cum[N];
+  const ymax=Math.log2(Math.max(2,cumN))*1.04+0.3;
+  axes(ctx,bA,0,xmax,0,ymax,{xlab:'rows N',ylab:'cells with C not divisible by '+p+' (log2)',
+    title:'the census against the exact law, p = '+p,nx:6,ny:5,
+    xticks:intTicks(0,Math.floor(xmax)),yticks:intTicks(0,Math.floor(ymax)),
+    xfmt:t=>fmt(Math.pow(2,t),0),yfmt:t=>fmt(t,0)});
+  { const xs=[],ys=[];
+    for(let n2=1;n2<=N;n2++){ xs.push(Math.log2(n2)); ys.push(Math.log2(M.cum[n2])); }
+    polyline(ctx,bA,xs,ys,0,xmax,0,ymax,COL.pos,1.7);
+    polyline(ctx,bA,[0,xmax],[0,xmax*M.d],0,xmax,0,ymax,COL.ref,1.2,[4,3]);
+    ctx.fillStyle=COL.ref;
+    for(const [q,law] of M.lattice){
+      const X=bA.x+bA.w*Math.log2(q)/xmax, Y=bA.y1-bA.h*Math.log2(law)/ymax;
+      if(Y>=bA.y&&Y<=bA.y1){ ctx.beginPath(); ctx.arc(X,Y,3,0,TAU); ctx.fill(); }
+    }
+    const Xc=bA.x+bA.w*Math.log2(N)/xmax, Yc=bA.y1-bA.h*Math.log2(cumN)/ymax;
+    ctx.fillStyle=COL.live; ctx.beginPath(); ctx.arc(Xc,Yc,3.4,0,TAU); ctx.fill();
+    legendAuto(ctx,bA,[[COL.pos,'counted, N = 1..'+N],
+                       [COL.ref,'slope d = '+fmt(M.d,3)+', dots (p(p+1)/2)^j'],
+                       [COL.live,'the current N']]);
+  }
+  if(two){
+    const bB=box(x0,top+mainH+gap,x1-x0,Math.max(80,bot-top-mainH-gap));
+    axes(ctx,bB,0,N,0,1.05,{xlab:'rows N',ylab:'fraction untouched',
+      title:'the fraction not divisible by '+p+' — the gasket is thin',
+      nx:6,ny:3,xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,1)});
+    const xs=[],ys=[];
+    for(let n2=1;n2<=N;n2++){ xs.push(n2); ys.push(M.frac[n2-1]); }
+    polyline(ctx,bB,xs,ys,0,N,0,1.05,COL.struct,1.6);
+    ctx.fillStyle=COL.ref;
+    for(const [q,law] of M.lattice){
+      const X=bB.x+bB.w*q/N, Y=bB.y1-bB.h*(law/(q*(q+1)/2))/1.05;
+      ctx.beginPath(); ctx.arc(X,Y,3,0,TAU); ctx.fill();
+    }
+  }
+  drawCap(ctx,W,H,
+    'rows < p^j hold exactly (p(p+1)/2)^j cells not divisible by p — count ~ N^'+fmt(M.d,3)
+    +' while cells ~ N²/2, so the untouched fraction ~ N^('+fmt(M.d-2,3)+') → 0: '
+    +'divisibility by '+p+' eventually claims almost every cell',
+    'count ~ N^'+fmt(M.d,3)+' vs cells ~ N²/2 — the untouched fraction → 0');
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='tri') drawTri(ctx,W,H,M);
+  else if(M.view==='sier') drawSier(ctx,W,H,M);
+  else if(M.view==='mod') drawMod(ctx,W,H,M);
+  else if(M.view==='car') drawCar(ctx,W,H,M);
+  else if(M.view==='pri') drawPri(ctx,W,H,M);
+  else if(M.view==='diag') drawDiag(ctx,W,H,M);
+  else drawCen(ctx,W,H,M);
+}
+
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  /* the geometry of the CURRENT pickable view, exactly as drawn */
+  S.geo=function(){
+    const st=ST,v=st.view;
+    if(v==='diag') return diagGeo(S.W,S.H,st.dRows);
+    if(v==='sier'||v==='pri') return sierGeo(S.W,S.H,rowsFor(st),st.zoom,st.panx,st.pany);
+    if(v==='tri'||v==='car') return triGeo(S.W,S.H,st.rows,st.zoom,st.panx,st.pany);
+    return null;
+  };
+  S.draw=function(){
+    const ctx=canvas.getContext('2d');           /* fetched per draw: a cached
+      context would keep writing into a recorder the harness threw away */
+    drawView(ctx,S.W,S.H,buildModel());
+  };
+  S.step=function(){
+    const st=ST;
+    if(st.grow&&growable(st.view)&&st.reveal<rowsFor(st)){
+      st.reveal=Math.min(rowsFor(st),st.reveal+Math.max(0.2,st.speed*rowsFor(st)/240));
+      return true;
+    }
+    return false;
+  };
+  S.hover=function(x,y){
+    const g=S.geo(); if(!g) return false;
+    const pk=triPick(g,x,y);
+    const hn=pk?pk.n:-1, hk=pk?pk.k:-1;
+    if(hn===ST.hn&&hk===ST.hk) return false;
+    ST.hn=hn; ST.hk=hk;
+    return true;
+  };
+  S.pan=function(dx,dy){
+    if(!zoomable(ST.view)) return false;
+    const g=S.geo();
+    const cl=clampPan(S.W,S.H,g.N,ST.zoom,ST.panx+dx,ST.pany+dy);
+    if(cl[0]===ST.panx&&cl[1]===ST.pany) return false;
+    ST.panx=cl[0]; ST.pany=cl[1];
+    return true;
+  };
+  S.wheel=function(delta,x,y){
+    if(!zoomable(ST.view)) return false;
+    const g=S.geo();
+    const z2=clamp(ST.zoom*Math.exp(-delta*0.0016),ZOOM_MIN,ZOOM_MAX);
+    if(Math.abs(z2-ST.zoom)<1e-9) return false;
+    const wx=(x-g.cx0-ST.panx)/ST.zoom, wy=(y-g.top-ST.pany)/ST.zoom;
+    ST.zoom=z2;
+    const cl=clampPan(S.W,S.H,g.N,z2,x-g.cx0-wx*z2,y-g.top-wy*z2);
+    ST.panx=cl[0]; ST.pany=cl[1];
+    return true;
+  };
+  S.resetView=function(){ ST.zoom=1; ST.panx=0; ST.pany=0; };
+  return S;
+}
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    if(st.view!==k){                          /* a re-click of the live tab is a
+      pure redraw; only a real switch resets the camera-like state */
+      st.view=k; st.hn=-1; st.hk=-1; S.resetView();
+      if(st.grow&&growable(k)) st.reveal=0;
+    }
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',
+      onclick:()=>setView(k)},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>
+          b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  const clearHover=()=>{ st.hn=-1; st.hk=-1; };
+  const regrow=()=>{ if(st.grow) st.reveal=0; };
+
+  const gRule=h('div',{class:'grp'},h('h3',null,'the colouring'));
+  const ruleChips=chipRow(RULES,'rule',clearHover); gRule.appendChild(ruleChips); trackChips(gRule,RULES,'rule');
+  const ruleTag=h('div',{class:'tag'}); gRule.appendChild(ruleTag);
+
+  const gSize=h('div',{class:'grp'},h('h3',null,'the triangle'));
+  gSize.appendChild(slider('rows','rows N',4,MAXROWS,1,v=>fmt(v,0),()=>{ clearHover(); regrow(); }));
+  gSize.appendChild(slider('m','modulus m',2,12,1,v=>fmt(v,0)));
+  const sizeTag=h('div',{class:'tag'}); gSize.appendChild(sizeTag);
+
+  const gSieve=h('div',{class:'grp'},h('h3',null,'the sieve'));
+  gSieve.appendChild(slider('sieve','stage',0,8,1,v=>PRI_SHORT[v]));
+  const sieveTag=h('div',{class:'tag'}); gSieve.appendChild(sieveTag);
+
+  const gPrime=h('div',{class:'grp'},h('h3',null,'the prime'));
+  const pChips=chipRow(PCH,'p',regrow); gPrime.appendChild(pChips); trackChips(gPrime,PCH,'p');
+  const pTag=h('div',{class:'tag'}); gPrime.appendChild(pTag);
+
+  const gSier=h('div',{class:'grp'},h('h3',null,'the depth'));
+  gSier.appendChild(slider('krow','j  (rows = 2^j)',1,8,1,v=>'2^'+v+' = '+Math.pow(2,v),
+    ()=>{ clearHover(); regrow(); }));
+  const sierTag=h('div',{class:'tag'}); gSier.appendChild(sierTag);
+
+  const gDiag=h('div',{class:'grp'},h('h3',null,'the identity'));
+  const dChips=chipRow(DMODES,'dmode',clearHover); gDiag.appendChild(dChips); trackChips(gDiag,DMODES,'dmode');
+  gDiag.appendChild(slider('dRows','rows',8,20,1,v=>fmt(v,0),clearHover));
+  gDiag.appendChild(slider('hsr','diagonal r',0,6,1,v=>fmt(v,0)));
+  const diagTag=h('div',{class:'tag'}); gDiag.appendChild(diagTag);
+
+  const gLook=h('div',{class:'grp'},h('h3',null,'the look'));
+  gLook.appendChild(h('div',{class:'checks'},
+    checkbox('labels','numbers in the cells (when they fit)'),
+    checkbox('grow','grow the triangle row by row',()=>{ if(st.grow) st.reveal=0; })));
+  gLook.appendChild(slider('speed','growth speed',0.25,4,0.25,v=>fmt(v,2)+'×'));
+  gLook.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ S.resetView(); dirty=true; refresh(); }},'reset view'),
+    h('button',{onclick:()=>{ const v=st.view;
+      Object.assign(st,DEFAULTS); st.view=v;
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const lookTag=h('div',{class:'tag'}); gLook.appendChild(lookTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Everything here is exact integer arithmetic. Reference values, '
+      +'the Lucas/Kummer/Gould laws and the census lattice are pinned to the printed output of '
+      +'build_pascal/derive.py (math.comb + trial division — independent routes) in selfTest.'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the number theory'),h('div',{id:'phys'}));
+  [gRule,gSize,gSieve,gPrime,gSier,gDiag,gLook,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++)
+          if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>
+            b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view;
+    gRule.hidden=(v!=='tri');
+    gSize.hidden=(v==='sier'||v==='diag');
+    gSieve.hidden=(v!=='pri');
+    gPrime.hidden=!(v==='car'||v==='cen');
+    gSier.hidden=(v!=='sier');
+    gDiag.hidden=(v!=='diag');
+    rows.m.row.hidden=!((v==='tri'&&(st.rule==='mult'||st.rule==='res'))||v==='pri');
+    rows.hsr.row.hidden=!(v==='diag'&&st.dmode==='stick');
+    rows.speed.row.hidden=!st.grow;
+    for(const k in rows) rows[k].sync();
+    ruleTag.innerHTML=st.rule==='parity'?'odd cells in green — Sierpinski appears by row ~32'
+      :st.rule==='mult'?'multiples of m in green — every m has its own gasket'
+      :st.rule==='res'?'each nonzero residue its own colour; 0 recedes'
+      :'greens sit ONLY on C(n,1) = n, at prime n';
+    sizeTag.innerHTML=v==='mod'?'the six panels cap at '+MODROWCAP+' rows for legibility'
+      :'up to '+MAXROWS+' rows — all exact, BigInt underneath';
+    pTag.innerHTML=v==='car'?'colour = the exact power of p dividing C(n,k)'
+      :'the census counts cells p does NOT divide';
+    sierTag.innerHTML='rows snap to powers of two so the 3^j law is exact';
+    diagTag.innerHTML=st.dmode==='stick'?'r picks which diagonal the stick slides down'
+      :'five classics hide in one triangle';
+    sieveTag.innerHTML='scrub the stage — each elimination is a theorem; '
+      +'m picks the residue classes of the race';
+    lookTag.innerHTML='space grows/pauses &nbsp; <b>r</b> resets the view &nbsp; 1–7 switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=zoomable(st.view)
+        ?'hover a cell · drag pans, wheel zooms · r resets · 1–7 switch views'
+        :(st.view==='diag'?'hover a cell for its exact value · 1–7 switch views'
+        :'1–7 switch views');
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.grow=!st.grow; if(st.grow) st.reveal=0;
+      syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ S.resetView(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  let drag=null;
+  canvas.addEventListener('pointerdown',e=>{
+    const r=canvas.getBoundingClientRect();
+    drag={x:e.clientX-r.left,y:e.clientY-r.top};
+    if(canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+  });
+  canvas.addEventListener('pointermove',e=>{
+    const r=canvas.getBoundingClientRect();
+    const x=e.clientX-r.left, y=e.clientY-r.top;
+    if(drag){
+      if(S.pan(x-drag.x,y-drag.y)) dirty=true;
+      drag.x=x; drag.y=y;
+    } else if(S.hover(x,y)){
+      dirty=true;
+      roEl.innerHTML=readoutHTML(S.model());
+    }
+  });
+  canvas.addEventListener('pointerup',()=>{ drag=null; });
+  canvas.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const r=canvas.getBoundingClientRect();
+    if(S.wheel(e.deltaY,e.clientX-r.left,e.clientY-r.top)){ dirty=true; refresh(); }
+  },{passive:false});
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{
+        S.draw();
+        if(advanced&&frameN%6===0) roEl.innerHTML=readoutHTML(S.model());
+      }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  tri:'The whole sim in one picture. Pascal&rsquo;s triangle is built by one addition — every '
+    +'entry is the sum of the two above it — and then COLOURED by a rule you choose. '
+    +'<b>odd / even</b> paints the odd entries green: the Sierpinski gasket assembles itself, '
+    +'because an entry&rsquo;s parity depends only on the base-2 digits of n and k (Lucas). '
+    +'<b>multiples of m</b> does the same for any modulus — every m has its own gasket-like '
+    +'pattern. <b>residues mod m</b> keeps ALL the information mod m: each nonzero remainder '
+    +'gets its own colour and the zeros recede, so you see the nested structure the single '
+    +'rule can only silhouette. <b>primes</b> is the surprise: green never appears in the '
+    +'interior, only on the second diagonal C(n,1) = n at prime n — an interior entry is '
+    +'larger than n but all its prime factors are at most n, so it cannot be prime. Hover '
+    +'any cell for its exact value (BigInt — row 255&rsquo;s middle is 76 digits); drag to '
+    +'pan, wheel to zoom into the fractal.',
+  sier:'The gasket, quantitatively. Rows are held at exactly 2<sup>j</sup> so the counting '
+    +'law is exact: row n contains 2<sup>popcount(n)</sup> odd entries (Gould&rsquo;s '
+    +'sequence — popcount is the number of 1-bits in n), and summing that over the first '
+    +'2<sup>j</sup> rows gives exactly 3<sup>j</sup>. That is the fractal&rsquo;s signature: '
+    +'double the linear scale and the odd count triples, so the limiting set has dimension '
+    +'log 3 / log 2 = 1.585 — more than a curve, less than an area. The upper panel shows '
+    +'Gould&rsquo;s jagged self-similar staircase; the lower panel plots the running count '
+    +'against the exact 3<sup>j</sup> lattice (orange dots) — the green data touches every '
+    +'dot and sags below the line between them — count(N) &le; N<sup>1.585</sup>, with equality '
+    +'exactly at the powers of two; the sag is real structure, not error.',
+  mod:'Why prime moduli are special. Lucas&rsquo;s theorem says C(n,k) mod p is the product '
+    +'of the binomials of the base-p DIGITS of n and k — so the pattern mod p is the '
+    +'pattern of the first p rows, copied into itself at every scale, for ever: mod 2 gives '
+    +'the Sierpinski gasket, mod 3 a nine-fold gasket, mod 5 and 7 finer ones. Composite '
+    +'moduli inherit rather than invent: mod 6 is exactly the mod-2 and mod-3 pictures '
+    +'overlaid (an entry is 0 mod 6 iff it is 0 mod 2 AND mod 3 — CRT), while mod 4 = 2² '
+    +'is genuinely subtler — prime powers obey the Davis&ndash;Webb congruence, not a digit '
+    +'product, which is why its pattern looks layered rather than nested.',
+  car:'How MUCH does p divide each entry? Kummer&rsquo;s theorem (1852) answers with an '
+    +'addition you can do by hand: the exact power of p dividing C(n,k) equals the number '
+    +'of CARRIES when k and n&minus;k are added in base p. Hover a cell and the readout '
+    +'shows the base-p addition with its carry count. The dim cells (no carries) are '
+    +'exactly the nonzero-mod-p Lucas pattern; each extra carry brightens the green by one '
+    +'step, and the maximum possible is the number of base-p digits of n. The all-bright '
+    +'bands just below rows p<sup>j</sup> are where nearly every addition cascades.',
+  pri:'Where can a prime hide in Pascal&rsquo;s triangle? Scrub the sieve stage and watch '
+    +'theorems eliminate candidates wholesale. The <b>1s</b> go first (not prime by '
+    +'definition). Then the ENTIRE interior goes in one stroke: for 2 &le; k &le; n&minus;2, '
+    +'C(n,k) is at least C(n,2) = n(n&minus;1)/2 &gt; n, while every prime factor of C(n,k) '
+    +'divides n! and is at most n — a number bigger than n with no factor bigger than n '
+    +'cannot be prime. Only the second diagonal C(n,1) = n survives, and there primality of '
+    +'the CELL is primality of the ROW INDEX — so a row contains a prime exactly when its '
+    +'index is prime, and the other rows are provably prime-free. The remaining stages are '
+    +'the sieve of Eratosthenes run through Kummer&rsquo;s theorem: p divides n exactly when '
+    +'adding 1 + (n&minus;1) in base p carries, so each stage removes the multiples of the '
+    +'next prime (orange = felled this stage). Six primes finish the job below 256 because '
+    +'&radic;255 &lt; 17. The race panel shows how the survivors behave mod m: classes '
+    +'sharing a factor with m keep at most one prime, and the coprime classes split the '
+    +'rest nearly evenly (Dirichlet) — with mod 4&rsquo;s class 3 famously running ahead '
+    +'of class 1 (Chebyshev&rsquo;s bias, 29 to 24 below 256).',
+  diag:'The triangle&rsquo;s greatest hits, on a small labelled copy. <b>row sums</b>: each '
+    +'row totals 2<sup>n</sup> (all subsets) and alternates to zero. <b>hockey stick</b>: '
+    +'run down any diagonal and stop — the run sums to the cell one step down-right. '
+    +'<b>fibonacci</b>: the shallow diagonals (dashed) sum to the Fibonacci numbers. '
+    +'<b>powers of 11</b>: each row, read as digits with carrying, IS 11<sup>n</sup> — '
+    +'rows 0&ndash;4 literally, later rows once the two-digit entries carry. '
+    +'<b>catalan</b>: the central column minus its neighbour gives 1, 2, 5, 14, 42, … — '
+    +'the Catalan numbers, C(2n,n)/(n+1). Every identity is shown live with its exact '
+    +'values and asserted in selfTest.',
+  cen:'Counting what p leaves untouched. The Lucas digit product says row n keeps '
+    +'&Pi;(digit<sub>i</sub> + 1) entries nonzero mod p, and summing that over all rows '
+    +'below p<sup>j</sup> gives exactly (p(p+1)/2)<sup>j</sup> — for p = 2 that is the '
+    +'3<sup>j</sup> Sierpinski count, and every prime gets its own exponent: the mod-p '
+    +'gasket has dimension log(p(p+1)/2)/log p (1.585, 1.631, 1.683, 1.712 for 2, 3, 5, 7). '
+    +'Meanwhile the triangle itself grows like N²/2, so the untouched FRACTION falls as '
+    +'N<sup>d&minus;2</sup> &rarr; 0: almost every binomial coefficient is eventually '
+    +'divisible by every prime. The lower panel watches that fraction drain away.',
+};
+
+/* the number-theory column: numbered equations per view, CSS-set */
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  tri:'<h4>the one addition</h4>'
+    +EQ(1,'C(<i>n</i>,<i>k</i>) = C(<i>n</i>&minus;1,<i>k</i>&minus;1) + C(<i>n</i>&minus;1,<i>k</i>), &nbsp; C(<i>n</i>,0) = C(<i>n</i>,<i>n</i>) = 1')
+    +'<p>Choose k things from n: either you take the last one or you don&rsquo;t. Every pattern in this '
+    +'file is this recurrence read through a different remainder.</p>'
+    +'<h4>why the interior holds no primes</h4>'
+    +EQ(2,'2 &le; <i>k</i> &le; <i>n</i>&minus;2 &nbsp;&rArr;&nbsp; C(<i>n</i>,<i>k</i>) &ge; C(<i>n</i>,2) = '+FR('<i>n</i>(<i>n</i>&minus;1)','2')+' &gt; <i>n</i> &nbsp; (<i>n</i> &ge; 4)')
+    +EQ(3,'<i>q</i> prime, <i>q</i> | C(<i>n</i>,<i>k</i>) &nbsp;&rArr;&nbsp; <i>q</i> &le; <i>n</i> &nbsp;<span class="rm">(C(n,k) divides n!/k!(n&minus;k)!)</span>')
+    +'<p>If an interior C(n,k) were a prime q, then q &le; n by [3] but q = C(n,k) &gt; n by [2] — '
+    +'contradiction. So the only prime entries are C(n,1) = C(n,n&minus;1) = n with n prime. '
+    +'selfTest checks all 2080 entries of the first 64 rows by Miller&ndash;Rabin directly: '
+    +'35 primes, every one on the second diagonal, matching 2&pi;(63)&minus;1.</p>'
+    +'<div class="cite">pins: C(30,15) = 155 117 520, C(100,50), C(255,127) (76 digits) — derive.py, math.comb</div>',
+  sier:'<h4>Gould&rsquo;s sequence from Lucas</h4>'
+    +'<p>Mod 2, Lucas reads: C(n,k) is odd iff every base-2 digit of k fits inside the matching '
+    +'digit of n (k AND n = k). With digits 0/1, digit d of n admits d+1 choices:</p>'
+    +EQ(1,'#odd in row <i>n</i> = &Pi;<sub>i</sub> (<i>d</i><sub>i</sub> + 1) = 2<sup>popcount(<i>n</i>)</sup>')
+    +'<h4>the 3^j census</h4>'
+    +'<p>Sum [1] over all j-bit rows: each bit contributes (1 + 2) independently,</p>'
+    +EQ(2,'&Sigma;<sub>n &lt; 2^j</sub> 2<sup>popcount(n)</sup> = (1+2)<sup>j</sup> = 3<sup>j</sup>')
+    +EQ(3,'<i>d</i> = '+FR('log 3','log 2')+' = 1.58496&hellip; &nbsp;<span class="rm">(halve the scale, triple the set)</span>')
+    +'<p>The data curve returns to the law EXACTLY at every N = 2<sup>j</sup> (asserted); between '
+    +'lattice points it sags BELOW it and climbs back — count(N) &le; N<sup>d</sup> with equality '
+    +'only at the powers (asserted both ways). That oscillation is the multiplicative structure '
+    +'of popcount, and it never damps.</p>'
+    +'<div class="cite">pins: cumulative odd = 1251 at N = 100, 2245 at 137, 3753 at 200; 3^j at every j &le; 8 — derive.py</div>',
+  mod:'<h4>Lucas, 1878</h4>'
+    +EQ(1,'<i>n</i> = &Sigma; <i>n</i><sub>i</sub> <i>p</i><sup>i</sup>, &nbsp; <i>k</i> = &Sigma; <i>k</i><sub>i</sub> <i>p</i><sup>i</sup> &nbsp;&rArr;&nbsp; C(<i>n</i>,<i>k</i>) &equiv; &Pi;<sub>i</sub> C(<i>n</i><sub>i</sub>,<i>k</i><sub>i</sub>) &nbsp;(mod <i>p</i>)')
+    +'<p>Proof in one line: over F<sub>p</sub>, (1+x)<sup>p</sup> = 1 + x<sup>p</sup> (the Frobenius '
+    +'map — every cross term carries a factor p), so (1+x)<sup>n</sup> = &Pi; (1+x<sup>p^i</sup>)<sup>n_i</sup>, '
+    +'and matching the x<sup>k</sup> coefficient forces digit-by-digit choices. A digit of k '
+    +'exceeding its digit of n kills the product: C(n,k) &equiv; 0.</p>'
+    +'<p><b>Consequence:</b> the pattern of the first p rows recurs at every scale — the mod-p '
+    +'picture is its own p-fold blow-up. That is self-similarity by THEOREM, not resemblance.</p>'
+    +'<h4>composite moduli</h4>'
+    +EQ(2,'<i>m</i> = <i>ab</i>, gcd(<i>a</i>,<i>b</i>) = 1: &nbsp; C mod <i>m</i> &nbsp;&hArr;&nbsp; (C mod <i>a</i>, C mod <i>b</i>) &nbsp;<span class="rm">(CRT)</span>')
+    +'<p>So mod 6 is an overlay of mod 2 and mod 3 — zero exactly where both are zero. Prime powers '
+    +'are the genuinely new case: C(n,k) mod 4 needs the Davis&ndash;Webb congruence (base-2 blocks, '
+    +'not digits), which is why the mod-4 panel is layered rather than nested. The panels compute '
+    +'nothing but the recurrence mod m, so every claim is checked against the digit product where '
+    +'the theorem applies (p = 2,3,5,7; zero mismatches to row 200 in both routes).</p>'
+    +'<div class="cite">pins: C(200,73), C(250,125), C(137,64) mod 2..12 — derive.py, math.comb</div>',
+  car:'<h4>Legendre, then Kummer</h4>'
+    +EQ(1,'&nu;<sub>p</sub>(<i>n</i>!) = &Sigma;<sub>i&ge;1</sub> &lfloor;<i>n</i>/<i>p</i><sup>i</sup>&rfloor; = '+FR('<i>n</i> &minus; S<sub>p</sub>(<i>n</i>)','<i>p</i> &minus; 1')+' &nbsp;<span class="rm">(S<sub>p</sub> = digit sum)</span>')
+    +EQ(2,'&nu;<sub>p</sub>(C(<i>n</i>,<i>k</i>)) = '+FR('S<sub>p</sub>(<i>k</i>) + S<sub>p</sub>(<i>n</i>&minus;<i>k</i>) &minus; S<sub>p</sub>(<i>n</i>)','<i>p</i> &minus; 1'))
+    +'<p>Each carry in the base-p addition k + (n&minus;k) turns p units of digit sum into one — '
+    +'it lowers S<sub>p</sub>(k)+S<sub>p</sub>(n&minus;k) by exactly p&minus;1 relative to '
+    +'S<sub>p</sub>(n). So [2] literally counts carries:</p>'
+    +EQ(3,'&nu;<sub>p</sub>(C(<i>n</i>,<i>k</i>)) = # carries of <i>k</i> + (<i>n</i>&minus;<i>k</i>) in base <i>p</i> &nbsp;<span class="rm">(Kummer 1852)</span>')
+    +'<p>Worked pin: 45 + 55 in base 7 is 63 + 106 = 202 with TWO carries (3+6 = 12&#8327;, then '
+    +'6+0+1 = 10&#8327;), so 7² exactly divides C(100,45) — and C(100,45) mod 7 = 0, matching the '
+    +'moduli view. selfTest runs all three routes (carries, Legendre, factoring the BigInt itself) '
+    +'over every cell to row 120: zero mismatches.</p>'
+    +'<div class="cite">pins: nu2(C(100,50)) = 3, nu3(C(100,50)) = 4, nu7(C(200,73)) = 1, nu2(C(256,128)) = 1 — derive.py</div>',
+  diag:'<h4>five identities, one recurrence</h4>'
+    +EQ(1,'&Sigma;<sub>k</sub> C(<i>n</i>,<i>k</i>) = 2<sup>n</sup>, &nbsp; &Sigma;<sub>k</sub> (&minus;1)<sup>k</sup> C(<i>n</i>,<i>k</i>) = 0<sup>&nbsp;(n&ge;1)</sup> &nbsp;<span class="rm">(binomial theorem, x = &plusmn;1)</span>')
+    +EQ(2,'&Sigma;<sub>i=r</sub><sup>n</sup> C(<i>i</i>,<i>r</i>) = C(<i>n</i>+1,<i>r</i>+1) &nbsp;<span class="rm">(hockey stick: apply [tri 1] repeatedly to the target and it swallows the run)</span>')
+    +EQ(3,'&Sigma;<sub>i</sub> C(<i>n</i>&minus;<i>i</i>,<i>i</i>) = F(<i>n</i>+1) &nbsp;<span class="rm">(shallow diagonals: the recurrence splits diagonal n into diagonals n&minus;1 and n&minus;2)</span>')
+    +EQ(4,'&Sigma;<sub>k</sub> C(<i>n</i>,<i>k</i>) 10<sup>k</sup> = (1+10)<sup>n</sup> = 11<sup>n</sup> &nbsp;<span class="rm">(a row read as digits IS a power of 11, carrying included)</span>')
+    +EQ(5,'Cat(<i>n</i>) = '+FR('C(2<i>n</i>,<i>n</i>)','<i>n</i>+1')+' = C(2<i>n</i>,<i>n</i>) &minus; C(2<i>n</i>,<i>n</i>+1) &nbsp;<span class="rm">(the reflection/ballot count)</span>')
+    +'<p>All five run as BigInt sweeps in selfTest — [2] over every r &le; 8 to row 60, [3] to '
+    +'row 80 against an independent Fibonacci recurrence (F(81) = 37 889 062 373 143 906), '
+    +'[4] to 11<sup>60</sup>, [5] both forms to n = 60 — plus the derive.py pins.</p>'
+    +'<div class="cite">pins: hockey 4495 = C(31,3); Cat(15) = 9 694 845; 11^20 = 672 749 994 932 560 009 201</div>',
+  pri:'<h4>why only the second diagonal</h4>'
+    +EQ(1,'2 &le; <i>k</i> &le; <i>n</i>&minus;2 &nbsp;&rArr;&nbsp; C(<i>n</i>,<i>k</i>) &ge; '+FR('<i>n</i>(<i>n</i>&minus;1)','2')+' &gt; <i>n</i> &nbsp;<span class="rm">(n &ge; 4)</span>, &nbsp; <i>q</i> | C(<i>n</i>,<i>k</i>) &rArr; <i>q</i> &le; <i>n</i>')
+    +'<p>A prime value would have to be its own (only) prime factor, at once bigger than n and '
+    +'at most n. So candidates live on C(<i>n</i>,1) = C(<i>n</i>,<i>n</i>&minus;1) = <i>n</i> '
+    +'alone, and the triangle&rsquo;s primes are exactly the primes among the row indices.</p>'
+    +'<h4>the sieve, through the carries</h4>'
+    +EQ(2,'&nu;<sub>p</sub>(C(<i>n</i>,1)) = &nu;<sub>p</sub>(<i>n</i>) = # carries of 1 + (<i>n</i>&minus;1) in base <i>p</i> &nbsp;&rArr;&nbsp; <i>p</i> | <i>n</i> &hArr; that addition carries')
+    +'<p>— Kummer&rsquo;s theorem specialised to the diagonal IS the sieve of Eratosthenes. '
+    +'Six stages (2, 3, 5, 7, 11, 13) are complete below 256: a composite n &le; 255 has a '
+    +'factor at most &radic;255 &lt; 17. selfTest asserts the equivalence for every n and '
+    +'every sieve prime (zero mismatches), the exact stage census '
+    +'(511 ones, 31 878 interior, 252/84/32/16/10/6 sieved, 107 survivors = 2&pi;(255)&minus;1), '
+    +'and that the survivor set equals an independent sieve.</p>'
+    +'<h4>the primes on the modulus</h4>'
+    +EQ(3,'gcd(<i>r</i>,<i>m</i>) &gt; 1 &nbsp;&rArr;&nbsp; the class <i>r</i> holds at most ONE prime (a divisor of <i>m</i>)')
+    +EQ(4,'&pi;(<i>x</i>; <i>m</i>, <i>r</i>) ~ '+FR('&pi;(<i>x</i>)','&phi;(<i>m</i>)')+' &nbsp;<span class="rm">for gcd(r,m) = 1 (Dirichlet 1837)</span>')
+    +'<p>Any prime p &gt; m shares no factor with m, so p mod m is coprime to m — the other '
+    +'classes stall after at most one early hit (2 in class 2 mod 4; 3 in class 3 mod 6). '
+    +'Among the coprime classes the counts run neck and neck, but not exactly: below 256, '
+    +'mod 4 stands 29 (class 3) to 24 (class 1) — Chebyshev&rsquo;s bias, real and provable '
+    +'to persist for &ldquo;most&rdquo; x (Rubinstein&ndash;Sarnak 1994), pinned here at '
+    +'&pi;(100; 4, ·) = 11/13 and &pi;(255; 4, ·) = 24/29 from derive.py.</p>'
+    +'<div class="cite">pins: stage census, survivor count 107, pi splits mod 3/4/6/12 — derive.py (trial division)</div>',
+  cen:'<h4>summing the digit product</h4>'
+    +'<p>Row n keeps &Pi;(d<sub>i</sub>+1) cells nonzero mod p (Lucas). Over all j-digit strings the '
+    +'digits are independent, and each contributes 1 + 2 + &hellip; + p:</p>'
+    +EQ(1,'&Sigma;<sub>n &lt; p^j</sub> &Pi;<sub>i</sub>(<i>d</i><sub>i</sub>+1) = (1+2+&hellip;+<i>p</i>)<sup>j</sup> = '
+      +'<span class="hl">('+'<i>p</i>(<i>p</i>+1)/2)<sup>j</sup></span>')
+    +EQ(2,'<i>d</i><sub>p</sub> = '+FR('log(<i>p</i>(<i>p</i>+1)/2)','log <i>p</i>')
+      +' = 1.585, 1.631, 1.683, 1.712 &nbsp;<span class="rm">for p = 2, 3, 5, 7</span>')
+    +'<p>The count grows like N<sup>d</sup> while the triangle grows like N²/2, so the untouched '
+    +'fraction scales as N<sup>d&minus;2</sup> and drains to zero — d &lt; 2 for every prime, '
+    +'though d<sub>p</sub> &rarr; 2 as p grows (a big prime touches the early triangle barely at '
+    +'all). The law is asserted at every lattice point the row cap admits (2<sup>1..8</sup>, '
+    +'3<sup>1..5</sup>, 5<sup>1..3</sup>, 7<sup>1..2</sup>) and the drawn reference line is '
+    +'y = N<sup>d</sup>, which passes through those points exactly.</p>'
+    +'<div class="cite">pins: 1296 at 3^4, 3375 at 5^3, 784 at 7^2; off-lattice 1518 (p=3), 2250 (p=5), 2361 (p=7) at N = 100 — derive.py</div>',
+};
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) are lines of build_pascal/refvals.txt, the printed        *
+ *  output of derive.py, read in full.                                 *
+ * ================================================================== */
+
+/* a minimal recording context for the inline layout sweep — tracks the
+   transform so axes()' rotated y-title lands where the browser puts it
+   (Known-bad: treating rotated coords as canvas coords fails correct code).
+   Named makeShot/shotSig on purpose: tools/ui_drive.js owns `sig` and
+   tools/recorder.js owns `makeRecorder`. */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],
+                    A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); },
+    setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; },
+    moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(x,y,w,hh){ if(!pend) pend={n:0,bb:[1e9,1e9,-1e9,-1e9]};
+      pend.n++; if(!pend.bb) pend.bb=[1e9,1e9,-1e9,-1e9];
+      pend.bb=[Math.min(pend.bb[0],x),Math.min(pend.bb[1],y),
+               Math.max(pend.bb[2],x+w),Math.max(pend.bb[3],y+hh)]; },
+    arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1,bb:pend.bb,style:ctx.fillStyle}); },
+    stroke(){ if(pend!==null||true) ops.push({op:'stroke'}); },
+    clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); },
+    clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:y-fh*0.8);
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,
+        bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){
+    let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x});
+  }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const T0=Date.now();
+
+  /* ---------- A. exact binomials against the derive.py pins ---------- */
+  const PINS=[[10,4,'210'],[30,15,'155117520'],[52,26,'495918532948104'],
+    [64,32,'1832624140942590534'],[100,50,'100891344545564193334812497256'],
+    [120,60,'96614908840363322603893139521372656'],
+    [200,73,'58562522514219709486933939069538132581984834595751830400'],
+    [200,100,'90548514656103281165404177077484163874504589675413336841320'],
+    [255,127,'2884329411724603169044874178931143443870105850987581016304218283632259375395'],
+    [256,128,'5768658823449206338089748357862286887740211701975162032608436567264518750790']];
+  for(const [n,k,s] of PINS) eq(binom(n,k).toString(),s,'C('+n+','+k+') (derive)');
+  { let bad=0;
+    for(const n of [17,64,255]) for(let k=0;k<=n;k++) if(binom(n,k)!==binom(n,n-k)) bad++;
+    eq(bad,0,'symmetry C(n,k) = C(n,n-k)'); }
+  { let bad=0;
+    for(let n=0;n<=64;n++){ if(rowSum(n)!==(1n<<BigInt(n))) bad++;
+      if(n>=1&&altRowSum(n)!==0n) bad++; }
+    eq(bad,0,'row sums 2^n and alternating sums 0, n <= 64');
+    eq(rowSum(64).toString(),'18446744073709551616','2^64 (derive)'); }
+  eq(altRowSum(0),1n,'alternating sum of row 0 is 1');
+
+  /* ---------- B. the mod-m recurrence against BigInt remainders ---------- */
+  { let bad=0;
+    for(let m=2;m<=12;m++){
+      const g=modGrid(m);
+      for(const n of [0,1,2,3,5,8,13,21,34,40,100,137,200,250,255])
+        for(let k=0;k<=n;k++)
+          if(Number(binom(n,k)%BigInt(m))!==g[n][k]) bad++;
+    }
+    eq(bad,0,'modRows vs BigInt % over m = 2..12'); }
+  const RESPINS=[[200,73,[0,0,0,0,0,0,0,0,0,0,0]],
+                 [250,125,[0,0,0,2,0,0,0,0,2,8,0]],
+                 [255,127,[1,0,3,0,3,0,3,0,5,0,3]],
+                 [100,45,[0,0,0,0,0,0,0,3,0,5,0]],
+                 [137,64,[0,0,2,0,0,3,6,0,0,0,6]]];
+  for(const [n,k,arr] of RESPINS){
+    let good=true;
+    for(let m=2;m<=12;m++) if(modGrid(m)[n][k]!==arr[m-2]) good=false;
+    ok(good,'C('+n+','+k+') mod 2..12 (derive)');
+  }
+  { const g=modGrid(2); let c=0; for(let k=0;k<=255;k++) c+=g[255][k];
+    eq(c,256,'row 255 is entirely odd (n = 2^8 - 1)'); }
+  { let bad=0; const g2=modGrid(2),g3=modGrid(3),g6=modGrid(6);
+    for(let n=0;n<128;n++) for(let k=0;k<=n;k++)
+      if(g6[n][k]%2!==g2[n][k]||g6[n][k]%3!==g3[n][k]) bad++;
+    eq(bad,0,'mod 6 is the CRT overlay of mod 2 and mod 3'); }
+
+  /* ---------- C. Lucas's theorem, digit product vs recurrence ---------- */
+  { let bad=0;
+    for(const p of [2,3,5,7,11,13]){
+      const g=modGrid(p);
+      for(let n=0;n<=200;n+=7) for(let k=0;k<=n;k+=3)
+        if(lucasCk(n,k,p)!==g[n][k]) bad++;
+    }
+    eq(bad,0,'Lucas digit product vs mod recurrence (derive: 0 mismatches)'); }
+  eq(lucasCk(255,127,2),1,'lucas(255,127,2) (derive)');
+  eq(lucasCk(200,73,7),0,'lucas(200,73,7) (derive)');
+  eq(lucasCk(250,125,5),2,'lucas(250,125,5) (derive)');
+
+  /* ---------- D. valuations: Kummer = Legendre = direct factoring ---------- */
+  { let bad=0;
+    for(const p of [2,3,5,7]){
+      for(let n=0;n<=120;n++) for(let k=0;k<=n;k++){
+        const a=nuLegendre(n,k,p), b=nuCarries(k,n-k,p);
+        if(a!==b) bad++;
+        else if(n<=60&&a!==nuDirect(binom(n,k),p)) bad++;
+      }
+    }
+    eq(bad,0,'nu_p: Legendre = Kummer carries = direct factoring'); }
+  eq(nuLegendre(100,50,2),3,'nu_2(C(100,50)) (derive)');
+  eq(nuLegendre(100,50,3),4,'nu_3(C(100,50)) (derive)');
+  eq(nuLegendre(200,73,7),1,'nu_7(C(200,73)) (derive)');
+  eq(nuLegendre(250,125,5),0,'nu_5(C(250,125)) (derive)');
+  eq(nuLegendre(255,127,2),0,'nu_2(C(255,127)) (derive)');
+  eq(nuLegendre(256,128,2),1,'nu_2(C(256,128)) (derive)');
+  eq(nuGrid(7)[100][45],2,'the carries grid at (100,45), p = 7 (derive: 2 carries)');
+  eq(baseStr(45,7),'63','45 in base 7 (derive)');
+  eq(baseStr(55,7),'106','55 in base 7 (derive)');
+  eq(baseStr(100,7),'202','100 in base 7 (derive)');
+
+  /* ---------- E. primality ---------- */
+  { const sv=sieveTo(20000); let bad=0;
+    for(let i=0;i<20000;i++) if((sv[i]===1)!==isPrimeBig(BigInt(i))) bad++;
+    eq(bad,0,'Miller-Rabin vs sieve on [0, 20000)'); }
+  const MRPINS=[[2047n,false],[1373653n,false],[25326001n,false],[3215031751n,false],
+    [3474749660383n,false],[341550071728321n,false],[2147483647n,true],
+    [1000000007n,true],[67280421310721n,true],[155117519n,true],[155117520n,false]];
+  for(const [x,want] of MRPINS)
+    eq(isPrimeBig(x),want,'isprime('+x+') (derive, trial division)');
+  { /* the guard sits after the small-prime shortcut, so the probe must not
+       be divisible by any base prime (MR_BOUND+1 is even and returned false
+       without ever reaching the guard — first run) */
+    let probe=MR_BOUND+1n;
+    while(MR_BASES.some(p=>probe%p===0n)) probe+=1n;
+    let threw=false;
+    try{ isPrimeBig(probe); }catch(e){ threw=true; }
+    ok(threw,'isPrimeBig refuses values beyond its deterministic bound'); }
+  { /* every entry of the first 64 rows, DIRECT Miller-Rabin — the theorem
+       (interior entries are never prime) and the count both pinned */
+    let cnt=0, agree=true;
+    for(let n=0;n<64;n++) for(let k=0;k<=n;k++){
+      const direct=isPrimeBig(binom(n,k));
+      if(direct) cnt++;
+      if(direct!==isPrimeCell(n,k)) agree=false;
+    }
+    eq(cnt,35,'prime entries in rows < 64, direct over all 2080 cells (derive)');
+    ok(agree,'isPrimeCell (diagonal theorem) matches direct Miller-Rabin everywhere');
+    const sv=primeSieve(); let pi63=0,pi255=0;
+    for(let i=0;i<=255;i++){ if(sv[i]){ pi255++; if(i<=63) pi63++; } }
+    eq(pi63,18,'pi(63) (derive)'); eq(pi255,54,'pi(255) (derive)');
+    eq(2*pi63-1,35,'2 pi(63) - 1 equals the direct count'); }
+
+  /* ---------- F. Gould's sequence and the census laws ---------- */
+  { const g=modGrid(2); let bad=0;
+    for(let n=0;n<256;n++){
+      let c=0; for(let k=0;k<=n;k++) c+=g[n][k];
+      if(c!==Math.pow(2,popcount(n))) bad++;
+      if(c!==rowNonzeroCount(n,2)) bad++;
+    }
+    eq(bad,0,'odd count per row = 2^popcount(n) = digit product (Gould)'); }
+  for(let j=0;j<=8;j++)
+    eq(cumNonzero(Math.pow(2,j),2),Math.pow(3,j),'cumulative odd at 2^'+j+' = 3^'+j+' (derive)');
+  { const g=modGrid(2);
+    const direct=N=>{ let s=0; for(let n=0;n<N;n++) for(let k=0;k<=n;k++) s+=g[n][k]?1:0; return s; };
+    for(const [N,want] of [[100,1251],[137,2245],[200,3753]]){
+      eq(direct(N),want,'odd cells in rows < '+N+', direct (derive)');
+      eq(cumNonzero(N,2),want,'odd cells in rows < '+N+', digit-product route');
+    } }
+  for(const [p,N,want] of [[3,64,762],[3,100,1518],[5,64,900],[5,100,2250],[7,64,958],[7,100,2361]]){
+    const g=modGrid(p); let s=0;
+    for(let n=0;n<N;n++) for(let k=0;k<=n;k++) if(g[n][k]) s++;
+    eq(s,want,'nonzero mod '+p+' in rows < '+N+', direct (derive)');
+    eq(cumNonzero(N,p),want,'nonzero mod '+p+' in rows < '+N+', digit-product route');
+  }
+  for(const [p,jmax] of [[2,8],[3,5],[5,3],[7,2]])
+    for(let j=1;j<=jmax;j++)
+      eq(cumNonzero(Math.pow(p,j),p),Math.pow(p*(p+1)/2,j),
+         'census law ('+p+'(p+1)/2)^'+j+' at N = '+p+'^'+j+' (derive)');
+  close(gasketDim(2),1.5849625007211563,1e-14,'dimension p=2 (derive)');
+  close(gasketDim(3),1.6309297535714573,1e-14,'dimension p=3 (derive)');
+  close(gasketDim(5),1.6826061944859854,1e-14,'dimension p=5 (derive)');
+  close(gasketDim(7),1.7124143742160443,1e-14,'dimension p=7 (derive)');
+  close(Math.log(3)/Math.log(2),1.5849625007211563,1e-14,'log3/log2 (derive)');
+  { /* the census SAGS BELOW the law between lattice points (the first PNG
+       pass caught the prose claiming the opposite): count(N) <= N^d with
+       equality exactly at powers of two.  Both directions asserted. */
+    const d=Math.log(3)/Math.log(2);
+    let above=0, strictlyBelow=0;
+    for(let N=2;N<=256;N++){
+      const law=Math.pow(N,d), c=cumNonzero(N,2);
+      if(c>law*(1+1e-12)) above++;
+      if((N&(N-1))!==0&&c<law*(1-1e-12)) strictlyBelow++;
+    }
+    eq(above,0,'the odd count never exceeds N^log2(3)');
+    ok(strictlyBelow>200,'and sits strictly below it off-lattice ('+strictlyBelow+' of 247)');
+  }
+
+  /* ---------- G. the diagonal identities ---------- */
+  { let bad=0;
+    for(let r=0;r<=8;r++) for(let n=r;n<=60;n++)
+      if(hockeySum(r,n)!==binom(n+1,r+1)) bad++;
+    eq(bad,0,'hockey stick over r <= 8, n <= 60'); }
+  eq(hockeySum(2,30).toString(),'4495','hockey pin sum C(i,2), i<=30 (derive)');
+  { const f=fibTo(82); let bad=0;
+    for(let n=0;n<=80;n++) if(shallowSum(n)!==f[n+1]) bad++;
+    eq(bad,0,'shallow diagonals sum to Fibonacci, n <= 80');
+    eq(f[81].toString(),'37889062373143906','F(81) (derive)');
+    eq(f[12],144n,'F(12) = 144 (derive)'); }
+  { let bad=0;
+    for(let n=0;n<=60;n++) if(catalanSub(n)!==catalanDiv(n)) bad++;
+    eq(bad,0,'Catalan: subtraction form = division form, n <= 60'); }
+  eq(catalanDiv(10).toString(),'16796','Cat(10) (derive)');
+  eq(catalanDiv(15).toString(),'9694845','Cat(15) (derive)');
+  eq(catalanDiv(30).toString(),'3814986502092304','Cat(30) (derive)');
+  { let bad=0;
+    for(let n=0;n<=60;n++) if(elevensSum(n)!==11n**BigInt(n)) bad++;
+    eq(bad,0,'rows read as digits are 11^n, n <= 60'); }
+  eq(elevensSum(20).toString(),'672749994932560009201','11^20 (derive)');
+  { const tri=[1,3,6,10,15,21,28,36,45,55,66], tet=[1,4,10,20,35,56,84,120,165,220];
+    let good=true;
+    tri.forEach((v,i)=>{ if(binom(i+2,2)!==BigInt(v)) good=false; });
+    tet.forEach((v,i)=>{ if(binom(i+3,3)!==BigInt(v)) good=false; });
+    ok(good,'triangular and tetrahedral diagonals (derive)'); }
+
+  /* ---------- H. formatting: exact, grouped, TRUNCATED never rounded ---------- */
+  eq(fmtBig(155117520n),'155\u2009117\u2009520','fmtBig groups by thin space');
+  eq(fmtBig(0n),'0','fmtBig zero');
+  eq(fmtBig(-1234n),'−1\u2009234','fmtBig negative');
+  eq(fmtBig(binom(255,127)),'2.884329×10^75 (76 digits)','fmtBig sci form (derive digits)');
+  /* C(120,60) = 9661490 8840... — ROUNDING would print 9.661491 */
+  eq(fmtBig(binom(120,60)),'9.661490×10^34 (35 digits)','fmtBig truncates, never rounds');
+  eq(fmtBigShort(1716n),'1716','fmtBigShort small');
+  eq(fmtBigShort(binom(30,15)),'1.55e8','fmtBigShort sci');
+
+  /* ---------- I. the model: counts, colours, per-view numbers ---------- */
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    Object.assign(ST,DEFAULTS,over);
+    try{ return fn(); } finally{ Object.assign(ST,stSave); }
+  }
+  withState({view:'tri',rule:'parity',rows:100},()=>{
+    const M=buildModel();
+    eq(M.hits,1251,'tri/parity rows=100: hit count off the model (derive)');
+    ok(readoutHTML(M).indexOf('1\u2009251')>=0,'readout prints the 1 251 count');
+    eq(M.cellColor(2,1),COL.off,'C(2,1)=2 even -> off colour');
+    eq(M.cellColor(4,4),COL.pos,'C(4,4)=1 odd -> green');
+  });
+  withState({view:'tri',rule:'res',m:5,rows:100},()=>{
+    const M=buildModel();
+    eq(M.hits,2250,'tri/res m=5 rows=100: nonzero count (derive)');
+    const g=modGrid(5);
+    eq(M.cellColor(7,2),resColor(g[7][2],5),'res colour comes from resColor');
+    eq(resColor(0,5),COL.off,'residue 0 recedes');
+    eq(resColor(4,5),neonCss(1),'top residue takes the ramp end');
+    /* absolute pins — an assertion that calls resColor on both sides cannot
+       see resColor itself drift (the drum lesson, colour edition) */
+    eq(resColor(1,5),neonCss(0),'residue 1 sits at the ramp start');
+    eq(M.cellColor(4,1),neonCss(1),'C(4,1) = 4 mod 5 paints the ramp end');
+  });
+  withState({view:'tri',rule:'mult',m:7,rows:100},()=>{
+    eq(buildModel().hits,5050-2361,'tri/mult m=7 rows=100: divisible count (derive complement)');
+  });
+  withState({view:'tri',rule:'prime',rows:64},()=>{
+    const M=buildModel();
+    eq(M.hits,35,'tri/prime rows=64: 35 prime cells (derive)');
+    ok(eqbarHTML(M).indexOf('prime')>=0,'prime eqbar states the theorem');
+  });
+  withState({view:'sier',krow:7},()=>{
+    const M=buildModel();
+    eq(M.hits,2187,'sierpinski j=7: hits = 3^7');
+    eq(M.law,2187,'sierpinski law value');
+    eq(M.cum[128],2187,'cumulative array agrees at the lattice');
+    eq(M.gould[77],Math.pow(2,popcount(77)),'Gould strip at n = 77');
+    ok(readoutHTML(M).indexOf('2\u2009187')>=0,'readout prints 3^7 = 2 187');
+    ok(readoutHTML(M).indexOf('good">2\u2009187')>=0,
+       'and the 3^j row carries the COMPUTED good class, not a decoration');
+  });
+  withState({view:'car',p:7,rows:100},()=>{
+    const M=buildModel();
+    eq(M.nuHist[0],2361,'carries p=7 rows=100: nu=0 census (derive)');
+    eq(M.total-M.nuHist[0],5050-2361,'divisible cell count');
+    let mx=0,mn=-1,mk=-1;
+    for(let n=0;n<100;n++) for(let k=0;k<=n;k++)
+      if(M.nuOf(n,k)>mx){ mx=M.nuOf(n,k); mn=n; mk=k; }
+    eq(mx,M.numax,'numax is the grid maximum');
+    eq(M.cellColor(mn,mk),'rgb(184,236,76)','the deepest valuation paints full green');
+    eq(M.cellColor(0,0),COL.off,'nu = 0 paints the off colour');
+  });
+  withState({view:'cen',p:3,rows:100},()=>{
+    const M=buildModel();
+    eq(M.cum[100],1518,'census p=3 N=100 (derive)');
+    eq(M.cum[81],1296,'census p=3 at the 3^4 lattice (derive)');
+    eq(M.lattice.length,4,'lattice points 3,9,27,81');
+    eq(M.lattice[3][1],1296,'lattice value (3*4/2)^4');
+    close(M.frac[99],1518/5050,1e-12,'the fraction panel value');
+    close(M.d,1.6309297535714573,1e-14,'dimension in the model');
+  });
+  withState({view:'diag',dmode:'stick',dRows:14,hsr:2},()=>{
+    const M=buildModel();
+    eq(M.stickR,2,'stick diagonal r');
+    eq(M.stickN,12,'stick run ends at row 12');
+    eq(M.stickSum,binom(13,3),'stick sum = C(13,3)');
+    ok(readoutHTML(M).indexOf('286')>=0,'readout prints C(13,3) = 286');
+    eq(M.diagColor(5,2),COL.pos,'the run is green');
+    eq(M.diagColor(12,2),COL.pos,'the run includes its LAST row (the endpoint)');
+    eq(M.diagColor(13,2),COL.off,'the run stops before the target row');
+    eq(M.diagColor(13,3),COL.live,'the target is magenta');
+  });
+  withState({view:'diag',dmode:'sums',dRows:14},()=>{
+    ok(readoutHTML(buildModel()).indexOf('8\u2009192')>=0,'sums readout prints 2^13 = 8 192');
+  });
+  withState({view:'diag',dmode:'fib',dRows:14},()=>{
+    const M=buildModel();
+    eq(M.fibs[14],377n,'F(14) in the model');
+    ok(readoutHTML(M).indexOf('377')>=0,'fib readout prints F(14)');
+  });
+  withState({view:'diag',dmode:'elevens',dRows:14},()=>{
+    ok(readoutHTML(buildModel()).indexOf('34\u2009522\u2009712\u2009143\u2009931')>=0,'elevens readout prints 11^13');
+  });
+  withState({view:'diag',dmode:'cat',dRows:14},()=>{
+    ok(readoutHTML(buildModel()).indexOf('132')>=0,'catalan readout prints Cat(6) = 132');
+  });
+  /* growth semantics */
+  withState({view:'tri',rows:100,grow:true,reveal:40},()=>{
+    const M=buildModel();
+    eq(M.reveal,40,'growth reveals the requested rows');
+    let c=0; const g=modGrid(2);
+    for(let n=0;n<40;n++) for(let k=0;k<=n;k++) c+=g[n][k];
+    eq(M.hits,c,'the growing count covers exactly the revealed rows');
+  });
+
+  /* ---------- L. the primes tab: staged elimination + the race ---------- */
+  { let bad=0;
+    for(let n=0;n<256;n++) for(let k=0;k<=n;k++)
+      if((priCode(n,k)===99)!==isPrimeCell(n,k)) bad++;
+    eq(bad,0,'priCode survivors are EXACTLY the prime cells (Miller-Rabin route)');
+    const cnt={};
+    for(let n=0;n<256;n++) for(let k=0;k<=n;k++){ const c=priCode(n,k); cnt[c]=(cnt[c]||0)+1; }
+    eq(cnt[1],511,'stage census: the 1s (derive)');
+    eq(cnt[2],31878,'stage census: the interior (derive)');
+    eq(''+cnt[3]+','+cnt[4]+','+cnt[5]+','+cnt[6]+','+cnt[7]+','+cnt[8],
+       '252,84,32,16,10,6','stage census: sieved by 2,3,5,7,11,13 (derive)');
+    eq(cnt[99],107,'stage census: survivors (derive)');
+    let bad2=0;
+    for(const q of SIEVE_PRIMES) for(let n=2;n<256;n++)
+      if((nuCarries(1,n-1,q)>=1)!==(n%q===0)) bad2++;
+    eq(bad2,0,'carry in 1+(n-1) base p <=> p | n, all six sieve primes (derive)'); }
+  withState({view:'pri',rows:256,sieve:8},()=>{
+    const M=buildModel();
+    eq(M.hits,107,'fully sieved: 107 cells standing (derive)');
+    eq(M.primesBelow,54,'54 prime rows = pi(255)');
+    eq(M.hits,2*M.primesBelow-1,'survivors = 2 pi(255) - 1 (row 2 has one diagonal cell)');
+    ok(readoutHTML(M).indexOf('202')>=0,'readout prints the 202 prime-free rows');
+    eq(M.cellColor(89,1),COL.pos,'a prime survivor is green');
+    eq(M.cellColor(10,3),COL.off,'the interior fell long ago');
+  });
+  withState({view:'pri',rows:256,sieve:0},()=>{
+    eq(buildModel().hits,32896,'stage 0: every cell stands');
+  });
+  withState({view:'pri',rows:256,sieve:2},()=>{
+    eq(buildModel().hits,507,'the interior and the 1s gone: 507 diagonal cells stand');
+  });
+  withState({view:'pri',rows:256,sieve:3},()=>{
+    const M=buildModel();
+    eq(M.hits,255,'after sieving out the multiples of 2: 255 standing');
+    eq(M.cellColor(4,1),COL.ref,'a multiple of 2 fell THIS stage (orange)');
+    eq(M.cellColor(4,3),COL.ref,'and its mirror cell with it');
+    eq(M.cellColor(9,1),COL.pos,'9 carries nothing in base 2 — still standing');
+    eq(M.cellColor(0,0),COL.off,'the 1s fell at an earlier stage');
+  });
+  withState({view:'pri',rows:256,m:4},()=>{
+    const R=buildModel().race;
+    eq(R.classes.join(','),'1,3','coprime classes mod 4');
+    eq(R.counts[1],24,'pi(255;4,1) (derive)');
+    eq(R.counts[3],29,'pi(255;4,3) (derive — the Chebyshev lead)');
+    eq(R.counts[2],1,'class 2 stalls at the prime 2 itself');
+    eq(R.counts[0],0,'class 0 holds no prime at all');
+    eq(R.series[1].ys[100],13,'pi(100;4,3) on the step curve (derive)');
+    eq(R.series[0].ys[100],11,'pi(100;4,1) on the step curve (derive)');
+  });
+  withState({view:'pri',rows:256,m:6},()=>{
+    const R=buildModel().race;
+    eq(R.counts[1]+'|'+R.counts[5],'25|27','pi(255;6,r) (derive)');
+    eq(R.counts[2]+R.counts[3],2,'classes 2 and 3 mod 6 hold exactly {2} and {3}');
+  });
+  withState({view:'pri',rows:256,m:12},()=>{
+    const R=buildModel().race;
+    eq(R.classes.length,4,'phi(12) = 4 coprime classes');
+    eq([R.counts[1],R.counts[5],R.counts[7],R.counts[11]].join(','),'11,13,14,14',
+       'pi(255;12,r) (derive)');
+  });
+  withState({view:'pri',rows:64,hn:4,hk:1},()=>{
+    const M=buildModel();
+    eq(M.hover.pcode,3,'hover on C(4,1): eliminated by the base-2 carry');
+    ok(readoutHTML(M).indexOf('base 2')>=0,'the readout explains the carry');
+  });
+
+  /* ---------- J. geometry: pick, zoom anchor, pan clamp, scene ---------- */
+  { const W=1400,H=820,N=128;
+    for(const zm of [1,4,17.3]){
+      const g=triGeo(W,H,N,zm,33,-21);
+      let good=true;
+      for(const [n,k] of [[0,0],[10,3],[64,32],[127,0],[127,127],[99,50]]){
+        const pk=triPick(g,g.X(n,k),g.Y(n));
+        if(!pk||pk.n!==n||pk.k!==k) good=false;
+      }
+      ok(good,'pick round-trips cell centres at zoom '+zm);
+    }
+    const g1=triGeo(W,H,N,1,0,0);
+    { const pk=triPick(g1,g1.X(10,3)+g1.s0*0.6,g1.Y(10));
+      ok(pk&&pk.n===10&&pk.k===4,'cells tile the row: 0.6 cells right of centre is the neighbour'); }
+    ok(triPick(g1,g1.X(10,10)+g1.s0*0.6,g1.Y(10))===null,'beyond the row end picks nothing');
+    ok(triPick(g1,g1.cx0,g1.top-10)===null,'above the apex picks nothing');
+    for(const zm of [1,8,64]){
+      const [px,py]=clampPan(W,H,N,zm,1e6,-1e6);
+      const g=triGeo(W,H,N,zm,px,py);
+      const L=g.X(N-1,0)-g.s/2, R=g.X(N-1,N-1)+g.s/2, T=g.Y(0)-g.s/2, B=g.Y(N-1)+g.s/2;
+      ok(R>=PAN_MARGIN-1&&L<=W-PAN_MARGIN+1&&B>=PAN_MARGIN-1&&T<=H-PAN_MARGIN+1,
+         'a huge pan is clamped so the triangle stays reachable at zoom '+zm);
+    } }
+  { /* scene semantics on a stub canvas */
+    const shot=makeShot(1100,712);
+    const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS);
+    ST.view='tri';
+    const g=S.geo();
+    S.hover(g.X(10,3),g.Y(10));
+    eq(ST.hn+','+ST.hk,'10,3','hover picks the cell under the pointer');
+    eq(buildModel().hover.val,120n,'the hovered value is C(10,3) = 120');
+    /* wheel anchors the world point under the cursor.  The probe cell must
+       be OFF the centre column: at (20,10) wx = 0 and a wrong anchor formula
+       coincides with the right one — that mutant survived the first sweep
+       (the coinciding-formulas Known-bad, zoom edition) */
+    const cx=g.X(20,3), cy=g.Y(20);
+    const wx0=(cx-g.cx0-ST.panx)/ST.zoom, wy0=(cy-g.top-ST.pany)/ST.zoom;
+    ok(Math.abs(wx0)>1,'the anchor probe is off the centre column');
+    ok(S.wheel(-500,cx,cy),'wheel zooms in');
+    ok(ST.zoom>1.5,'zoom factor applied');
+    const g2=S.geo();
+    close((cx-g2.cx0-ST.panx)/ST.zoom,wx0,1e-9,'the x under the cursor is anchored');
+    close((cy-g2.top-ST.pany)/ST.zoom,wy0,1e-9,'the y under the cursor is anchored');
+    for(let i=0;i<40;i++) S.wheel(-500,cx,cy);
+    eq(ST.zoom,ZOOM_MAX,'zoom clamps at ×'+ZOOM_MAX);
+    for(let i=0;i<80;i++) S.wheel(500,cx,cy);
+    eq(ST.zoom,ZOOM_MIN,'zoom clamps at ×'+ZOOM_MIN);
+    const px0=ST.panx, py0=ST.pany;
+    ok(S.pan(40,25),'a drag pans the zoomable view');
+    ok(ST.panx===px0+40&&ST.pany===py0+25,'the pan lands where the drag went (inside the clamp)');
+    S.resetView();
+    eq(ST.zoom+'|'+ST.panx+'|'+ST.pany,'1|0|0','reset view restores the base frame');
+    ST.view='cen';
+    ok(!S.wheel(-500,300,300),'the census ignores the wheel entirely');
+    ok(!S.pan(40,25),'the census ignores a drag');
+    eq(ST.zoom,1,'no zoom accumulates on a non-zoom view (switch-back trap)');
+    ST.view='tri';
+    /* growth: advances, completes, then idles */
+    ST.grow=true; ST.reveal=0; ST.rows=64; ST.speed=4;
+    let steps=0;
+    while(S.step()&&steps<5000) steps++;
+    eq(ST.reveal,64,'growth reaches the full triangle');
+    ok(steps>3&&steps<5000,'growth takes several frames ('+steps+') and terminates');
+    ok(!S.step(),'after completion the loop is idle');
+    Object.assign(ST,stSave);
+  }
+
+  /* ---------- K. layout sweep: every view x sizes x variants ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  /* [name, state, minRects]: the floor is the number of cell rectangles the
+     batched fills must carry — derived from what each configuration draws
+     (a dozen ops is CORRECT here because the cells batch one fill per
+     colour; an op-count floor would punish the batching) */
+  const CONFIGS=[
+    ['tri parity',{view:'tri',rule:'parity'},4000],
+    ['tri mult',{view:'tri',rule:'mult',m:6},4000],
+    ['tri res',{view:'tri',rule:'res',m:5,rows:64},1500],
+    ['tri res m=2',{view:'tri',rule:'res',m:2,rows:32},400],
+    ['tri prime',{view:'tri',rule:'prime',rows:64},1500],
+    ['tri small labels',{view:'tri',rule:'parity',rows:12},60],
+    ['tri hover',{view:'tri',rule:'parity',rows:16,hn:10,hk:3},100],
+    ['tri zoomed',{view:'tri',rule:'parity',zoom:8,panx:40,pany:-60},150],
+    ['tri growing',{view:'tri',rule:'parity',grow:true,reveal:37},500],
+    ['sier j3',{view:'sier',krow:3},30],
+    ['sier j7',{view:'sier',krow:7},4000],
+    ['sier j8',{view:'sier',krow:8},15000],
+    ['mod',{view:'mod'},10000],
+    ['mod few rows',{view:'mod',rows:16},600],
+    ['car p2',{view:'car',p:2},4000],
+    ['car p7',{view:'car',p:7,rows:50},900],
+    ['diag sums',{view:'diag',dmode:'sums',dRows:14},80],
+    ['diag stick',{view:'diag',dmode:'stick',dRows:14,hsr:2},80],
+    ['diag stick r0',{view:'diag',dmode:'stick',dRows:8,hsr:0},30],
+    ['diag fib',{view:'diag',dmode:'fib',dRows:14},80],
+    ['diag elevens',{view:'diag',dmode:'elevens',dRows:20},150],
+    ['diag cat',{view:'diag',dmode:'cat',dRows:14},80],
+    ['pri all',{view:'pri',sieve:0},4000],
+    ['pri interior',{view:'pri',sieve:2},4000],
+    ['pri sieve3',{view:'pri',sieve:4,m:4},4000],
+    ['pri done',{view:'pri',sieve:8,m:6,rows:256},8000],
+    ['pri done m12',{view:'pri',sieve:8,m:12},4000],
+    ['cen p2',{view:'cen',p:2},1],
+    ['cen p7',{view:'cen',p:7,rows:60},1],
+    ['cen tiny rows',{view:'cen',p:2,rows:4},1],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minRects] of CONFIGS){
+    for(const [W,H] of SIZES){
+      withState(over,()=>{
+        const c=makeShot(W,H);
+        let err=null;
+        try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+        ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+err:''));
+        if(err) return;
+        const texts=c.ops.filter(o=>o.op==='text');
+        const fills=c.ops.filter(o=>o.op==='fill');
+        const rects=fills.reduce((a,o)=>a+(o.n||0),0);
+        ok(fills.length>=2&&texts.length>=1&&rects>=minRects,
+           nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills carrying '
+           +rects+' rects, floor '+minRects+')');
+        let bad=null;
+        for(const t of texts){
+          if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+          if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+          if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){
+            bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; }
+        }
+        ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+        /* pairwise text overlap (>3 px both ways), ignoring identical boxes */
+        let hit=null;
+        for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+          const a=texts[i2].bb, b=texts[j2].bb;
+          const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]);
+          const oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+          if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; }
+        }
+        ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+        /* no data polyline through a legend text box */
+        let leg=null;
+        for(const r of LEGEND_RECTS){
+          for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+            const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+            if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||
+               Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+            leg='a curve crosses the legend'; break;
+          }
+        }
+        ok(!leg,nm+' '+W+'x'+H+' legend clear ('+(leg||'ok')+')');
+      });
+    }
+  }
+  /* the panels must build clean for every view at defaults too */
+  for(const [v] of TABS){
+    withState({view:v},()=>{
+      const M=buildModel();
+      const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+      ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0,
+         'panels clean for view '+v);
+    });
+  }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

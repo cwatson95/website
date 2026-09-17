@@ -1,0 +1,1896 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radio waves — antenna, modulation &amp; propagation</title>
+<!--
+  A broadcast antenna driving real electromagnetic waves to a little radio:
+  the full chain message -> modulator -> antenna current -> retarded E,B
+  fields -> receiver -> demodulator, drawn from the exact physics.
+
+  Physics. The antenna is an ideal oscillating (Hertzian) dipole p(t) z-hat.
+  In units 1/(4 pi eps0) = 1 (so mu0 = 4 pi / c^2), with tau = t - r/c the
+  retarded time, the EXACT fields at (r, theta) are
+
+      E_r     = 2 cos(theta) [ p(tau)/r^3 + p'(tau)/(c r^2) ]
+      E_theta =   sin(theta) [ p(tau)/r^3 + p'(tau)/(c r^2) + p''(tau)/(c^2 r) ]
+      B_phi   = (sin(theta)/c^2) [ p'(tau)/r^2 + p''(tau)/(c r) ]
+
+  valid for ANY drive p(t) — near zone, radiation zone, and everything
+  between. Because E is solenoidal off the source, its meridian-plane field
+  lines are exactly the level curves of the flux (stream) function
+
+      Psi(r,theta,t) = sin^2(theta) [ p(tau)/r + p'(tau)/c ],
+
+  additive over sources; the drawn "field lines" are marching-squares
+  contours of Psi — the classic loops that pinch off and detach each half
+  cycle near r = lambda/2pi. B is azimuthal: drawn as an out-of/into-page
+  dot/cross layer (screen x = physical x, screen up = physical z, so
+  physical +y points INTO the screen: B_y > 0 prints as a cross).
+
+  Antennas. "AM tower": a base-fed quarter-wave monopole on a perfectly
+  conducting ground plane — the earth supplies the image, so the upper
+  half-space fields are exactly those of a dipole at the base (E arrives
+  perpendicular to the ground, tangential E = 0; both are asserted in the
+  self-test). "FM mast": a half-wave-style vertical dipole at height h with
+  its in-phase image at -h — the two-source interference builds elevation
+  lobes (pattern inset). "free dipole": the textbook donut in empty space.
+
+  Ground current. The return current closes through the soil as J = sigma E.
+  Under a good conductor the surface current density is K = n x H, i.e.
+  J_x ~ -H_y at the surface, decaying as e^{z/delta} with the skin depth
+  delta = sqrt(2/(mu0 sigma omega)) and lagging one radian of carrier phase
+  per delta of depth (plus the 45-degree surface-impedance lead) — the
+  arrows under the ground draw exactly that, with real-world delta quoted
+  for sea water / wet soil / dry soil (drawn depth exaggerated).
+
+  Modulation. Message s(t) is a closed-form sum of sinusoids (pure tone,
+  two-tone chord, or a harmonic "voice" burst), normalized to |s| <= 1.
+      AM:  p(t) = p0 [1 + mu s(t)] cos(omega_c t)
+      FM:  p(t) = p0 cos(omega_c t + d_omega INT_0^t s dt')
+  p', p'' are exact closed forms, so the radiated wave is the honest
+  modulated field (AM: loop strength breathes with the envelope; FM: loop
+  spacing bunches and stretches). Screen carrier:audio ratio ~ 8:1 — real
+  AM is ~200:1, FM ~7000:1; compressed so the envelope fits on screen.
+
+  Receiver. The radio's vertical whip reads V(t) = E_z at its position —
+  retarded and 1/r-attenuated. Demodulation is a real DSP chain run on the
+  scope buffer: quadrature mix against the carrier, moving-average lowpass
+  (length T_c/2: an exact null on the 2 f_c image), then envelope
+  sqrt(I^2+Q^2) for AM or the unwrapped-phase discriminator d/dt
+  atan2(Q,I) for FM; the gray reference overlay is s(t - r/c).
+
+  Rendering: 2d canvas on black, family style of orbitals.html /
+  quantum_tunneling.html / particles_in_a_box.html (NeonColors table for
+  continuous intensity; chartreuse/magenta = the two signs of Psi, cyan =
+  B symbols). Scope strip below the stage shows message, carrier, modulated
+  drive, received V(t), and the demodulated output. Bottom bar prints the
+  exact formulas in play. Radio is draggable. Single file, no dependencies,
+  works over file://.
+
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript radio_test.js
+  — when `document` is undefined it runs the assertion suite (Maxwell
+  equations by finite differences on the retarded fields in all modulation
+  modes, stream-function/field-line consistency, far-field 1/r and B = E/c,
+  Larmor power, ground-plane boundary conditions, pattern vs analytic
+  interference, AM/FM demodulation fidelity, retardation lag, skin-depth
+  law, marching squares, clamps/labels/units) instead of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; flex:1; min-height:0;}
+  #main{display:flex; flex-direction:column; flex:1; min-width:0;}
+  #stage{position:relative; flex:1; min-height:0;}
+  #sky{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none;}
+  #sky.dragging{cursor:grabbing;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #scopewrap{flex-shrink:0; height:168px; border-top:1px solid var(--edge); background:#050508;}
+  #scope{width:100%; height:100%; display:block;}
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.6;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .efrac{display:inline-flex; flex-direction:column; vertical-align:middle;
+                text-align:center; margin:0 2px; line-height:1.3; font-size:14.5px;}
+  #eqbar .efrac .en{border-bottom:1px solid #9a9aa4; padding:0 4px;}
+  #eqbar .efrac .ed{padding:0 4px;}
+  #eqbar .rb{border-top:1px solid currentColor; padding:0 2px;}
+  #eqbar sup{font-size:10.5px;}
+  #eqbar sub{font-size:10.5px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:76px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:48px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:2px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #gradbar{display:block; width:100%; height:10px; border-radius:5px; margin:6px 0 3px;}
+  #gradlabels{display:flex; justify-content:space-between; font-size:10.5px; color:#777;}
+  .ro{font:11.5px "SF Mono", Menlo, monospace; color:var(--dim); margin:3px 0;}
+  .ro b{color:var(--text); font-weight:600;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Radio waves</h1>
+  <span class="sub">oscillating-dipole antennas &mdash; exact retarded E, B &middot; AM / FM broadcast &middot; ground return current J = &sigma;E</span>
+</header>
+<div id="wrap">
+  <div id="main">
+    <div id="stage">
+      <canvas id="sky"></canvas>
+      <div id="hint">space = pause &middot; r = restart &middot; drag the radio</div>
+      <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+      <canvas id="inset" width="216" height="132"></canvas>
+    </div>
+    <div id="scopewrap"><canvas id="scope"></canvas></div>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>presets</h3>
+      <div class="chips">
+        <button class="chip" id="pAM" title="quarter-wave monopole tower, AM, voice message, wet soil">AM broadcast</button>
+        <button class="chip" id="pFM" title="elevated half-wave dipole, FM, voice message">FM broadcast</button>
+        <button class="chip" id="pDip" title="bare Hertzian dipole in free space, unmodulated carrier">bare dipole</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>antenna</h3>
+      <div class="chips">
+        <button class="chip on" id="antTower" title="base-fed lambda/4 monopole; the conducting earth supplies the image">AM tower</button>
+        <button class="chip" id="antMast" title="vertical lambda/2 dipole at height h over ground; image interference makes lobes">FM mast</button>
+        <button class="chip" id="antFree" title="Hertzian dipole in empty space — the textbook donut">free dipole</button>
+      </div>
+      <div class="sliderrow" id="rowH"><label for="eH">height h/&lambda;</label>
+        <input type="range" id="eH" min="0.3" max="1.4" step="0.05">
+        <span class="val" id="eHVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>modulation</h3>
+      <div class="chips">
+        <button class="chip" id="modCW" title="bare carrier, no message">CW</button>
+        <button class="chip on" id="modAM" title="amplitude modulation: envelope carries s(t)">AM</button>
+        <button class="chip" id="modFM" title="frequency modulation: instantaneous frequency carries s(t)">FM</button>
+      </div>
+      <div class="sliderrow"><label for="eFc">carrier f<sub>c</sub></label>
+        <input type="range" id="eFc" min="0.6" max="2.4" step="0.05">
+        <span class="val" id="eFcVal"></span></div>
+      <div class="sliderrow" id="rowMu"><label for="eMu">depth &mu;</label>
+        <input type="range" id="eMu" min="0" max="1.3" step="0.05">
+        <span class="val" id="eMuVal"></span></div>
+      <div class="sliderrow" id="rowDev"><label for="eDev">deviation &Delta;f</label>
+        <input type="range" id="eDev" min="0.05" max="0.45" step="0.01">
+        <span class="val" id="eDevVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>message s(t)</h3>
+      <div class="chips">
+        <button class="chip on" id="sigTone" title="single sinusoid">tone</button>
+        <button class="chip" id="sigTwo" title="two-tone chord">two-tone</button>
+        <button class="chip" id="sigVoice" title="harmonic burst train — a cartoon voice">voice</button>
+      </div>
+      <div class="sliderrow"><label for="eFm">audio f<sub>m</sub></label>
+        <input type="range" id="eFm" min="0.06" max="0.45" step="0.01">
+        <span class="val" id="eFmVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>receiver &amp; ground</h3>
+      <div class="sliderrow"><label for="eDist">radio x</label>
+        <input type="range" id="eDist" min="0.18" max="0.92" step="0.01">
+        <span class="val" id="eDistVal"></span></div>
+      <div class="chips" id="gndRow">
+        <button class="chip" id="gndSea" title="sigma = 4 S/m">sea water</button>
+        <button class="chip on" id="gndWet" title="sigma = 1e-2 S/m">wet soil</button>
+        <button class="chip" id="gndDry" title="sigma = 1e-3 S/m">dry soil</button>
+      </div>
+      <div class="ro" id="roGnd"></div>
+      <div class="ro" id="roRx"></div>
+    </div>
+
+    <div class="grp">
+      <h3>fields</h3>
+      <div class="checks">
+        <label><input type="checkbox" id="ckLines" checked> E lines</label>
+        <label><input type="checkbox" id="ckB" checked> B &#8857;/&#8855;</label>
+        <label><input type="checkbox" id="ckE"> E arrows</label>
+        <label><input type="checkbox" id="ckS"> Poynting</label>
+        <label><input type="checkbox" id="ckJ" checked> J = &sigma;E</label>
+        <label><input type="checkbox" id="ckZones" checked> zones</label>
+      </div>
+      <canvas id="gradbar" width="248" height="10"></canvas>
+      <div id="gradlabels"><span>weak</span><span>|J|, |B|, glow &rarr; strong</span></div>
+    </div>
+
+    <div class="grp">
+      <h3>time</h3>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0.1" max="2.5" step="0.05">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow">
+        <button id="pauseBtn">pause</button>
+        <button id="restartBtn" title="back to t = 0">restart</button>
+        <button id="resetBtn" title="back to the defaults">reset all</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<div id="eqbar" title=""></div>
+<script>
+'use strict';
+/* ======================= constants & palette ===================== */
+const PI = Math.PI, TAU = 2*PI;
+const C = 150;                                   // wave speed, px per sim-second
+const RMIN = 9;                                  // field clamp radius around a source
+const MU0_REAL = 4e-7*PI, C_REAL = 2.99792458e8; // for the real-world readouts
+
+/* colormap: Mathematica NeonColors — same 16-sample table as orbitals.html /
+   quantum_tunneling.html / particles_in_a_box.html */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){
+  const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ================== message signals (closed forms) ===============
+   s(t) = norm * SUM a_i sin(n_i w_m t + ph_i), all n_i integers (or 5/2),
+   so s, s', s'', and INT s dt are exact closed forms. norm scales the
+   scanned peak to 1. */
+const SIG_DEFS={
+  tone:  [[1,1,0]],
+  two:   [[1,0.62,0],[2.5,0.5,1.25]],
+  voice: [[1,1.0,0],[2,0.55,0.5],[3,0.42,1.1],[4,0.30,1.8],[5,0.16,2.6],[7,0.10,3.4]],
+};
+function makeSignal(type, fm){
+  const parts=SIG_DEFS[type]||SIG_DEFS.tone, wm=TAU*fm;
+  const raw=t=>{ let s=0;
+    for (const q of parts) s+=q[1]*Math.sin(q[0]*wm*t+q[2]);
+    return s; };
+  // scan two base periods for the true peak (period of the 5/2 partial);
+  // the tiny headroom keeps |s| <= 1 strictly despite the finite scan
+  let peak=0;
+  for (let i=0;i<4096;i++) peak=Math.max(peak,Math.abs(raw(2*(i+0.5)/(4096*fm))));
+  const norm=1/((peak||1)*(1+2e-4));
+  return {
+    type, fm, norm, parts,
+    s:  t=>norm*parts.reduce((a,q)=>a+q[1]*Math.sin(q[0]*wm*t+q[2]),0),
+    s1: t=>norm*parts.reduce((a,q)=>a+q[1]*q[0]*wm*Math.cos(q[0]*wm*t+q[2]),0),
+    s2: t=>norm*parts.reduce((a,q)=>a-q[1]*q[0]*wm*q[0]*wm*Math.sin(q[0]*wm*t+q[2]),0),
+    // INT_0^t s dt' — vanishes at t = 0 so FM starts on the nominal carrier
+    S:  t=>norm*parts.reduce((a,q)=>a+(q[1]/(q[0]*wm))*(Math.cos(q[2])-Math.cos(q[0]*wm*t+q[2])),0),
+  };
+}
+
+/* ==================== modulators: p(t), p', p'' ================== */
+function makePFuncs(state, sig){
+  const wc=TAU*state.fc;
+  if (state.mod==='am'){
+    const mu=state.mu;
+    return {
+      kind:'am', wc,
+      p:  t=>{ const A=1+mu*sig.s(t); return A*Math.cos(wc*t); },
+      p1: t=>{ const A=1+mu*sig.s(t);
+               return mu*sig.s1(t)*Math.cos(wc*t)-A*wc*Math.sin(wc*t); },
+      p2: t=>{ const A=1+mu*sig.s(t);
+               return mu*sig.s2(t)*Math.cos(wc*t)-2*mu*sig.s1(t)*wc*Math.sin(wc*t)
+                      -A*wc*wc*Math.cos(wc*t); },
+      env:t=>Math.abs(1+mu*sig.s(t)),
+      theta:t=>wc*t,
+      instF:t=>wc/TAU,
+      amp:1+mu,
+    };
+  }
+  if (state.mod==='fm'){
+    const dw=TAU*state.devF*state.fc;
+    const th=t=>wc*t+dw*sig.S(t);
+    return {
+      kind:'fm', wc,
+      p:  t=>Math.cos(th(t)),
+      p1: t=>-(wc+dw*sig.s(t))*Math.sin(th(t)),
+      p2: t=>{ const w=wc+dw*sig.s(t);
+               return -dw*sig.s1(t)*Math.sin(th(t))-w*w*Math.cos(th(t)); },
+      env:()=>1,
+      theta:th,
+      instF:t=>(wc+dw*sig.s(t))/TAU,
+      amp:1,
+    };
+  }
+  return {                                       // cw
+    kind:'cw', wc,
+    p:  t=>Math.cos(wc*t),
+    p1: t=>-wc*Math.sin(wc*t),
+    p2: t=>-wc*wc*Math.cos(wc*t),
+    env:()=>1,
+    theta:t=>wc*t,
+    instF:()=>wc/TAU,
+    amp:1,
+  };
+}
+
+/* ============== exact retarded fields of one dipole ==============
+   Source at the origin, p(t) z-hat. dx, dz in px; returns spherical
+   components + the flux function. Units 1/(4 pi eps0) = 1. */
+function oneField(pf, dx, dz, t){
+  let r=Math.sqrt(dx*dx+dz*dz);
+  if (r<RMIN) r=RMIN;
+  const tau=t-r/C, P=pf.p(tau), P1=pf.p1(tau), P2=pf.p2(tau);
+  const ct=dz/r, st=Math.abs(dx)/r;
+  const near=P/(r*r*r)+P1/(C*r*r);
+  return {
+    Er: 2*ct*near,
+    Eth: st*(near+P2/(C*C*r)),
+    Bphi: st*(P1/(r*r)+P2/(C*r))/(C*C),
+    psi: st*st*(P/r+P1/C),
+    ct, st, r,
+  };
+}
+/* total planar fields at world (wx, wz) from cfg.srcs (each {wz}), all on
+   the z axis. Screen x = physical x, up = physical z, physical +y INTO the
+   screen; s = sign(x) maps E_rho -> E_x and B_phi -> B_y. */
+function fieldsAt(cfg, pf, wx, wz, t){
+  let Ex=0, Ez=0, By=0, psi=0;
+  const s=wx<0?-1:(wx>0?1:0);
+  for (const src of cfg.srcs){
+    const f=oneField(pf, wx, wz-src.wz, t);
+    Ex+=s*(f.Er*f.st+f.Eth*f.ct);
+    Ez+=f.Er*f.ct-f.Eth*f.st;
+    By+=s*f.Bphi;
+    psi+=f.psi;
+  }
+  return {Ex, Ez, By, psi};
+}
+/* antenna source lists per mode; h in px (mast height above ground) */
+function makeCfg(state, lam){
+  if (state.ant==='mast'){
+    const h=state.hLam*lam;
+    return {srcs:[{wz:h},{wz:-h}], ground:true, h};
+  }
+  if (state.ant==='free') return {srcs:[{wz:0}], ground:false, h:0};
+  return {srcs:[{wz:0}], ground:true, h:0};      // tower: dipole = monopole + image
+}
+
+/* ======= p(tau) lookup table (per-frame speedup for the grids) ====
+   Linear interpolation on a tau grid fine enough for <0.5% error even at
+   the max FM instantaneous frequency. */
+function buildPTable(pf, fcEff, tMin, tMax){
+  const dt=1/(96*fcEff), n=Math.max(4,Math.ceil((tMax-tMin)/dt)+2);
+  const P=new Float64Array(n), P1=new Float64Array(n), P2=new Float64Array(n);
+  for (let i=0;i<n;i++){ const t=tMin+i*dt; P[i]=pf.p(t); P1[i]=pf.p1(t); P2[i]=pf.p2(t); }
+  return {t0:tMin, dt, n, P, P1, P2};
+}
+function tableAt(tab, t){
+  let x=(t-tab.t0)/tab.dt;
+  if (x<0) x=0;
+  if (x>tab.n-1.001) x=tab.n-1.001;
+  const i=Math.floor(x), f=x-i;
+  return [tab.P[i]+(tab.P[i+1]-tab.P[i])*f,
+          tab.P1[i]+(tab.P1[i+1]-tab.P1[i])*f,
+          tab.P2[i]+(tab.P2[i+1]-tab.P2[i])*f];
+}
+/* same field math as oneField/fieldsAt but reading p from the table */
+function fieldsAtTab(cfg, tab, wx, wz, t){
+  let Ex=0, Ez=0, By=0, psi=0;
+  const s=wx<0?-1:(wx>0?1:0);
+  for (const src of cfg.srcs){
+    const dx=wx, dz=wz-src.wz;
+    let r=Math.sqrt(dx*dx+dz*dz);
+    if (r<RMIN) r=RMIN;
+    const q=tableAt(tab, t-r/C), P=q[0], P1=q[1], P2=q[2];
+    const ct=dz/r, st=Math.abs(dx)/r;
+    const near=P/(r*r*r)+P1/(C*r*r);
+    const Er=2*ct*near, Eth=st*(near+P2/(C*C*r));
+    Ex+=s*(Er*st+Eth*ct);
+    Ez+=Er*ct-Eth*st;
+    By+=s*st*(P1/(r*r)+P2/(C*r))/(C*C);
+    psi+=st*st*(P/r+P1/C);
+  }
+  return {Ex, Ez, By, psi};
+}
+
+/* ==================== marching squares (contours) ================
+   grid: Float64Array nx*ny of Psi, world coords via (x0 + i*cs, z0 + j*cs).
+   Returns flat segment list [x1,z1,x2,z2,...] in world coords for one level. */
+function marchingSquares(grid, nx, ny, x0, z0, cs, level){
+  const segs=[];
+  const lerp=(pa,pb,va,vb)=>{ const f=(level-va)/((vb-va)||1e-30);
+    return [pa[0]+(pb[0]-pa[0])*f, pa[1]+(pb[1]-pa[1])*f]; };
+  for (let j=0;j<ny-1;j++){
+    for (let i=0;i<nx-1;i++){
+      const v00=grid[j*nx+i],   v10=grid[j*nx+i+1],
+            v01=grid[(j+1)*nx+i], v11=grid[(j+1)*nx+i+1];
+      let code=0;
+      if (v00>level) code|=1;
+      if (v10>level) code|=2;
+      if (v11>level) code|=4;
+      if (v01>level) code|=8;
+      if (code===0||code===15) continue;
+      const x=x0+i*cs, z=z0+j*cs;
+      const p00=[x,z], p10=[x+cs,z], p01=[x,z+cs], p11=[x+cs,z+cs];
+      const eB=()=>lerp(p00,p10,v00,v10), eR=()=>lerp(p10,p11,v10,v11),
+            eT=()=>lerp(p01,p11,v01,v11), eL=()=>lerp(p00,p01,v00,v01);
+      const put=(a,b)=>{ segs.push(a[0],a[1],b[0],b[1]); };
+      switch(code){
+        case 1:  put(eL(),eB()); break;
+        case 2:  put(eB(),eR()); break;
+        case 3:  put(eL(),eR()); break;
+        case 4:  put(eR(),eT()); break;
+        case 5:{ const mid=(v00+v10+v01+v11)/4;
+                 if (mid>level){ put(eL(),eT()); put(eB(),eR()); }
+                 else { put(eL(),eB()); put(eR(),eT()); } break; }
+        case 6:  put(eB(),eT()); break;
+        case 7:  put(eL(),eT()); break;
+        case 8:  put(eT(),eL()); break;
+        case 9:  put(eT(),eB()); break;
+        case 10:{ const mid=(v00+v10+v01+v11)/4;
+                 if (mid>level){ put(eT(),eR()); put(eL(),eB()); }
+                 else { put(eT(),eL()); put(eB(),eR()); } break; }
+        case 11: put(eT(),eR()); break;
+        case 12: put(eR(),eL()); break;
+        case 13: put(eR(),eB()); break;
+        case 14: put(eB(),eL()); break;
+      }
+    }
+  }
+  return segs;
+}
+/* contour levels: geometric ladder pinned to the carrier's far-field
+   Psi scale (~ omega_c/c), so density stays put as f_c changes while AM
+   breathing stays visible */
+function psiLevels(state){
+  const base=0.20*TAU*state.fc/C, g=1.9, out=[];
+  for (let k=0;k<7;k++){ const L=base*Math.pow(g,k); out.push(L,-L); }
+  return out;
+}
+
+/* ===================== ground & skin depth =======================
+   Real-world sigma per soil chip; delta_real = sqrt(2/(mu0 sigma omega)).
+   Drawn delta is a monotone, exaggerated map of the real one. */
+const GND_TYPES={
+  sea:{sigma:4,    name:'sea water', disp:'4'},
+  wet:{sigma:1e-2, name:'wet soil',  disp:'10&#8315;&sup2;'},
+  dry:{sigma:1e-3, name:'dry soil',  disp:'10&#8315;&sup3;'},
+};
+function skinDepthReal(sigma, fcReal){
+  return Math.sqrt(2/(MU0_REAL*sigma*TAU*fcReal));
+}
+function skinDepthPx(gnd, band){
+  const fr=BANDS[band].fcReal;
+  const d=skinDepthReal(GND_TYPES[gnd].sigma, fr),
+        dWet=skinDepthReal(1e-2, fr);
+  return Math.max(6, Math.min(40, 20*Math.sqrt(d/dWet)));
+}
+/* J = sigma E in the soil: J_x ~ -H_y(surface) * e^{-depth/delta}, lagging
+   (depth/delta + pi/4) of carrier phase (surface impedance + skin spiral).
+   Returns a display-scaled J_x at depth wd > 0 below (wx, 0). */
+function jCurrent(cfg, pf, tab, wx, wd, dpx, t){
+  const wc=pf.wc, tsh=t-(PI/4+wd/dpx)/wc;
+  const By=tab?fieldsAtTab(cfg,tab,wx,0,tsh).By:fieldsAt(cfg,pf,wx,0,tsh).By;
+  return -By*Math.exp(-wd/dpx);
+}
+
+/* ================== receiver DSP (scope + demod) =================
+   One causal moving average of length Tc/2 — an exact null on the 2 f_c
+   quadrature image — applied twice. */
+function movAvg(arr, w){
+  const n=arr.length, out=new Float64Array(n);
+  let acc=0;
+  for (let i=0;i<n;i++){
+    acc+=arr[i];
+    if (i>=w) acc-=arr[i-w];
+    out[i]=acc/Math.min(i+1,w);
+  }
+  return out;
+}
+function demodulate(V, ts, pf, kind, tR){
+  const n=V.length, dt=ts[1]-ts[0], w=Math.max(2,Math.round(0.5/pf.wc*TAU/dt));
+  const I=new Float64Array(n), Q=new Float64Array(n);
+  for (let i=0;i<n;i++){
+    const ph=pf.wc*(ts[i]-tR);                   // LO synchronous with the carrier
+    I[i]=V[i]*Math.cos(ph); Q[i]=V[i]*Math.sin(ph);
+  }
+  const If=movAvg(movAvg(I,w),w), Qf=movAvg(movAvg(Q,w),w);
+  const out=new Float64Array(n);
+  if (kind==='fm'){
+    // discriminator: with Q = V sin(LO) the baseband phase is -dw INT s,
+    // so f_inst - f_c = -(1/2pi) d(atan2(Qf,If))/dt
+    let prev=Math.atan2(Qf[0],If[0]);
+    for (let i=1;i<n;i++){
+      const ph=Math.atan2(Qf[i],If[i]);
+      let d=ph-prev;
+      if (d>PI) d-=TAU;
+      if (d<-PI) d+=TAU;
+      prev=ph;
+      out[i]=-d/(TAU*dt);
+    }
+    out[0]=out[1];
+    return out;
+  }
+  for (let i=0;i<n;i++) out[i]=2*Math.hypot(If[i],Qf[i]);   // AM envelope
+  return out;
+}
+
+/* =================== radiation pattern samples ===================
+   Time-averaged radial Poynting flux over one carrier period at r = rFar,
+   sampled on nA polar angles; normalized to max = 1. Uses the code's own
+   fields, so image interference is included automatically. */
+function patternSamples(cfg, pf, nA, rFar, t0){
+  const out=new Float64Array(nA), Tc=TAU/pf.wc, NT=16;
+  let mx=0;
+  for (let a=0;a<nA;a++){
+    const th=(a+0.5)*PI/nA;                      // polar angle from +z
+    const wx=rFar*Math.sin(th), wz=rFar*Math.cos(th);
+    if (cfg.ground && wz<0){ out[a]=0; continue; }
+    let acc=0;
+    for (let k=0;k<NT;k++){
+      const f=fieldsAt(cfg, pf, wx, wz, t0+k*Tc/NT);
+      acc+=(-f.Ez*f.By)*Math.sin(th)+(f.Ex*f.By)*Math.cos(th);  // S_r up to mu0
+    }
+    out[a]=Math.max(0,acc/NT);
+    mx=Math.max(mx,out[a]);
+  }
+  if (mx>0) for (let a=0;a<nA;a++) out[a]/=mx;
+  return out;
+}
+
+/* ==================== state, clamps, real units ================== */
+const BANDS={
+  am: {fcReal:1.0e6,  fmReal:5e3,   name:'AM broadcast'},
+  fm: {fcReal:1.0e8,  fmReal:15e3,  name:'FM broadcast'},
+  gen:{fcReal:0,      fmReal:0,     name:''},
+};
+const DEFAULTS={ ant:'tower', mod:'am', sig:'tone', band:'am',
+                 fc:1.2, fm:0.15, mu:0.7, devF:0.3, hLam:0.8,
+                 rxX:0.62, gnd:'wet', speed:0.55,
+                 lines:true, showB:true, showE:false, showS:false,
+                 showJ:true, zones:true };
+const PRESETS={
+  pAM: {ant:'tower', mod:'am', sig:'voice', band:'am', fc:1.2, fm:0.15, mu:0.7,
+        gnd:'wet', showJ:true, zones:true},
+  pFM: {ant:'mast', mod:'fm', sig:'voice', band:'fm', fc:1.6, fm:0.2, devF:0.35,
+        hLam:0.8, gnd:'wet'},
+  pDip:{ant:'free', mod:'cw', sig:'tone', band:'gen', fc:1.2, zones:true},
+};
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,+v||lo));
+  if (['tower','mast','free'].indexOf(c.ant)<0) c.ant='tower';
+  if (['cw','am','fm'].indexOf(c.mod)<0) c.mod='am';
+  if (['tone','two','voice'].indexOf(c.sig)<0) c.sig='tone';
+  if (!BANDS[c.band]) c.band='gen';
+  if (!GND_TYPES[c.gnd]) c.gnd='wet';
+  c.fc=f(c.fc,0.6,2.4);
+  c.fm=f(c.fm,0.06,Math.min(0.45,c.fc/3));      // keep audio << carrier (demod sanity)
+  c.mu=f(c.mu,0,1.3);
+  c.devF=f(c.devF,0.05,0.45);
+  c.hLam=f(c.hLam,0.3,1.4);
+  c.rxX=f(c.rxX,0.18,0.92);
+  c.speed=f(c.speed,0.1,2.5);
+  for (const k of ['lines','showB','showE','showS','showJ','zones']) c[k]=!!c[k];
+  return c;
+}
+function fmt(x,d){ return (+x).toFixed(d===undefined?2:d); }
+function fmtSI(x,unit){                          // 299792.458, 'm' -> "300 km"
+  const ax=Math.abs(x);
+  if (ax>=1e9) return fmt(x/1e9,1)+' G'+unit;
+  if (ax>=1e6) return fmt(x/1e6,1)+' M'+unit;
+  if (ax>=1e3) return fmt(x/1e3,1)+' k'+unit;
+  if (ax>=1)   return fmt(x,1)+' '+unit;
+  if (ax>=1e-3) return fmt(x*1e3,1)+' m'+unit;
+  return fmt(x*1e6,1)+' &mu;'+unit;
+}
+function antLabel(st){
+  return {tower:'AM tower — λ/4 monopole', mast:'FM mast — elevated dipole',
+          free:'Hertzian dipole'}[st.ant];
+}
+function modLabel(st){
+  if (st.mod==='am') return 'AM · μ = '+fmt(st.mu,2);
+  if (st.mod==='fm') return 'FM · Δf = '+fmt(st.devF*st.fc,2)+' Hz';
+  return 'CW carrier';
+}
+/* real-world mapping: the drawn lambda corresponds to the band's real
+   lambda; everything else scales through that */
+function realUnits(st){
+  const b=BANDS[st.band];
+  if (!b.fcReal) return null;
+  const lamPx=C/st.fc, lamReal=C_REAL/b.fcReal, mPerPx=lamReal/lamPx;
+  return {
+    lamReal, mPerPx,
+    fcStr:fmtSI(b.fcReal,'Hz'), lamStr:fmtSI(lamReal,'m'),
+    towerStr:fmtSI(lamReal/4,'m'),
+    slow:b.fcReal/st.fc,
+    delayReal:px=>px*mPerPx/C_REAL,
+  };
+}
+
+/* ========================= formula bar =========================== */
+function frac(n,d){ return '<span class="efrac"><span class="en">'+n+
+  '</span><span class="ed">'+d+'</span></span>'; }
+function eqbarHTML(st){
+  let mod;
+  if (st.mod==='am')
+    mod='<span class="lhs">p(t)</span> = p&#8320;[1 + &mu;&thinsp;s(t)]&thinsp;cos&thinsp;&omega;<sub>c</sub>t';
+  else if (st.mod==='fm')
+    mod='<span class="lhs">p(t)</span> = p&#8320;&thinsp;cos(&omega;<sub>c</sub>t + &Delta;&omega;&int;&#8320;&#7511;s&thinsp;dt&prime;)';
+  else
+    mod='<span class="lhs">p(t)</span> = p&#8320;&thinsp;cos&thinsp;&omega;<sub>c</sub>t';
+  const ret='<sub>ret</sub>';
+  const eth='E<sub>&theta;</sub> = sin&theta;&thinsp;['+
+    frac('p','r&sup3;')+' + '+frac('&#7771;','c&thinsp;r&sup2;')+' + '+
+    frac('p&#776;','c&sup2;r')+']'+ret;
+  const bph='B<sub>&phi;</sub> = '+frac('sin&theta;','c&sup2;')+'['+
+    frac('&#7771;','r&sup2;')+' + '+frac('p&#776;','c&thinsp;r')+']'+ret;
+  let out=mod+' &nbsp;&middot;&nbsp; '+eth+' &nbsp;&middot;&nbsp; '+bph;
+  if (st.ant!=='free')
+    out+=' &nbsp;&middot;&nbsp; <b>J</b> = &sigma;<b>E</b>, &delta; = &radic;<span class="rb">2/&mu;&#8320;&sigma;&omega;</span>';
+  return out;
+}
+function eqbarText(st){
+  const mod=st.mod==='am'?'p(t) = p0 [1 + mu s(t)] cos(wc t)'
+    :st.mod==='fm'?'p(t) = p0 cos(wc t + dw INT_0^t s dt\')'
+    :'p(t) = p0 cos(wc t)';
+  let out=mod+'  ·  E_th = sin(th)[p/r^3 + p\'/(c r^2) + p\'\'/(c^2 r)]_ret'+
+    '  ·  B_ph = (sin(th)/c^2)[p\'/r^2 + p\'\'/(c r)]_ret';
+  if (st.ant!=='free') out+='  ·  J = sigma E, delta = sqrt(2/(mu0 sigma w))';
+  return out;
+}
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('sky'), ctx=cv.getContext('2d');
+  const scCv=$('scope'), scx=scCv.getContext('2d');
+  const insetCv=$('inset'), inx=insetCv.getContext('2d');
+  if (!ctx||!scx||!inx) return;
+  const dpr=(typeof window!=='undefined'&&window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let t=0, paused=false, frameNo=0;
+  let W=980, H=430, SW=980, SH=168;
+  let sig=null, pf=null, cfg=null, lam=125;
+  let patt=null, pattAngles=96;
+  let lastRxAmp=0, lastAudio=0, dragRx=false;
+  const notes=[];
+
+  /* ---------- geometry ---------- */
+  const GH=88;                                   // soil depth on screen
+  const groundY=()=>state.ant==='free'?H:H-GH;
+  const yAnt=()=>state.ant==='free'?Math.round(H*0.5):groundY();
+  const xAnt=()=>Math.round(W*0.30);
+  const rxPx=()=>Math.round(state.rxX*W);
+  const toSX=wx=>xAnt()+wx, toSY=wz=>yAnt()-wz;
+  const rxProbe=()=>({wx:rxPx()-xAnt(), wz:state.ant==='free'?0:26});
+
+  function rebuildModel(){
+    state=clampState(state);
+    sig=makeSignal(state.sig, state.fm);
+    pf=makePFuncs(state, sig);
+    lam=C/state.fc;
+    cfg=makeCfg(state, lam);
+    if (state.ant==='mast'){                     // keep the feed on screen
+      const cap=Math.max(60,H-GH-40);
+      if (cfg.h>cap) cfg={srcs:[{wz:cap},{wz:-cap}], ground:true, h:cap};
+    }
+    patt=null;                                   // recompute pattern lazily
+  }
+
+  /* ---------- per-frame p(tau) table ---------- */
+  function frameTable(){
+    const rmax=Math.hypot(Math.max(xAnt(),W-xAnt())+40, H+40)+ (cfg.h||0);
+    return buildPTable(pf, state.fc*(1+ (state.mod==='fm'?state.devF:0) +0.05),
+                       t-rmax/C-0.05, t+0.02);
+  }
+
+  /* ---------- layers ---------- */
+  function drawFieldLines(tab){
+    const cs=8, gy=groundY();
+    const wx0=-xAnt()+6, wx1=W-xAnt()-6;
+    const wz0=cfg.ground?0:-(H-10-yAnt()), wz1=yAnt()-10;
+    const nx=Math.max(4,Math.floor((wx1-wx0)/cs)+1),
+          ny=Math.max(4,Math.floor((wz1-wz0)/cs)+1);
+    const grid=new Float64Array(nx*ny);
+    for (let j=0;j<ny;j++){
+      const wz=wz0+j*cs;
+      for (let i=0;i<nx;i++)
+        grid[j*nx+i]=fieldsAtTab(cfg,tab,wx0+i*cs,wz,t).psi;
+    }
+    const levels=psiLevels(state);
+    ctx.lineWidth=1.1;
+    let segCount=0;
+    const arrowPts=[];
+    for (const L of levels){
+      const segs=marchingSquares(grid,nx,ny,wx0,wz0,cs,L);
+      if (!segs.length) continue;
+      ctx.strokeStyle=L>0?'#b8ec4c':'#cd35c4';
+      ctx.globalAlpha=0.62;
+      ctx.beginPath();
+      for (let k=0;k<segs.length;k+=4){
+        ctx.moveTo(toSX(segs[k]),toSY(segs[k+1]));
+        ctx.lineTo(toSX(segs[k+2]),toSY(segs[k+3]));
+      }
+      ctx.stroke();
+      segCount+=segs.length/4;
+      for (let k=0;k<segs.length;k+=4*26)
+        arrowPts.push([(segs[k]+segs[k+2])/2,(segs[k+1]+segs[k+3])/2]);
+    }
+    ctx.globalAlpha=0.9;
+    for (const q of arrowPts){                   // arrowheads along E
+      const f=fieldsAtTab(cfg,tab,q[0],q[1],t);
+      const m=Math.hypot(f.Ex,f.Ez);
+      if (m<1e-12) continue;
+      const ux=f.Ex/m, uz=f.Ez/m;
+      const px=toSX(q[0]), py=toSY(q[1]);
+      ctx.fillStyle=f.psi>0?'#b8ec4c':'#cd35c4';
+      ctx.beginPath();
+      ctx.moveTo(px+ux*4,py-uz*4);
+      ctx.lineTo(px-ux*2.4+uz*2.2,py+uz*2.4+ux*2.2);
+      ctx.lineTo(px-ux*2.4-uz*2.2,py+uz*2.4-ux*2.2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    return segCount;
+  }
+
+  function drawBLayer(tab){
+    const step=46, gy=groundY();
+    const pts=[];
+    let mx=0;
+    for (let sy=26;sy<gy-8;sy+=step){
+      for (let sx=20;sx<W-16;sx+=step){
+        const wx=sx-xAnt(), wz=yAnt()-sy;
+        const r=Math.hypot(wx,wz-(cfg.h||0));
+        if (Math.hypot(wx,wz)<RMIN*2.2||r<RMIN*2.2) continue;
+        const By=fieldsAtTab(cfg,tab,wx,wz,t).By;
+        pts.push([sx,sy,By]);
+        mx=Math.max(mx,Math.abs(By));
+      }
+    }
+    if (!mx) return;
+    ctx.strokeStyle='#58c4dd'; ctx.fillStyle='#58c4dd';
+    for (const q of pts){
+      const a=Math.pow(Math.abs(q[2])/mx,0.45);
+      if (a<0.06) continue;
+      const rad=2.2+6*a;
+      ctx.globalAlpha=0.16+0.6*a;
+      ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(q[0],q[1],rad,0,TAU); ctx.stroke();
+      if (q[2]>0){                               // +y is INTO the screen: cross
+        ctx.beginPath();
+        ctx.moveTo(q[0]-rad*0.55,q[1]-rad*0.55); ctx.lineTo(q[0]+rad*0.55,q[1]+rad*0.55);
+        ctx.moveTo(q[0]-rad*0.55,q[1]+rad*0.55); ctx.lineTo(q[0]+rad*0.55,q[1]-rad*0.55);
+        ctx.stroke();
+      } else {                                   // out of the screen: dot
+        ctx.beginPath(); ctx.arc(q[0],q[1],Math.max(0.8,rad*0.22),0,TAU); ctx.fill();
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function drawVecLayer(tab, kind){              // 'E' arrows or 'S' Poynting
+    const step=kind==='E'?46:60, off=kind==='E'?23:30, gy=groundY();
+    const pts=[];
+    let mx=0;
+    for (let sy=26+off%step;sy<gy-8;sy+=step){
+      for (let sx=20+off;sx<W-16;sx+=step){
+        const wx=sx-xAnt(), wz=yAnt()-sy;
+        if (Math.hypot(wx,wz)<RMIN*2.2) continue;
+        const f=fieldsAtTab(cfg,tab,wx,wz,t);
+        let vx,vz;
+        if (kind==='E'){ vx=f.Ex; vz=f.Ez; }
+        else { vx=-f.Ez*f.By; vz=f.Ex*f.By; }    // E x B, in-plane
+        const m=Math.hypot(vx,vz);
+        pts.push([sx,sy,vx,vz,m]);
+        mx=Math.max(mx,m);
+      }
+    }
+    if (!mx) return;
+    ctx.strokeStyle=kind==='E'?'rgba(235,238,245,0.8)':'rgba(255,240,190,0.8)';
+    ctx.fillStyle=ctx.strokeStyle;
+    ctx.lineWidth=1;
+    for (const q of pts){
+      const a=Math.pow(q[4]/mx,0.45);
+      if (a<0.07) continue;
+      const len=(kind==='E'?16:20)*a;
+      const ux=q[2]/q[4], uz=q[3]/q[4];
+      const x2=q[0]+ux*len, y2=q[1]-uz*len;
+      ctx.globalAlpha=0.25+0.55*a;
+      ctx.beginPath(); ctx.moveTo(q[0],q[1]); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x2+ux*3.4,y2-uz*3.4);
+      ctx.lineTo(x2-uz*2,y2-ux*2);
+      ctx.lineTo(x2+uz*2,y2+ux*2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function drawZones(){
+    const r1=C/pf.wc, r2=lam;                    // lambda/2pi and lambda
+    const cxp=toSX(0), cyp=toSY(cfg.h||0), gy=groundY();
+    ctx.save();
+    if (cfg.ground){ ctx.beginPath(); ctx.rect(0,0,W,gy); ctx.clip(); }
+    ctx.strokeStyle='rgba(255,255,255,0.22)';
+    ctx.setLineDash([3,5]); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cxp,cyp,r1,0,TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cxp,cyp,r2,0,TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('λ/2π',cxp+r1*0.72,cyp-r1*0.72);
+    ctx.fillText('λ',cxp+r2*0.72,cyp-r2*0.74);
+    ctx.restore();
+  }
+
+  function drawGround(tab){
+    if (!cfg.ground) return;
+    const gy=groundY();
+    ctx.fillStyle='#120d08';
+    ctx.fillRect(0,gy,W,H-gy);
+    ctx.strokeStyle='rgba(255,255,255,0.035)';
+    ctx.lineWidth=1;
+    for (let y=gy+18;y<H;y+=17){
+      ctx.beginPath(); ctx.moveTo(0,y+((y/17)%2)*4); ctx.lineTo(W,y+((y/17)%2)*4); ctx.stroke();
+    }
+    ctx.strokeStyle='#3a3a42'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke();
+    // buried radial wires at the tower base (AM ground system)
+    if (state.ant==='tower'){
+      ctx.strokeStyle='rgba(150,120,80,0.5)'; ctx.lineWidth=1;
+      ctx.setLineDash([7,5]);
+      for (const s of [-1,1]){
+        ctx.beginPath();
+        ctx.moveTo(toSX(s*14),gy+4); ctx.lineTo(toSX(s*120),gy+4);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+    const dpx=skinDepthPx(state.gnd, state.band==='gen'?'am':state.band);
+    // skin-depth bracket
+    ctx.strokeStyle='rgba(255,255,255,0.35)';
+    ctx.beginPath();
+    ctx.moveTo(10,gy+2); ctx.lineTo(10,gy+dpx);
+    ctx.moveTo(7,gy+dpx); ctx.lineTo(13,gy+dpx);
+    ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.45)'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('δ',16,gy+dpx);
+    if (!state.showJ) return;
+    // J = sigma E arrows, decaying and lagging with depth
+    const rows=[0.35,0.9,1.6,2.4].map(f=>f*dpx).filter(d=>d<H-gy-6);
+    const pts=[];
+    let mx=0;
+    for (const wd of rows){
+      for (let sx=26;sx<W-18;sx+=26){
+        const wx=sx-xAnt();
+        if (Math.abs(wx)<12) continue;
+        const J=jCurrent(cfg,pf,tab,wx,wd,dpx,t);
+        pts.push([sx,gy+wd,J]);
+        mx=Math.max(mx,Math.abs(J));
+      }
+    }
+    if (!mx) return;
+    for (const q of pts){
+      const a=Math.pow(Math.abs(q[2])/mx,0.5);
+      if (a<0.05) continue;
+      const len=4+13*a, dir=q[2]>0?1:-1;
+      const x2=q[0]+dir*len;
+      ctx.strokeStyle=neonCss(0.1+0.75*a); ctx.fillStyle=ctx.strokeStyle;
+      ctx.globalAlpha=0.25+0.65*a;
+      ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(q[0],q[1]); ctx.lineTo(x2,q[1]); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x2+dir*3.2,q[1]);
+      ctx.lineTo(x2,q[1]-2.1);
+      ctx.lineTo(x2,q[1]+2.1);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  /* charge glow: sign-colored radial blob */
+  function chargeGlow(sx,sy,q){
+    const a=Math.min(1,Math.abs(q));
+    if (a<0.03) return;
+    const col=q>0?'184,236,76':'205,53,196';
+    const rad=3.5+9*Math.sqrt(a);
+    const g=ctx.createRadialGradient(sx,sy,0,sx,sy,rad);
+    g.addColorStop(0,'rgba('+col+','+(0.85*a)+')');
+    g.addColorStop(1,'rgba('+col+',0)');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(sx,sy,rad,0,TAU); ctx.fill();
+  }
+  function currentChevrons(x,y0,y1,I){           // vertical run y0->y1, I>0 = up
+    const a=Math.min(1,Math.abs(I));
+    if (a<0.04) return;
+    ctx.strokeStyle='rgba(255,255,255,'+(0.25+0.6*a)+')';
+    ctx.lineWidth=1.4;
+    const n=4, s=I>0?1:-1;                       // screen y decreases upward
+    for (let k=0;k<n;k++){
+      const y=y0+(y1-y0)*(k+0.5)/n;
+      ctx.beginPath();
+      ctx.moveTo(x-3.2,y+2.6*s);
+      ctx.lineTo(x,y-2.6*s);
+      ctx.lineTo(x+3.2,y+2.6*s);
+      ctx.stroke();
+    }
+  }
+
+  function drawAntenna(){
+    const gy=groundY(), xa=toSX(0);
+    const Inorm=pf.p1(t)/(pf.wc*pf.amp), Qnorm=pf.p(t)/pf.amp;
+    if (state.ant==='tower'){
+      const Ht=Math.max(16,lam/4), yTop=gy-Ht;
+      ctx.strokeStyle='#8a8a92'; ctx.lineWidth=1;
+      const wB=7, wT=1.5;
+      ctx.beginPath();
+      ctx.moveTo(xa-wB,gy-3); ctx.lineTo(xa-wT,yTop);
+      ctx.moveTo(xa+wB,gy-3); ctx.lineTo(xa+wT,yTop);
+      for (let k=0;k<6;k++){                     // lattice braces
+        const f0=k/6, f1=(k+1)/6;
+        const yA=gy-3-(gy-3-yTop)*f0, yB=gy-3-(gy-3-yTop)*f1;
+        const hA=wB+(wT-wB)*f0, hB=wB+(wT-wB)*f1;
+        ctx.moveTo(xa-hA,yA); ctx.lineTo(xa+hB,yB);
+        ctx.moveTo(xa+hA,yA); ctx.lineTo(xa-hB,yB);
+      }
+      ctx.stroke();
+      // base insulator + feed
+      ctx.strokeStyle='#fff'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(xa-4,gy-1.5); ctx.lineTo(xa+4,gy-1.5); ctx.stroke();
+      ctx.strokeStyle='#58c4dd'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(xa+13,gy-6,5,0,TAU); ctx.stroke();
+      ctx.font='9px Georgia, serif'; ctx.fillStyle='#58c4dd';
+      ctx.fillText('~',xa+10.5,gy-3);
+      // beacon
+      ctx.fillStyle='rgba(255,60,60,'+(0.45+0.45*Math.sin(2.1*t))+')';
+      ctx.beginPath(); ctx.arc(xa,yTop-3,2,0,TAU); ctx.fill();
+      chargeGlow(xa,yTop+Ht*0.12,Qnorm);
+      currentChevrons(xa,gy-6,yTop+4,Inorm);
+      // dashed image tower below ground
+      ctx.globalAlpha=0.22;
+      ctx.strokeStyle='#8a8a92'; ctx.setLineDash([3,4]); ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.moveTo(xa-wB,gy+3); ctx.lineTo(xa-wT,gy+Ht);
+      ctx.moveTo(xa+wB,gy+3); ctx.lineTo(xa+wT,gy+Ht);
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha=0.35;
+      chargeGlow(xa,gy+Ht-Ht*0.12,-Qnorm);
+      ctx.globalAlpha=1;
+      ctx.fillStyle='#777'; ctx.font='10px -apple-system, sans-serif';
+      ctx.fillText('image',xa+10,gy+Ht-2);
+    } else if (state.ant==='mast'){
+      const h=cfg.h, yF=toSY(h), arm=Math.max(12,Math.min(lam/4,h*0.85));
+      ctx.strokeStyle='#55565e'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(xa,gy); ctx.lineTo(xa,yF+arm*0.35); ctx.stroke();
+      ctx.strokeStyle='#b9bcc4'; ctx.lineWidth=2.5;
+      ctx.beginPath();
+      ctx.moveTo(xa,yF-3); ctx.lineTo(xa,yF-arm);
+      ctx.moveTo(xa,yF+3); ctx.lineTo(xa,yF+arm);
+      ctx.stroke();
+      ctx.strokeStyle='#58c4dd'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(xa,yF,4,0,TAU); ctx.stroke();
+      chargeGlow(xa,yF-arm,Qnorm);
+      chargeGlow(xa,yF+arm,-Qnorm);
+      currentChevrons(xa,yF+arm-3,yF-arm+3,Inorm);
+      // image dipole, mirrored, tip charges swapped
+      const yFi=gy+(gy-yF);
+      ctx.globalAlpha=0.22;
+      ctx.strokeStyle='#b9bcc4'; ctx.setLineDash([3,4]); ctx.lineWidth=2;
+      ctx.beginPath();
+      ctx.moveTo(xa,yFi-arm); ctx.lineTo(xa,yFi+arm);
+      ctx.stroke(); ctx.setLineDash([]);
+      ctx.globalAlpha=0.35;
+      chargeGlow(xa,yFi+arm,Qnorm);
+      chargeGlow(xa,yFi-arm,-Qnorm);
+      ctx.globalAlpha=1;
+      if (yFi+arm<H-4){
+        ctx.fillStyle='#777'; ctx.font='10px -apple-system, sans-serif';
+        ctx.fillText('image',xa+8,yFi);
+      }
+    } else {
+      const yF=toSY(0), arm=Math.max(14,lam/4);
+      ctx.strokeStyle='#b9bcc4'; ctx.lineWidth=2.5;
+      ctx.beginPath();
+      ctx.moveTo(xa,yF-3); ctx.lineTo(xa,yF-arm);
+      ctx.moveTo(xa,yF+3); ctx.lineTo(xa,yF+arm);
+      ctx.stroke();
+      ctx.strokeStyle='#58c4dd'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(xa,yF,4,0,TAU); ctx.stroke();
+      ctx.font='9px Georgia, serif'; ctx.fillStyle='#58c4dd';
+      ctx.fillText('~',xa-2.5,yF+3);
+      chargeGlow(xa,yF-arm,Qnorm);
+      chargeGlow(xa,yF+arm,-Qnorm);
+      currentChevrons(xa,yF+arm-3,yF-arm+3,Inorm);
+    }
+  }
+
+  function drawRadio(){
+    const gy=groundY(), rx=rxPx();
+    const yB=state.ant==='free'?toSY(0)+10:gy;
+    // glow with received strength
+    if (lastRxAmp>0.02){
+      const g=ctx.createRadialGradient(rx,yB-12,2,rx,yB-12,30+26*lastRxAmp);
+      const c=neon(0.2+0.6*lastRxAmp);
+      g.addColorStop(0,'rgba('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+
+                     Math.round(255*c[2])+','+(0.3*lastRxAmp)+')');
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=g;
+      ctx.beginPath(); ctx.arc(rx,yB-12,30+26*lastRxAmp,0,TAU); ctx.fill();
+    }
+    // whip antenna
+    ctx.strokeStyle='#9aa0aa'; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.moveTo(rx-11,yB-20); ctx.lineTo(rx-15,yB-42); ctx.stroke();
+    ctx.fillStyle='#9aa0aa';
+    ctx.beginPath(); ctx.arc(rx-15,yB-42,1.6,0,TAU); ctx.fill();
+    // body
+    ctx.fillStyle='#1c1c22'; ctx.strokeStyle='#4a4a52'; ctx.lineWidth=1;
+    ctx.beginPath();
+    ctx.rect(rx-17,yB-20,34,20);
+    ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#33343c';
+    for (let i=0;i<3;i++)
+      for (let j=0;j<3;j++){
+        ctx.beginPath(); ctx.arc(rx-9+i*5,yB-13+j*4,1,0,TAU); ctx.fill();
+      }
+    ctx.strokeStyle='#58c4dd';
+    ctx.beginPath(); ctx.moveTo(rx+4,yB-14); ctx.lineTo(rx+13,yB-14); ctx.stroke();
+    ctx.strokeStyle='#cd35c4';
+    ctx.beginPath(); ctx.moveTo(rx+4+9*Math.min(1,state.fc/2.4),yB-16);
+    ctx.lineTo(rx+4+9*Math.min(1,state.fc/2.4),yB-12); ctx.stroke();
+    // floating notes when music is coming through
+    if (state.mod!=='cw'&&!paused&&lastAudio>0.12&&frameNo%Math.max(6,Math.round(26-20*lastAudio))===0)
+      notes.push({x:rx+6,y:yB-26,age:0,sz:9+7*lastAudio,ph:t});
+    for (let i=notes.length-1;i>=0;i--){
+      const n=notes[i];
+      n.age+=1/60; n.y-=0.55;
+      if (n.age>1.6){ notes.splice(i,1); continue; }
+      const a=Math.max(0,1-n.age/1.6);
+      ctx.fillStyle=neonCss(0.15+0.55*lastAudio);
+      ctx.globalAlpha=0.75*a;
+      ctx.font=Math.round(n.sz)+'px Georgia, serif';
+      ctx.fillText('♪',n.x+5*Math.sin(3*(t-n.ph)+n.ph),n.y);
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function drawLegend(){
+    const bits=[];
+    if (state.lines) bits.push('E lines (chartreuse +Ψ / magenta −Ψ)');
+    if (state.showB) bits.push('B: ⊙ out · ⊗ in');
+    if (state.showE) bits.push('E arrows');
+    if (state.showS) bits.push('S = E×H');
+    if (state.showJ&&cfg.ground) bits.push('J = σE');
+    if (!bits.length) return;
+    ctx.fillStyle='rgba(255,255,255,0.34)';
+    ctx.font='10px -apple-system, sans-serif';
+    ctx.textAlign='right';
+    ctx.fillText(bits.join('  ·  '),W-12,groundY()-8);
+    ctx.textAlign='left';
+  }
+
+  function drawScene(){
+    ctx.clearRect(0,0,W,H);
+    const tab=frameTable();
+    if (state.zones) drawZones();
+    let segs=0;
+    if (state.lines) segs=drawFieldLines(tab);
+    if (state.showB) drawBLayer(tab);
+    if (state.showE) drawVecLayer(tab,'E');
+    if (state.showS) drawVecLayer(tab,'S');
+    drawGround(tab);
+    drawAntenna();
+    drawRadio();
+    drawLegend();
+    return segs;
+  }
+  /* ---------- scope: TX chain | RX chain ---------- */
+  function scopeWindow(){
+    return state.mod==='cw'?7/state.fc:2.3/state.fm;
+  }
+  function traceRow(x0,w,yMid,rh,data,color,dash,alpha){
+    scx.strokeStyle=color;
+    scx.globalAlpha=alpha===undefined?0.95:alpha;
+    if (dash) scx.setLineDash([3,3]);
+    scx.lineWidth=1.1;
+    scx.beginPath();
+    for (let i=0;i<data.length;i++){
+      const y=yMid-data[i]*rh*0.42;
+      if (i===0) scx.moveTo(x0+i,y); else scx.lineTo(x0+i,y);
+    }
+    scx.stroke();
+    if (dash) scx.setLineDash([]);
+    scx.globalAlpha=1;
+  }
+  function rowFrame(x0,w,yTop,rh,label){
+    scx.strokeStyle='rgba(255,255,255,0.09)';
+    scx.lineWidth=1;
+    scx.beginPath(); scx.moveTo(x0,yTop+rh/2); scx.lineTo(x0+w,yTop+rh/2); scx.stroke();
+    scx.fillStyle='#777'; scx.font='10px -apple-system, sans-serif';
+    scx.fillText(label,x0+2,yTop+9);
+  }
+  function drawScope(){
+    scx.clearRect(0,0,SW,SH);
+    const Twin=scopeWindow(), pad=8;
+    const txw=Math.max(60,Math.round((SW-3*pad-18)*0.56)),
+          rxw=Math.max(60,SW-3*pad-18-txw);
+    const tx0=pad, rx0=pad+txw+pad+18;
+    scx.fillStyle='#888'; scx.font='600 10px -apple-system, sans-serif';
+    scx.fillText('TRANSMITTER',tx0+2,11);
+    scx.fillText('RECEIVER',rx0+2,11);
+    // divider
+    scx.strokeStyle='rgba(255,255,255,0.12)';
+    scx.beginPath(); scx.moveTo(rx0-13,6); scx.lineTo(rx0-13,SH-6); scx.stroke();
+    const top=16, rhT=(SH-top-6)/3, rhR=(SH-top-6)/2;
+    // --- TX buffers ---
+    const N=txw, dts=Twin/(N-1);
+    const sArr=new Float64Array(N), cArr=new Float64Array(N), mArr=new Float64Array(N);
+    let eTop=null, eBot=null;
+    if (state.mod==='am'){ eTop=new Float64Array(N); eBot=new Float64Array(N); }
+    for (let i=0;i<N;i++){
+      const ti=t-Twin+i*dts;
+      sArr[i]=sig.s(ti);
+      cArr[i]=Math.cos(pf.wc*ti);
+      mArr[i]=pf.p(ti)/pf.amp;
+      if (eTop){ eTop[i]=pf.env(ti)/pf.amp; eBot[i]=-eTop[i]; }
+    }
+    rowFrame(tx0,txw,top,rhT,state.mod==='cw'?'s(t) — no message (CW)':'s(t) — message');
+    if (state.mod!=='cw') traceRow(tx0,txw,top+rhT/2,rhT,sArr,'#b8ec4c');
+    rowFrame(tx0,txw,top+rhT,rhT,'cos ωct — carrier');
+    traceRow(tx0,txw,top+rhT*1.5,rhT,cArr,'#58c4dd',false,0.8);
+    rowFrame(tx0,txw,top+2*rhT,rhT,'p(t) — modulated drive');
+    if (eTop){
+      traceRow(tx0,txw,top+rhT*2.5,rhT,eTop,'rgba(255,255,255,0.35)',true,0.7);
+      traceRow(tx0,txw,top+rhT*2.5,rhT,eBot,'rgba(255,255,255,0.35)',true,0.7);
+    }
+    traceRow(tx0,txw,top+rhT*2.5,rhT,mArr,'#eeeef4');
+    // --- RX buffers ---
+    const M=rxw, dtr=Twin/(M-1), pr=rxProbe(), rGeo=Math.hypot(pr.wx,pr.wz-(cfg.h||0));
+    const ts=new Float64Array(M), V=new Float64Array(M);
+    let vmax=1e-30;
+    for (let i=0;i<M;i++){
+      ts[i]=t-Twin+i*dtr;
+      V[i]=fieldsAt(cfg,pf,pr.wx,pr.wz,ts[i]).Ez;
+      vmax=Math.max(vmax,Math.abs(V[i]));
+    }
+    const Vn=new Float64Array(M);
+    for (let i=0;i<M;i++) Vn[i]=V[i]/vmax;
+    const rWave=Math.hypot(pr.wx,pr.wz);
+    rowFrame(rx0,rxw,top,rhR,'V(t) ∝ E_z at the radio   ·   delay r/c = '+fmt(rWave/C,2)+' s');
+    traceRow(rx0,rxw,top+rhR/2,rhR,Vn,'#cd35c4');
+    // demodulate
+    const demod=demodulate(V,ts,pf,state.mod==='fm'?'fm':'am',rWave/C);
+    let dm=0, dmax=-1e30, dmin=1e30;
+    for (let i=0;i<M;i++){ dm+=demod[i]; dmax=Math.max(dmax,demod[i]); dmin=Math.min(dmin,demod[i]); }
+    dm/=M;
+    const span=Math.max(dmax-dm,dm-dmin,1e-30);
+    const Dn=new Float64Array(M), Rn=new Float64Array(M);
+    const gd=(Math.max(2,Math.round(PI/pf.wc/dtr))-1)*dtr;   // MA group delay
+    let rmax=1e-30;
+    for (let i=0;i<M;i++){
+      Dn[i]=(demod[i]-dm)/span;
+      Rn[i]=state.mod==='cw'?0:sig.s(ts[i]-rWave/C-gd);
+      rmax=Math.max(rmax,Math.abs(Rn[i]));
+    }
+    for (let i=0;i<M;i++) Rn[i]/=rmax;
+    rowFrame(rx0,rxw,top+rhR,rhR,
+      state.mod==='cw'?'envelope — flat carrier':'demodulated   (gray = s(t − r/c))');
+    if (state.mod!=='cw') traceRow(rx0,rxw,top+rhR*1.5,rhR,Rn,'rgba(255,255,255,0.4)',true,0.7);
+    traceRow(rx0,rxw,top+rhR*1.5,rhR,Dn,'#b8ec4c');
+    // receiver strength + audio level for the glow/notes
+    const vRef=pf.amp*pf.wc*pf.wc/(C*C*Math.max(60,0.33*W));
+    lastRxAmp=Math.max(0,Math.min(1,vmax/vRef));
+    lastAudio=state.mod==='cw'?0:
+      Math.max(0,Math.min(1,(0.25+0.75*Math.abs(sig.s(t-rWave/C)))*(0.4+0.6*lastRxAmp)));
+  }
+
+  /* ---------- radiation-pattern inset ---------- */
+  function drawInset(){
+    const IW=insetCv.width, IH=insetCv.height;
+    inx.clearRect(0,0,IW,IH);
+    if (!patt) patt=patternSamples(cfg,pf,pattAngles,8*lam,t);
+    const half=cfg.ground;
+    const cx=IW/2, cy=half?IH-16:IH/2+8, R=half?IH-34:IH/2-16;
+    inx.strokeStyle='rgba(255,255,255,0.18)';
+    inx.lineWidth=1;
+    inx.beginPath(); inx.moveTo(cx-R-4,cy); inx.lineTo(cx+R+4,cy); inx.stroke();
+    inx.setLineDash([2,4]);
+    inx.beginPath(); inx.moveTo(cx,cy); inx.lineTo(cx,cy-R-4); inx.stroke();
+    inx.setLineDash([]);
+    const nA=pattAngles;
+    // gray reference: bare-dipole sin^2
+    inx.strokeStyle='rgba(255,255,255,0.3)';
+    inx.setLineDash([3,3]);
+    inx.beginPath();
+    for (let k=0;k<=2*nA;k++){
+      const th=(k<=nA?k:2*nA-k)*((half?PI/2:PI)/nA), sgn=k<=nA?1:-1;
+      const P=Math.pow(Math.sin(th),2);
+      const x=cx+sgn*R*P*Math.sin(th), y=cy-R*P*Math.cos(th);
+      if (k===0) inx.moveTo(x,y); else inx.lineTo(x,y);
+    }
+    inx.stroke(); inx.setLineDash([]);
+    // measured pattern from the fields (one branch per side of the axis)
+    inx.strokeStyle='#b8ec4c'; inx.lineWidth=1.4;
+    inx.beginPath();
+    for (const sgn of [1,-1]){
+      let started=false;
+      for (let a=0;a<nA;a++){
+        const th=(a+0.5)*PI/nA;
+        if (half&&th>PI/2+1e-9) break;
+        const P=patt[a];
+        const x=cx+sgn*R*P*Math.sin(th), y=cy-R*P*Math.cos(th);
+        if (!started){ inx.moveTo(x,y); started=true; } else inx.lineTo(x,y);
+      }
+    }
+    inx.stroke();
+    inx.fillStyle='#888'; inx.font='9px -apple-system, sans-serif';
+    inx.fillText('⟨S_r⟩(θ) at 8λ — gray: sin²θ',6,10);
+  }
+
+  /* ---------- readouts / info / formula bar ---------- */
+  function updateReadout(){
+    $('roMain').textContent=antLabel(state);
+    const pr=rxProbe(), rW=Math.hypot(pr.wx,pr.wz);
+    let sub=modLabel(state)+' · f<sub>c</sub> = '+fmt(state.fc,2)+' Hz · λ = '+
+      Math.round(lam)+' px';
+    if (state.mod!=='cw')
+      sub+=' · f<sub>c</sub>:f<sub>m</sub> = '+fmt(state.fc/state.fm,0)+':1';
+    sub+='<br>t = '+fmt(t,1)+' s · radio at '+fmt(rW/lam,1)+' λ · delay r/c = '+
+      fmt(rW/C,2)+' s';
+    const ru=realUnits(state);
+    if (ru){
+      sub+='<br>real '+BANDS[state.band].name+': '+ru.fcStr+' · λ = '+ru.lamStr;
+      if (state.ant==='tower') sub+=' · λ/4 tower = '+ru.towerStr;
+      sub+=' · time ×'+ru.slow.toExponential(1).replace('e+','×10^').replace('×10^','·10^')+' slower';
+    }
+    $('roSub').innerHTML=sub;
+  }
+  function updateSidebarRo(){
+    const bandKey=state.band==='gen'?'am':state.band;
+    const g=GND_TYPES[state.gnd], ru=realUnits(Object.assign({},state,{band:bandKey}));
+    const dR=skinDepthReal(g.sigma,BANDS[bandKey].fcReal);
+    $('roGnd').innerHTML=state.ant==='free'?'':
+      '<b>'+g.name+'</b>: σ = '+g.disp+' S/m → δ = '+fmtSI(dR,'m')+' at '+
+      fmtSI(BANDS[bandKey].fcReal,'Hz')+' (drawn exaggerated)';
+    const pr=rxProbe(), rW=Math.hypot(pr.wx,pr.wz);
+    let s='V ∝ 1/r · retarded by r/c = '+fmt(rW/C,2)+' s';
+    if (ru&&state.band!=='gen') s+=' ('+fmtSI(ru.delayReal(rW),'s')+' real at '+fmtSI(rW*ru.mPerPx,'m')+')';
+    $('roRx').innerHTML=s;
+  }
+  function updateInfo(){
+    let s='';
+    if (state.ant==='tower')
+      s='<b>AM broadcast tower</b>: the mast <i>is</i> the antenna — a base-fed λ/4 '+
+        'monopole on an insulator. The conducting earth mirrors it (dashed image), so '+
+        'the sky sees a λ/2 dipole; E meets the ground at 90° and the return current '+
+        'closes through the soil as <b>J = σE</b> in a skin depth δ — real stations '+
+        'bury ~120 radial wires for exactly this current.';
+    else if (state.ant==='mast')
+      s='<b>Elevated vertical dipole</b> (FM-style): the in-phase image at −h '+
+        'interferes with the antenna — the pattern inset grows elevation lobes as '+
+        'h/λ rises. Ground current still flows where the wave grazes the surface.';
+    else
+      s='<b>Hertzian dipole in free space</b>: the textbook donut — nothing along '+
+        'the axis, max at the equator. Watch E loops pinch off and detach near '+
+        'r ≈ λ/2π each half cycle; inside that radius the field is quasi-static.';
+    if (state.mod==='am')
+      s+='<br><b>AM</b>: envelope [1+μs(t)] carries the message; sidebands at f<sub>c</sub>±f<sub>m</sub>.'+
+        (state.mu>1?' <b>μ > 1: overmodulated</b> — the envelope folds through zero and the demodulated audio distorts.':'');
+    else if (state.mod==='fm')
+      s+='<br><b>FM</b>: constant amplitude, instantaneous frequency f<sub>c</sub>+Δf·s(t) — '+
+        'the wave loops bunch and stretch; amplitude noise leaves the message untouched. '+
+        '(Deviation exaggerated ~10⁵× vs real FM.)';
+    s+='<br>Screen carrier:audio ≈ '+fmt(state.fc/state.fm,0)+':1 — real AM ≈ 200:1, '+
+      'FM ≈ 7000:1, compressed so the envelope fits on screen.';
+    $('info').innerHTML=s;
+  }
+  function updateEqbar(){
+    $('eqbar').innerHTML=eqbarHTML(state);
+    $('eqbar').title=eqbarText(state);
+  }
+  function paintGradbar(){
+    const g=$('gradbar').getContext('2d');
+    if (!g) return;
+    for (let i=0;i<248;i++){ g.fillStyle=neonCss(i/247); g.fillRect(i,0,1,10); }
+  }
+
+  /* ---------- control wiring ---------- */
+  function syncControls(){
+    const st=state;
+    const on=(id,v)=>$(id).classList.toggle('on',v);
+    on('antTower',st.ant==='tower'); on('antMast',st.ant==='mast'); on('antFree',st.ant==='free');
+    on('modCW',st.mod==='cw'); on('modAM',st.mod==='am'); on('modFM',st.mod==='fm');
+    on('sigTone',st.sig==='tone'); on('sigTwo',st.sig==='two'); on('sigVoice',st.sig==='voice');
+    on('gndSea',st.gnd==='sea'); on('gndWet',st.gnd==='wet'); on('gndDry',st.gnd==='dry');
+    on('pAM',false); on('pFM',false); on('pDip',false);
+    $('rowH').hidden=st.ant!=='mast';
+    $('rowMu').hidden=st.mod!=='am';
+    $('rowDev').hidden=st.mod!=='fm';
+    $('gndRow').hidden=st.ant==='free';
+    $('roGnd').hidden=st.ant==='free';
+    $('eH').value=st.hLam; $('eHVal').textContent=fmt(st.hLam,2)+' λ';
+    $('eFc').value=st.fc; $('eFcVal').textContent=fmt(st.fc,2)+' Hz';
+    $('eMu').value=st.mu; $('eMuVal').textContent=fmt(st.mu,2);
+    $('eDev').value=st.devF; $('eDevVal').textContent=fmt(st.devF*st.fc,2)+' Hz';
+    $('eFm').value=st.fm; $('eFmVal').textContent=fmt(st.fm,2)+' Hz';
+    $('eDist').value=st.rxX; $('eDistVal').textContent=fmt(st.rxX*100,0)+'%';
+    $('eSpeed').value=st.speed; $('eSpeedVal').textContent='×'+fmt(st.speed,2);
+    $('ckLines').checked=st.lines; $('ckB').checked=st.showB;
+    $('ckE').checked=st.showE; $('ckS').checked=st.showS;
+    $('ckJ').checked=st.showJ; $('ckZones').checked=st.zones;
+  }
+  function applyChange(){
+    rebuildModel(); syncControls();
+    updateInfo(); updateEqbar(); updateSidebarRo(); updateReadout();
+  }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  chip('antTower',()=>{ state.ant='tower'; });
+  chip('antMast',()=>{ state.ant='mast'; });
+  chip('antFree',()=>{ state.ant='free'; });
+  chip('modCW',()=>{ state.mod='cw'; });
+  chip('modAM',()=>{ state.mod='am'; });
+  chip('modFM',()=>{ state.mod='fm'; });
+  chip('sigTone',()=>{ state.sig='tone'; });
+  chip('sigTwo',()=>{ state.sig='two'; });
+  chip('sigVoice',()=>{ state.sig='voice'; });
+  chip('gndSea',()=>{ state.gnd='sea'; });
+  chip('gndWet',()=>{ state.gnd='wet'; });
+  chip('gndDry',()=>{ state.gnd='dry'; });
+  chip('pAM',()=>{ Object.assign(state,PRESETS.pAM); });
+  chip('pFM',()=>{ Object.assign(state,PRESETS.pFM); });
+  chip('pDip',()=>{ Object.assign(state,PRESETS.pDip); });
+  function bindSlider(id,key){
+    $(id).addEventListener('input',()=>{ state[key]=+$(id).value; applyChange(); });
+  }
+  bindSlider('eFc','fc'); bindSlider('eFm','fm'); bindSlider('eMu','mu');
+  bindSlider('eDev','devF'); bindSlider('eH','hLam'); bindSlider('eDist','rxX');
+  $('eSpeed').addEventListener('input',()=>{ state.speed=+$('eSpeed').value; syncControls(); });
+  function bindCheck(id,key){
+    $(id).addEventListener('change',()=>{ state[key]=$(id).checked; });
+  }
+  bindCheck('ckLines','lines'); bindCheck('ckB','showB'); bindCheck('ckE','showE');
+  bindCheck('ckS','showS'); bindCheck('ckJ','showJ'); bindCheck('ckZones','zones');
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+  $('restartBtn').addEventListener('click',()=>{ t=0; });
+  $('resetBtn').addEventListener('click',()=>{
+    state=clampState(Object.assign({},DEFAULTS));
+    t=0; setPaused(false); applyChange();
+  });
+  document.addEventListener('keydown',ev=>{
+    if (ev.key===' '){ setPaused(!paused); ev.preventDefault(); }
+    else if (ev.key==='r'||ev.key==='R') t=0;
+  });
+  // drag the radio
+  function evX(ev){
+    const b=cv.getBoundingClientRect?cv.getBoundingClientRect():{left:0};
+    return (ev.clientX!==undefined?ev.clientX:0)-b.left;
+  }
+  cv.addEventListener('pointerdown',ev=>{
+    const x=evX(ev);
+    if (Math.abs(x-rxPx())<34){ dragRx=true; cv.classList.add('dragging');
+      if (cv.setPointerCapture&&ev.pointerId!==undefined) cv.setPointerCapture(ev.pointerId); }
+  });
+  cv.addEventListener('pointermove',ev=>{
+    if (!dragRx) return;
+    state.rxX=evX(ev)/Math.max(1,W);
+    state=clampState(state); syncControls(); updateSidebarRo();
+  });
+  cv.addEventListener('pointerup',()=>{ dragRx=false; cv.classList.remove('dragging'); });
+
+  /* ---------- resize / loop ---------- */
+  function resize(){
+    W=cv.clientWidth||980; H=cv.clientHeight||430;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+    SW=scCv.clientWidth||980; SH=scCv.clientHeight||168;
+    scCv.width=Math.round(SW*dpr); scCv.height=Math.round(SH*dpr);
+    if (scx.setTransform) scx.setTransform(dpr,0,0,dpr,0,0); else scx.scale(dpr,dpr);
+  }
+  if (typeof window!=='undefined')
+    window.addEventListener('resize',()=>{ resize(); });
+
+  const SIM_DT=1/60;
+  function frame(){
+    if (!paused) t+=SIM_DT*state.speed;
+    frameNo++;
+    if (frameNo%16===0) patt=null;
+    drawScene();
+    drawScope();
+    drawInset();
+    if (frameNo%5===1){ updateReadout(); updateSidebarRo(); }
+    requestAnimationFrame(frame);
+  }
+  resize(); rebuildModel(); syncControls();
+  updateInfo(); updateEqbar(); updateSidebarRo(); updateReadout(); paintGradbar();
+  requestAnimationFrame(frame);
+}
+/* =========================== self-test ===========================
+   Runs headless (no DOM). Every physics claim in the header comment is
+   checked numerically here. */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+  const rel=(a,b)=>Math.abs(a-b)/Math.max(1e-30,Math.abs(b));
+  const pearson=(a,b,i0,i1)=>{
+    let ma=0,mb=0,n=i1-i0;
+    for (let i=i0;i<i1;i++){ ma+=a[i]; mb+=b[i]; }
+    ma/=n; mb/=n;
+    let sab=0,saa=0,sbb=0;
+    for (let i=i0;i<i1;i++){ const da=a[i]-ma,db=b[i]-mb;
+      sab+=da*db; saa+=da*da; sbb+=db*db; }
+    return sab/Math.sqrt((saa*sbb)||1e-30);
+  };
+
+  /* --- message signals: closed-form s', s'', INT s --- */
+  { const ts=[0.13,0.71,1.9,3.3,5.2], h=1e-5;
+    for (const type of ['tone','two','voice']){
+      const sg=makeSignal(type,0.15);
+      let w1=0,w2=0,wI=0;
+      for (const t of ts){
+        w1=Math.max(w1,Math.abs((sg.s(t+h)-sg.s(t-h))/(2*h)-sg.s1(t)));
+        w2=Math.max(w2,Math.abs((sg.s1(t+h)-sg.s1(t-h))/(2*h)-sg.s2(t)));
+        wI=Math.max(wI,Math.abs((sg.S(t+h)-sg.S(t-h))/(2*h)-sg.s(t)));
+      }
+      ok(w1<1e-4&&w2<1e-3&&wI<1e-5,type+': s′, s″, ∫s are exact closed forms (FD check)');
+      let peak=0;
+      for (let i=0;i<8192;i++) peak=Math.max(peak,Math.abs(sg.s(2*(i+0.5)/(8192*0.15))));
+      ok(peak<=1+1e-9&&peak>0.97&&Math.abs(sg.S(0))<1e-15,
+         type+': normalized to |s| ≤ 1 and ∫₀⁰ = 0');
+    } }
+
+  /* --- modulators: derivative chains + defining identities --- */
+  const stBase={ant:'tower',mod:'am',sig:'tone',band:'am',fc:1.2,fm:0.15,mu:0.7,
+                devF:0.3,hLam:0.8,rxX:0.62,gnd:'wet',speed:1};
+  { const sg=makeSignal('tone',0.15), h=2e-6, ts=[0.2,0.9,2.7,4.4];
+    for (const mod of ['cw','am','fm']){
+      const pf=makePFuncs(Object.assign({},stBase,{mod}),sg);
+      let w=0;
+      for (const t of ts){
+        w=Math.max(w,rel((pf.p(t+h)-pf.p(t-h))/(2*h),pf.p1(t)+1e-20));
+        w=Math.max(w,rel((pf.p1(t+h)-pf.p1(t-h))/(2*h),pf.p2(t)+1e-20));
+      }
+      ok(w<1e-5,mod.toUpperCase()+': p′ and p″ match FD of p');
+    }
+    const am=makePFuncs(Object.assign({},stBase,{mod:'am'}),sg);
+    let wE=0;
+    for (const t of ts){
+      const c=Math.cos(am.wc*t);
+      if (Math.abs(c)>0.3) wE=Math.max(wE,Math.abs(Math.abs(am.p(t)/c)-am.env(t)));
+    }
+    ok(wE<1e-12&&approx(am.amp,1.7,1e-12),'AM: p = [1+μs]×carrier exactly; amp = 1+μ');
+    const fm=makePFuncs(Object.assign({},stBase,{mod:'fm'}),sg);
+    let wF=0;
+    for (const t of ts)
+      wF=Math.max(wF,Math.abs((fm.theta(t+h)-fm.theta(t-h))/(2*h)/TAU-fm.instF(t)));
+    ok(wF<1e-6,'FM: instantaneous frequency = θ′/2π = f_c + Δf·s(t)'); }
+
+  /* --- Maxwell equations on the retarded fields (all modulations) --- */
+  { const sg=makeSignal('tone',0.15);
+    const cfgF={srcs:[{wz:0}],ground:false};
+    const pts=[[55,38],[72,-61],[38,47],[95,20]];
+    const h=0.03, dt=0.002, t0=2.37;
+    let wDiv=0,wFar=0,wAmpR=0,wAmpZ=0;
+    for (const mod of ['cw','am','fm']){
+      const pf=makePFuncs(Object.assign({},stBase,{mod}),sg);
+      const F=(x,z,t)=>fieldsAt(cfgF,pf,x,z,t);
+      for (const q of pts){
+        const x=q[0], z=q[1];
+        // div E = (1/rho) d(rho E_rho)/drho + dE_z/dz   (rho = x > 0 here)
+        const t1=((x+h)*F(x+h,z,t0).Ex-(x-h)*F(x-h,z,t0).Ex)/(2*h*x),
+              t2=(F(x,z+h,t0).Ez-F(x,z-h,t0).Ez)/(2*h);
+        wDiv=Math.max(wDiv,Math.abs(t1+t2)/(Math.max(Math.abs(t1),Math.abs(t2))+1e-28));
+        // Faraday: dE_rho/dz - dE_z/drho = -dB_phi/dt
+        const f1=(F(x,z+h,t0).Ex-F(x,z-h,t0).Ex)/(2*h),
+              f2=(F(x+h,z,t0).Ez-F(x-h,z,t0).Ez)/(2*h),
+              f3=(F(x,z,t0+dt).By-F(x,z,t0-dt).By)/(2*dt);
+        wFar=Math.max(wFar,Math.abs(f1-f2+f3)/(Math.max(Math.abs(f1),Math.abs(f2),Math.abs(f3))+1e-28));
+        // Ampere: -dB_phi/dz = (1/c^2) dE_rho/dt ; (1/rho)d(rho B_phi)/drho = (1/c^2) dE_z/dt
+        const a1=-(F(x,z+h,t0).By-F(x,z-h,t0).By)/(2*h),
+              a2=(F(x,z,t0+dt).Ex-F(x,z,t0-dt).Ex)/(2*dt)/(C*C);
+        wAmpR=Math.max(wAmpR,Math.abs(a1-a2)/(Math.max(Math.abs(a1),Math.abs(a2))+1e-28));
+        const b1=((x+h)*F(x+h,z,t0).By-(x-h)*F(x-h,z,t0).By)/(2*h*x),
+              b2=(F(x,z,t0+dt).Ez-F(x,z,t0-dt).Ez)/(2*dt)/(C*C);
+        wAmpZ=Math.max(wAmpZ,Math.abs(b1-b2)/(Math.max(Math.abs(b1),Math.abs(b2))+1e-28));
+      }
+    }
+    ok(wDiv<3e-3,'∇·E = 0 off-source (CW, AM, FM)');
+    ok(wFar<3e-3,'Faraday: (∇×E)_φ = −∂B_φ/∂t (CW, AM, FM)');
+    ok(wAmpR<3e-3&&wAmpZ<3e-3,'Ampère: ∇×B = (1/c²)∂E/∂t, both components (CW, AM, FM)'); }
+
+  /* --- stream function Psi generates the fields; contours tangent --- */
+  { const sg=makeSignal('tone',0.15), pf=makePFuncs(stBase,sg), t0=1.83;
+    const r0=70, th0=1.1, hr=0.02, hth=3e-4;
+    const P=(r,th)=>oneField(pf,r*Math.sin(th),r*Math.cos(th),t0);
+    const ErFD=(P(r0,th0+hth).psi-P(r0,th0-hth).psi)/(2*hth)/(r0*r0*Math.sin(th0));
+    const EtFD=-(P(r0+hr,th0).psi-P(r0-hr,th0).psi)/(2*hr)/(r0*Math.sin(th0));
+    const f0=P(r0,th0);
+    ok(rel(ErFD,f0.Er)<1e-3,'E_r = (1/r²sinθ) ∂Ψ/∂θ');
+    ok(rel(EtFD,f0.Eth)<1e-3,'E_θ = −(1/r sinθ) ∂Ψ/∂r');
+    const cfgM={srcs:[{wz:100},{wz:-100}],ground:true};
+    let wT=0;
+    for (const q of [[60,45],[130,25],[90,140]]){
+      const h=0.03;
+      const gx=(fieldsAt(cfgM,pf,q[0]+h,q[1],t0).psi-fieldsAt(cfgM,pf,q[0]-h,q[1],t0).psi)/(2*h),
+            gz=(fieldsAt(cfgM,pf,q[0],q[1]+h,t0).psi-fieldsAt(cfgM,pf,q[0],q[1]-h,t0).psi)/(2*h);
+      const f=fieldsAt(cfgM,pf,q[0],q[1],t0);
+      wT=Math.max(wT,Math.abs(f.Ex*gx+f.Ez*gz)/
+        (Math.hypot(f.Ex,f.Ez)*Math.hypot(gx,gz)+1e-30));
+    }
+    ok(wT<2e-3,'multi-source: E ⊥ ∇Ψ — Ψ contours ARE the field lines'); }
+
+  /* --- far field: 1/r, B = E/c, transversality --- */
+  { const sg=makeSignal('tone',0.15);
+    const pf=makePFuncs(Object.assign({},stBase,{mod:'cw'}),sg);
+    const lam=C/1.2, th=1.0, Tc=1/1.2;
+    const amp=r=>{ let m=0;
+      for (let k=0;k<24;k++){
+        const f=oneField(pf,r*Math.sin(th),r*Math.cos(th),3+k*Tc/24);
+        m=Math.max(m,Math.abs(f.Eth));
+      }
+      return m; };
+    ok(Math.abs(amp(15*lam)*15*lam/(amp(30*lam)*30*lam)-1)<0.01,
+       'far field: r·E_θ amplitude is 1/r-clean (15λ vs 30λ)');
+    let wB=0, wR=0, mE=0;
+    for (let k=0;k<24;k++){
+      const f=oneField(pf,30*lam*Math.sin(th),30*lam*Math.cos(th),3+k*Tc/24);
+      wB=Math.max(wB,Math.abs(f.Bphi*C-f.Eth));
+      wR=Math.max(wR,Math.abs(f.Er));
+      mE=Math.max(mE,Math.abs(f.Eth));
+    }
+    ok(wB/mE<0.015,'far field: B_φ = E_θ/c pointwise to O(1/kr)');
+    ok(wR/mE<0.02,'far field: E_r/E_θ → 0 (transverse wave)'); }
+
+  /* --- Larmor: integrated Poynting flux = omega^4 p0^2 / 3c^3 --- */
+  { const sg=makeSignal('tone',0.15);
+    const pf=makePFuncs(Object.assign({},stBase,{mod:'cw'}),sg);
+    const w=pf.wc, lam=C/1.2, rF=12*lam, Tc=TAU/w, nTh=64, nT=24;
+    let P=0;
+    for (let a=0;a<nTh;a++){
+      const th=(a+0.5)*PI/nTh;
+      let Sr=0;
+      for (let k=0;k<nT;k++){
+        const f=oneField(pf,rF*Math.sin(th),rF*Math.cos(th),5+k*Tc/nT);
+        Sr+=f.Eth*f.Bphi;
+      }
+      Sr*=(C*C/(4*PI))/nT;                       // S_r = (c^2/4pi) E_th B_phi
+      P+=Sr*TAU*rF*rF*Math.sin(th)*(PI/nTh);
+    }
+    ok(Math.abs(P/(Math.pow(w,4)/(3*C*C*C))-1)<0.02,
+       'Larmor: total radiated power = ω⁴p₀²/3c³ (2%)'); }
+
+  /* --- ground plane: boundary conditions and image doubling --- */
+  { const sg=makeSignal('tone',0.15), pf=makePFuncs(stBase,sg), t0=2.9;
+    const cfgT={srcs:[{wz:0}],ground:true},
+          cfgM={srcs:[{wz:96},{wz:-96}],ground:true};
+    let wT=0, wM=0, wD=0;
+    for (const x of [45,-120,260]){
+      const fT=fieldsAt(cfgT,pf,x,0,t0);
+      wT=Math.max(wT,Math.abs(fT.Ex)/(Math.abs(fT.Ez)+1e-28));
+      const fM=fieldsAt(cfgM,pf,x,0,t0);
+      wM=Math.max(wM,Math.abs(fM.Ex)/(Math.abs(fM.Ez)+1e-28));
+      const one=oneField(pf,x,-96,t0);
+      wD=Math.max(wD,rel(fM.By,(x<0?-1:1)*2*one.Bphi));
+    }
+    ok(wT<1e-14,'tower: tangential E vanishes on the ground plane (exact)');
+    ok(wM<1e-14,'elevated dipole + image: tangential E vanishes too');
+    ok(wD<1e-12,'B doubles at the surface (antenna and image add coherently)'); }
+
+  /* --- radiation patterns vs analytic interference --- */
+  { const sg=makeSignal('tone',0.15);
+    const pf=makePFuncs(Object.assign({},stBase,{mod:'cw'}),sg);
+    const lam=C/1.2, nA=48;
+    const cfgF={srcs:[{wz:0}],ground:false};
+    const pF=patternSamples(cfgF,pf,nA,8*lam,3);
+    let wF=0;
+    for (let a=0;a<nA;a++){
+      const th=(a+0.5)*PI/nA;
+      wF=Math.max(wF,Math.abs(pF[a]-Math.pow(Math.sin(th),2)));
+    }
+    ok(wF<0.03,'free dipole: ⟨S_r⟩(θ) = sin²θ donut (3%)');
+    const h=0.8*lam, kh=TAU/lam*h;
+    const cfgM={srcs:[{wz:h},{wz:-h}],ground:true};
+    const pM=patternSamples(cfgM,pf,nA,8*lam,3);
+    const ana=new Float64Array(nA);
+    let mx=0;
+    for (let a=0;a<nA;a++){
+      const th=(a+0.5)*PI/nA;
+      if (th>PI/2) break;
+      ana[a]=Math.pow(Math.sin(th)*2*Math.cos(kh*Math.cos(th)),2);
+      mx=Math.max(mx,ana[a]);
+    }
+    let wM=0;
+    for (let a=0;a<nA;a++){
+      const th=(a+0.5)*PI/nA;
+      if (th>PI/2) break;
+      wM=Math.max(wM,Math.abs(pM[a]-ana[a]/mx));
+    }
+    ok(wM<0.05,'elevated dipole: lobes match sin²θ·cos²(kh cosθ) array factor (5%)'); }
+
+  /* --- retardation, demodulation fidelity --- */
+  function rxBuffer(st,sigType,M,x,z){
+    const sg=makeSignal(sigType,st.fm), pf=makePFuncs(st,sg);
+    const cfg={srcs:[{wz:0}],ground:true};
+    const Twin=2/st.fm, ts=new Float64Array(M), V=new Float64Array(M);
+    for (let i=0;i<M;i++){
+      ts[i]=20-Twin+i*Twin/(M-1);
+      V[i]=fieldsAt(cfg,pf,x,z,ts[i]).Ez;
+    }
+    return {sg,pf,ts,V,r:Math.hypot(x,z)};
+  }
+  { const st=Object.assign({},stBase,{mod:'am'});
+    const B=rxBuffer(st,'tone',4096,400,26);
+    const dt=B.ts[1]-B.ts[0], w=Math.max(2,Math.round(PI/B.pf.wc/dt)), gd=(w-1)*dt;
+    const D=demodulate(B.V,B.ts,B.pf,'am',B.r/C);
+    const ref=new Float64Array(4096);
+    for (let i=0;i<4096;i++) ref[i]=B.sg.s(B.ts[i]-B.r/C-gd);
+    ok(pearson(D,ref,2*w,4096)>0.995,'AM demod (quadrature envelope) recovers s(t−r/c), corr > 0.995');
+    let dmax=-1e30,dmin=1e30;
+    for (let i=2*w;i<4096;i++){ dmax=Math.max(dmax,D[i]); dmin=Math.min(dmin,D[i]); }
+    ok(Math.abs((dmax-dmin)/(dmax+dmin)/0.7-1)<0.06,
+       'AM demod: modulation depth (max−min)/(max+min) = μ within 6%');
+    // retardation: the far-field V is -p''(t - r/c) (E_z = -p'' sin(th)/c^2 r
+    // at the horizon), so -corr(V, p''(t-lag)) peaks at lag = r/c
+    const BF=rxBuffer(st,'tone',4096,2500,26);
+    const dtF=BF.ts[1]-BF.ts[0];
+    const pArr=lag=>{ const a=new Float64Array(4096);
+      for (let i=0;i<4096;i++) a[i]=BF.pf.p2(BF.ts[i]-lag);
+      return a; };
+    const lag0=BF.r/C;
+    let best=-2, bestLag=0;
+    for (let k=-14;k<=14;k++){
+      const c=-pearson(BF.V,pArr(lag0+k*dtF),0,4096);
+      if (c>best){ best=c; bestLag=lag0+k*dtF; }
+    }
+    ok(Math.abs(bestLag-lag0)<1.5*dtF&&best>0.999,
+       'retardation: received V(t) = −p̈(t − r/c)/c²r exactly (lag and sign)'); }
+  { const st=Object.assign({},stBase,{mod:'fm'});
+    const B=rxBuffer(st,'tone',4096,400,26);
+    const dt=B.ts[1]-B.ts[0], w=Math.max(2,Math.round(PI/B.pf.wc/dt)), gd=(w-1)*dt;
+    const D=demodulate(B.V,B.ts,B.pf,'fm',B.r/C);
+    const ref=new Float64Array(4096);
+    for (let i=0;i<4096;i++) ref[i]=B.sg.s(B.ts[i]-B.r/C-gd);
+    ok(pearson(D,ref,2*w,4096)>0.995,'FM demod (phase discriminator) recovers s(t−r/c), corr > 0.995');
+    // recovered deviation = fundamental Fourier component over one exact
+    // audio period (peak-reading would count discriminator harmonic ringing)
+    const P=Math.round(1/(st.fm*dt)), wm=TAU*st.fm;
+    let cs=0, sn=0;
+    for (let i=4096-P;i<4096;i++){ cs+=D[i]*Math.cos(wm*B.ts[i]); sn+=D[i]*Math.sin(wm*B.ts[i]); }
+    const a1=2*Math.hypot(cs,sn)/P;
+    ok(Math.abs(a1/(st.devF*st.fc)-1)<0.08,'FM demod: recovered deviation = Δf within 8%'); }
+  { const st=Object.assign({},stBase,{mod:'am'});
+    const B=rxBuffer(st,'two',4096,400,26);
+    const dt=B.ts[1]-B.ts[0], w=Math.max(2,Math.round(PI/B.pf.wc/dt)), gd=(w-1)*dt;
+    const D=demodulate(B.V,B.ts,B.pf,'am',B.r/C);
+    const ref=new Float64Array(4096);
+    for (let i=0;i<4096;i++) ref[i]=B.sg.s(B.ts[i]-B.r/C-gd);
+    ok(pearson(D,ref,2*w,4096)>0.99,'AM two-tone demod corr > 0.99'); }
+  { const st=Object.assign({},stBase,{mod:'fm'});
+    const B=rxBuffer(st,'voice',4096,400,26);
+    const dt=B.ts[1]-B.ts[0], w=Math.max(2,Math.round(PI/B.pf.wc/dt)), gd=(w-1)*dt;
+    const D=demodulate(B.V,B.ts,B.pf,'fm',B.r/C);
+    const ref=new Float64Array(4096);
+    for (let i=0;i<4096;i++) ref[i]=B.sg.s(B.ts[i]-B.r/C-gd);
+    ok(pearson(D,ref,2*w,4096)>0.93,'FM voice demod corr > 0.93 (MA filter shaves harmonics)'); }
+  { const st=Object.assign({},stBase,{mod:'cw'});
+    const sg=makeSignal('tone',0.15), pf=makePFuncs(st,sg);
+    const cfg={srcs:[{wz:0}],ground:true};
+    const M=2048, ts=new Float64Array(M), V=new Float64Array(M);
+    for (let i=0;i<M;i++){ ts[i]=20-8+i*8/(M-1); V[i]=fieldsAt(cfg,pf,400,26,ts[i]).Ez; }
+    const D=demodulate(V,ts,pf,'am',Math.hypot(400,26)/C);
+    const dt=ts[1]-ts[0], w=Math.max(2,Math.round(PI/pf.wc/dt));
+    let dmax=-1e30,dmin=1e30,dm=0;
+    for (let i=2*w;i<M;i++){ dmax=Math.max(dmax,D[i]); dmin=Math.min(dmin,D[i]); dm+=D[i]; }
+    dm/=(M-2*w);
+    ok((dmax-dmin)<0.02*dm,'CW envelope is flat (no phantom message)'); }
+
+  /* --- moving average: exact null on the 2 f_c image --- */
+  { const wc=TAU*1.2, dt=0.005, n=2000, w=Math.max(2,Math.round(PI/wc/dt));
+    const x=new Float64Array(n);
+    for (let i=0;i<n;i++) x[i]=Math.cos(2*wc*i*dt);
+    const y=movAvg(movAvg(x,w),w);
+    let m=0;
+    for (let i=3*w;i<n;i++) m=Math.max(m,Math.abs(y[i]));
+    ok(m<0.03,'MA(T_c/2)×2 suppresses the 2f_c quadrature image');
+    const cst=movAvg(new Float64Array(50).fill(3.7),7);
+    ok(Math.abs(cst[49]-3.7)<1e-12,'MA passes DC exactly'); }
+
+  /* --- p(tau) interpolation table --- */
+  { const sg=makeSignal('voice',0.15);
+    const pf=makePFuncs(Object.assign({},stBase,{mod:'fm'}),sg);
+    const tab=buildPTable(pf,1.2*1.35,-3,3);
+    let w0=0,w1=0,w2=0;
+    const wc=pf.wc;
+    for (let i=0;i<300;i++){
+      const t=-2.9+5.8*i/299, q=tableAt(tab,t);
+      w0=Math.max(w0,Math.abs(q[0]-pf.p(t)));
+      w1=Math.max(w1,Math.abs(q[1]-pf.p1(t))/wc);
+      w2=Math.max(w2,Math.abs(q[2]-pf.p2(t))/(wc*wc));
+    }
+    ok(w0<5e-3&&w1<5e-3&&w2<5e-3,'p(τ) lookup table interpolates to <0.5%'); }
+
+  /* --- marching squares --- */
+  { const nx=51,ny=51,cs=2,x0=-50,z0=-50;
+    const g=new Float64Array(nx*ny);
+    for (let j=0;j<ny;j++) for (let i=0;i<nx;i++){
+      const x=x0+i*cs,z=z0+j*cs; g[j*nx+i]=x*x+z*z; }
+    const R0=Math.sqrt(880);                     // level off the grid nodes
+    const segs=marchingSquares(g,nx,ny,x0,z0,cs,880);
+    let wR=0;
+    for (let k=0;k<segs.length;k+=2) wR=Math.max(wR,Math.abs(Math.hypot(segs[k],segs[k+1])-R0));
+    ok(segs.length/4>40&&segs.length/4<160&&wR<1,
+       'marching squares: circle x²+z² = R² traced to sub-cell accuracy');
+    const deg={};
+    for (let k=0;k<segs.length;k+=2){
+      const key=segs[k].toFixed(2)+','+segs[k+1].toFixed(2);
+      deg[key]=(deg[key]||0)+1;
+    }
+    let d2=0, tot=0;
+    for (const k in deg){ tot++; if (deg[k]===2) d2++; }
+    ok(d2/tot>0.95,'marching squares: contour closes (endpoints shared pairwise)');
+    const sad=marchingSquares(new Float64Array([-1,1,1,-1]),2,2,0,0,1,0);
+    ok(sad.length===8,'marching squares: saddle cell emits two segments'); }
+
+  /* --- ground current: skin-depth law --- */
+  { const sg=makeSignal('tone',0.15), pf=makePFuncs(stBase,sg);
+    const cfg={srcs:[{wz:0}],ground:true}, dpx=20;
+    const envAt=d=>{ let m=0;
+      for (let k=0;k<48;k++) m=Math.max(m,Math.abs(jCurrent(cfg,pf,null,200,d,dpx,6+k/(48*1.2))));
+      return m; };
+    ok(Math.abs(envAt(24)/envAt(8)/Math.exp(-16/dpx)-1)<0.02,
+       'J envelope decays as e^{−depth/δ} exactly');
+    const dSea=skinDepthPx('sea','am'), dWet=skinDepthPx('wet','am'), dDry=skinDepthPx('dry','am');
+    ok(dSea<dWet&&dWet<dDry&&dSea>=6&&dDry<=40,
+       'δ(sea) < δ(wet) < δ(dry), drawn depth clamped sanely');
+    const dReal=skinDepthReal(1e-2,1e6);
+    ok(Math.abs(dReal-5.03)<0.05,'real δ(wet soil, 1 MHz) ≈ 5.0 m'); }
+
+  /* --- state clamps, labels, units, formula bar --- */
+  { const c=clampState({ant:'x',mod:'x',sig:'x',band:'x',gnd:'x',fc:99,fm:99,mu:99,
+                        devF:99,hLam:99,rxX:99,speed:99});
+    ok(c.ant==='tower'&&c.mod==='am'&&c.sig==='tone'&&c.band==='gen'&&c.gnd==='wet'&&
+       c.fc===2.4&&c.mu===1.3&&c.devF===0.45&&c.hLam===1.4&&c.rxX===0.92&&c.speed===2.5,
+       'clamps: enums fall back, sliders pin to range');
+    const c2=clampState(Object.assign({},DEFAULTS,{fc:0.6,fm:0.45}));
+    ok(Math.abs(c2.fm-0.2)<1e-12,'clamp: f_m ≤ f_c/3 (audio stays under the carrier)');
+    for (const k of ['pAM','pFM','pDip']){
+      const s=clampState(Object.assign({},DEFAULTS,PRESETS[k]));
+      ok(['tower','mast','free'].indexOf(s.ant)>=0&&s.fc>=0.6&&s.fc<=2.4,
+         'preset '+k+' lands in a valid state'); } }
+  { ok(antLabel({ant:'tower'}).indexOf('monopole')>0&&
+       modLabel({mod:'am',mu:0.7}).indexOf('AM')===0&&
+       modLabel({mod:'fm',devF:0.3,fc:1.2}).indexOf('0.36')>0,
+       'readout labels'); }
+  { const ru=realUnits({band:'am',fc:1.2});
+    ok(Math.abs(ru.lamReal-299.792458)<0.01,'AM band: real λ at 1 MHz = 299.8 m');
+    ok(Math.abs(ru.delayReal(400)*C_REAL-400*ru.mPerPx)<1e-9,'real delay = distance/c');
+    ok(realUnits({band:'gen',fc:1.2})===null,'generic band: no real-unit mapping');
+    ok(fmtSI(1e6,'Hz')==='1.0 MHz'&&fmtSI(299.79,'m')==='299.8 m'&&fmtSI(5.03,'m')==='5.0 m',
+       'SI formatting'); }
+  { ok(eqbarText({mod:'am',ant:'tower'}).indexOf('mu s(t)')>0&&
+       eqbarText({mod:'fm',ant:'free'}).indexOf('INT')>0&&
+       eqbarText({mod:'cw',ant:'tower'}).indexOf('sigma')>0&&
+       eqbarText({mod:'cw',ant:'free'}).indexOf('sigma')<0,
+       'formula bar: modulation formula + J = σE only over ground');
+    ok(eqbarHTML({mod:'am',ant:'tower'}).indexOf('efrac')>0,'formula bar renders fractions'); }
+  { const L=psiLevels({fc:1.2}), L2=psiLevels({fc:2.4});
+    ok(L.length===14&&Math.abs(L[0]+L[1])<1e-18&&Math.abs(L2[0]/L[0]-2)<1e-12,
+       'contour levels: ± pairs, scale ∝ f_c'); }
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS;
+    ok(approx(c0[0],S[0][1])&&approx(c1[2],S[15][3])&&
+       /^rgb\(\d+,\d+,\d+\)$/.test(neonCss(0.62)),
+       'NeonColors endpoints and css'); }
+  { ok(fmt(1.5)==='1.50'&&fmt(1.567,1)==='1.6','number formatting'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

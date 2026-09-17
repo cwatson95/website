@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Particles in a box — one &amp; two quantum particles</title>
+<!--
+  One and two quantum particles in a 1-d infinite square well, hbar = m = 1,
+  box x in [0, L], eigenstates phi_n = sqrt(2/L) sin(n pi x / L),
+  E_n = n^2 pi^2 / (2 L^2).
+
+  Evolution is EXACT spectral propagation: every state is stored as
+  coefficients c_n in the energy basis and advanced by the phases
+  e^{-i E_n t} — no grid integrator, no discretization error in time.
+  That makes the textbook identities hold to machine precision: a wave
+  packet revives exactly at T_rev = 4 L^2 / pi and appears mirrored at
+  T_rev / 2, a (phi_1 + phi_2)/sqrt(2) superposition sloshes as
+  <x> = L/2 + X_12 cos((E_2 - E_1) t) with X_12 = -16L/(9 pi^2).
+
+  One particle: eigenstate n (stationary — watch the phase rotate),
+  two-state superposition, or a bouncing Gaussian packet (projected onto
+  48 modes and renormalized). Two particles (non-interacting): the joint
+  density |Psi(x1,x2)|^2 as a NeonColors heatmap for distinguishable
+  particles Psi = psi_A(x1) psi_B(x2), bosons (symmetrized, +) and
+  fermions (antisymmetrized, -):
+      Psi = [psi_A(x1) psi_B(x2) +- psi_B(x1) psi_A(x2)] / sqrt(2(1 +- |S|^2)),
+  S = <A|B> (time-independent). Fermions show the exchange hole — the
+  exact zero along x1 = x2 (Pauli) — bosons bunch on the diagonal;
+  <(x1-x2)^2> = <x^2>_a + <x^2>_b - 2<x>_a<x>_b -+ 2|<a|x|b>|^2 is
+  checked against the closed-form box matrix elements. The strip below
+  the heatmap is the one-body density n(x) (integrates to 2).
+
+  Rendering: 2d canvas on black. One-particle |psi|^2 as additive neon
+  columns (Mathematica ColorData["NeonColors"], NEON_STOPS as in
+  orbitals.html / quantum_tunneling.html) colored by phase, density, or
+  uniform; the two-particle heatmap maps |Psi|^2 through the same
+  gradient. Inset: the E_n level ladder with |c_n|^2 occupation bars.
+
+  Single file, no dependencies, works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript box_test.js
+  — with `document` undefined it runs the assertion suite (closed-form
+  matrix elements, discrete orthonormality, packet fidelity, exact
+  revival/mirror/slosh, symmetrization identities, Pauli zero) instead
+  of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0;}
+  #wave{position:absolute; inset:0; width:100%; height:100%; display:block;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .steprow{display:flex; align-items:center; gap:8px; margin:5px 0;}
+  .steprow .qn{width:26px; font:italic 15px Georgia, serif; color:var(--text);}
+  .steprow button{width:24px; height:24px; border-radius:12px; background:var(--panel2);
+                  border:1px solid var(--edge); color:var(--text); cursor:pointer; font-size:14px; line-height:1;}
+  .steprow button:hover{border-color:var(--accent);}
+  .steprow button:disabled{opacity:.28; cursor:default; border-color:var(--edge);}
+  .steprow .val{min-width:34px; text-align:center; font:600 14px "SF Mono", Menlo, monospace; color:#fff;}
+  .steprow .range{color:#666; font-size:10.5px; margin-left:auto;}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:76px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:44px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; gap:16px; margin-top:6px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #gradbar{display:block; width:100%; height:10px; border-radius:5px; margin:6px 0 3px;}
+  #gradlabels{display:flex; justify-content:space-between; font-size:10.5px; color:#777;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Particles in a box</h1>
+  <span class="sub">infinite square well &mdash; exact spectral evolution &middot; identical-particle statistics &middot; &#8463; = m = 1</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="wave"></canvas>
+    <div id="hint">space = pause &middot; r = relaunch</div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    <canvas id="inset" width="300" height="150"></canvas>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>system</h3>
+      <div class="chips">
+        <button class="chip on" id="mode1Btn">1 particle</button>
+        <button class="chip" id="mode2Btn">2 particles</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpState1">
+      <h3>state</h3>
+      <div class="chips">
+        <button class="chip" id="st1E" title="stationary state phi_n — density static, phase rotates">eigenstate</button>
+        <button class="chip" id="st1S" title="(phi_a + phi_b)/sqrt2 — the density sloshes">superposition</button>
+        <button class="chip on" id="st1P" title="Gaussian packet — bounces, mirrors at T_rev/2, revives at T_rev">packet</button>
+      </div>
+      <div class="steprow" id="rowN"><span class="qn">n</span>
+        <button id="nSub">&minus;</button><span class="val" id="nVal">2</span><button id="nAdd">+</button>
+        <span class="range">1 &hellip; 12</span></div>
+      <div class="steprow" id="rowNa"><span class="qn">n<sub>a</sub></span>
+        <button id="naSub">&minus;</button><span class="val" id="naVal">1</span><button id="naAdd">+</button>
+        <span class="range">1 &hellip; 12</span></div>
+      <div class="steprow" id="rowNb"><span class="qn">n<sub>b</sub></span>
+        <button id="nbSub">&minus;</button><span class="val" id="nbVal">2</span><button id="nbAdd">+</button>
+        <span class="range">&ne; n<sub>a</sub></span></div>
+    </div>
+
+    <div class="grp" id="grpTwo" hidden>
+      <h3>two particles</h3>
+      <div class="chips">
+        <button class="chip" id="statD" title="no exchange symmetry — Psi = psi_A(x1) psi_B(x2)">distinguishable</button>
+        <button class="chip" id="statB" title="symmetric wavefunction — bunches on x1 = x2">bosons</button>
+        <button class="chip on" id="statF" title="antisymmetric — exact zero on x1 = x2 (Pauli)">fermions</button>
+      </div>
+      <div class="chips" style="margin-top:6px">
+        <button class="chip on" id="st2E" title="particles in eigenstates n1, n2">eigenpair</button>
+        <button class="chip" id="st2P" title="two Gaussian packets launched at each other">colliding packets</button>
+      </div>
+      <div class="steprow" id="rowN1"><span class="qn">n&#8321;</span>
+        <button id="n1Sub">&minus;</button><span class="val" id="n1Val">1</span><button id="n1Add">+</button>
+        <span class="range">1 &hellip; 12</span></div>
+      <div class="steprow" id="rowN2"><span class="qn">n&#8322;</span>
+        <button id="n2Sub">&minus;</button><span class="val" id="n2Val">2</span><button id="n2Add">+</button>
+        <span class="range" id="n2Range">1 &hellip; 12</span></div>
+    </div>
+
+    <div class="grp" id="grpPacket">
+      <h3>packet</h3>
+      <div class="sliderrow"><label for="eK">momentum k</label>
+        <input type="range" id="eK" min="2" max="14" step="0.5">
+        <span class="val" id="eKVal"></span></div>
+      <div class="sliderrow"><label for="eSig">width &sigma;/L</label>
+        <input type="range" id="eSig" min="0.035" max="0.12" step="0.005">
+        <span class="val" id="eSigVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>box &amp; time</h3>
+      <div class="sliderrow"><label for="eL">length L</label>
+        <input type="range" id="eL" min="0.5" max="2" step="0.05">
+        <span class="val" id="eLVal"></span></div>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0.2" max="30" step="0.2">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow">
+        <button id="pauseBtn">pause</button>
+        <button id="relaunchBtn" title="restart at t = 0">relaunch</button>
+        <button id="resetBtn" title="back to the defaults">reset all</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>color &mdash; NeonColors</h3>
+      <div class="chips" id="colorRow1">
+        <button class="chip on" id="colorPhase">phase</button>
+        <button class="chip" id="colorDensity">density</button>
+        <button class="chip" id="colorFlat">uniform</button>
+      </div>
+      <div class="sliderrow" id="rowBright" hidden><label for="eBright">contrast &gamma;</label>
+        <input type="range" id="eBright" min="0.25" max="1" step="0.05">
+        <span class="val" id="eBrightVal"></span></div>
+      <canvas id="gradbar" width="248" height="10"></canvas>
+      <div id="gradlabels"><span id="gradLo"></span><span id="gradHi"></span></div>
+      <div class="checks" id="rowRe">
+        <label><input type="checkbox" id="reChk" checked> Re &psi;</label>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* ================= well eigenbasis, exact quantities ============= */
+const PI = Math.PI, TAU = 2*PI;
+const NB = 48;                                   // energy-basis size for packets
+const NMAX_UI = 12;                              // stepper range
+function phiVal(n,L,x){ return Math.sqrt(2/L)*Math.sin(n*PI*x/L); }
+function En(n,L){ return n*n*PI*PI/(2*L*L); }
+function Trev(L){ return 4*L*L/PI; }             // e^{-i E_n T} = e^{-2 pi i n^2} = 1
+// closed-form matrix elements (used by the self-tests and readout physics)
+function xElemDiag(L){ return L/2; }
+function xElemOff(m,n,L){
+  if (((m+n)&1)===0) return 0;                   // same parity: zero
+  const d=m*m-n*n;
+  return -8*L*m*n/(PI*PI*d*d);
+}
+function x2ElemDiag(n,L){ return L*L*(1/3 - 1/(2*n*n*PI*PI)); }
+// <(x1-x2)^2> for particles in eigenstates a,b (a!=b): -+ 2 X_ab^2 exchange shift
+function sepSqEigen(a,b,L,stats){
+  const base=x2ElemDiag(a,L)+x2ElemDiag(b,L)-2*xElemDiag(L)*xElemDiag(L);
+  if (stats==='dist') return base;
+  const X=xElemOff(a,b,L);
+  return stats==='bose' ? base-2*X*X : base+2*X*X;
+}
+
+/* ================= states as energy-basis coefficients =========== */
+function midGrid(G,L){ const xs=new Float64Array(G);
+  for (let i=0;i<G;i++) xs[i]=(i+0.5)*L/G; return xs; }
+function buildPhiTab(L,xs){ const G=xs.length, t=new Float64Array(NB*G);
+  for (let n=1;n<=NB;n++) for (let g=0;g<G;g++) t[(n-1)*G+g]=phiVal(n,L,xs[g]);
+  return t; }
+function coeffsEigen(n){ const c={re:new Float64Array(NB),im:new Float64Array(NB)};
+  c.re[n-1]=1; return c; }
+function coeffsSuper(na,nb){ const c={re:new Float64Array(NB),im:new Float64Array(NB)};
+  c.re[na-1]=Math.SQRT1_2; c.re[nb-1]=Math.SQRT1_2; return c; }
+// project a Gaussian e^{ik0 x} g(x-x0) onto the basis; renormalize to sum|c|^2 = 1
+function coeffsPacket(L,x0,sig,k0,NQ){
+  NQ=NQ||2048;
+  const xs=midGrid(NQ,L), w=L/NQ, A=Math.pow(2*PI*sig*sig,-0.25);
+  const c={re:new Float64Array(NB),im:new Float64Array(NB)};
+  for (let n=1;n<=NB;n++){
+    let sR=0,sI=0;
+    for (let i=0;i<NQ;i++){
+      const x=xs[i], p=phiVal(n,L,x)*A*Math.exp(-(x-x0)*(x-x0)/(4*sig*sig));
+      sR+=p*Math.cos(k0*x); sI+=p*Math.sin(k0*x);
+    }
+    c.re[n-1]=sR*w; c.im[n-1]=sI*w;
+  }
+  let s2=0;
+  for (let i=0;i<NB;i++) s2+=c.re[i]*c.re[i]+c.im[i]*c.im[i];
+  const s=1/Math.sqrt(s2||1);
+  for (let i=0;i<NB;i++){ c.re[i]*=s; c.im[i]*=s; }
+  c.captured=s2;                                 // pre-renormalization sum|c|^2
+  return c;
+}
+function meanEfromC(c,L){ let s=0;
+  for (let i=0;i<NB;i++) s+=(c.re[i]*c.re[i]+c.im[i]*c.im[i])*En(i+1,L);
+  return s; }
+// coefficients rotated to time t: c_n e^{-i E_n t}
+function rotateC(c,L,t,out){
+  for (let i=0;i<NB;i++){
+    const th=En(i+1,L)*t, co=Math.cos(th), si=Math.sin(th);
+    out.re[i]=c.re[i]*co+c.im[i]*si;
+    out.im[i]=c.im[i]*co-c.re[i]*si;
+  }
+}
+// psi(x,t) on a grid, given the phi table for that grid
+function psiEval(c,L,t,phiTab,G,outR,outI){
+  outR.fill(0); outI.fill(0);
+  for (let i=0;i<NB;i++){
+    const th=En(i+1,L)*t, co=Math.cos(th), si=Math.sin(th);
+    const aR=c.re[i]*co+c.im[i]*si, aI=c.im[i]*co-c.re[i]*si;
+    if (aR===0 && aI===0) continue;
+    const row=i*G;
+    for (let g=0;g<G;g++){ const p=phiTab[row+g]; outR[g]+=aR*p; outI[g]+=aI*p; }
+  }
+}
+function overlapC(cA,cB){                        // S = <A|B> = sum conj(cA) cB
+  let re=0,im=0;
+  for (let i=0;i<NB;i++){
+    re+=cA.re[i]*cB.re[i]+cA.im[i]*cB.im[i];
+    im+=cA.re[i]*cB.im[i]-cA.im[i]*cB.re[i];
+  }
+  return [re,im];
+}
+
+/* ============ two-particle joint density on a G x G grid =========
+   aR/aI, bR/bI are psi_A, psi_B on the grid at time t.
+   stats 'dist': P = |A(x1)|^2 |B(x2)|^2 (product state).
+   'bose'/'fermi': P = |A(x1)B(x2) +- B(x1)A(x2)|^2 / (2 (1 +- |S|^2)).
+   x1 is the column index i, x2 the row index j. */
+function jointP(aR,aI,bR,bI,G,stats,S2,P){
+  if (stats==='dist'){
+    for (let j=0;j<G;j++){
+      const pb=bR[j]*bR[j]+bI[j]*bI[j];
+      for (let i=0;i<G;i++) P[j*G+i]=(aR[i]*aR[i]+aI[i]*aI[i])*pb;
+    }
+    return P;
+  }
+  const sgn=stats==='bose'?1:-1, inv=1/(2*(1+sgn*S2));
+  for (let j=0;j<G;j++){
+    for (let i=0;i<G;i++){
+      const uR=aR[i]*bR[j]-aI[i]*bI[j] + sgn*(bR[i]*aR[j]-bI[i]*aI[j]);
+      const uI=aR[i]*bI[j]+aI[i]*bR[j] + sgn*(bR[i]*aI[j]+bI[i]*aR[j]);
+      P[j*G+i]=(uR*uR+uI*uI)*inv;
+    }
+  }
+  return P;
+}
+function jointMoments(P,xs,G,L){                 // norm, <(x1-x2)^2>, marginals
+  const w=L/G, m1=new Float64Array(G), m2=new Float64Array(G);
+  for (let j=0;j<G;j++) for (let i=0;i<G;i++){ const p=P[j*G+i]; m1[i]+=p*w; m2[j]+=p*w; }
+  let norm=0,e1=0,e11=0,e2=0,e22=0,e12=0;
+  for (let i=0;i<G;i++){ norm+=m1[i]*w; e1+=m1[i]*xs[i]*w; e11+=m1[i]*xs[i]*xs[i]*w;
+                         e2+=m2[i]*xs[i]*w; e22+=m2[i]*xs[i]*xs[i]*w; }
+  for (let j=0;j<G;j++){ let row=0;
+    for (let i=0;i<G;i++) row+=P[j*G+i]*xs[i];
+    e12+=row*xs[j]*w*w; }
+  return { norm, m1, m2, sepSq:(e11+e22-2*e12)/(norm||1),
+           mean1:e1/(norm||1) };
+}
+
+/* ================= colormap: Mathematica NeonColors ==============
+   Same exact 16-sample table as orbitals.html / quantum_tunneling.html
+   (idsc-frazzoli/tensor colorscheme/neon.csv, verified vs Wolfram). */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){
+  const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ======================== state and labels ======================= */
+const DEFAULTS={ mode:'one', sub1:'packet', sub2:'eigen', stats:'fermi',
+                 n:2, na:1, nb:2, n1:1, n2:2,
+                 L:1, kpi:6, sigL:0.08, speed:3, bright:0.5,
+                 colorBy:'phase', showRe:true };
+const P1_X0=0.3, P2_X0=0.25;                     // launch points as fractions of L
+const DT_BASE=2e-4;                              // t per frame at speed 1
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,+v||lo));
+  const qi=(v)=>Math.max(1,Math.min(NMAX_UI,Math.round(+v||1)));
+  c.n=qi(c.n); c.na=qi(c.na); c.nb=qi(c.nb); c.n1=qi(c.n1); c.n2=qi(c.n2);
+  if (c.nb===c.na) c.nb=(c.na===NMAX_UI)?c.na-1:c.na+1;
+  if (c.stats==='fermi' && c.sub2==='eigen' && c.n2===c.n1)
+    c.n2=(c.n1===NMAX_UI)?c.n1-1:c.n1+1;         // Pauli: no antisymmetric n1=n1
+  c.L=f(c.L,0.5,2); c.kpi=f(c.kpi,2,14); c.sigL=f(c.sigL,0.035,0.12);
+  c.speed=f(c.speed,0.2,30); c.bright=f(c.bright,0.25,1);
+  if (c.mode!=='two') c.mode='one';
+  if (['eigen','super','packet'].indexOf(c.sub1)<0) c.sub1='packet';
+  if (['eigen','packet'].indexOf(c.sub2)<0) c.sub2='eigen';
+  if (['dist','bose','fermi'].indexOf(c.stats)<0) c.stats='fermi';
+  return c;
+}
+function fmt(x,d){ return (+x).toFixed(d===undefined?2:d); }
+function fmtT(x){ if (!(x>0)) return '0';
+  return x>=0.001 ? x.toFixed(3) : x.toExponential(1); }
+function stateLabel(st){
+  if (st.mode==='one'){
+    if (st.sub1==='eigen') return 'eigenstate n = '+st.n;
+    if (st.sub1==='super') return '(ψ'+st.na+' + ψ'+st.nb+')/√2';
+    return 'wave packet';
+  }
+  const who={dist:'distinguishable',bose:'bosons',fermi:'fermions'}[st.stats];
+  return st.sub2==='eigen' ? who+' — n₁='+st.n1+', n₂='+st.n2 : who+' — colliding packets';
+}
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('wave'), ctx=cv.getContext('2d');
+  const insetCv=$('inset'), insetCtx=insetCv.getContext('2d');
+  if (!ctx || !insetCtx) return;
+  const dpr=(typeof window!=='undefined' && window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let model=null, t=0, paused=false;
+  let W=900, H=620;
+  let xsPix=null, phiPix=null, aR=null, aI=null, bR=null, bI=null;   // pixel grid (1p)
+  const HG=128, xsHeatOf=L=>midGrid(HG,L);
+  let xsHeat=null, phiHeat=null;
+  const hAR=new Float64Array(HG), hAI=new Float64Array(HG),
+        hBR=new Float64Array(HG), hBI=new Float64Array(HG),
+        Pjoint=new Float64Array(HG*HG);
+  let heatCv=null, heatCtx=null, heatImg=null;
+  let relaunchTimer=0;
+
+  /* ---------- model / launch ---------- */
+  function buildModel(){
+    const st=state, L=st.L, k0=st.kpi*PI/L, sig=st.sigL*L;
+    const m={ L, Trev:Trev(L), stats:st.stats };
+    if (st.mode==='one'){
+      m.kind=st.sub1;
+      m.cA = st.sub1==='eigen' ? coeffsEigen(st.n)
+           : st.sub1==='super' ? coeffsSuper(st.na,st.nb)
+           : coeffsPacket(L,P1_X0*L,sig,k0);
+      m.meanE=meanEfromC(m.cA,L);
+    } else {
+      m.kind='two';
+      if (st.sub2==='eigen'){ m.cA=coeffsEigen(st.n1); m.cB=coeffsEigen(st.n2); }
+      else { m.cA=coeffsPacket(L,P2_X0*L,sig,k0);
+             m.cB=coeffsPacket(L,(1-P2_X0)*L,sig,-k0); }
+      m.S=overlapC(m.cA,m.cB); m.S2=m.S[0]*m.S[0]+m.S[1]*m.S[1];
+      m.meanE=meanEfromC(m.cA,L)+meanEfromC(m.cB,L);
+    }
+    // occupation ladder: bars |c_n|^2 (normalized to the tallest)
+    const occ=[];
+    const push=(c,who)=>{ let mx=0;
+      for (let i=0;i<NB;i++) mx=Math.max(mx,c.re[i]*c.re[i]+c.im[i]*c.im[i]);
+      for (let i=0;i<NB;i++){
+        const w2=c.re[i]*c.re[i]+c.im[i]*c.im[i];
+        if (w2>0.004*mx) occ.push({n:i+1,w:w2/mx,who});
+      } };
+    push(m.cA,0); if (m.cB) push(m.cB,1);
+    m.occ=occ;
+    m.nShow=Math.max(6,Math.min(NB,occ.reduce((a,o)=>Math.max(a,o.n),1)+1));
+    return m;
+  }
+  function computeRefs(){
+    const L=state.L;
+    if (model.kind!=='two'){
+      psiEval(model.cA,L,0,phiPix,xsPix.length,aR,aI);
+      let mx=0;
+      for (let g=0;g<xsPix.length;g++) mx=Math.max(mx,aR[g]*aR[g]+aI[g]*aI[g]);
+      model.refPeak=mx||1;
+      model.refAmp=Math.sqrt(mx)||1;
+    } else {
+      psiEval(model.cA,L,0,phiHeat,HG,hAR,hAI);
+      psiEval(model.cB,L,0,phiHeat,HG,hBR,hBI);
+      jointP(hAR,hAI,hBR,hBI,HG,model.stats,model.S2||0,Pjoint);
+      let mx=0;
+      for (let i=0;i<HG*HG;i++) mx=Math.max(mx,Pjoint[i]);
+      model.refP=(mx||1)*(state.sub2==='packet'?2.2:1.0);
+      const mom=jointMoments(Pjoint,xsHeat,HG,L);
+      model.lastMom=mom;
+      let nm=0;
+      for (let i=0;i<HG;i++) nm=Math.max(nm,mom.m1[i]+mom.m2[i]);
+      model.refN=(nm||1)*(state.sub2==='packet'?1.8:1.05);
+    }
+  }
+  function relaunch(){ t=0; updateReadout(true); }
+  function rebuildAll(){
+    const L=state.L;
+    xsHeat=xsHeatOf(L); phiHeat=buildPhiTab(L,xsHeat);
+    buildPixGrid();
+    model=buildModel();
+    computeRefs();
+    t=0;
+    drawLadder(); updateInfo(); updateReadout(true); paintGradbar();
+  }
+
+  /* ---------- layout / grids ---------- */
+  function boxSpanPix(){ return {x0:46, x1:W-16}; }
+  function buildPixGrid(){
+    const s=boxSpanPix(), G=Math.max(60,Math.round(s.x1-s.x0));
+    xsPix=new Float64Array(G);
+    for (let g=0;g<G;g++) xsPix[g]=(g+0.5)*state.L/G;
+    phiPix=buildPhiTab(state.L,xsPix);
+    aR=new Float64Array(G); aI=new Float64Array(G);
+    bR=new Float64Array(G); bI=new Float64Array(G);
+  }
+  function resize(){
+    W=cv.clientWidth||900; H=cv.clientHeight||620;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+    if (model){ buildPixGrid(); if (model.kind!=='two') computeRefs(); }
+  }
+  function ensureHeatCanvas(){
+    if (heatCv) return;
+    heatCv=document.createElement('canvas');
+    heatCv.width=HG; heatCv.height=HG;
+    heatCtx=heatCv.getContext('2d');
+    heatImg=heatCtx.createImageData(HG,HG);
+  }
+
+  /* ---------- drawing: one particle ---------- */
+  function draw1p(){
+    const s=boxSpanPix(), G=xsPix.length, yB=H-40, plotH=H-96;
+    ctx.clearRect(0,0,W,H);
+    // outside-the-box shading + walls
+    ctx.fillStyle='rgba(255,255,255,0.035)';
+    ctx.fillRect(0,0,s.x0,H); ctx.fillRect(s.x1,0,W-s.x1,H);
+    ctx.strokeStyle='#cd35c4'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(s.x0,8); ctx.lineTo(s.x0,yB);
+    ctx.moveTo(s.x1,8); ctx.lineTo(s.x1,yB); ctx.stroke();
+    ctx.strokeStyle='#2a2a30'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(0,yB); ctx.lineTo(W,yB); ctx.stroke();
+    ctx.fillStyle='#666'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('0',s.x0-3,yB+14); ctx.fillText('L',s.x1-3,yB+14);
+    ctx.fillText('x',(s.x0+s.x1)/2,yB+14);
+
+    psiEval(model.cA,state.L,t,phiPix,G,aR,aI);
+    const head=model.kind==='packet'?2.0:1.35;
+    const yscale=0.78*plotH/(model.refPeak*head);
+    ctx.globalCompositeOperation='lighter';
+    const flatCss=neonCss(0.85);
+    for (let g=0;g<G;g++){
+      const p=aR[g]*aR[g]+aI[g]*aI[g];
+      let h=p*yscale; if (h<0.15) continue;
+      if (h>yB-10) h=yB-10;
+      let tc;
+      if (state.colorBy==='phase') tc=(Math.atan2(aI[g],aR[g])+PI)/TAU;
+      else if (state.colorBy==='density') tc=Math.pow(Math.min(1,p/model.refPeak),0.4);
+      else tc=0.85;
+      ctx.fillStyle = state.colorBy==='flat' ? flatCss : neonCss(tc);
+      const px=s.x0+g;
+      ctx.globalAlpha=0.5;  ctx.fillRect(px,yB-h,1,h);
+      ctx.globalAlpha=0.95; ctx.fillRect(px,yB-h-1.6,1,1.9);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+    if (state.showRe){
+      const reC=yB-0.32*plotH, reS=0.28*plotH/model.refAmp;
+      ctx.strokeStyle='rgba(185,215,255,0.75)'; ctx.lineWidth=1;
+      ctx.beginPath();
+      for (let g=0;g<G;g+=2){
+        let y=reC-aR[g]*reS;
+        if (y<8) y=8; if (y>yB-2) y=yB-2;
+        if (g===0) ctx.moveTo(s.x0+g,y); else ctx.lineTo(s.x0+g,y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  /* ---------- drawing: two particles ---------- */
+  function draw2p(){
+    ensureHeatCanvas();
+    ctx.clearRect(0,0,W,H);
+    const stripH=110, hx=Math.max(330,Math.round((W-Math.min(H-stripH-70,W-360))/2));
+    const side=Math.min(H-stripH-70,W-hx-30);
+    const hy=18;
+    const L=state.L;
+    psiEval(model.cA,L,t,phiHeat,HG,hAR,hAI);
+    psiEval(model.cB,L,t,phiHeat,HG,hBR,hBI);
+    jointP(hAR,hAI,hBR,hBI,HG,model.stats,model.S2||0,Pjoint);
+    const mom=jointMoments(Pjoint,xsHeat,HG,L);
+    model.lastMom=mom;
+    // heatmap pixels (x2 up)
+    const g=state.bright, d=heatImg.data, inv=1/model.refP;
+    for (let j=0;j<HG;j++){
+      for (let i=0;i<HG;i++){
+        const v=Math.pow(Math.min(1,Pjoint[j*HG+i]*inv),g);
+        const c=neon(v), lum=Math.min(1,v*1.15);
+        const k=(((HG-1-j)*HG)+i)*4;
+        d[k]=Math.round(255*c[0]*lum); d[k+1]=Math.round(255*c[1]*lum);
+        d[k+2]=Math.round(255*c[2]*lum); d[k+3]=255;
+      }
+    }
+    heatCtx.putImageData(heatImg,0,0);
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(heatCv,hx,hy,side,side);
+    // frame, diagonal, labels
+    ctx.strokeStyle='#2a2a30'; ctx.lineWidth=1;
+    ctx.strokeRect(hx,hy,side,side);
+    ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(hx,hy+side); ctx.lineTo(hx+side,hy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#666'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('x₁ →',hx+side/2-10,hy+side+12);
+    ctx.fillText('x₂ ↑',hx-26,hy+side/2);
+    ctx.fillText('x₁ = x₂',hx+side-40,hy+12);
+    // one-body density strip n(x) = rho1 + rho2
+    const sy=hy+side+26, sh=H-sy-14;
+    ctx.strokeStyle='#2a2a30';
+    ctx.beginPath(); ctx.moveTo(hx,sy+sh); ctx.lineTo(hx+side,sy+sh); ctx.stroke();
+    ctx.fillStyle='#666';
+    ctx.fillText('n(x) — one-body density (∫ = 2)',hx,sy-4);
+    ctx.globalCompositeOperation='lighter';
+    for (let i=0;i<HG;i++){
+      const v=(mom.m1[i]+mom.m2[i])/model.refN;
+      let h=Math.min(1,v)*(sh-6); if (h<0.2) continue;
+      const px=hx+Math.round((i+0.5)/HG*side);
+      ctx.fillStyle=neonCss(Math.pow(Math.min(1,v),g));
+      ctx.globalAlpha=0.6;
+      ctx.fillRect(px,sy+sh-h,Math.max(1,side/HG-1),h);
+    }
+    ctx.globalAlpha=1;
+    ctx.globalCompositeOperation='source-over';
+  }
+
+  /* ---------- energy-ladder inset ---------- */
+  function drawLadder(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height, Lm=34, Rm=10, Tm=12, Bm=18;
+    c.clearRect(0,0,IW,IH);
+    const nS=model.nShow, Emax=En(nS,state.L)*1.06, ph=IH-Tm-Bm, pw=IW-Lm-Rm;
+    const yOf=E=>Tm+ph*(1-E/Emax);
+    c.strokeStyle='#2a2a30'; c.lineWidth=1;
+    c.beginPath(); c.moveTo(Lm,Tm); c.lineTo(Lm,Tm+ph); c.lineTo(Lm+pw,Tm+ph); c.stroke();
+    c.font='9px -apple-system, sans-serif';
+    for (let n=1;n<=nS;n++){
+      const y=yOf(En(n,state.L));
+      c.strokeStyle='rgba(255,255,255,0.16)';
+      c.beginPath(); c.moveTo(Lm,y); c.lineTo(Lm+pw,y); c.stroke();
+      if (n<=3||n===nS){ c.fillStyle='#777'; c.fillText('n='+n,3,y+3); }
+    }
+    for (const o of model.occ){
+      const y=yOf(En(o.n,state.L));
+      c.strokeStyle=o.who===0?'#b8ec4c':'#cd35c4';
+      c.lineWidth=2.4;
+      c.beginPath(); c.moveTo(Lm+2,y); c.lineTo(Lm+2+(pw-6)*o.w,y); c.stroke();
+    }
+    c.lineWidth=1;
+    c.fillStyle='#b8ec4c'; c.fillText('Eₙ ladder — |cₙ|² bars',Lm+6,Tm+2);
+    if (model.kind==='two'){
+      c.fillStyle='#b8ec4c'; c.fillText('A',Lm+pw-24,Tm+2);
+      c.fillStyle='#cd35c4'; c.fillText('B',Lm+pw-12,Tm+2);
+    }
+  }
+
+  /* ---------- readouts / info ---------- */
+  function updateReadout(force){
+    $('roMain').textContent=stateLabel(state);
+    let sub='t = '+fmt(t,3)+' &middot; ⟨E⟩ = '+fmt(model.meanE,1);
+    if (model.kind==='packet')
+      sub+='<br>t/T<sub>rev</sub> = '+fmt(t/model.Trev,3)+' &nbsp;(T<sub>rev</sub> = 4L²/π = '+fmt(model.Trev,3)+')';
+    if (model.kind==='two'){
+      const v=model.lastMom?model.lastMom.sepSq:sepSqEigen(state.n1,state.n2,state.L,state.stats);
+      sub+='<br>⟨(x₁−x₂)²⟩ = '+fmt(v,3);
+    } else if (model.kind!=='eigen' && aR){
+      let n0=0,mx=0;
+      for (let g=0;g<xsPix.length;g++){ const p=aR[g]*aR[g]+aI[g]*aI[g]; n0+=p; mx+=p*xsPix[g]; }
+      sub+='<br>⟨x⟩ = '+fmt(n0>0?mx/n0:0,3);
+    }
+    $('roSub').innerHTML=sub;
+  }
+  function updateInfo(){
+    const st=state, L=st.L;
+    let s='';
+    if (st.mode==='one'){
+      if (st.sub1==='eigen')
+        s='<b>stationary state</b>: |ψ|² is frozen; only the phase e<sup>−iE'+st.n+'t</sup> turns '+
+          '(watch it in phase coloring). E<sub>n</sub> = n²π²/2L² → E<sub>'+st.n+'</sub> = '+fmt(En(st.n,L),1)+'.';
+      else if (st.sub1==='super')
+        s='<b>two-level beat</b>: ⟨x⟩ = L/2 + X<sub>ab</sub>cos(ΔE·t), ΔE = '+
+          fmt(En(st.nb,L)-En(st.na,L),1)+'; the density sloshes at that one Bohr frequency.';
+      else
+        s='<b>bouncing packet</b>: σ/L = '+fmt(st.sigL,3)+', k = '+fmt(st.kpi,1)+'π/L. It disperses, '+
+          'carpets, then <b>revives exactly</b> at T<sub>rev</sub> = 4L²/π (mirrored copy at T<sub>rev</sub>/2) '+
+          'because every phase e<sup>−iE<sub>n</sub>t</sup> is periodic in n².';
+      s+='<br>Exact spectral evolution on '+NB+' modes — no time-step error.';
+    } else {
+      s='<b>'+stateLabel(st)+'</b>. Ψ(x₁,x₂) '+
+        (st.stats==='dist'?'= ψ<sub>A</sub>(x₁)ψ<sub>B</sub>(x₂) — no exchange symmetry.'
+         :(st.stats==='bose'?'is symmetrized: bosons <b>bunch</b> along x₁ = x₂.'
+                            :'is antisymmetrized: the <b>exchange hole</b> pins Ψ = 0 on x₁ = x₂ (Pauli).'));
+      if (st.stats==='fermi'&&st.sub2==='eigen')
+        s+=' n₁ = n₂ is forbidden — the antisymmetric state vanishes, so the steppers skip it.';
+      s+='<br>⟨(x₁−x₂)²⟩ = ⟨x²⟩<sub>a</sub>+⟨x²⟩<sub>b</sub>−2⟨x⟩<sub>a</sub>⟨x⟩<sub>b</sub> ∓ 2X<sub>ab</sub>² '+
+         '— fermions spread apart, bosons huddle'+
+         (st.sub2==='eigen'?(': here '+fmt(sepSqEigen(st.n1,st.n2,L,'fermi'),3)+' (F) vs '+
+          fmt(sepSqEigen(st.n1,st.n2,L,'dist'),3)+' (D) vs '+fmt(sepSqEigen(st.n1,st.n2,L,'bose'),3)+' (B).'):'.');
+    }
+    $('info').innerHTML=s;
+  }
+  function paintGradbar(){
+    const g=$('gradbar').getContext('2d');
+    if (!g) return;
+    for (let i=0;i<248;i++){ g.fillStyle=neonCss(i/247); g.fillRect(i,0,1,10); }
+    const lab = state.mode==='two' ? ['|Ψ(x₁,x₂)|² = 0','max']
+      : {phase:['arg ψ = −π','+π'], density:['|ψ|² = 0','peak'], flat:['','']}[state.colorBy];
+    $('gradLo').innerHTML=lab[0]; $('gradHi').innerHTML=lab[1];
+  }
+
+  /* ---------- control wiring ---------- */
+  function syncControls(){
+    const st=state, one=st.mode==='one';
+    $('mode1Btn').classList.toggle('on',one);
+    $('mode2Btn').classList.toggle('on',!one);
+    $('grpState1').hidden=!one;
+    $('grpTwo').hidden=one;
+    $('st1E').classList.toggle('on',st.sub1==='eigen');
+    $('st1S').classList.toggle('on',st.sub1==='super');
+    $('st1P').classList.toggle('on',st.sub1==='packet');
+    $('rowN').hidden=st.sub1!=='eigen';
+    $('rowNa').hidden=st.sub1!=='super';
+    $('rowNb').hidden=st.sub1!=='super';
+    $('statD').classList.toggle('on',st.stats==='dist');
+    $('statB').classList.toggle('on',st.stats==='bose');
+    $('statF').classList.toggle('on',st.stats==='fermi');
+    $('st2E').classList.toggle('on',st.sub2==='eigen');
+    $('st2P').classList.toggle('on',st.sub2==='packet');
+    $('rowN1').hidden=st.sub2!=='eigen';
+    $('rowN2').hidden=st.sub2!=='eigen';
+    $('grpPacket').hidden=!((one&&st.sub1==='packet')||(!one&&st.sub2==='packet'));
+    $('nVal').textContent=st.n; $('naVal').textContent=st.na; $('nbVal').textContent=st.nb;
+    $('n1Val').textContent=st.n1; $('n2Val').textContent=st.n2;
+    $('n2Range').innerHTML=(st.stats==='fermi'&&st.sub2==='eigen')?'&ne; n&#8321; (Pauli)':'1 &hellip; 12';
+    $('eL').value=st.L; $('eLVal').textContent=fmt(st.L);
+    $('eK').value=st.kpi; $('eKVal').textContent=fmt(st.kpi,1)+'π';
+    $('eSig').value=st.sigL; $('eSigVal').textContent=fmt(st.sigL,3);
+    $('eSpeed').value=st.speed; $('eSpeedVal').textContent='×'+fmt(st.speed,1);
+    $('eBright').value=st.bright; $('eBrightVal').textContent=fmt(st.bright);
+    $('colorRow1').hidden=!one;
+    $('rowRe').hidden=!one;
+    $('rowBright').hidden=one;
+    $('reChk').checked=st.showRe;
+    const cb={phase:'colorPhase',density:'colorDensity',flat:'colorFlat'};
+    for (const k in cb) $(cb[k]).classList.toggle('on',st.colorBy===k);
+  }
+  function applyChange(){ state=clampState(state); syncControls(); rebuildAll(); }
+  function applyDebounced(){                     // slider drags: rebuild after settling
+    state=clampState(state); syncControls();
+    if (relaunchTimer) clearTimeout(relaunchTimer);
+    relaunchTimer=setTimeout(()=>{ relaunchTimer=0; rebuildAll(); },260);
+  }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  chip('mode1Btn',()=>{ state.mode='one'; });
+  chip('mode2Btn',()=>{ state.mode='two'; });
+  chip('st1E',()=>{ state.sub1='eigen'; });
+  chip('st1S',()=>{ state.sub1='super'; });
+  chip('st1P',()=>{ state.sub1='packet'; });
+  chip('statD',()=>{ state.stats='dist'; });
+  chip('statB',()=>{ state.stats='bose'; });
+  chip('statF',()=>{ state.stats='fermi'; });
+  chip('st2E',()=>{ state.sub2='eigen'; });
+  chip('st2P',()=>{ state.sub2='packet'; });
+  function stepper(idSub,idAdd,key,dir1){
+    $(idSub).addEventListener('click',()=>{ state[key]-=1; applyChange(); });
+    $(idAdd).addEventListener('click',()=>{ state[key]+=1; applyChange(); });
+  }
+  stepper('nSub','nAdd','n'); stepper('naSub','naAdd','na'); stepper('nbSub','nbAdd','nb');
+  stepper('n1Sub','n1Add','n1'); stepper('n2Sub','n2Add','n2');
+  function bindSlider(id,key,fmtFn,debounced){
+    $(id).addEventListener('input',()=>{
+      state[key]=+$(id).value;
+      if (debounced) applyDebounced();
+      else { state=clampState(state); syncControls(); }
+    });
+  }
+  bindSlider('eL','L',null,true);
+  bindSlider('eK','kpi',null,true);
+  bindSlider('eSig','sigL',null,true);
+  bindSlider('eSpeed','speed',null,false);
+  $('eBright').addEventListener('input',()=>{ state.bright=+$('eBright').value;
+    state=clampState(state); syncControls(); });
+  function setColor(m){ state.colorBy=m; syncControls(); paintGradbar(); }
+  $('colorPhase').addEventListener('click',()=>setColor('phase'));
+  $('colorDensity').addEventListener('click',()=>setColor('density'));
+  $('colorFlat').addEventListener('click',()=>setColor('flat'));
+  $('reChk').addEventListener('change',()=>{ state.showRe=$('reChk').checked; });
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+  $('relaunchBtn').addEventListener('click',()=>relaunch());
+  $('resetBtn').addEventListener('click',()=>{
+    state=clampState(Object.assign({},DEFAULTS));
+    syncControls(); rebuildAll(); setPaused(false);
+  });
+  document.addEventListener('keydown',ev=>{
+    if (ev.key===' '){ setPaused(!paused); ev.preventDefault(); }
+    else if (ev.key==='r'||ev.key==='R') relaunch();
+  });
+  if (typeof window!=='undefined')
+    window.addEventListener('resize',()=>{ resize(); });
+
+  /* ---------- main loop ---------- */
+  function frame(){
+    if (!paused) t+=DT_BASE*state.speed;
+    if (model.kind==='two') draw2p(); else draw1p();
+    updateReadout();
+    requestAnimationFrame(frame);
+  }
+  resize(); syncControls(); rebuildAll();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test =========================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+  const NQ=2048, L=1, xsQ=midGrid(NQ,L), wQ=L/NQ;
+  const quad=f=>{ let s=0; for (let i=0;i<NQ;i++) s+=f(xsQ[i]); return s*wQ; };
+
+  /* --- basis and closed-form matrix elements --- */
+  { let worst=0;
+    for (let m=1;m<=12;m++) for (let n=m;n<=12;n++){
+      const v=quad(x=>phiVal(m,L,x)*phiVal(n,L,x));
+      worst=Math.max(worst,Math.abs(v-(m===n?1:0)));
+    }
+    ok(worst<1e-12,'discrete orthonormality of phi_n up to n = 12'); }
+  { ok(approx(quad(x=>x*phiVal(1,L,x)*phiVal(2,L,x)),xElemOff(1,2,L),1e-6) &&
+       approx(xElemOff(1,2,L),-16*L/(9*PI*PI),1e-15),
+       '<1|x|2> matches -16L/(9 pi^2)'); }
+  { ok(approx(quad(x=>x*phiVal(2,L,x)*phiVal(3,L,x)),xElemOff(2,3,L),1e-6),
+       '<2|x|3> matches the closed form'); }
+  { ok(Math.abs(quad(x=>x*phiVal(1,L,x)*phiVal(3,L,x)))<1e-10 && xElemOff(1,3,L)===0,
+       'same-parity <1|x|3> vanishes'); }
+  { let good=true;
+    for (const n of [1,2,3,5])
+      if (!approx(quad(x=>x*x*phiVal(n,L,x)*phiVal(n,L,x)),x2ElemDiag(n,L),1e-6)) good=false;
+    ok(good,'<n|x^2|n> = L^2(1/3 - 1/(2 n^2 pi^2))'); }
+  { ok(approx(En(3,2),9*PI*PI/8,1e-12) && approx(Trev(1.5),9/PI,1e-12),
+       'E_n and T_rev formulas scale with L'); }
+  { let worst=0;
+    for (let n=1;n<=NB;n++){
+      const th=En(n,L)*Trev(L);                  // = 2 pi n^2
+      worst=Math.max(worst,Math.hypot(Math.cos(th)-1,Math.sin(th)));
+    }
+    ok(worst<1e-8,'e^{-i E_n T_rev} = 1 for every basis mode'); }
+
+  /* --- packet projection fidelity (defaults) --- */
+  const k0=6*PI, sig=0.08, cP=coeffsPacket(L,0.3,sig,k0);
+  { ok(cP.captured>0.9995 && cP.captured<=1+1e-9,
+       'packet projection captures >99.95% of the Gaussian'); }
+  { const E=meanEfromC(cP,L), Eth=k0*k0/2+1/(8*sig*sig);
+    ok(Math.abs(E-Eth)/Eth<0.01,'<E> = k^2/2 + 1/(8 sigma^2) within 1%'); }
+  { const phiQ=buildPhiTab(L,xsQ), pR=new Float64Array(NQ), pI=new Float64Array(NQ);
+    // pointwise fidelity needs a wall-clear reference: centered, sigma = L/20,
+    // so the free Gaussian is ~e^-25 at the walls and the box projection is it
+    const sigC=0.05, cC=coeffsPacket(L,0.5,sigC,k0), AC=Math.pow(2*PI*sigC*sigC,-0.25);
+    psiEval(cC,L,0,phiQ,NQ,pR,pI);
+    let worst=0;
+    for (let i=0;i<NQ;i++){
+      const g=AC*Math.exp(-(xsQ[i]-0.5)*(xsQ[i]-0.5)/(4*sigC*sigC));
+      worst=Math.max(worst,Math.hypot(pR[i]-g*Math.cos(k0*xsQ[i]),pI[i]-g*Math.sin(k0*xsQ[i])));
+    }
+    ok(worst<2e-3*AC,'reconstructed psi(x,0) matches a wall-clear Gaussian pointwise');
+    psiEval(cP,L,0,phiQ,NQ,pR,pI);
+    let nrm=0;
+    for (let i=0;i<NQ;i++) nrm+=pR[i]*pR[i]+pI[i]*pI[i];
+    ok(Math.abs(nrm*wQ-1)<1e-9,'psi normalized on the grid');
+    psiEval(cP,L,0.37,phiQ,NQ,pR,pI);
+    nrm=0;
+    for (let i=0;i<NQ;i++) nrm+=pR[i]*pR[i]+pI[i]*pI[i];
+    ok(Math.abs(nrm*wQ-1)<1e-9,'norm preserved exactly at t = 0.37');
+
+    /* exact revival and mirrored half-revival */
+    const G=256, xs=midGrid(G,L), phiG=buildPhiTab(L,xs);
+    const r0=new Float64Array(G), i0=new Float64Array(G),
+          r1=new Float64Array(G), i1=new Float64Array(G);
+    psiEval(cP,L,0,phiG,G,r0,i0);
+    psiEval(cP,L,Trev(L),phiG,G,r1,i1);
+    let dRev=0;
+    for (let g2=0;g2<G;g2++) dRev=Math.max(dRev,Math.hypot(r1[g2]-r0[g2],i1[g2]-i0[g2]));
+    ok(dRev<1e-7,'exact revival: psi(T_rev) = psi(0)');
+    psiEval(cP,L,Trev(L)/2,phiG,G,r1,i1);
+    let dMir=0;
+    for (let g2=0;g2<G;g2++){
+      const pm=r1[g2]*r1[g2]+i1[g2]*i1[g2], p0=r0[G-1-g2]*r0[G-1-g2]+i0[G-1-g2]*i0[G-1-g2];
+      dMir=Math.max(dMir,Math.abs(pm-p0));
+    }
+    ok(dMir<1e-7,'half revival: |psi(T_rev/2, x)|^2 = |psi(0, L-x)|^2'); }
+
+  /* --- superposition slosh --- */
+  { const c=coeffsSuper(1,2), G=512, xs=midGrid(G,L), phiG=buildPhiTab(L,xs);
+    const r=new Float64Array(G), im=new Float64Array(G);
+    const meanx=t=>{ psiEval(c,L,t,phiG,G,r,im);
+      let n=0,m=0;
+      for (let g=0;g<G;g++){ const p=r[g]*r[g]+im[g]*im[g]; n+=p; m+=p*xs[g]; }
+      return m/n; };
+    const X12=xElemOff(1,2,L), dE=En(2,L)-En(1,L);
+    ok(approx(meanx(0),L/2+X12,1e-6),'slosh: <x>(0) = L/2 + X12');
+    ok(approx(meanx(PI/dE),L/2-X12,1e-6),'slosh: <x>(half period) = L/2 - X12');
+    ok(approx(meanEfromC(c,L),(En(1,L)+En(2,L))/2,1e-12),'superposition <E> = (E1+E2)/2'); }
+
+  /* --- two particles: symmetrization identities --- */
+  const G2=96, xs2=midGrid(G2,L), phi2=buildPhiTab(L,xs2), w2=L/G2;
+  const eAR=new Float64Array(G2), eAI=new Float64Array(G2),
+        eBR=new Float64Array(G2), eBI=new Float64Array(G2);
+  const Pt=new Float64Array(G2*G2);
+  const cE1=coeffsEigen(1), cE2=coeffsEigen(2);
+  { psiEval(cE1,L,0,phi2,G2,eAR,eAI); psiEval(cE2,L,0,phi2,G2,eBR,eBI);
+    let good=true;
+    for (const st of ['dist','bose','fermi']){
+      jointP(eAR,eAI,eBR,eBI,G2,st,0,Pt);
+      const mom=jointMoments(Pt,xs2,G2,L);
+      if (Math.abs(mom.norm-1)>1e-3) good=false;
+      if (Math.abs(mom.sepSq-sepSqEigen(1,2,L,st))>5e-3*sepSqEigen(1,2,L,st)+1e-4) good=false;
+    }
+    ok(good,'joint norm = 1 and <(x1-x2)^2> matches closed form (D, B, F)');
+    const sD=sepSqEigen(1,2,L,'dist'), sB=sepSqEigen(1,2,L,'bose'), sF=sepSqEigen(1,2,L,'fermi');
+    ok(sF>sD && sD>sB,'exchange ordering: fermions > distinguishable > bosons');
+    ok(approx(sF-sD,2*Math.pow(xElemOff(1,2,L),2),1e-12) &&
+       approx(sD-sB,2*Math.pow(xElemOff(1,2,L),2),1e-12),
+       'exchange shift is exactly 2 X12^2 either way');
+    jointP(eAR,eAI,eBR,eBI,G2,'fermi',0,Pt);
+    let dmax=0;
+    for (let i=0;i<G2;i++) dmax=Math.max(dmax,Pt[i*G2+i]);
+    ok(dmax<1e-25,'Pauli: fermion joint density is exactly zero on x1 = x2');
+    jointP(eAR,eAI,eBR,eBI,G2,'bose',0,Pt);
+    const i3=Math.floor(0.3*G2), pd=(eAR[i3]*eAR[i3])*(eBR[i3]*eBR[i3]);
+    ok(approx(Pt[i3*G2+i3]/pd,2,1e-10),'bosons: diagonal density doubled vs distinguishable'); }
+
+  /* --- two colliding packets: S constant, marginals, Pauli in flight --- */
+  { const cA=coeffsPacket(L,0.25,sig,k0), cB=coeffsPacket(L,0.75,sig,-k0);
+    const S=overlapC(cA,cB), S2=S[0]*S[0]+S[1]*S[1];
+    ok(S2<1e-4,'launch overlap |S|^2 is negligible for separated packets');
+    const rA={re:new Float64Array(NB),im:new Float64Array(NB)},
+          rB={re:new Float64Array(NB),im:new Float64Array(NB)};
+    rotateC(cA,L,0.13,rA); rotateC(cB,L,0.13,rB);
+    const St=overlapC(rA,rB);
+    ok(Math.hypot(St[0]-S[0],St[1]-S[1])<1e-10,'S = <A|B> is exactly time-independent');
+    let good=true, pauli=true;
+    for (const t of [0,0.008,0.016]){            // before / during / after the collision
+      psiEval(cA,L,t,phi2,G2,eAR,eAI); psiEval(cB,L,t,phi2,G2,eBR,eBI);
+      for (const st of ['dist','bose','fermi']){
+        jointP(eAR,eAI,eBR,eBI,G2,st,S2,Pt);
+        const mom=jointMoments(Pt,xs2,G2,L);
+        if (Math.abs(mom.norm-1)>2e-3) good=false;
+        let tot=0;
+        for (let i=0;i<G2;i++) tot+=(mom.m1[i]+mom.m2[i])*w2;
+        if (Math.abs(tot-2)>4e-3) good=false;
+      }
+      jointP(eAR,eAI,eBR,eBI,G2,'fermi',S2,Pt);
+      for (let i=0;i<G2;i++) if (Pt[i*G2+i]>1e-25) pauli=false;
+    }
+    ok(good,'packet pair: joint norm 1 and one-body density integrates to 2 at all times');
+    ok(pauli,'packet fermions: exchange hole persists through the collision');
+    // marginal identity: rho1 from the grid vs the analytic reduction
+    psiEval(cA,L,0.008,phi2,G2,eAR,eAI); psiEval(cB,L,0.008,phi2,G2,eBR,eBI);
+    jointP(eAR,eAI,eBR,eBI,G2,'bose',S2,Pt);
+    const mom=jointMoments(Pt,xs2,G2,L);
+    let worst=0;
+    for (let i=0;i<G2;i+=7){
+      // 2 Re[A(x) conj(B(x)) S]  with  A conj(B) = (aR bR + aI bI) + i(aI bR - aR bI)
+      const cross=2*((eAR[i]*eBR[i]+eAI[i]*eBI[i])*S[0]-(eAI[i]*eBR[i]-eAR[i]*eBI[i])*S[1]);
+      const rho=((eAR[i]*eAR[i]+eAI[i]*eAI[i])+(eBR[i]*eBR[i]+eBI[i]*eBI[i])+cross)/(2*(1+S2));
+      worst=Math.max(worst,Math.abs(mom.m1[i]-rho));
+    }
+    ok(worst<1e-8,'marginal from the grid equals the analytic reduction (with S terms)'); }
+
+  /* --- clamps, labels, colors --- */
+  { const st=clampState({mode:'two',sub2:'eigen',stats:'fermi',n1:3,n2:3,
+                         n:0,na:5,nb:5,L:9,kpi:99,sigL:0,speed:0,bright:9});
+    ok(st.n2===4 && st.nb===6 && st.n===1 && st.L===2 && st.kpi===14 &&
+       st.sigL===0.035 && st.speed===0.2 && st.bright===1,
+       'clamps: Pauli bump, distinct superposition, slider ranges'); }
+  { const st=clampState({mode:'two',sub2:'eigen',stats:'fermi',n1:12,n2:12});
+    ok(st.n2===11,'Pauli bump steps down at the top of the range'); }
+  { const st=clampState(Object.assign({},DEFAULTS));
+    ok(stateLabel(st)==='wave packet' &&
+       stateLabel(Object.assign({},st,{mode:'two'}))==='fermions — n₁=1, n₂=2' &&
+       stateLabel(Object.assign({},st,{sub1:'eigen'}))==='eigenstate n = 2',
+       'readout labels for the main modes'); }
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS;
+    ok(approx(c0[0],S[0][1])&&approx(c0[2],S[0][3])&&approx(c1[0],S[15][1])&&approx(c1[2],S[15][3]),
+       'neon endpoints hit the gradient stops');
+    const mid=neon(0.1), f=(0.1-S[1][0])/(S[2][0]-S[1][0]);
+    ok(approx(mid[1],S[1][2]+(S[2][2]-S[1][2])*f,1e-12),'neon interpolates linearly between stops');
+    ok(/^rgb\(\d+,\d+,\d+\)$/.test(neonCss(0.62)),'neonCss emits rgb() strings'); }
+  { ok(fmt(1.5)==='1.50'&&fmtT(0.2725)==='0.273'&&fmtT(3.05e-9)==='3.1e-9',
+       'number formatting'); }
+  { ok(approx(sepSqEigen(1,2,1,'fermi'),0.168232,1e-5) &&
+       approx(sepSqEigen(1,2,1,'dist'),0.103341,1e-5) &&
+       approx(sepSqEigen(1,2,1,'bose'),0.038450,1e-5),
+       'reference separations for the (1,2) pair reproduce the audited values'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

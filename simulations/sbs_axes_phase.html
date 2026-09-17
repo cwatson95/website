@@ -1,0 +1,1422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SBS phase space — the three axes of the acoustic gas law</title>
+<!--
+  sbs_axes_phase.html — the three SBS observables (peak gain G, shift S,
+  width W) as a state curve in phase space, and the three relaxation axes
+  as its deformation fields.
+
+  WHAT IS EXACT: every curve is the conserving three-axis collision
+  operator (papers/math_derivations/three_axis.py — ES stress freedom,
+  nu-weighted speed law, conserving internal exchange) solved in Python at
+  MATCHED MEASURED VISCOSITY and embedded here as tables
+  (papers/math_derivations/make_phase_tables.py, checks T1-T10 ALL PASS;
+  17-point log grid in shear yhat = P/(eta q v0), 4 strengths per axis,
+  zrot = 5 fixed).  Sliders interpolate the tables LINEARLY in the axis
+  strength; combined settings use first-order superposition of the three
+  single-axis responses (dln add) — the exact all-on curves for the two
+  presets are also embedded, and the readout prints the superposition gap
+  (the cross-terms), so the approximation is measured on screen, not
+  assumed.  The Kr points are Mironov's 266-nm data made dimensionless
+  with the Eq.-27 prefactor (verify_sumrules.py rows) — measured, with
+  the width channel's purity question stated where they are drawn.
+
+  WHAT IS MODELLED: the closed-form (Pade) family overlays are the
+  ALT_MAIN_v2 formulas; gamma = 5/3 monatomic except where the axis-3
+  slider adds rotational capacity.  NOT MODELLED: vibration (frozen at
+  GHz), real-gas kappa_T, beyond-conserving (atom-atom) broadening — the
+  last is exactly what the residual view shows the data demanding.
+
+  Physics/data: three_axis.ThreeAxis + verify_sumrules.py (Mironov Kr,
+  266 nm); companion documents sumrules.tex, EOS.tex, axes_phase.png.
+-->
+
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --plate:#39404f; --beam:#5ac8e0; --envelope:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>SBS phase space</h1>
+  <span class="sub" id="sub">three observables, one state curve &mdash; and three axes that bend it</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+
+/* ================================================================== *
+ *  data — exact conserving-operator tables (make_phase_tables.py)      *
+ * ================================================================== */
+const TAB={"meta":{"gen":"make_phase_tables.py","date":"2026-08-05","zrot":5.0,"note":"three_axis.ThreeAxis at matched measured viscosity, y = y_eta(yhat, p, nu_es)"},"yh":[0.15,0.192322,0.246585,0.316158,0.40536,0.519731,0.666371,0.854384,1.095445,1.40452,1.8008,2.308888,2.960331,3.795576,4.866482,6.23954,8.0],"s1":[0.125,0.25,0.375,0.5],"s2":[0.065,0.13,0.195,0.26],"s3":[0.166667,0.333333,0.5,0.666667],"ideal":[[0.783843,0.737498,1.098673],[0.790759,0.747549,1.088995],[0.800035,0.760974,1.076352],[0.812824,0.778448,1.059531],[0.831022,0.800004,1.036601],[0.857605,0.824346,1.004445],[0.896883,0.848791,0.957778],[0.954607,0.87038,0.886804],[1.038126,0.887217,0.777569],[1.156785,0.898899,0.641151],[1.322522,0.906131,0.51477],[1.550531,0.910107,0.410184],[1.859903,0.912022,0.325338],[2.274362,0.912805,0.256944],[2.823338,0.913049,0.20218],[3.543605,0.913076,0.158629],[4.481643,0.913036,0.1242]],"ax1":[[[0.788377,0.734122,1.090329],[0.796285,0.742916,1.07902],[0.806613,0.754628,1.064717],[0.820367,0.769928,1.046432],[0.839173,0.7891,1.022619],[0.865616,0.811476,0.990751],[0.903573,0.835112,0.946525],[0.958434,0.857348,0.882113],[1.037269,0.875983,0.785222],[1.149127,0.890022,0.657499],[1.305548,0.899624,0.531165],[1.521194,0.90563,0.424265],[1.814509,0.909096,0.337052],[2.20846,0.91096,0.266571],[2.731541,0.911912,0.210004],[3.419293,0.912384,0.16492],[4.316505,0.912617,0.129213]],[[0.792058,0.731571,1.083556],[0.800799,0.739447,1.070885],[0.812038,0.749914,1.055163],[0.826682,0.763607,1.035571],[0.846164,0.78093,1.010851],[0.872752,0.801601,0.97895],[0.909923,0.824241,0.936323],[0.962668,0.846575,0.876562],[1.037706,0.866336,0.789125],[1.143748,0.88213,0.670555],[1.291932,0.893657,0.545946],[1.496413,0.901416,0.437486],[1.775029,0.906283,0.348262],[2.150041,0.909162,0.275895],[2.649089,0.910795,0.21765],[3.306602,0.911702,0.171112],[4.16585,0.912204,0.134173]],[[0.795105,0.729577,1.077955],[0.804553,0.736757,1.064133],[0.81658,0.746279,1.047197],[0.832029,0.758744,1.02645],[0.852185,0.77461,1.000866],[0.879068,0.793831,0.968762],[0.915801,0.815449,0.927199],[0.966977,0.837566,0.870845],[1.038933,0.857989,0.790684],[1.140007,0.87508,0.680784],[1.280926,0.888171,0.559185],[1.475353,0.897442,0.449879],[1.740545,0.903575,0.358976],[2.098092,0.907405,0.284914],[2.574839,0.909695,0.225116],[3.204199,0.911027,0.177199],[4.028071,0.911794,0.139075]],[[0.797668,0.727975,1.073248],[0.807722,0.73461,1.058446],[0.820435,0.743395,1.040463],[0.836604,0.754895,1.018702],[0.857405,0.769589,0.992316],[0.884657,0.787582,0.959923],[0.92118,0.808222,0.919076],[0.971192,0.829949,0.86528],[1.040634,0.850715,0.790794],[1.137456,0.868753,0.688679],[1.271968,0.883113,0.570959],[1.457349,0.893689,0.461472],[1.710292,0.900966,0.369207],[2.051743,0.905686,0.29363],[2.507794,0.908608,0.232394],[3.11092,0.910359,0.183178],[3.901768,0.911389,0.143916]]],"ax2":[[[0.782976,0.737009,1.100351],[0.789622,0.746989,1.09111],[0.798539,0.76041,1.079003],[0.810863,0.778036,1.062825],[0.828486,0.79999,1.040645],[0.854424,0.824964,1.009338],[0.893064,0.850085,0.963646],[0.950247,0.872141,0.893811],[1.033385,0.889113,0.784916],[1.151845,0.900643,0.646253],[1.317572,0.907558,0.51755],[1.545745,0.911173,0.411653],[1.855429,0.912765,0.326121],[2.2703,0.913296,0.257362],[2.819727,0.913363,0.202403],[3.540423,0.913273,0.15875],[4.478819,0.913158,0.124266]],[[0.782152,0.736533,1.101968],[0.788538,0.746435,1.093149],[0.797109,0.759842,1.08156],[0.808979,0.777609,1.066009],[0.826038,0.799962,1.044562],[0.851341,0.825596,1.014084],[0.889358,0.851431,0.969342],[0.946024,0.873976,0.900642],[1.028803,0.891086,0.79222],[1.147077,0.902451,0.65136],[1.312773,0.90903,0.520304],[1.541049,0.912268,0.413113],[1.850933,0.913525,0.326918],[2.266052,0.913798,0.25781],[2.815711,0.913684,0.202662],[3.53656,0.913474,0.158902],[4.474978,0.913282,0.124362]],[[0.781368,0.736072,1.103529],[0.787505,0.745891,1.095117],[0.795741,0.759274,1.084032],[0.807169,0.777172,1.069089],[0.823676,0.799928,1.048357],[0.848354,0.826248,1.018688],[0.885766,0.852835,0.974868],[0.941939,0.875895,0.907289],[1.024387,0.893141,0.799464],[1.142488,0.904326,0.656462],[1.308137,0.91055,0.523024],[1.536453,0.913395,0.414559],[1.846419,0.914306,0.327728],[2.26161,0.914314,0.258287],[2.811271,0.914013,0.202955],[3.531988,0.913679,0.15909],[4.470077,0.913409,0.124489]],[[0.780622,0.735628,1.105037],[0.78652,0.74536,1.097021],[0.794432,0.75871,1.086424],[0.805431,0.776729,1.072074],[0.821396,0.799892,1.052039],[0.845463,0.826927,1.023156],[0.882288,0.854308,0.980225],[0.937997,0.877904,0.913745],[1.020146,0.895285,0.806627],[1.13809,0.906272,0.661549],[1.303676,0.912123,0.525698],[1.531966,0.914558,0.415985],[1.841891,0.915111,0.328549],[2.256973,0.914844,0.258795],[2.806396,0.914352,0.203285],[3.526682,0.913892,0.159316],[4.464078,0.913541,0.124648]]],"ax3":[[[0.789918,0.743917,1.08983],[0.798836,0.75591,1.077509],[0.810973,0.771549,1.061267],[0.827956,0.791061,1.03943],[0.852336,0.81362,1.009363],[0.887851,0.837048,0.966821],[0.939536,0.858496,0.904598],[1.013755,0.875743,0.811851],[1.118311,0.887915,0.688529],[1.26263,0.895331,0.563053],[1.457863,0.898949,0.455493],[1.716942,0.899863,0.367574],[2.055089,0.899018,0.296374],[2.491626,0.897154,0.238661],[3.053334,0.894863,0.191634],[3.777996,0.892614,0.153144],[4.716451,0.89071,0.121683]],[[0.790811,0.743428,1.08835],[0.799996,0.755088,1.075617],[0.812455,0.770206,1.058881],[0.829786,0.788975,1.036493],[0.854464,0.810613,1.00591],[0.890082,0.833072,0.963137],[0.941438,0.853645,0.901734],[1.014504,0.870153,0.812758],[1.1164,0.881664,0.696155],[1.255327,0.888386,0.575453],[1.440367,0.891153,0.470389],[1.681298,0.890947,0.384124],[1.989301,0.888648,0.314084],[2.379652,0.885033,0.256826],[2.876192,0.880865,0.209287],[3.514942,0.876855,0.169334],[4.344741,0.873494,0.135788]],[[0.791502,0.743051,1.08721],[0.800893,0.754456,1.074163],[0.813601,0.769178,1.057053],[0.831202,0.787382,1.034257],[0.856113,0.808314,1.003306],[0.891819,0.830024,0.960411],[0.942933,0.84991,0.899699],[1.015132,0.86583,0.813495],[1.11502,0.876811,0.701825],[1.2499,0.88298,0.584996],[1.427381,0.885071,0.482114],[1.655115,0.883972,0.397313],[1.941774,0.880503,0.328313],[2.300472,0.875467,0.2715],[2.753863,0.869768,0.22358],[3.337396,0.864324,0.182428],[4.098709,0.859789,0.147154]],[[0.792053,0.742752,1.086304],[0.801609,0.753956,1.073011],[0.814514,0.768365,1.05561],[0.832329,0.786125,1.032499],[0.857428,0.8065,1.001274],[0.893207,0.827613,0.958313],[0.944138,0.846946,0.898178],[1.015662,0.862388,0.814101],[1.113979,0.872937,0.706205],[1.24571,0.878654,0.592553],[1.417362,0.880196,0.491573],[1.63507,0.878367,0.408067],[1.905837,0.873937,0.339997],[2.241531,0.867724,0.283603],[2.664343,0.860751,0.235392],[3.20956,0.854117,0.193241],[3.923964,0.848615,0.156518]]],"kr":[[0.793586,0.72973,1.080768],[0.802558,0.736689,1.067725],[0.813918,0.745886,1.051806],[0.828402,0.757972,1.03242],[0.847134,0.773567,1.008706],[0.871923,0.792902,0.979249],[0.905676,0.815256,0.941574],[0.95283,0.838649,0.891182],[1.019629,0.860431,0.819836],[1.114283,0.878477,0.71676],[1.247229,0.891898,0.590558],[1.431635,0.900944,0.47273],[1.684057,0.906506,0.375582],[2.025213,0.909648,0.297387],[2.480898,0.911297,0.234711],[3.083235,0.912113,0.184669],[3.872487,0.912503,0.144911]],"n2":[[0.798177,0.732697,1.074091],[0.808542,0.740386,1.059257],[0.821781,0.750381,1.041039],[0.838845,0.763191,1.018658],[0.861167,0.779118,0.990988],[0.890944,0.797884,0.956266],[0.931454,0.818247,0.91165],[0.987265,0.838112,0.852609],[1.064198,0.855292,0.773051],[1.169042,0.86836,0.671397],[1.308994,0.876917,0.562301],[1.490701,0.881313,0.464708],[1.719031,0.882202,0.3849],[1.996575,0.880208,0.321513],[2.32612,0.875846,0.271094],[2.7177,0.869695,0.229743],[3.197132,0.862621,0.193996]],"krdata":[{"P":2,"yh":0.6959,"G":0.87055,"S":0.77711,"W":0.88109,"dlnW":-0.07269,"dlnG":-0.0393},{"P":3,"yh":1.0424,"G":1.08819,"S":0.8209,"W":0.84607,"dlnW":0.05266,"dlnG":0.06572},{"P":4,"yh":1.3879,"G":1.25142,"S":0.84826,"W":0.7492,"dlnW":0.14563,"dlnG":0.08439},{"P":5,"yh":1.7324,"G":1.45382,"S":0.86468,"W":0.67861,"dlnW":0.24142,"dlnG":0.11722},{"P":6,"yh":2.0759,"G":1.59601,"S":0.87562,"W":0.60199,"dlnW":0.28583,"dlnG":0.09995}]};
+
+const SQ=Math.sqrt(Math.PI/(2*Math.E));          // 0.7601734505  kinetic peak
+const DXKIN=1.13320;                             // kinetic lobe FWHM
+const PHI0=Math.SQRT2*SQ*DXKIN;                  // 1.2182  the kinetic corner
+const GAM=5/3;
+
+/* strength grids: value 0 means "ideal" for every axis */
+const SGRID={ax1:[0].concat(TAB.s1), ax2:[0].concat(TAB.s2), ax3:[0].concat(TAB.s3)};
+function axisCurve(ax,k){          // k=0 -> ideal, k>=1 -> TAB[ax][k-1]
+  return k===0 ? TAB.ideal : TAB[ax][k-1];
+}
+/* (G,S,W) of ONE axis at strength v, grid column j — linear in strength */
+function singleAxis(ax,v,j){
+  const g=SGRID[ax];
+  let k=0; while(k<g.length-2 && v>g[k+1]) k++;
+  const t=clamp((v-g[k])/((g[k+1]-g[k])||1),0,1);
+  const A=axisCurve(ax,k)[j], B=axisCurve(ax,k+1)[j];
+  return [lerp(A[0],B[0],t), lerp(A[1],B[1],t), lerp(A[2],B[2],t)];
+}
+/* log-response of one axis at strength v, column j */
+function dlnAxis(ax,v,j){
+  const c=singleAxis(ax,v,j), i=TAB.ideal[j];
+  return [Math.log(c[0]/i[0]), Math.log(c[1]/i[1]), Math.log(c[2]/i[2])];
+}
+/* combined observables at column j: ideal x exp(sum of single-axis dln).
+   First order in the axis strengths; the exact all-on combos for the two
+   presets are TAB.kr / TAB.n2 and the gap is printed in the readout. */
+function combined(st,j){
+  const i=TAB.ideal[j];
+  const d1=dlnAxis('ax1',st.s1,j), d2=dlnAxis('ax2',st.p,j), d3=dlnAxis('ax3',st.dl,j);
+  return [i[0]*Math.exp(d1[0]+d2[0]+d3[0]),
+          i[1]*Math.exp(d1[1]+d2[1]+d3[1]),
+          i[2]*Math.exp(d1[2]+d2[2]+d3[2])];
+}
+function exactCombo(st){           // exact table if the state IS a preset
+  const eq=(a,b)=>Math.abs(a-b)<1e-9;
+  if(eq(st.s1,0.5)&&eq(st.p,0.26)&&eq(st.dl,0))   return TAB.kr;
+  if(eq(st.s1,0.5)&&eq(st.p,0.26)&&eq(st.dl,2/3)) return TAB.n2;
+  if(eq(st.s1,0)&&eq(st.p,0)&&eq(st.dl,0))        return TAB.ideal;
+  return null;
+}
+/* value at the marker yhat (log-linear between grid columns) */
+function atY(rowFn,yh){
+  const Y=TAB.yh;
+  let j=0; while(j<Y.length-2 && yh>Y[j+1]) j++;
+  const t=clamp((Math.log(yh)-Math.log(Y[j]))/(Math.log(Y[j+1])-Math.log(Y[j])),0,1);
+  const A=rowFn(j), B=rowFn(j+1);
+  return [lerp(A[0],B[0],t), lerp(A[1],B[1],t), lerp(A[2],B[2],t)];
+}
+
+/* closed-form (Pade) family of ALT_MAIN_v2 — the analytic reference */
+function cfS(y,G){ return Math.sqrt((1+G*y*y)/(2*(1+y*y))); }
+function cfW(y){ return DXKIN/Math.sqrt(1+y*y); }
+function cfG(y){ return SQ*Math.sqrt(1+y*y); }
+
+/* Kr data (Mironov 266 nm, dimensionless; verify_sumrules rows) */
+const KRDATA=TAB.krdata;
+
+/* ================================================================== *
+ *  state + model                                                      *
+ * ================================================================== */
+const DEFAULTS={
+  view:'space',
+  s1:0.5, p:0.26, dl:0,          // axis strengths (Kr-like preset)
+  preset:'kr',
+  yh:1.1,                        // the marker collisionality
+  showData:true, showParts:true, showCF:false, showIdeal:true,
+  anim:false, spin:false, speed:1,
+};
+const PRESETS=[
+  {id:'ideal', name:'ideal (single τ)', s1:0, p:0, dl:0},
+  {id:'kr',    name:'Kr-like',          s1:0.5, p:0.26, dl:0},
+  {id:'n2',    name:'N2-like',          s1:0.5, p:0.26, dl:2/3},
+];
+
+function buildModel(st){
+  const n=TAB.yh.length;
+  const cur=[], d1=[], d2=[], d3=[];
+  for(let j=0;j<n;j++){
+    cur.push(combined(st,j));
+    d1.push(dlnAxis('ax1',st.s1,j));
+    d2.push(dlnAxis('ax2',st.p,j));
+    d3.push(dlnAxis('ax3',st.dl,j));
+  }
+  const exact=exactCombo(st);
+  let gap=0;
+  if(exact) for(let j=0;j<n;j++)
+    for(let k=0;k<3;k++)
+      gap=Math.max(gap,Math.abs(Math.log(exact[j][k]/cur[j][k])));
+  const mk=atY(j=>cur[j],st.yh), mi=atY(j=>TAB.ideal[j],st.yh);
+  const J=[atY(j=>d1[j],st.yh), atY(j=>d2[j],st.yh), atY(j=>d3[j],st.yh)];
+  const detJ=J[0][0]*(J[1][1]*J[2][2]-J[1][2]*J[2][1])
+            -J[0][1]*(J[1][0]*J[2][2]-J[1][2]*J[2][0])
+            +J[0][2]*(J[1][0]*J[2][1]-J[1][1]*J[2][0]);
+  return {st,n,cur,d1,d2,d3,exact,gap,mk,mi,J,detJ,
+          Pr:1/(1+st.s1),
+          phi:mk[0]*mk[2]/mk[1], phiI:mi[0]*mi[2]/mi[1],
+          gamEq:st.dl>0?(1+2/(3*(1+st.dl))):5/3};
+}
+
+/* ------------------------------------------------ readout / eqbar / tag */
+function readoutHTML(M){
+  const st=M.st, r=[];
+  const row=(a,b,cls)=>'<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>';
+  const hd=t=>'<tr><td class="hd" colspan="2">'+t+'</td></tr>';
+  r.push('<div class="rname">SBS phase space<small>the three observables on one state curve '
+        +'&mdash; conserving operator, matched viscosity</small></div>');
+  r.push('<table>');
+  r.push(hd('at the marker &nbsp; ŷ = '+fmt(st.yh,2)));
+  r.push(row('peak gain G','<b>'+fmt(M.mk[0],3)+'</b> &nbsp;(ideal '+fmt(M.mi[0],3)+')'));
+  r.push(row('shift S','<b>'+fmt(M.mk[1],4)+'</b> &nbsp;(ideal '+fmt(M.mi[1],4)+')'));
+  r.push(row('width W','<b>'+fmt(M.mk[2],4)+'</b> &nbsp;(ideal '+fmt(M.mi[2],4)+')'));
+  r.push(row('product Φ = G·W/S',fmt(M.phi,4)+' &nbsp;(ideal '+fmt(M.phiI,4)+')'));
+  r.push(hd('the axes (response at the marker)'));
+  const nm=['axis 1 · Pr = '+fmt(M.Pr,3),'axis 2 · p = '+fmt(st.p,3),
+            'axis 3 · δ = '+fmt(st.dl,3)];
+  for(let k=0;k<3;k++){
+    const d=M.J[k];
+    r.push(row(nm[k],(100*d[0]).toFixed(1)+', '+(100*d[1]).toFixed(1)+', '
+      +(100*d[2]).toFixed(1)+'% <span style="color:#6f7789">(G,S,W)</span>'));
+  }
+  r.push(row('det J (independence)',
+    Math.abs(M.detJ)>1e-8?'<span class="good">'+M.detJ.toExponential(1)+'</span>'
+                         :'<span class="bad">'+M.detJ.toExponential(1)+'</span>'));
+  r.push(hd('honesty'));
+  r.push(row('combined curve',M.exact?'exact table':'1st-order superposition'));
+  if(M.exact) r.push(row('superposition gap','max '+(100*M.gap).toFixed(2)+'%'));
+  r.push(row('corners Φ(0), 1/Γ',fmt(PHI0,4)+', '+fmt(1/M.gamEq,4)));
+  r.push('</table>');
+  r.push('<div class="note">Curves are the exact conserving three-axis operator, '
+    +'precomputed in Python at matched measured viscosity and interpolated in the '
+    +'axis strength. Off the presets the combined curve adds the three single-axis '
+    +'responses (first order); on a preset the exact all-on curve is drawn and the '
+    +'gap is printed above.</div>');
+  if(st.showData) r.push('<div class="note"><b>Kr points</b>: Mironov 266 nm, '
+    +'dimensionless via the Eq.-27 prefactor. Their widths carry the unresolved '
+    +'purity question (sumrules.tex) &mdash; see <i>the residuals</i>.</div>');
+  return r.join('');
+}
+
+function eqbarHTML(M){
+  const v=M.st.view;
+  if(v==='space') return '<span class="lhs">(G, S, W)(ŷ)</span> — one state curve; '
+    +'<span class="hl">three axes</span> = three deformation fields'
+    +'<span class="sm">the observables live in a 3-space; the ideal gas is a curve in it, '
+    +'and each relaxation axis bends that curve in its own direction</span>';
+  if(v==='spine') return '<span class="lhs">G·W</span> ≈ const along the spine — the '
+    +'<span class="hl">product law</span>'
+    +'<span class="sm">the W–G face is nearly model-blind: conservation fixes the lobe area, '
+    +'so peak and width trade off along G·W = const</span>';
+  if(v==='shift') return '<span class="lhs">S(∞)</span> = √(Γ/2), '
+    +'<span class="hl2">Γ from the modes that can follow ω<sub>B</sub></span>'
+    +'<span class="sm">axis 3 owns the hydrodynamic end of the shift — the acoustic '
+    +'parameter counts only the internal modes fast enough to relax</span>';
+  if(v==='collapse') return '<span class="lhs">δln O<sub>k</sub></span> per axis — '
+    +'silent at ŷ→0, <span class="hl">polarised</span> by the hydro end'
+    +'<span class="sm">the Doppler profile is axis-blind (the universal corner); each axis&rsquo;s '
+    +'response concentrates into its own observable as collisions take over</span>';
+  if(v==='resid') return '<span class="lhs">(δlnW, δlnG)</span> vs the single-τ ideal — '
+    +'<span class="hl2">the data sit off every axis ray</span>'
+    +'<span class="sm">axis 1 moves along the product diagonal, axis 2 barely reaches off the '
+    +'origin — the measured drift is the width-purity / atom&ndash;atom question</span>';
+  if(v==='predict') return '<span class="lhs">[(Δx/w)²−1](Γ−2s²)</span> = <span class="hl">(2Δx/C)²(2s²−1)</span>'
+    +'<span class="sm">the universal equation: eliminate ŷ and every gas, pressure and pump lies on one surface — the material content is (Γ, C), the state is gone</span>';
+  return '<span class="lhs">J<sub>kj</sub> = ∂ln O<sub>j</sub>/∂ε<sub>k</sub></span>, '
+    +'<span class="hl">det J ≠ 0</span>'
+    +'<span class="sm">three observables measure three axes because the response matrix is '
+    +'invertible — the phase-space statement of the whole programme</span>';
+}
+
+function tagHTML(M){
+  const names={space:'the phase space',spine:'the spine',shift:'the shift',
+               collapse:'the collapse',resid:'the residuals',matrix:'the matrix',predict:'the prediction'};
+  return '<b>'+names[M.st.view]+'</b> — Pr '+fmt(M.Pr,2)+' · p '+fmt(M.st.p,2)
+    +' · δ '+fmt(M.st.dl,2)+(M.exact?' (exact)':' (superposed)');
+}
+
+/* ================================================================== *
+ *  drawing helpers                                                    *
+ *                                                                     *
+ *  Text is wrapped on a MEASURED width, never on a character count —   *
+ *  a character budget overran the panel edge in wind_tunnel.html and   *
+ *  is on this project's Known-bad list.                                *
+ * ================================================================== */
+/* Canvas text is not HTML: fillText draws "&rsquo;" as seven characters on the
+   screen.  The readout and the info panel ARE HTML and use entities correctly,
+   and prose gets copied between the two, so rather than trusting nobody ever
+   pastes the wrong way, caption() decodes the handful this file uses. */
+const ENTS={'&rsquo;':'\u2019','&lsquo;':'\u2018','&mdash;':'\u2014','&ndash;':'\u2013',
+            '&times;':'\u00d7','&deg;':'\u00b0','&nbsp;':' ','&minus;':'\u2212',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'\u2026'};
+function plain(s){ return String(s).replace(/&[a-z]+;/g,m=>ENTS[m]!==undefined?ENTS[m]:m); }
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  const xt=o.xticks||ticksFor(xlo,xhi,6), yt=o.yticks||ticksFor(ylo,yhi,5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(o.xlab,b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(o.ylab,0,0); ctx.restore(); }
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(o.title,b.x,b.y-6); }
+  ctx.restore();
+}
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  let started=false;
+  const n=Math.min(xs.length,ys.length);
+  for(let i=0;i<n;i++){
+    const X=b.x+b.w*(xs[i]-xlo)/(xhi-xlo||1);
+    const Y=b.y1-b.h*(ys[i]-ylo)/(yhi-ylo||1);
+    if(!isFinite(X)||!isFinite(Y)) { started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else ctx.lineTo(X,Y);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+
+/* ================================================================== *
+ *  view A — the phase space (3-D):  x = ln W,  y = S,  z = ln G       *
+ * ================================================================== */
+const CUBE={
+  wLo:Math.log(0.11), wHi:Math.log(1.30),
+  sLo:0.68,           sHi:0.96,
+  gLo:Math.log(0.65), gHi:Math.log(22.0),
+};
+function toCube(o){          // (G,S,W) -> cube [-1,1]^3, z-up
+  return [ 2*(Math.log(o[2])-CUBE.wLo)/(CUBE.wHi-CUBE.wLo)-1,
+           2*(o[1]-CUBE.sLo)/(CUBE.sHi-CUBE.sLo)-1,
+           2*(Math.log(o[0])-CUBE.gLo)/(CUBE.gHi-CUBE.gLo)-1 ];
+}
+function strokePath3(ctx,cam,B,pts,col,lw,dash){
+  ctx.save(); ctx.beginPath();
+  let started=false;
+  for(const p of pts){
+    const q=project(cam,B,p);
+    if(!q){ started=false; continue; }
+    if(!started){ ctx.moveTo(q.x,q.y); started=true; } else ctx.lineTo(q.x,q.y);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+}
+function drawSpace(ctx,W,H,M,S){
+  const st=M.st, cam=S.cam, B=camBasis(cam);
+  // cube edges, back faces first (painter by eye-distance of edge midpoint)
+  const C=[-1,1], edges=[];
+  for(const a of C)for(const b of C){
+    edges.push([[a,b,-1],[a,b,1]]); edges.push([[a,-1,b],[a,1,b]]); edges.push([[-1,a,b],[1,a,b]]);
+  }
+  edges.sort((e,f)=>{
+    const me=v3.mul(v3.add(e[0],e[1]),0.5), mf=v3.mul(v3.add(f[0],f[1]),0.5);
+    return v3.len(v3.sub(mf,B.eye))-v3.len(v3.sub(me,B.eye));
+  });
+  for(const e of edges) strokePath3(ctx,cam,B,e,'#1c2130',1);
+  // floor grid (z = -1)
+  for(let i=1;i<4;i++){
+    const t=-1+i*0.5;
+    strokePath3(ctx,cam,B,[[t,-1,-1],[t,1,-1]],'#141926',1);
+    strokePath3(ctx,cam,B,[[-1,t,-1],[1,t,-1]],'#141926',1);
+  }
+  // axis ticks + labels (real units; G and W are logarithmic)
+  ctx.font='10px -apple-system, sans-serif'; ctx.fillStyle='#6f7789';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  const tick=(p3,txt)=>{ const q=project(cam,B,p3); if(q) ctx.fillText(txt,q.x,q.y+4); };
+  for(const wv of [0.2,0.5,1.0]){
+    const x=2*(Math.log(wv)-CUBE.wLo)/(CUBE.wHi-CUBE.wLo)-1;
+    strokePath3(ctx,cam,B,[[x,-1,-1],[x,-1.06,-1]],'#39404f',1);
+    tick([x,-1.14,-1],fmt(wv,1));
+  }
+  for(const sv of [0.7,0.8,0.9]){
+    const y=2*(sv-CUBE.sLo)/(CUBE.sHi-CUBE.sLo)-1;
+    strokePath3(ctx,cam,B,[[1,y,-1],[1.06,y,-1]],'#39404f',1);
+    tick([1.16,y,-1],fmt(sv,1));
+  }
+  for(const gv of [1,3,10]){
+    const z=2*(Math.log(gv)-CUBE.gLo)/(CUBE.gHi-CUBE.gLo)-1;
+    strokePath3(ctx,cam,B,[[-1,-1,z],[-1.05,-1.05,z]],'#39404f',1);
+    tick([-1.12,-1.12,z],fmt(gv,0));
+  }
+  const lab=(p3,txt,col)=>{ const q=project(cam,B,p3);
+    if(q){ ctx.fillStyle=col||'#8b93a6'; ctx.font='italic 12px Georgia, serif';
+           ctx.fillText(txt,q.x,q.y); } };
+  lab([0,-1.32,-1],'width W (log)'); lab([1.42,0,-1],'shift S');
+  lab([-1.25,-1.25,0.2],'gain G (log)');
+  // curves: ideal spine, single-axis parts, combined; then data, then marker
+  const path=arr=>arr.map(toCube);
+  if(st.showIdeal) strokePath3(ctx,cam,B,path(TAB.ideal),'#8b93a6',2.6);
+  if(st.showParts){
+    const parts=[['ax1',st.s1,'#5ac8e0'],['ax2',st.p,'#e8843a'],['ax3',st.dl,'#cd35c4']];
+    for(const [ax,v,col] of parts){
+      if(v<=1e-9) continue;
+      const c=[]; for(let j=0;j<M.n;j++) c.push(singleAxis(ax,v,j));
+      strokePath3(ctx,cam,B,path(c),col,1.3,[5,4]);
+    }
+  }
+  strokePath3(ctx,cam,B,path(M.cur),'#b8ec4c',2.2);
+  if(M.exact&&M.gap>1e-4) strokePath3(ctx,cam,B,path(M.exact),'#e6f7c2',1.0,[2,4]);
+  if(st.showData){
+    for(const d of KRDATA){
+      const q=project(cam,B,toCube([d.G,d.S,d.W]));
+      if(!q) continue;
+      ctx.fillStyle='#f2f4f8'; ctx.beginPath(); ctx.arc(q.x,q.y,3.6,0,TAU); ctx.fill();
+      ctx.strokeStyle='#070b18'; ctx.lineWidth=1; ctx.stroke();
+      ctx.fillStyle='#aeb6c6'; ctx.font='10px -apple-system,sans-serif';
+      ctx.textAlign='left'; ctx.fillText(d.P+' atm',q.x+6,q.y-4);
+    }
+  }
+  const mq=project(cam,B,toCube(M.mk));
+  if(mq){ ctx.fillStyle='#cd35c4'; ctx.beginPath(); ctx.arc(mq.x,mq.y,4.5,0,TAU); ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.2; ctx.stroke(); }
+  caption(ctx,14,H-58,'G and W axes are logarithmic; S is linear. The gray spine is the '
+    +'ideal single-τ gas from ŷ = 0.15 (bottom right) to 8 (top left); green is the '
+    +'current operator; dashes are the single-axis parts.',W*0.55,'#767e92');
+}
+
+/* ================================================================== *
+ *  view B — the spine (the W–G face, log–log)                         *
+ * ================================================================== */
+function drawSpine(ctx,W,H,M,S){
+  const st=M.st;
+  const b=box(70,46,W-100,H-120);
+  const xlo=CUBE.wLo, xhi=CUBE.wHi, ylo=CUBE.gLo, yhi=CUBE.gHi;
+  axes(ctx,b,xlo,xhi,ylo,yhi,{
+    title:'the W–G face — axis 1 slides along G·W = const',
+    xlab:'reduced width  W = Δx  (log axis)', ylab:'reduced peak gain  G  (log axis)',
+    xticks:[0.15,0.3,0.6,1.2].map(Math.log), xfmt:t=>fmt(Math.exp(t),2),
+    yticks:[1,2,5,10,20].map(Math.log), yfmt:t=>fmt(Math.exp(t),0)});
+  for(const lev of [0.4,0.861,2.0]){
+    // straight in ln-ln: lnG = ln(lev) - lnW, clamped to the plot box
+    const x0=Math.max(xlo,Math.log(lev)-yhi), x1=Math.min(xhi,Math.log(lev)-ylo);
+    if(x0<x1) polyline(ctx,b,[x0,x1],[Math.log(lev)-x0,Math.log(lev)-x1],
+                       xlo,xhi,ylo,yhi,'#1e2534',1,[3,4]);
+  }
+  const put=(arr,col,lw,dash)=>polyline(ctx,b,arr.map(o=>Math.log(o[2])),
+    arr.map(o=>Math.log(o[0])),xlo,xhi,ylo,yhi,col,lw,dash);
+  if(st.showIdeal) put(TAB.ideal,'#8b93a6',2.6);
+  if(st.showParts){
+    if(st.s1>1e-9){ const c=[]; for(let j=0;j<M.n;j++) c.push(singleAxis('ax1',st.s1,j)); put(c,'#5ac8e0',1.2,[5,4]); }
+    if(st.p >1e-9){ const c=[]; for(let j=0;j<M.n;j++) c.push(singleAxis('ax2',st.p ,j)); put(c,'#e8843a',1.2,[5,4]); }
+    if(st.dl>1e-9){ const c=[]; for(let j=0;j<M.n;j++) c.push(singleAxis('ax3',st.dl,j)); put(c,'#cd35c4',1.2,[5,4]); }
+  }
+  put(M.cur,'#b8ec4c',2.2);
+  if(st.showCF){
+    const cf=[]; for(const y of TAB.yh) cf.push([cfG(y),0,cfW(y)]);
+    put(cf,'#e8843a',1.4,[7,4]);
+  }
+  if(st.showData) for(const d of KRDATA){
+    const X=b.x+b.w*(Math.log(d.W)-xlo)/(xhi-xlo), Y=b.y1-b.h*(Math.log(d.G)-ylo)/(yhi-ylo);
+    ctx.fillStyle='#f2f4f8'; ctx.beginPath(); ctx.arc(X,Y,3.4,0,TAU); ctx.fill();
+  }
+  const mk=M.mk, mx=b.x+b.w*(Math.log(mk[2])-xlo)/(xhi-xlo),
+        my=b.y1-b.h*(Math.log(mk[0])-ylo)/(yhi-ylo);
+  ctx.fillStyle='#cd35c4'; ctx.beginPath(); ctx.arc(mx,my,4.5,0,TAU); ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.1; ctx.stroke();
+  caption(ctx,b.x+8,b.y+8,'dotted diagonals: G·W = const (the product law). '
+    +'Kinetic corner bottom right, hydrodynamic top left.',b.w*0.5,'#6f7789');
+}
+
+/* ================================================================== *
+ *  view C — the shift channel                                         *
+ * ================================================================== */
+const LY=TAB!==null?TAB.yh.map(Math.log):[];
+function drawShift(ctx,W,H,M,S){
+  const st=M.st;
+  const b=box(70,46,W-100,H-120);
+  const xlo=LY[0], xhi=LY[LY.length-1], ylo=0.69, yhi=0.955;
+  axes(ctx,b,xlo,xhi,ylo,yhi,{
+    title:'the shift channel — axis 3 owns the hydrodynamic end',
+    xlab:'shear collisionality  ŷ  (log axis)', ylab:'reduced shift  S = x_peak',
+    xticks:[0.15,0.3,0.6,1.2,2.5,5,8].map(Math.log), xfmt:t=>fmt(Math.exp(t),2)});
+  for(const [v,lab] of [[Math.sqrt(5/6),'√(5/6) monatomic'],[Math.sqrt(0.7),'√0.7 diatomic eq.'],
+                        [Math.SQRT1_2,'1/√2 Doppler']]){
+    if(v<ylo||v>yhi) continue;
+    polyline(ctx,b,[xlo,xhi],[v,v],xlo,xhi,ylo,yhi,'#242b3c',1,[3,4]);
+    ctx.fillStyle='#6f7789'; ctx.font='10px -apple-system,sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillText(plain(lab),b.x+6,
+      b.y1-b.h*(v-ylo)/(yhi-ylo)-2);
+  }
+  const put=(arr,col,lw,dash)=>polyline(ctx,b,LY,arr.map(o=>o[1]),xlo,xhi,ylo,yhi,col,lw,dash);
+  if(st.showIdeal) put(TAB.ideal,'#8b93a6',2.6);
+  if(st.showParts){
+    if(st.s1>1e-9){ const c=[]; for(let j=0;j<M.n;j++) c.push(singleAxis('ax1',st.s1,j)); put(c,'#5ac8e0',1.2,[5,4]); }
+    if(st.p >1e-9){ const c=[]; for(let j=0;j<M.n;j++) c.push(singleAxis('ax2',st.p ,j)); put(c,'#e8843a',1.2,[5,4]); }
+    if(st.dl>1e-9){ const c=[]; for(let j=0;j<M.n;j++) c.push(singleAxis('ax3',st.dl,j)); put(c,'#cd35c4',1.2,[5,4]); }
+  }
+  put(M.cur,'#b8ec4c',2.2);
+  if(st.showCF){
+    const cf=TAB.yh.map(y=>[0,cfS(y,GAM),0]); put(cf,'#e8843a',1.4,[7,4]);
+  }
+  if(st.showData) for(const d of KRDATA){
+    const X=b.x+b.w*(Math.log(d.yh)-xlo)/(xhi-xlo), Y=b.y1-b.h*(d.S-ylo)/(yhi-ylo);
+    ctx.fillStyle='#f2f4f8'; ctx.beginPath(); ctx.arc(X,Y,3.4,0,TAU); ctx.fill();
+  }
+  const mx=b.x+b.w*(Math.log(st.yh)-xlo)/(xhi-xlo),
+        my=b.y1-b.h*(M.mk[1]-ylo)/(yhi-ylo);
+  ctx.fillStyle='#cd35c4'; ctx.beginPath(); ctx.arc(mx,my,4.5,0,TAU); ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.1; ctx.stroke();
+}
+
+/* ================================================================== *
+ *  view D — the collapse: |dln O| per axis and channel                *
+ * ================================================================== */
+function drawCollapse(ctx,W,H,M,S){
+  const b=box(70,46,W-100,H-132);
+  let top=2;
+  for(const d of [M.d1,M.d2,M.d3]) for(const r of d) for(const v of r)
+    top=Math.max(top,100*Math.abs(v)+2);
+  const xlo=LY[0], xhi=LY[LY.length-1];
+  axes(ctx,b,xlo,xhi,0,top,{
+    title:'the collapse — silent at the kinetic corner, polarised by the hydro end',
+    xlab:'shear collisionality  ŷ  (log axis)', ylab:'|response|  |δln O|  [%]',
+    xticks:[0.15,0.3,0.6,1.2,2.5,5,8].map(Math.log), xfmt:t=>fmt(Math.exp(t),2)});
+  const CH=[[0,null],[1,[2,3]],[2,[6,4]]];           // G solid, S dot, W dash
+  const AXC=[['d1','#5ac8e0'],['d2','#e8843a'],['d3','#cd35c4']];
+  for(const [dk,col] of AXC){
+    for(const [ch,dash] of CH){
+      polyline(ctx,b,LY,M[dk].map(r=>100*Math.abs(r[ch])),xlo,xhi,0,top,col,1.5,dash);
+    }
+  }
+  const mx=b.x+b.w*(Math.log(M.st.yh)-xlo)/(xhi-xlo);
+  polyline(ctx,b,[Math.log(M.st.yh),Math.log(M.st.yh)],[0,top],xlo,xhi,0,top,'#39404f',1,[2,4]);
+  caption(ctx,b.x+8,b.y+8,'line style is the channel — solid G, dotted S, dashed W; '
+    +'colour is the axis — cyan 1 (Pr), orange 2 (p), magenta 3 (δ). Every curve → 0 at '
+    +'the Doppler corner.',b.w*0.55,'#6f7789');
+  void mx;
+}
+
+/* ================================================================== *
+ *  view E — the residual plane (Kr data vs single-τ ideal)            *
+ * ================================================================== */
+function residRays(M){
+  // axis-1 and axis-2 reach at the data rows' yhat, from the tables
+  const r1=[],r2=[];
+  for(const d of KRDATA){
+    const a1=atY(j=>dlnAxis('ax1',0.5,j),d.yh);
+    const a2=atY(j=>dlnAxis('ax2',0.26,j),d.yh);
+    r1.push([100*a1[2],100*a1[0]]);       // (dlnW, dlnG) %
+    r2.push([100*a2[2],100*a2[0]]);
+  }
+  return {r1,r2};
+}
+function drawResid(ctx,W,H,M,S){
+  const b=box(76,46,Math.max(560,W-380),H-126);   // clear of the readout
+  const xlo=-14, xhi=36, ylo=-30, yhi=18;
+  axes(ctx,b,xlo,xhi,ylo,yhi,{
+    title:'krypton in the residual plane — the axes cannot reach the data',
+    xlab:'width residual  δlnW vs single-τ ideal  [%]',
+    ylab:'gain residual  δlnG  [%]'});
+  polyline(ctx,b,[xlo,xhi],[0,0],xlo,xhi,ylo,yhi,'#242b3c',1);
+  polyline(ctx,b,[0,0],[ylo,yhi],xlo,xhi,ylo,yhi,'#242b3c',1);
+  polyline(ctx,b,[0,28],[0,-28],xlo,xhi,ylo,yhi,'#39404f',1,[3,4]); // product diagonal
+  const R=residRays(M);
+  polyline(ctx,b,R.r1.map(p=>p[0]),R.r1.map(p=>p[1]),xlo,xhi,ylo,yhi,'#5ac8e0',1.8);
+  polyline(ctx,b,R.r2.map(p=>p[0]),R.r2.map(p=>p[1]),xlo,xhi,ylo,yhi,'#e8843a',3.2);
+  const px=[],py=[];
+  for(const d of KRDATA){ px.push(100*d.dlnW); py.push(100*d.dlnG); }
+  polyline(ctx,b,px,py,xlo,xhi,ylo,yhi,'#6b7284',1);
+  for(let i=0;i<KRDATA.length;i++){
+    const X=b.x+b.w*(px[i]-xlo)/(xhi-xlo), Y=b.y1-b.h*(py[i]-ylo)/(yhi-ylo);
+    ctx.fillStyle='#f2f4f8'; ctx.beginPath(); ctx.arc(X,Y,3.8,0,TAU); ctx.fill();
+    ctx.strokeStyle='#070b18'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='#aeb6c6'; ctx.font='10px -apple-system,sans-serif';
+    ctx.textAlign='left';
+    ctx.fillText(KRDATA[i].P+' atm',X+6,Y+(KRDATA[i].P>=5?12:-6));
+  }
+  ctx.fillStyle='#5ac8e0'; ctx.font='10.5px -apple-system,sans-serif';
+  ctx.fillText('axis-1 reach (Pr→2/3)',b.x+b.w*0.52,b.y1-b.h*0.22);
+  ctx.fillStyle='#e8843a';
+  ctx.fillText('axis-2 reach (p→0.26): barely off the origin',b.x+b.w*0.30,b.y1-b.h*0.55);
+  caption(ctx,b.x+8,b.y+8,'the measured drift is off every ray the conserving axes can '
+    +'draw — the width-purity / atom–atom question of sumrules.tex.',b.w*0.5,'#6f7789');
+}
+
+/* ================================================================== *
+ *  view F — the response matrix                                       *
+ * ================================================================== */
+function drawMatrix(ctx,W,H,M,S){
+  const bl=box(76,70,Math.min(360,W*0.38),Math.min(300,H-190));
+  const cw=bl.w/3, ch=bl.h/3;
+  const NM=['axis 1 (Pr)','axis 2 (p)','axis 3 (δ)'], CH=['G','S','W'];
+  ctx.font='italic 13px Georgia, serif'; ctx.fillStyle='#aeb6c6';
+  ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText('J = ∂ln(G,S,W) per axis at ŷ = '+fmt(M.st.yh,2),bl.x,bl.y-26);
+  let vmax=0.02;
+  for(const r of M.J) for(const v of r) vmax=Math.max(vmax,Math.abs(v));
+  for(let k=0;k<3;k++) for(let c=0;c<3;c++){
+    const v=M.J[k][c];
+    const X=bl.x+c*cw, Y=bl.y+k*ch;
+    ctx.fillStyle=v>=0?rgba('#b8ec4c',0.12+0.55*Math.abs(v)/vmax)
+                      :rgba('#e8843a',0.12+0.55*Math.abs(v)/vmax);
+    ctx.fillRect(X+2,Y+2,cw-4,ch-4);
+    ctx.strokeStyle='#2a2f3d'; ctx.strokeRect(X+2.5,Y+2.5,cw-5,ch-5);
+    ctx.fillStyle='#e9ecf3'; ctx.font='12px "SF Mono", Menlo, monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText((100*v).toFixed(1)+'%',X+cw/2,Y+ch/2);
+  }
+  ctx.font='10.5px -apple-system,sans-serif'; ctx.fillStyle='#8b93a6';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let c=0;c<3;c++) ctx.fillText(CH[c],bl.x+c*cw+cw/2,bl.y1+6);
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(let k=0;k<3;k++) ctx.fillText(NM[k],bl.x-8,bl.y+k*ch+ch/2);
+  // right: |det J| across yhat
+  const br=box(bl.x1+90,70,Math.max(360,W-bl.x1-380),Math.min(300,H-190));
+  const dets=[];
+  for(let j=0;j<M.n;j++){
+    const J=[M.d1[j],M.d2[j],M.d3[j]];
+    dets.push(Math.abs(
+      J[0][0]*(J[1][1]*J[2][2]-J[1][2]*J[2][1])
+     -J[0][1]*(J[1][0]*J[2][2]-J[1][2]*J[2][0])
+     +J[0][2]*(J[1][0]*J[2][1]-J[1][1]*J[2][0]))*1e6);
+  }
+  const detsFull=[];
+  for(let j=0;j<M.n;j++){
+    const F=[dlnAxis('ax1',0.5,j),dlnAxis('ax2',0.26,j),dlnAxis('ax3',2/3,j)];
+    detsFull.push(Math.abs(
+      F[0][0]*(F[1][1]*F[2][2]-F[1][2]*F[2][1])
+     -F[0][1]*(F[1][0]*F[2][2]-F[1][2]*F[2][0])
+     +F[0][2]*(F[1][0]*F[2][1]-F[1][1]*F[2][0]))*1e6);
+  }
+  const top=Math.max(2,...dets,...detsFull)*1.15;
+  axes(ctx,br,LY[0],LY[LY.length-1],0,top,{
+    title:'|det J| × 10⁶ — the independence of the axes',
+    xlab:'ŷ (log axis)',
+    xticks:[0.15,0.5,1.5,4,8].map(Math.log), xfmt:t=>fmt(Math.exp(t),2)});
+  polyline(ctx,br,LY,detsFull,LY[0],LY[LY.length-1],0,top,'#39404f',1.4,[5,4]);
+  polyline(ctx,br,LY,dets,LY[0],LY[LY.length-1],0,top,'#b8ec4c',2);
+  ctx.fillStyle='#6f7789'; ctx.font='10px -apple-system,sans-serif';
+  ctx.textAlign='left';
+  ctx.fillText('dashed: all axes at full strength (reference)',br.x+8,br.y1-10);
+  caption(ctx,br.x+8,br.y+8,'nonzero everywhere the axes are on: three observables '
+    +'measure three axes. It vanishes when any slider is at zero (green = the '
+    +'current sliders).',br.w*0.55,'#6f7789');
+  caption(ctx,bl.x,bl.y1+34,'green = positive response, orange = negative; each row is '
+    +'one axis at its current slider strength.',bl.w+40,'#767e92');
+}
+
+/* ================================================================== *
+ *  dispatch + scene                                                   *
+ * ================================================================== */
+function drawView(ctx,W,H,M,S){
+  ctx.clearRect(0,0,W,H);
+  const v=M.st.view;
+  if(v==='space') drawSpace(ctx,W,H,M,S);
+  else if(v==='spine') drawSpine(ctx,W,H,M,S);
+  else if(v==='shift') drawShift(ctx,W,H,M,S);
+  else if(v==='collapse') drawCollapse(ctx,W,H,M,S);
+  else if(v==='resid') drawResid(ctx,W,H,M,S);
+  else if(v==='predict') drawPredict(ctx,W,H,M,S);
+  else drawMatrix(ctx,W,H,M,S);
+}
+function makeScene(canvas){
+  const st=Object.assign({},DEFAULTS);
+  const cam=makeCamera(-0.95,0.40,5.4,[0,0,0]);
+  let M=null;
+  const S={
+    st,cam,
+    model(){ if(!M) S.rebuild(); return M; },
+    rebuild(){ M=buildModel(st); },
+    fit(){ cam.target=[0,0,0]; cam.dist=5.4; },
+    resetView(){ cam.theta=-0.95; cam.phi=0.40; S.fit(); },
+    pointer(kind,d){
+      if(kind!=='move'||st.view!=='space') return;
+      cam.theta-=d.dx*0.006;
+      cam.phi=clamp(cam.phi+d.dy*0.006,-1.45,1.45);
+    },
+    wheel(dy){ if(st.view==='space') cam.dist=clamp(cam.dist*Math.exp(dy*0.0012),2.2,18); },
+    step(dt){
+      if(st.anim){
+        const lo=Math.log(TAB.yh[0]), hi=Math.log(TAB.yh[TAB.yh.length-1]);
+        let t=(Math.log(st.yh)-lo)/(hi-lo); t+=dt*st.speed*0.12;
+        if(t>1) t-=1;
+        st.yh=Math.exp(lo+t*(hi-lo)); S.rebuild();
+      }
+      if(st.spin&&st.view==='space') cam.theta+=dt*st.speed*0.16;
+    },
+    draw(){
+      const ctx=canvas.getContext('2d');
+      const r=canvas.getBoundingClientRect?canvas.getBoundingClientRect():{width:cam.W,height:cam.H};
+      const Wd=r.width||cam.W, Hd=r.height||cam.H;
+      cam.W=Wd; cam.H=Hd;
+      if(!M) S.rebuild();
+      drawView(ctx,Wd,Hd,M,S);
+    },
+    readout(){ return readoutHTML(S.model()); },
+    eqbar(){ return eqbarHTML(S.model()); },
+    tag(){ return tagHTML(S.model()); },
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  view G — the prediction: the universal equation, worked live       *
+ *  (closed_system.tex: three tiers, one state variable)              *
+ * ================================================================== */
+function sOfU(u,G){ return Math.sqrt((G-(G-1)*u)/2); }
+function wOfU(u,C){ const r=(2*DXKIN/C)*(2*DXKIN/C)*(1-u)/u;
+  return DXKIN/Math.sqrt(1+r); }
+function phiOfTab(yh){                    // Pr=2/3 member of the tables
+  const Y=TAB.yh, A=TAB.ax1[TAB.ax1.length-1];
+  let j=0; while(j<Y.length-2 && yh>Y[j+1]) j++;
+  const t=clamp((Math.log(yh)-Math.log(Y[j]))/(Math.log(Y[j+1])-Math.log(Y[j])),0,1);
+  const p=(r)=>r[0]*r[2]/r[1];
+  return lerp(p(A[j]),p(A[j+1]),t);
+}
+const NUREF_KR=1.8273, PK_KR=2.870, KPREF_KR=0.0662;   // Kr 266 nm consts
+
+function drawPredict(ctx,W,H,M,S){
+  const st=M.st;
+  const G=M.gamEq, Pr=M.Pr, C=4/3+(G-1)/Pr;
+  const yh=st.yh, u=1/(1+yh*yh);
+  const s=sOfU(u,G), w=wOfU(u,C), phi=phiOfTab(yh), g=phi*s/w;
+  // ---- left: the worked example ------------------------------------
+  const x0=64; let y=64;
+  const line=(txt,col,fnt)=>{ ctx.fillStyle=col||'#cfd4de';
+    ctx.font=fnt||'12.5px "SF Mono", Menlo, monospace';
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText(plain(txt),x0,y); y+=20; };
+  ctx.font='italic 15px Georgia, serif'; ctx.fillStyle='#e9e9f0';
+  ctx.fillText('predicting the three observables from the universal system',x0,y-28);
+  line('INPUTS (the three tier constants + the state)','#8b93a6',
+       'italic 12.5px Georgia, serif');
+  line('  Gamma = '+fmt(G,4)+'   (thermodynamic: axis-3 slider, counted modes)');
+  line('  C     = '+fmt(C,4)+'   = 4/3 + (Gamma-1)/Pr,  Pr = '+fmt(Pr,3));
+  line('  Phi(ŷ) = '+fmt(phi,4)+'  (conservation partition, Pr=2/3 tables)');
+  line('  ŷ = '+fmt(yh,3)+'  ->  u = 1/(1+ŷ²) = '+fmt(u,4),'#b8ec4c');
+  y+=6;
+  line('STEP 1 · thermodynamic tier','#5ac8e0','italic 12.5px Georgia, serif');
+  line('  2s² = Γ − (Γ−1)u   ->  s = '+fmt(s,4));
+  y+=6;
+  line('STEP 2 · kinetic tier','#5ac8e0','italic 12.5px Georgia, serif');
+  line('  (Δx/w)² = 1 + (2Δx/C)²(1−u)/u   ->  w = '+fmt(w,4));
+  y+=6;
+  line('STEP 3 · conservation tier','#5ac8e0','italic 12.5px Georgia, serif');
+  line('  g = Φ(ŷ)·s/w = '+fmt(g,4));
+  y+=6;
+  line('DIMENSIONAL (Kr, 266 nm: ν_ref = '+NUREF_KR+' GHz, P_K = '
+       +PK_KR+' atm)','#8b93a6','italic 12.5px Georgia, serif');
+  line('  P    = ŷ·P_K            = '+fmt(yh*PK_KR,2)+' atm');
+  line('  ν_B  = s·ν_ref          = '+fmt(s*NUREF_KR,3)+' GHz');
+  line('  Δν   = w·ν_ref          = '+fmt(w*NUREF_KR,3)+' GHz');
+  line('  γ_B  ≈ '+KPREF_KR+'·ŷ·g   = '+fmt(KPREF_KR*yh*g,3)+' cm/GW');
+  y+=6;
+  line('vs the EXACT operator at these sliders:','#8b93a6',
+       'italic 12.5px Georgia, serif');
+  line('  (G, S, W)_op = ('+fmt(M.mk[0],3)+', '+fmt(M.mk[1],4)+', '
+       +fmt(M.mk[2],4)+')');
+  line('  closed system vs operator: ΔS '+(100*(s/M.mk[1]-1)).toFixed(1)
+       +'%,  ΔW '+(100*(w/M.mk[2]-1)).toFixed(1)+'%,  ΔG '
+       +(100*(g/M.mk[0]-1)).toFixed(1)+'%','#e8843a');
+  // ---- right: the universal-equation curve in the (w, s) plane -----
+  const b=box(660,56,Math.max(300,W-660-330),H-176);
+  axes(ctx,b,0,1.25,0.68,0.96,{
+    title:'the universal equation: all (w, s) the law allows',
+    xlab:'reduced width  w', ylab:'reduced shift  s'});
+  const us=[],ws=[],ss=[];
+  for(let i=0;i<=120;i++){ const uu=Math.pow(10,-3+3*i/120);
+    if(uu>1) continue; us.push(uu); ws.push(wOfU(uu,C)); ss.push(sOfU(uu,G)); }
+  polyline(ctx,b,ws,ss,0,1.25,0.68,0.96,'#b8ec4c',2.2);
+  const wsE=us.map(uu=>wOfU(uu,2*DXKIN)), ssE=us.map(uu=>sOfU(uu,G));
+  polyline(ctx,b,wsE,ssE,0,1.25,0.68,0.96,'#e8843a',1.3,[6,4]);
+  for(const [uu,tag] of [[0.9,'u=0.9'],[0.5,'0.5'],[0.2,'0.2'],[0.05,'0.05']]){
+    const X=b.x+b.w*(wOfU(uu,C)-0)/1.25, Y=b.y1-b.h*(sOfU(uu,G)-0.68)/0.28;
+    ctx.fillStyle='#39404f'; ctx.beginPath(); ctx.arc(X,Y,2.6,0,TAU); ctx.fill();
+    ctx.fillStyle='#6f7789'; ctx.font='9.5px -apple-system,sans-serif';
+    ctx.textAlign='left'; ctx.fillText(tag,X+5,Y+3);
+  }
+  if(st.showData) for(const d of KRDATA){
+    const X=b.x+b.w*(d.W-0)/1.25, Y=b.y1-b.h*(d.S-0.68)/0.28;
+    ctx.fillStyle='#f2f4f8'; ctx.beginPath(); ctx.arc(X,Y,3.6,0,TAU); ctx.fill();
+    ctx.strokeStyle='#070b18'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle='#aeb6c6'; ctx.font='9.5px -apple-system,sans-serif';
+    ctx.fillText(d.P+' atm',X+6,Y-4);
+  }
+  const mx=b.x+b.w*(w-0)/1.25, my=b.y1-b.h*(s-0.68)/0.28;
+  ctx.fillStyle='#cd35c4'; ctx.beginPath(); ctx.arc(mx,my,4.5,0,TAU); ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.1; ctx.stroke();
+  caption(ctx,b.x+8,b.y+8,'green: the current (Γ, C) member, swept by u. '
+    +'Dashed orange: the C = 2Δx_kin member — the observable-EOS ellipse. '
+    +'White: measured Kr. The data sit right of the C = 7/3 curve at high P '
+    +'— the width anomaly (C_rec rises to 2.95).',b.w*0.55,'#6f7789');
+}
+
+/* ================================================================== *
+ *  UI                                                                 *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const subEl=document.getElementById('sub');
+  const S=makeScene(canvas), st=S.st;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  const TABS=[['space','the phase space'],['spine','the spine'],['shift','the shift'],
+              ['collapse','the collapse'],['resid','the residuals'],['matrix','the matrix'],['predict','the prediction']];
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>{
+      st.view=k; [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===k?'active':'');
+      S.rebuild(); syncPanel(); dirty=true; refresh(); }},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step,value:st[key]});
+    const val=h('span',{class:'val'});
+    const row=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value); st.preset='';
+      val.textContent=fmtf(st[key]); S.rebuild(); syncChips(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row,sync}; sync(); return row;
+  }
+  function checkbox(key,lab){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      S.rebuild(); syncPanel(); dirty=true; refresh(); });
+    return h('label',null,inp,lab);
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>
+          b.className='chip'+(list[i].id===st[key]?' on':''));
+        S.rebuild(); syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+
+  const gPre=h('div',{class:'grp'},h('h3',null,'the gas'));
+  gPre.appendChild(chipRow(PRESETS,'preset',o=>{
+    st.s1=o.s1; st.p=o.p; st.dl=o.dl; }));
+  const preTag=h('div',{class:'tag'}); gPre.appendChild(preTag);
+
+  const gAx=h('div',{class:'grp'},h('h3',null,'the three axes'));
+  gAx.appendChild(slider('s1','axis 1 · Pr',0,0.5,0.005,v=>'Pr '+fmt(1/(1+v),3)));
+  gAx.appendChild(slider('p','axis 2 · p',0,0.26,0.005,v=>'p '+fmt(v,3)));
+  gAx.appendChild(slider('dl','axis 3 · δ',0,2/3,0.005,v=>'δ '+fmt(v,3)));
+  gAx.appendChild(h('div',{class:'src'},
+    'axis 1 rescales the heat channel (ES); axis 2 is the ν(u) ∝ u^p speed law with the '
+    +'conserving starred target; axis 3 is a conserving internal-exchange channel of capacity '
+    +'(3/2)δ at Z_rot = 5. All at matched measured viscosity.'));
+
+  const gMk=h('div',{class:'grp'},h('h3',null,'the marker'));
+  gMk.appendChild(slider('yh','ŷ = P/ηqv₀',0.15,8,0.01,v=>fmt(v,2)));
+  gMk.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ st.yh=1.1; S.rebuild(); syncPanel(); dirty=true; refresh(); }},'crossover'),
+    h('button',{onclick:()=>{ st.yh=0.15; S.rebuild(); syncPanel(); dirty=true; refresh(); }},'kinetic'),
+    h('button',{onclick:()=>{ st.yh=8; S.rebuild(); syncPanel(); dirty=true; refresh(); }},'hydro')));
+
+  const gDisp=h('div',{class:'grp'},h('h3',null,'display'));
+  const dchecks=h('div',{class:'checks'},
+    checkbox('showIdeal','the ideal spine'),
+    checkbox('showParts','single-axis parts'),
+    checkbox('showData','the Kr data'),
+    checkbox('showCF','closed-form (Padé) overlay'),
+    checkbox('anim','animate ŷ'),
+    checkbox('spin','auto-orbit (3-D)'));
+  gDisp.appendChild(dchecks);
+  gDisp.appendChild(slider('speed','speed',0.2,4,0.1,v=>fmt(v,1)+'×'));
+  gDisp.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ S.resetView(); dirty=true; refresh(); }},'reset view'),
+    h('button',{onclick:()=>{ Object.assign(st,DEFAULTS); S.rebuild(); S.resetView();
+                              syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}));
+  [gPre,gAx,gMk,gDisp,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    const cw=gPre.querySelector('.chips'); if(!cw) return;
+    const cur=PRESETS.findIndex(o=>Math.abs(st.s1-o.s1)<1e-9&&Math.abs(st.p-o.p)<1e-9
+      &&Math.abs(st.dl-o.dl)<1e-9);
+    st.preset=cur>=0?PRESETS[cur].id:'';
+    [].forEach.call(cw.children,(b,i)=>b.className='chip'+(PRESETS[i].id===st.preset?' on':''));
+  }
+  function syncPanel(){
+    rows.speed.row.hidden=!(st.anim||st.spin);
+    for(const k in rows) rows[k].sync();
+    [].forEach.call(dchecks.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['showIdeal','showParts','showData','showCF','anim','spin'][i]]; });
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=S.readout(); eqEl.innerHTML=S.eqbar(); tagEl.innerHTML=S.tag();
+      hintEl.textContent = st.view==='space'
+        ? 'drag to orbit · scroll to zoom · space animates ŷ · r resets the view'
+        : 'the ŷ slider moves the magenta marker; space animates it';
+      subEl.innerHTML = M.exact
+        ? 'exact all-on operator curve — superposition gap max '+(100*M.gap).toFixed(2)+'%'
+        : 'combined curve = first-order sum of the three single-axis responses';
+      preTag.innerHTML='Pr <b>'+fmt(M.Pr,3)+'</b> · p <b>'+fmt(st.p,2)+'</b> · δ <b>'
+        +fmt(st.dl,2)+'</b>'+(st.dl>0?' (γ<sub>eq</sub> = '+fmt(M.gamEq,3)+')':'');
+      infoEl.innerHTML=INFO[st.view]||INFO.space;
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  /* camera moves must ask for a frame (steam_carnot Known-bad) */
+  let down=false,lx=0,ly=0,dirty=false;
+  canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId);
+    down=true; lx=e.clientX; ly=e.clientY; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove',e=>{ if(!down) return;
+    S.pointer('move',{dx:e.clientX-lx,dy:e.clientY-ly}); lx=e.clientX; ly=e.clientY;
+    dirty=true; });
+  const up=()=>{ down=false; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); S.wheel(e.deltaY); dirty=true; },
+    {passive:false});
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.anim=!st.anim; syncPanel(); refresh(); }
+    else if(e.key==='r'){ S.resetView(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<='7'){ st.view=TABS[+e.key-1][0];
+      [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+      S.rebuild(); syncPanel(); dirty=true; refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.cam.W=r.width; S.cam.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let last=0, roT=0;
+  function frameLoop(tm){
+    const dt=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    S.step(dt);
+    if(st.anim||(st.spin&&st.view==='space')||dirty){
+      dirty=false;
+      try{
+        S.draw();
+        roT+=dt;
+        if(st.anim&&roT>0.2){ roT=0; roEl.innerHTML=S.readout(); tagEl.innerHTML=S.tag();
+          rows.yh.sync(); }
+      }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); S.fit(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+}
+
+const INFO={
+  space:'The three observables live in one 3-space — width, shift, gain — and the ideal '
+    +'single-relaxation-time gas is a <b>curve</b> in it, swept by the collisionality ŷ from the '
+    +'Doppler corner (bottom right) to the hydrodynamic corner. Turning on an axis does not move '
+    +'the gas along the curve; it <b>bends the curve</b>, and each axis bends it in its own '
+    +'direction. That is the whole claim of the three-axis theory drawn once: three observables, '
+    +'three independent deformation fields, an invertible map between them. The white points are '
+    +'krypton — a real gas, sitting where the measured triple actually lands.',
+  spine:'Looking straight down the shift axis, the state curve is nearly <b>one universal '
+    +'spine</b>: peak gain and width trade off along G·W = const, because conservation fixes the '
+    +'area of the Stokes lobe. This face is where the product law lives. Axis 1 slides the gas '
+    +'<i>along</i> the constraint diagonal (wider and lower, or narrower and taller, area '
+    +'fixed); nothing the conserving operators do moves the curve far off it. The measured '
+    +'krypton points hug the spine too — their disagreement with the models is invisible at '
+    +'this scale, which is exactly why the residual view exists.',
+  shift:'The shift is the cleanest channel, and it belongs to axis 3. At the kinetic end every '
+    +'operator gives the Doppler peak; at the hydrodynamic end the peak sits at the sound speed, '
+    +'and the sound speed counts only the internal modes fast enough to follow the wave — δ of '
+    +'rotational capacity at Z<sub>rot</sub> = 5 bends the magenta-dashed curve down toward '
+    +'√0.7 through its own relaxation window, and the bend is non-monotone because the window '
+    +'moves with ŷ. Axes 1 and 2 barely touch this channel: the shift measures the '
+    +'thermodynamics, not the transport.',
+  collapse:'Every response vanishes at the kinetic corner — the collisionless Doppler profile '
+    +'is <b>axis-blind</b>, which is why the corner values (√(π/2e), 1/√2, 1.1332) are '
+    +'universal anchors. As collisions take over, the responses fan out and <b>polarise</b>: '
+    +'axis 1 into the width–gain pair (tangent to the product constraint), axis 3 into the '
+    +'shift plus the η<sub>b</sub> width, axis 2 — almost nowhere, because matching the '
+    +'measured viscosity absorbs its first-order effect. The gas law&rsquo;s smallest virial '
+    +'tier, visible as the orange curves hugging zero.',
+  resid:'Divide the measured krypton triple by the single-τ ideal at the same shear ŷ and plot '
+    +'the width and gain residuals. Axis 1 can only move a gas along the cyan track — down the '
+    +'product diagonal. Axis 2 at its full physical strength barely leaves the origin. The '
+    +'data march <b>up and to the right</b>: wider <i>and</i> stronger than the ideal, off '
+    +'every ray a conserving operator can draw. Either the measured widths carry broadening '
+    +'the gains do not see (pump linewidth, fit convolution, atom–atom physics beyond the '
+    +'operator), or the gains carry a common-mode scale. The product law turns that from a '
+    +'worry into a diagnostic.',
+  matrix:'The response matrix at the marker: rows are the axes at their current strengths, '
+    +'columns the observables. The whole theory is the claim that this matrix is '
+    +'<b>invertible</b> — three observables suffice to read three axes — and the right panel '
+    +'shows |det J| staying off zero across the crossover whenever all three axes are on. '
+    +'Slide ŷ toward the kinetic corner and watch every entry die together: the corner '
+    +'measures nothing about the axes, which is precisely what makes it the universal anchor '
+    +'of the closed forms.',
+  predict:'The whole session in one view. The left column is the closed system executed as a recipe: pick the state (ŷ), and the three tier equations hand you the three observables — the thermodynamic tier gives the shift, the kinetic tier the width, the conservation tier the gain — then one line converts to GHz and cm/GW for krypton. The right panel is the <b>universal equation</b> drawn: eliminating ŷ leaves one curve of allowed (w, s) pairs per (Γ, C), and the dashed member at C = 2Δx<sub>kin</sub> is exactly the observable-EOS ellipse. The measured krypton points ride the curve at low pressure and pull right of it at high — the width anomaly, seen one last way.'};
+
+/* ================================================================== *
+ *  self-test                                                          *
+ *                                                                     *
+ *  Reference values marked (make_phase_tables.py) were computed        *
+ *  OUTSIDE this file by the exact three-axis operator in Python        *
+ *  (checks T1-T10 there, incl. a cross-instrument pin against          *
+ *  relax_lineshape.py) and pasted in at assembly.                      *
+ * ================================================================== */
+const REFS={"SQ":0.7601734505,"PHI0":1.2182439443,"idl0":[0.78384317,0.73749834,1.09867253],"idl8":[1.03812604,0.88721653,0.77756898],"idl16":[4.48164301,0.91303623,0.12419998],"kr10":[1.24722922,0.89189823,0.59055824],"n210":[1.30899353,0.87691651,0.56230127],"gap_kr":0.012744,"gap_n2":0.063731,"detJ":-3.64459e-05};
+function selfTest(){
+  let pass=0, failN=0;
+  const ok=(c,n)=>{ if(c) pass++; else { failN++; console.log('FAIL — '+n); } };
+  const close=(a,b,tol,n)=>ok(Math.abs(a-b)<=tol,n+' ('+a+' vs '+b+')');
+
+  ok(TAB&&TAB.yh.length===17,'table present, 17 yhat columns');
+  ok(TAB.ax1.length===4&&TAB.ax2.length===4&&TAB.ax3.length===4,'4 strengths per axis');
+  let fin=true;
+  const scan=c=>{ for(const r of c) for(const v of r) if(!isFinite(v)) fin=false; };
+  scan(TAB.ideal); TAB.ax1.forEach(scan); TAB.ax2.forEach(scan); TAB.ax3.forEach(scan);
+  scan(TAB.kr); scan(TAB.n2);
+  ok(fin,'every table value finite');
+  for(let k=0;k<3;k++){
+    close(TAB.ideal[0][k],REFS.idl0[k],1e-6,'ideal[0]['+k+'] pin (make_phase_tables.py)');
+    close(TAB.ideal[8][k],REFS.idl8[k],1e-6,'ideal[8]['+k+'] pin');
+    close(TAB.ideal[16][k],REFS.idl16[k],1e-6,'ideal[16]['+k+'] pin');
+    close(TAB.kr[10][k],REFS.kr10[k],1e-6,'kr combo[10] pin');
+    close(TAB.n2[10][k],REFS.n210[k],1e-6,'n2 combo[10] pin');
+  }
+  close(SQ,0.7601734505,5e-10,'sqrt(pi/2e) (make_phase_tables.py)');
+  close(PHI0,1.2182439443,5e-9,'PHI(0) = sqrt2*SQ*DXKIN = 1.2182439443');
+  const p0=TAB.ideal[0][0]*TAB.ideal[0][2]/TAB.ideal[0][1];
+  close(p0,1.1677,0.01,'table product at yhat=0.15 (the corner 1.21823 is the y->0 limit)');
+  // interpolators
+  const g5=singleAxis('ax1',TAB.s1[1],5);
+  for(let k=0;k<3;k++) close(g5[k],TAB.ax1[1][5][k],1e-12,'singleAxis hits grid node');
+  const mid=singleAxis('ax1',(TAB.s1[0]+TAB.s1[1])/2,5);
+  ok((mid[0]-TAB.ax1[0][5][0])*(TAB.ax1[1][5][0]-mid[0])>=0,'strength interp between neighbours');
+  const nodeY=atY(j=>TAB.ideal[j],TAB.yh[8]);
+  for(let k=0;k<3;k++) close(nodeY[k],TAB.ideal[8][k],1e-9,'atY hits grid column');
+  // combined + exact combos
+  const stKr={s1:0.5,p:0.26,dl:0}, stN2={s1:0.5,p:0.26,dl:2/3};
+  ok(exactCombo(stKr)===TAB.kr&&exactCombo(stN2)===TAB.n2,'preset states find exact combos');
+  let gk=0;
+  for(let j=0;j<17;j++) for(let k=0;k<3;k++)
+    gk=Math.max(gk,Math.abs(Math.log(TAB.kr[j][k]/combined(stKr,j)[k])));
+  close(gk,REFS.gap_kr,1e-4,'KR superposition gap == generator value');
+  let gn=0;
+  for(let j=0;j<17;j++) for(let k=0;k<3;k++)
+    gn=Math.max(gn,Math.abs(Math.log(TAB.n2[j][k]/combined(stN2,j)[k])));
+  close(gn,REFS.gap_n2,1e-4,'N2 superposition gap == generator value');
+  // closed-form family identities (independent JS algebra)
+  for(const y of [0.3,1,4]){
+    const s=cfS(y,GAM), w=cfW(y);
+    close(2*s*s+(GAM-1)*Math.pow(w/DXKIN,2),GAM,1e-12,'ellipse identity at y='+y);
+    const us=(GAM-2*s*s)/(GAM-1), uw=Math.pow(w/DXKIN,2);
+    close(us,uw,1e-12,'u_shift == u_width at y='+y);
+    close(cfG(y)*w,SQ*DXKIN,1e-12,'family G·W constant at y='+y);
+  }
+  // absolute pins for the constants the identities cannot see
+  close(cfS(1e9,GAM),0.9128709292,1e-6,
+    'hydro shift corner sqrt(5/6) = 0.9128709292 (scipy) -- pins gamma');
+  const ymA=Math.sqrt(TAB.yh[8]*TAB.yh[9]), ymB=Math.sqrt(TAB.yh[0]*TAB.yh[1]);
+  for(let k=0;k<3;k++){
+    close(atY(j=>TAB.ideal[j],ymA)[k],
+      0.5*(TAB.ideal[8][k]+TAB.ideal[9][k]),1e-9,
+      'atY log-midpoint blend, mid grid, ch '+k);
+    close(atY(j=>TAB.ideal[j],ymB)[k],
+      0.5*(TAB.ideal[0][k]+TAB.ideal[1][k]),1e-9,
+      'atY log-midpoint blend, low end, ch '+k);
+  }
+  const Mpin=buildModel(Object.assign({},DEFAULTS,{s1:0.5,p:0,dl:2/3,yh:TAB.yh[0]}));
+  close(Mpin.Pr,2/3,1e-12,'Pr map: s1=0.5 -> Pr = 2/3 exactly');
+  close(Mpin.gamEq,1.4,1e-12,'gamma_eq at delta=2/3 -> 7/5 exactly');
+  const Mph=buildModel(Object.assign({},DEFAULTS,{s1:0,p:0,dl:0,yh:TAB.yh[0]}));
+  close(Mph.phi,TAB.ideal[0][0]*TAB.ideal[0][2]/TAB.ideal[0][1],1e-9,
+    'phi = G*W/S read from the table directly');
+  const Mgap=buildModel(Object.assign({},DEFAULTS,{s1:0.5,p:0.26,dl:0,yh:1.0}));
+  close(Mgap.gap,REFS.gap_kr,1e-4,'model gap field == generator gap (norm kept)');
+
+  // structure: signs and ownership
+  const d1=dlnAxis('ax1',0.5,10);
+  ok(d1[2]>0&&d1[0]<0,'axis 1 at yhat~2: width up, gain down (matched viscosity)');
+  const d3=dlnAxis('ax3',2/3,14);
+  ok(d3[1]<0,'axis 3 pulls the hydro shift down toward sqrt(0.7)');
+  const d2m=Math.max(...[5,8,11,14].map(j=>{
+    const d=dlnAxis('ax2',0.26,j); return Math.max(Math.abs(d[0]),Math.abs(d[1]),Math.abs(d[2]));}));
+  ok(d2m<0.045,'axis 2 stays the smallest tier at matched viscosity (<4.5%)');
+  // det J
+  const M1=buildModel(Object.assign({},DEFAULTS,{s1:0.5,p:0.26,dl:2/3,yh:2.0}));
+  close(Math.abs(M1.detJ)>0?1:0,1,0,'det J nonzero with all axes on');
+  const M0=buildModel(Object.assign({},DEFAULTS,{s1:0,p:0,dl:0,yh:2.0}));
+  close(M0.detJ,0,1e-12,'det J exactly zero with every axis off');
+  const Mref=buildModel(Object.assign({},DEFAULTS,
+    {s1:0.5,p:0.26,dl:2/3,yh:TAB.yh[10]}));
+  close(Mref.detJ,REFS.detJ,1e-6,
+    'det J at grid column 10, all axes on == generator value');
+  // data
+  ok(KRDATA.length===5,'five Kr rows');
+  close(KRDATA[4].dlnW,0.2860,5e-3,'Kr 6 atm width residual (verify_sumrules D4)');
+  close(KRDATA[4].dlnG,0.0999,5e-3,'Kr 6 atm gain residual');
+  const R=residRays({});
+  ok(R.r2.every(p=>Math.hypot(p[0],p[1])<4.5),'axis-2 reach < 4.5% everywhere (vs the 29% data drift)');
+  ok(R.r1[4][0]>6&&R.r1[4][1]<-2,
+    'axis-1 ray at 6 atm points down-right: (dW,dG) = ('
+    +R.r1[4][0].toFixed(1)+', '+R.r1[4][1].toFixed(1)+')%');
+  const Sx=makeScene({}); Sx.st.anim=true; Sx.st.speed=4; Sx.st.yh=7.9;
+  for(let i=0;i<40;i++) Sx.step(0.1);
+  ok(Sx.st.yh>=0.149&&Sx.st.yh<=8.001,
+    'the animated marker wraps and stays on the grid (yh='+Sx.st.yh.toFixed(3)+')');
+  Sx.st.yh=1.0; Sx.st.speed=1; Sx.step(0.1);
+  { const lo=Math.log(0.15), hi=Math.log(8.0);
+    const tExp=(Math.log(1.0)-lo)/(hi-lo)+0.1*1*0.12;
+    close(Sx.st.yh,Math.exp(lo+tExp*(hi-lo)),1e-9,
+      'one animation step lands exactly where the log sweep says'); }
+  Sx.st.yh=7.99; Sx.st.speed=1; Sx.step(0.1);
+  ok(Sx.st.yh<0.2,'crossing the top of the sweep wraps to the bottom '
+    +'(yh='+Sx.st.yh.toFixed(3)+')');
+  // cube mapping sane
+  let inCube=true;
+  for(const c of [TAB.ideal,TAB.kr,TAB.n2]) for(const o of c){
+    const q=toCube(o); if(Math.max(...q.map(Math.abs))>1.05) inCube=false; }
+  for(const d of KRDATA){ const q=toCube([d.G,d.S,d.W]);
+    if(Math.max(...q.map(Math.abs))>1.05) inCube=false; }
+  ok(inCube,'every curve and data point inside the drawn cube');
+  // the universal equation (closed_system.tex)
+  let devU=0, devE=0;
+  for(const yh2 of [0.3,1,2.5,6]) for(const G2 of [1.4,5/3]) for(const C2 of [1.43,7/3,2*DXKIN]){
+    const u2=1/(1+yh2*yh2), s2=sOfU(u2,G2), w2=wOfU(u2,C2);
+    devU=Math.max(devU,Math.abs(((DXKIN/w2)**2-1)*(G2-2*s2*s2)-(2*DXKIN/C2)**2*(2*s2*s2-1)));
+    const wE=wOfU(u2,2*DXKIN);
+    devE=Math.max(devE,Math.abs(2*s2*s2+(G2-1)*(wE/DXKIN)**2-G2));
+  }
+  ok(devU<1e-12,'the UNIVERSAL EQUATION is an exact identity (closed_system)');
+  ok(devE<1e-12,'it reduces to the observable-EOS ellipse at C = 2*Dxkin');
+  { const yh2=1.3,G2=1.55,C2=2.1,u2=1/(1+yh2*yh2);
+    const s2=sOfU(u2,G2), w2=wOfU(u2,C2);
+    close((2*s2*s2*(1+yh2*yh2)-1)/(yh2*yh2),G2,1e-12,'inversion: Gamma recovered exactly');
+    close(2*DXKIN*yh2/Math.sqrt((DXKIN/w2)**2-1),C2,1e-12,'inversion: C recovered exactly'); }
+  { const u2=1/(1+2.076*2.076);
+    close(sOfU(u2,5/3)*NUREF_KR,1.6040,2e-3,
+      'Kr 6-atm shift from the universal system: 1.604 GHz (data 1.60)');
+    close(wOfU(u2,7/3)*NUREF_KR,0.9200,3e-3,
+      'Kr 6-atm width at C = 7/3: 0.920 GHz vs data 1.10 -- the open width anomaly'); }
+  close(phiOfTab(TAB.yh[8]),TAB.ax1[3][8][0]*TAB.ax1[3][8][2]/TAB.ax1[3][8][1],1e-12,
+    'phiOfTab hits the Pr=2/3 table node');
+  // panels build clean for every view x preset
+  for(const pre of PRESETS){
+    for(const v of ['space','spine','shift','collapse','resid','matrix','predict']){
+      const M=buildModel(Object.assign({},DEFAULTS,{view:v,s1:pre.s1,p:pre.p,dl:pre.dl}));
+      const txt=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+      ok(txt.indexOf('NaN')<0&&txt.indexOf('undefined')<0,
+        'panels clean: '+v+' / '+pre.id);
+    }
+  }
+  for(const yh of [0.15,8]){
+    const M=buildModel(Object.assign({},DEFAULTS,{yh}));
+    ok(isFinite(M.phi)&&isFinite(M.detJ),'marker extremes finite at yhat='+yh);
+  }
+  console.log(pass+' passed, '+failN+' failed');
+  if(failN>0) throw new Error(failN+' self-test failure(s)');
+  return true;
+}
+
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

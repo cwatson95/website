@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nuclear &amp; Atomic Clocks — from caesium to the ²²⁹Th nuclear clock</title>
+<!--
+  Every clock does the same thing: count the swings of an oscillator whose
+  frequency is pinned to an unchanging natural resonance. An atomic clock pins
+  a local oscillator (quartz for microwave, a laser for optical) to a narrow
+  atomic transition of frequency nu0; a NUCLEAR clock pins it to a transition
+  inside the nucleus. The second is defined as a fixed number of swings:
+  1 s == 9 192 631 770 periods of the caesium-133 hyperfine transition.
+
+  This sim carries five references, spanning eleven decades of frequency:
+    Rubidium-87   6.834 682 610 904 GHz   microwave hyperfine   (fountain / GPS cell)
+    Caesium-133   9.192 631 770 GHz       microwave hyperfine   (defines the SI second)
+    Mercury-199+  40.507 347 997 GHz      microwave, trapped ion, LAMP-pumped
+    Ytterbium-171 518.295 836 590 863 THz  optical lattice (578.42 nm)
+    Thorium-229m  2 020 407 384 335 kHz    NUCLEAR isomer (148.382 nm, 8.356 eV)
+
+  Four views, one physics core:
+
+  MECHANISM  — the universal locked loop. A local oscillator at frequency
+    nu = nu0(1+y) interrogates the reference; a discriminator turns the
+    excitation asymmetry into an error signal; feedback steers y -> 0. The
+    device then COUNTS nu0 periods to mark a second. Watch the servo pull the
+    oscillator onto the atoms until only quantum noise remains.
+
+  RESONANCE  — where the line quality Q = nu0/dnu comes from. A single pulse
+    gives the broad Rabi lineshape P = (Om^2/Om_R^2) sin^2(Om_R t/2); two
+    separated pulses give Ramsey fringes whose central width is 1/(2T), so
+    Q = 2 T nu0 grows with the interrogation time T. (Thorium in a crystal has
+    no coherent interrogation: the 300 kHz crystal line sets Q, and the lamp
+    simply floods it.)
+
+  STABILITY  — the Allan deviation ladder. The quantum-projection-noise floor
+    sigma_y(tau) = (1/pi Q)(1/sqrt N) sqrt(T_c/tau) falls as tau^-1/2. Optical
+    (Yb) and a narrow-line Th crystal sit far below the microwave standards;
+    today's Th crystal sits HIGH despite the enormous nu0, because Q -- not
+    nu0 -- sets stability. Reference LO/Dick (~1e-16/sqrt tau) and systematics
+    (~1e-18) floors are drawn for context.
+
+  THORIUM + Kr2  — the headline question: what does it take to drive the
+    229mTh nuclear clock with a Kr2* excimer LAMP instead of a bespoke tunable
+    VUV comb? Top: the Kr2 second continuum (peak 146 nm, FWHM 14 nm) covers
+    the 148.382 nm nuclear line at f_shape ~ 0.92 of its peak (Ar2 126 nm,
+    Xe2 172 nm miss it). Bottom: the full photon budget, live --
+        int sigma dnu = (lam0^2/8pi)(g_e/g_g) A21           (= 9.1e-19 m^2 Hz)
+        E_nu = eta * G * (bright) * M_nu * n^2               (radiance, not power)
+        R1   = (E_nu / h nu0) int sigma dnu ,  R_tot = N R1
+        sigma_y(tau) = sqrt(S+B) / (pi Q S sqrt(tau)) ,  S = eps_det R_tot .
+    A 30 W Kr2 lamp floods a cm-scale 229Th:CaF2 crystal at ~1.8e6 isomers/s --
+    ~250x the lock floor -- so PHOTON SUPPLY IS NOT THE BOTTLENECK. Multiple
+    lamps raise RATE, not radiance (brightness theorem: ceiling ~4 n^2 M_nu,
+    ~23x). The dominant knob is the crystal linewidth Q (t ~ Q^-2); and a
+    broadband lamp can PUMP the isomer but never DISCRIMINATE the frequency --
+    a separate local oscillator is still required, exactly as in the
+    lamp-pumped 199Hg+ microwave clock. Numbers anchored to Zhang et al.,
+    Nature 633, 63 (2024) and the project's kr2_photon_budget_v2.py.
+
+  Aesthetic matches the other sims here: black stage, Mathematica NeonColors
+  accents, side panel with the governing mathematics. Single file, no
+  dependencies, works over file://. Headless self-test: extract the script
+  body (substring after the LAST <script>, cf. rindex) and run under
+      osascript -l JavaScript nc_test.js
+  -- with `document` undefined it runs the assertion suite (transition
+  anchors, Q, Rabi/Ramsey lineshapes, QPN stability, and the full Kr2/Th
+  photon budget) instead of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4; --warn:#f5d76b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0;}
+  #wave{position:absolute; inset:0; width:100%; height:100%; display:block; cursor:crosshair;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #readout .sub.warn{color:var(--warn);}
+  #readout .sub.good{color:var(--neon-a);}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:56%;}
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 22px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .chip.wide{border-radius:8px;}
+  .chip small{color:var(--dim); font-size:10px; margin-left:3px;}
+  .chip.on small{color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #info{font-size:12px; line-height:1.65; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  #info .k{color:var(--accent);}
+  #info .eq{font:12px "SF Mono", Menlo, monospace; color:#bcbcc4; background:var(--panel2);
+            border:1px solid var(--edge); border-radius:5px; padding:5px 7px; margin:5px 0;
+            white-space:pre-wrap; line-height:1.5;}
+  #info .cap{color:#777; font-size:11px;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Nuclear &amp; Atomic Clocks</h1>
+  <span class="sub">count the swings of a pinned oscillator &middot; Rb &middot; Cs &middot; Hg&#8314; &middot; Yb &middot; &sup2;&sup2;&#8313;&#7504;Th &middot; and a Kr&#8322; lamp for the thorium nuclear clock</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="wave"></canvas>
+    <div id="hint"></div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span><span class="sub" id="roSub2"></span><span class="sub" id="roSub3"></span></div>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>view</h3>
+      <div class="chips">
+        <button class="chip on" id="viewM" title="the universal locked feedback loop that every clock runs">mechanism</button>
+        <button class="chip" id="viewR" title="Rabi &amp; Ramsey lineshapes: where Q comes from">resonance</button>
+        <button class="chip" id="viewB" title="Allan deviation: comparing the clocks">stability</button>
+        <button class="chip" id="viewT" title="drive the thorium nuclear clock with a Kr2 excimer lamp">Th + Kr&#8322;</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpSpecies">
+      <h3>reference transition</h3>
+      <div class="chips">
+        <button class="chip wide" id="spRb">Rb <small>6.8 GHz</small></button>
+        <button class="chip wide on" id="spCs">Cs <small>9.2 GHz</small></button>
+        <button class="chip wide" id="spHg">Hg&#8314; <small>40 GHz</small></button>
+        <button class="chip wide" id="spYb">Yb <small>518 THz</small></button>
+        <button class="chip wide" id="spTh">&sup2;&sup2;&#8313;&#7504;Th <small>2.0 PHz</small></button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpResonance">
+      <h3>interrogation</h3>
+      <div class="chips" style="margin-bottom:8px;">
+        <button class="chip on" id="mRamsey" title="two separated pulses: narrow fringes, width 1/(2T)">Ramsey</button>
+        <button class="chip" id="mRabi" title="one pulse: the broad Rabi resonance">Rabi</button>
+      </div>
+      <div class="sliderrow"><label for="eTint">time&nbsp;T</label>
+        <input type="range" id="eTint" min="-2.3" max="1.0" step="0.02">
+        <span class="val" id="eTintVal"></span></div>
+    </div>
+
+    <div class="grp" id="grpStab">
+      <h3>averaging time</h3>
+      <div class="sliderrow"><label for="eTau">&tau;</label>
+        <input type="range" id="eTau" min="0" max="7" step="0.05">
+        <span class="val" id="eTauVal"></span></div>
+    </div>
+
+    <div class="grp" id="grpTh">
+      <h3>Kr&#8322; lamp &amp; crystal</h3>
+      <div class="chips" style="margin-bottom:8px;">
+        <button class="chip on" id="thV1" title="30 W lamp, 1 side, 300 kHz crystal, 0.3% detection">v1</button>
+        <button class="chip" id="thV2a" title="surround geometry + n2 immersion, 10 kHz crystal, 3% detection, filter">v2a</button>
+        <button class="chip" id="thV2b" title="+ a x3 brighter bespoke source, 1 kHz crystal">v2b</button>
+      </div>
+      <div class="sliderrow"><label for="eDnu">crystal &Delta;&nu;</label>
+        <input type="range" id="eDnu" min="3.0" max="6.0" step="0.02">
+        <span class="val" id="eDnuVal"></span></div>
+      <div class="sliderrow"><label for="eP">lamp power</label>
+        <input type="range" id="eP" min="5" max="120" step="1">
+        <span class="val" id="ePVal"></span></div>
+      <div class="sliderrow"><label for="eEps">detection &epsilon;</label>
+        <input type="range" id="eEps" min="0.1" max="5" step="0.1">
+        <span class="val" id="eEpsVal"></span></div>
+      <div class="chips" style="margin-top:8px;">
+        <button class="chip" id="thGeom" title="surround the crystal (G: pi->~3) and immerse in the n=1.46 host">surround + n&sup2;</button>
+        <button class="chip" id="thBright" title="a x3 brighter bespoke Kr2 microcavity (higher W/cm2) -- raises radiance">&times;3 brighter</button>
+        <button class="chip" id="thFilter" title="narrowband 148 nm VUV filter: raises signal/background 0.15 -> 1.5">148 nm filter</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpAnim">
+      <h3>animation</h3>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0" max="3" step="0.1">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow"><button id="pauseBtn">pause</button></div>
+    </div>
+
+    <div class="grp">
+      <h3>mathematics</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* =========================== constants =========================== */
+const PI = Math.PI, TAU = 2*PI;
+const C  = 2.99792458e8;          // m/s
+const H  = 6.62607015e-34;        // J s
+const EV = 1.602176634e-19;       // J
+const YR = 3.155693e7;            // s (Julian-ish year used in the budget)
+
+/* ===================== the reference transitions =================
+   nu0 in Hz. kind selects the physics face (microwave / optical / nuclear).
+   For the stability ladder each species carries a representative
+   (Q, N, T_c): line quality, atoms/ions interrogated per cycle, cycle time.
+   These are shot-noise (QPN) scenarios, not vendor spec sheets; the demo
+   note records the real-world implementation.                              */
+const SPE = {
+  rb: {key:'rb', label:'Rubidium-87',  sym:'⁸⁷Rb', kind:'microwave',
+       nu0:6.834682610904e9,
+       eLo:'F=1', eHi:'F=2', trans:'ground-state hyperfine |F=1⟩ ↔ |F=2⟩',
+       dnu:1.0, N:1e6, Tc:1.3, col:[0.35,0.77,0.87],
+       demo:'fountain / vapor-cell (the GPS &amp; telecom workhorse)'},
+  cs: {key:'cs', label:'Caesium-133',  sym:'¹³³Cs', kind:'microwave',
+       nu0:9192631770,
+       eLo:'F=3', eHi:'F=4', trans:'ground-state hyperfine |F=3⟩ ↔ |F=4⟩',
+       dnu:1.0, N:1e6, Tc:1.3, col:[0.55,0.86,0.95],
+       demo:'atomic fountain — <b>defines the SI second</b>'},
+  hg: {key:'hg', label:'Mercury-199⁺', sym:'¹⁹⁹Hg⁺', kind:'microwave',
+       nu0:40.5073479968e9,
+       eLo:'F=0', eHi:'F=1', trans:'ground-state hyperfine, trapped ion cloud',
+       dnu:0.04, N:1e6, Tc:1.0, col:[0.72,0.925,0.30], lamp:true,
+       lampTxt:'²⁰²Hg⁺ discharge lamp, 194 nm (state prep + readout)',
+       demo:'trapped-ion microwave standard, lamp-pumped (SWAP / DARPA)'},
+  yb: {key:'yb', label:'Ytterbium-171', sym:'¹⁷¹Yb', kind:'optical',
+       nu0:5.18295836590863e14, lam:578.42e-9,
+       eLo:'¹S₀', eHi:'³P₀', trans:'¹S₀ ↔ ³P₀ optical lattice clock',
+       dnu:1.0, N:1e4, Tc:1.0, col:null,
+       demo:'optical lattice clock (578.42 nm)'},
+  th: {key:'th', label:'Thorium-229m', sym:'²²⁹ᵐTh', kind:'nuclear',
+       nu0:2.020407384335e15, lam:148.382e-9,
+       eLo:'5/2⁺ g.s.', eHi:'3/2⁺ isomer', trans:'nuclear isomeric transition (²²⁹Th)',
+       dnu:300e3, N:5e17, Tc:1.0, col:null, lamp:true,
+       lampTxt:'Kr₂* excimer lamp, 146 nm (drives the nuclear transition)',
+       demo:'solid-state nuclear clock (²²⁹Th:CaF₂ crystal)'},
+};
+const SPE_ORDER = ['rb','cs','hg','yb','th'];
+
+/* ================== derived transition quantities ================ */
+function wavelenOf(s){ return SPE[s].lam || C/SPE[s].nu0; }   // m
+function photonEV(s){ return H*SPE[s].nu0/EV; }               // eV
+function Qof(s){ return SPE[s].nu0/SPE[s].dnu; }              // nu0/dnu
+
+/* ==================== interrogation lineshapes ===================
+   Detuning d in Hz from line centre. Rabi: single pulse of duration tp,
+   Rabi angular frequency Om set to a pi-pulse (Om*tp = pi) so P(0)=1.
+     Om_R = sqrt(Om^2 + (2 pi d)^2),   P = (Om^2/Om_R^2) sin^2(Om_R tp/2).
+   Ramsey: two pi/2 pulses split by free time T -> fringes of period 1/T,
+   central-fringe FWHM 1/(2T); drawn as cos^2(pi d T) under a Rabi envelope
+   of width ~1/tp (tp taken as a short fraction of T).                      */
+function rabiP(d, tp){
+  const Om = PI/tp, wd = TAU*d;
+  const OmR = Math.sqrt(Om*Om + wd*wd);
+  const s = Math.sin(OmR*tp/2);
+  return (Om*Om/(OmR*OmR))*s*s;
+}
+function ramseyP(d, T){
+  const tp = T*0.1;                       // pulse width = 10% of free time
+  const Om = PI/(2*tp), wd = TAU*d;        // pi/2 pulses
+  const OmR = Math.sqrt(Om*Om + wd*wd);
+  const env = (Om*Om/(OmR*OmR))*Math.pow(Math.sin(OmR*tp/2)/Math.sin(Om*tp/2),2);
+  const c = Math.cos(PI*d*T);
+  return Math.max(0, env*c*c);
+}
+function lorentzP(d, fwhm){                // incoherent crystal absorption line
+  const hw = fwhm/2; return 1/(1+(d/hw)*(d/hw));
+}
+
+/* ===================== clock stability (Allan) ===================
+   Quantum-projection-noise floor for a passive standard interrogated with
+   N atoms per cycle of duration T_c:
+       sigma_y(tau) = (1/pi Q) (1/sqrt N) sqrt(T_c/tau).
+   The frequency-discriminator (shot-noise) form used for the lamp-pumped
+   nuclear clock, signal S on background B:
+       sigma_y(tau) = sqrt(S+B) / (pi Q S sqrt(tau)).                        */
+function sigYqpn(Q, N, Tc, tau){ return (1/(PI*Q))*(1/Math.sqrt(N))*Math.sqrt(Tc/tau); }
+function sigYdisc(Q, S, B, tau){ return Math.sqrt(S+B)/(PI*Q*S*Math.sqrt(tau)); }
+
+/* ============ Kr2-lamp / 229Th photon budget (radiance bound) ====
+   All anchored to Zhang et al., Nature 633, 63 (2024) and the project's
+   kr2_photon_budget_v2.py. Radiance, not power, sets the deliverable
+   irradiance: no passive optic (or count of incoherent lamps) beats L_nu.  */
+const TH = {
+  nu0: 2.020407384335e15, tau_iso: 641.0,
+  A21: 1/641.0, ge_gg: 4/6,
+  lamPk: 146.0, lamFWHM: 14.0, thLine: 148.382,   // nm
+  Asrc: 1e-2, nHost: 1.46,                          // m^2 ; CaF2/MgF2 index @148 nm
+};
+function sigmaInt(){                        // integrated cross section [m^2 Hz]
+  const lam0 = C/TH.nu0;
+  return (lam0*lam0/(8*PI))*TH.ge_gg*TH.A21;
+}
+function sigmaPk(){                          // peak cross section [m^2]
+  const lam0 = C/TH.nu0;
+  return (lam0*lam0/(2*PI))*TH.ge_gg;
+}
+function krShape(){                          // Kr2 spectral density at the Th line / peak
+  const sig = TH.lamFWHM/(2*Math.sqrt(2*Math.log(2)));
+  return Math.exp(-0.5*Math.pow((TH.thLine-TH.lamPk)/sig,2));
+}
+function lampExitance(P){                    // M_nu = pi L_nu  [W/m^2/Hz]
+  const dnuLam = C*(TH.lamFWHM*1e-9)/Math.pow(TH.lamPk*1e-9,2);
+  return (P/TH.Asrc)/dnuLam*krShape();
+}
+/* Full chain. p = {P, eps, dnu, surround, bright, filter, N}. */
+function thBudget(p){
+  const Mnu = lampExitance(p.P);
+  const eta = p.surround ? 0.66 : 0.37;
+  const G   = p.surround ? 3.0  : 1.0;
+  const imm = p.surround ? TH.nHost*TH.nHost : 1.0;
+  const br  = p.bright ? 3.0 : 1.0;
+  const Enu = eta*G*br*Mnu*imm;
+  const ceil = 4.0*Mnu*TH.nHost*TH.nHost;    // brightness ceiling: full 4pi surround + n^2 immersion (always)
+  const sInt = sigmaInt();
+  const R1 = (Enu/(H*TH.nu0))*sInt;
+  const N = p.N, Rtot = N*R1;
+  const S = p.eps*Rtot;
+  const SB = p.filter ? 1.5 : 0.15;
+  const B = S/SB;
+  const Q = TH.nu0/p.dnu;
+  const s1 = sigYdisc(Q,S,B,1.0), sday = sigYdisc(Q,S,B,86400.0);
+  const lock = S/Math.sqrt(B);               // detected signal / sqrt(background)
+  const act = N*Math.log(2)/(7917*YR);       // Bq (t_1/2(229Th)=7917 yr)
+  return {Mnu:Mnu, Lnu:Mnu/PI, Enu:Enu, ceil:ceil, sInt:sInt, R1:R1, Rtot:Rtot,
+          S:S, B:B, SB:SB, Q:Q, s1:s1, sday:sday, lock:lock, act:act,
+          eta:eta, G:G, imm:imm, br:br, N:N};
+}
+
+/* ============ CIE colour (Wyman-Sloan-Shirley fit) ==============
+   Shared with blackbody_radiation.html / scattering.html / refraction.html. */
+function lobe(x,mu,s1,s2){ const s=x<mu?s1:s2, d=(x-mu)/s; return Math.exp(-0.5*d*d); }
+function cieX(l){ return 1.056*lobe(l,599.8,37.9,31.0)+0.362*lobe(l,442.0,16.0,26.7)
+                       -0.065*lobe(l,501.1,20.4,26.2); }
+function cieY(l){ return 0.821*lobe(l,568.8,46.9,40.5)+0.286*lobe(l,530.9,16.3,31.1); }
+function cieZ(l){ return 1.217*lobe(l,437.0,11.8,36.0)+0.681*lobe(l,459.0,26.0,13.8); }
+function srgbGamma(v){ return v<=0.0031308 ? 12.92*v : 1.055*Math.pow(v,1/2.4)-0.055; }
+function xyzToRgb(X,Y,Z){
+  let r= 3.2406*X-1.5372*Y-0.4986*Z, g=-0.9689*X+1.8758*Y+0.0415*Z,
+      b= 0.0557*X-0.2040*Y+1.0570*Z;
+  const m=Math.max(r,g,b);
+  if (m<=0) return [0,0,0];
+  r=Math.max(0,r)/m; g=Math.max(0,g)/m; b=Math.max(0,b)/m;
+  return [srgbGamma(r),srgbGamma(g),srgbGamma(b)];
+}
+function spectralRgb(lnm){ if (lnm<380||lnm>780) return null; return xyzToRgb(cieX(lnm),cieY(lnm),cieZ(lnm)); }
+const UV_RGB=[0.55,0.40,0.98];              // stand-in colour for VUV (<380 nm)
+function spectralRgbSafe(lnm){ if (lnm<380) return UV_RGB; if (lnm>750) return [0.34,0.16,0.11];
+  return spectralRgb(lnm)||[0.34,0.16,0.11]; }
+function cssOf(rgb,a){ const r=Math.round(255*rgb[0]),g=Math.round(255*rgb[1]),b=Math.round(255*rgb[2]);
+  return a===undefined ? 'rgb('+r+','+g+','+b+')' : 'rgba('+r+','+g+','+b+','+a+')'; }
+function colOf(s){                            // display colour of a species
+  const S=SPE[s];
+  if (S.col) return S.col;
+  if (S.kind==='nuclear') return UV_RGB;
+  return spectralRgbSafe((S.lam||5e-7)*1e9);
+}
+
+/* ============================ formatters ========================= */
+const SUP={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴',
+           '5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+function sup(n){ return String(n).split('').map(c=>SUP[c]||c).join(''); }
+function sci(x,dig){ if(!isFinite(x)||x===0) return '0';
+  const e=Math.floor(Math.log10(Math.abs(x))); const m=x/Math.pow(10,e);
+  return m.toFixed(dig===undefined?2:dig)+'×10'+sup(e); }
+function fmtHz(f){
+  if(f>=1e15)return (f/1e15).toFixed(6)+' PHz';
+  if(f>=1e12)return (f/1e12).toFixed(6)+' THz';
+  if(f>=1e9) return (f/1e9).toFixed(6)+' GHz';
+  if(f>=1e6) return (f/1e6).toFixed(4)+' MHz';
+  if(f>=1e3) return (f/1e3).toFixed(3)+' kHz';
+  return f.toFixed(3)+' Hz';
+}
+function fmtDnu(f){
+  if(f>=1e6)return (f/1e6).toFixed(2)+' MHz';
+  if(f>=1e3)return (f/1e3).toFixed(0)+' kHz';
+  if(f>=1)  return f.toFixed(2)+' Hz';
+  return (f*1e3).toFixed(1)+' mHz';
+}
+function fmtLam(m){ const nm=m*1e9;
+  if(nm>=1e7)return (nm/1e7).toFixed(2)+' cm';
+  if(nm>=1e6)return (nm/1e6).toFixed(2)+' mm';
+  if(nm>=1e3)return (nm/1e3).toFixed(2)+' µm';
+  return nm.toFixed(3)+' nm'; }
+function fmtTime(s){
+  if(s<90)return s.toFixed(0)+' s';
+  if(s<5400)return (s/60).toFixed(1)+' min';
+  if(s<1.7*86400)return (s/3600).toFixed(1)+' h';
+  if(s<400*86400)return (s/86400).toFixed(1)+' d';
+  return (s/YR).toFixed(1)+' yr'; }
+function commas(n){ return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g,' '); }
+function fmtN(x,d){ return x.toFixed(d===undefined?4:d); }
+
+/* ======================== state & clamp ========================= */
+const DEFAULTS={ view:'mechanism', species:'cs', mode:'ramsey', logT:-0.3, logTau:0,
+                 thPreset:'v1', logDnu:Math.log10(300e3), P:30, epsPct:0.3,
+                 surround:false, bright:false, filter:false, speed:1 };
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,(+v||0)));
+  if (['mechanism','resonance','stability','thorium'].indexOf(c.view)<0) c.view='mechanism';
+  if (!SPE[c.species]) c.species='cs';
+  if (['ramsey','rabi'].indexOf(c.mode)<0) c.mode='ramsey';
+  c.logT=f(c.logT,-2.3,1.0); c.logTau=f(c.logTau,0,7);
+  c.logDnu=f(c.logDnu,3.0,6.0); c.P=f(c.P,5,120); c.epsPct=f(c.epsPct,0.1,5);
+  c.speed=f(c.speed,0,3);
+  c.surround=!!c.surround; c.bright=!!c.bright; c.filter=!!c.filter;
+  if (['v1','v2a','v2b','custom'].indexOf(c.thPreset)<0) c.thPreset='v1';
+  return c;
+}
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('wave'), ctx=cv.getContext('2d');
+  if (!ctx) return;
+  const dpr=(typeof window!=='undefined' && window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let W=940, HGT=620, paused=false, t=0;
+  let geom={};
+  // servo (mechanism view): fractional-error trace
+  let servoY=5e-9, servoTrace=[], cyc=0, secs=0;
+
+  /* ------------------------- primitives ------------------------- */
+  function stageBox(){ return {x0:20, y0:22, x1:W-20, y1:HGT-18}; }
+  function clear(){ ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,HGT); }
+  function roundRect(x,y,w,h,r){ ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+  function arrow(x0,y0,x1,y1,col,wd){
+    ctx.strokeStyle=col; ctx.lineWidth=wd||1.5; ctx.lineCap='round';
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    const a=Math.atan2(y1-y0,x1-x0), s=6;
+    ctx.fillStyle=col; ctx.beginPath(); ctx.moveTo(x1,y1);
+    ctx.lineTo(x1-s*Math.cos(a-0.4),y1-s*Math.sin(a-0.4));
+    ctx.lineTo(x1-s*Math.cos(a+0.4),y1-s*Math.sin(a+0.4));
+    ctx.closePath(); ctx.fill();
+  }
+  function txt(s,x,y,col,font,al,ba){ ctx.fillStyle=col; ctx.font=font||'12px -apple-system, sans-serif';
+    ctx.textAlign=al||'left'; ctx.textBaseline=ba||'alphabetic'; ctx.fillText(s,x,y); }
+
+  // a small two-level energy diagram with the clock transition arrow
+  function energyLevels(x,y,w,h,S){
+    const col=colOf(S.key), rgb=cssOf(col);
+    const yLo=y+h-14, yHi=y+16;
+    ctx.strokeStyle='rgba(255,255,255,.75)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(x+10,yLo); ctx.lineTo(x+w-10,yLo); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x+10,yHi); ctx.lineTo(x+w-10,yHi); ctx.stroke();
+    txt('|'+S.eHi+'⟩', x+w-8, yHi-6, 'rgba(255,255,255,.8)','11px -apple-system','right');
+    txt('|'+S.eLo+'⟩', x+w-8, yLo+13, 'rgba(255,255,255,.8)','11px -apple-system','right');
+    const ax=x+w*0.32;
+    arrow(ax,yLo,ax,yHi,rgb,2);                 // absorption
+    // a little wavy/label for the quantum being exchanged
+    const tag = S.kind==='microwave' ? 'microwave' : S.kind==='optical' ? 'photon' : 'γ (VUV)';
+    txt(tag, ax+8, (yLo+yHi)/2, rgb,'10.5px -apple-system','left','middle');
+    txt(S.sym, x+10, y+12, '#fff','12px -apple-system','left','top');
+    txt('ν₀ '+fmtHz(S.nu0), x+10, yLo+13, rgb,'10.5px "SF Mono", monospace','left');
+  }
+
+  /* ===================== MECHANISM view ===================== */
+  function drawMechanism(){
+    clear();
+    const b=stageBox(), S=SPE[state.species], col=colOf(state.species), rgb=cssOf(col);
+    const Q=Qof(state.species);
+    const s1=sigYqpn(Q,S.N,S.Tc,1.0);          // per-second QPN
+
+    // --- region A: energy levels (left) + LO oscillation & tick counter (right)
+    const aY=b.y0, aH=132;
+    energyLevels(b.x0, aY, 190, aH, S);
+    // LO travelling wave
+    const ox=b.x0+210, ow=b.x1-ox, oyc=aY+40;
+    ctx.save(); ctx.beginPath(); ctx.rect(ox,aY+4,ow,72); ctx.clip();
+    ctx.strokeStyle=rgb; ctx.lineWidth=1.8; ctx.beginPath();
+    const kx=0.14, amp=24;
+    for(let i=0;i<=ow;i++){ const ph=(i*kx - t*2.6*state.speed);
+      const yy=oyc + amp*Math.sin(ph); if(i===0)ctx.moveTo(ox+i,yy); else ctx.lineTo(ox+i,yy); }
+    ctx.stroke();
+    // tick marks at crests
+    ctx.fillStyle='rgba(255,255,255,.5)';
+    for(let i=0;i<=ow;i++){ const ph=(i*kx - t*2.6*state.speed);
+      if(Math.abs(Math.sin(ph)-1)<0.004){ ctx.fillRect(ox+i-0.5,oyc-amp-6,1,6); } }
+    ctx.restore();
+    txt('local oscillator  ν = ν₀(1+y)', ox, aY+2, 'rgba(255,255,255,.7)','11px -apple-system','left','top');
+    // "counts N0 periods -> 1 s" progress bar
+    const N0=S.nu0;
+    if(!paused){ cyc += 0.017*state.speed*(1+0.0); if(cyc>=1){ cyc-=1; secs++; } }
+    const barY=aY+92, barW=ow;
+    txt('one second ≡ '+commas(Math.round(N0))+' periods', ox, barY-4,
+        'rgba(255,255,255,.6)','11px -apple-system','left','bottom');
+    ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(ox,barY,barW,10);
+    ctx.fillStyle=cssOf(col,0.8); ctx.fillRect(ox,barY,barW*cyc,10);
+    ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.strokeRect(ox+0.5,barY+0.5,barW,10);
+    txt('ticks counted → seconds: '+secs+'   (illustrative, slowed)', ox, barY+24,
+        'rgba(255,255,255,.55)','10.5px -apple-system','left');
+
+    // --- region B: the locked feedback loop
+    const bY=aY+aH+18, bH=126;
+    const bw=(b.x1-b.x0-2*22)/3, bxs=[b.x0, b.x0+bw+22, b.x0+2*(bw+22)];
+    const boxes=[['local oscillator','quartz / laser / VUV', rgb],
+                 ['reference '+S.sym, S.trans, 'rgba(255,255,255,.8)'],
+                 ['discriminator','error ∝ P₊ − P₋','rgba(255,255,255,.8)']];
+    for(let i=0;i<3;i++){
+      ctx.strokeStyle=(i===0)?rgb:'rgba(255,255,255,.3)'; ctx.lineWidth=1.3;
+      roundRect(bxs[i],bY,bw,bH-30,7); ctx.stroke();
+      txt(boxes[i][0], bxs[i]+bw/2, bY+22, '#fff','12.5px -apple-system','center');
+      // wrap the subtitle
+      wrapText(boxes[i][1], bxs[i]+bw/2, bY+40, bw-16, 14, boxes[i][2],'10.5px -apple-system','center');
+    }
+    // forward arrows
+    arrow(bxs[0]+bw, bY+(bH-30)/2, bxs[1], bY+(bH-30)/2, 'rgba(255,255,255,.55)',1.5);
+    txt('interrogate', (bxs[0]+bw+bxs[1])/2, bY+(bH-30)/2-6,'rgba(255,255,255,.55)','10px -apple-system','center','bottom');
+    arrow(bxs[1]+bw, bY+(bH-30)/2, bxs[2], bY+(bH-30)/2, 'rgba(255,255,255,.55)',1.5);
+    txt('measure P', (bxs[1]+bw+bxs[2])/2, bY+(bH-30)/2-6,'rgba(255,255,255,.55)','10px -apple-system','center','bottom');
+    // feedback arrow (correct) running back underneath
+    const fy=bY+bH-4;
+    ctx.strokeStyle=cssOf(col,0.8); ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(bxs[2]+bw/2,bY+bH-30); ctx.lineTo(bxs[2]+bw/2,fy);
+    ctx.lineTo(bxs[0]+bw/2,fy); ctx.stroke();
+    arrow(bxs[0]+bw/2, fy, bxs[0]+bw/2, bY+bH-30, cssOf(col,0.8),1.5);
+    txt('steer ν → ν₀  (correct y)', (bxs[0]+bxs[2])/2+bw/2, fy-5, cssOf(col,0.85),'10.5px -apple-system','center','bottom');
+
+    // --- region C: servo settling |y(t)|
+    const cY=bY+bH+16, cH=b.y1-(bY+bH+16);
+    // advance the servo model: y_{n+1} = (1-g) y - g*noise
+    if(!paused && state.speed>0){
+      const g=0.18;                       // loop gain
+      const noise=(Math.random()*2-1)*s1*4; // per-cycle QPN-scale measurement noise
+      servoY=(1-g)*servoY - g*noise;
+      servoTrace.push(Math.abs(servoY)+1e-21);
+      if(servoTrace.length>260) servoTrace.shift();
+    }
+    // frame
+    const gx0=b.x0+46, gx1=b.x1-8, gy0=cY+14, gy1=b.y1-16;
+    const yTop=1e-8, yBot=Math.max(1e-19, s1/6);
+    const L=v=>{ const lv=Math.log10(Math.max(yBot,Math.min(yTop,v)));
+      return gy1-(gy1-gy0)*(lv-Math.log10(yBot))/(Math.log10(yTop)-Math.log10(yBot)); };
+    txt('servo settling  |y(t)| — fractional frequency error', gx0, cY+2,'rgba(255,255,255,.7)','11px -apple-system','left','top');
+    ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1;
+    for(let e=Math.ceil(Math.log10(yBot)); e<=Math.log10(yTop); e++){
+      const yy=L(Math.pow(10,e)); ctx.beginPath(); ctx.moveTo(gx0,yy); ctx.lineTo(gx1,yy); ctx.stroke();
+      txt('10'+sup(e), gx0-4, yy, '#777','10px "SF Mono", monospace','right','middle');
+    }
+    // QPN floor line
+    const yf=L(s1); ctx.setLineDash([4,4]); ctx.strokeStyle=cssOf(col,0.8);
+    ctx.beginPath(); ctx.moveTo(gx0,yf); ctx.lineTo(gx1,yf); ctx.stroke(); ctx.setLineDash([]);
+    txt('QPN σᵧ(1s) = '+sci(s1), gx1-2, yf-4, cssOf(col,0.9),'10.5px "SF Mono", monospace','right','bottom');
+    // the trace
+    ctx.strokeStyle='#fff'; ctx.lineWidth=1.4; ctx.beginPath();
+    const n=servoTrace.length;
+    for(let i=0;i<n;i++){ const xx=gx0+(gx1-gx0)*i/259, yy=L(servoTrace[i]);
+      if(i===0)ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }
+    ctx.stroke();
+
+    geom={view:'mechanism'};
+    $('roMain').textContent=S.label;
+    $('roSub').className='sub'; $('roSub').textContent='ν₀ = '+fmtHz(S.nu0);
+    $('roSub2').className='sub'; $('roSub2').textContent='Q = '+sci(Q,1)+'   ('+S.kind+')';
+    $('roSub3').className='sub good'; $('roSub3').textContent='σᵧ(1s) ≈ '+sci(s1)+'  (shot-noise)';
+  }
+  function wrapText(s,cx,y,maxw,lh,col,font,al){
+    ctx.font=font||'11px -apple-system'; ctx.textAlign=al||'center'; ctx.textBaseline='alphabetic';
+    ctx.fillStyle=col;
+    const words=s.split(' '); let line='', yy=y;
+    for(const w of words){ const test=line?line+' '+w:w;
+      if(ctx.measureText(test).width>maxw && line){ ctx.fillText(line,cx,yy); line=w; yy+=lh; }
+      else line=test; }
+    if(line)ctx.fillText(line,cx,yy);
+  }
+
+  /* ===================== RESONANCE view ===================== */
+  function drawResonance(){
+    clear();
+    const b=stageBox(), S=SPE[state.species], col=colOf(state.species), rgb=cssOf(col);
+    const px0=b.x0+50, py0=b.y0+30, px1=b.x1-16, py1=b.y1-42;
+    const pw=px1-px0, ph=py1-py0;
+    const isTh=(S.kind==='nuclear');
+    const T=Math.pow(10,state.logT);           // interrogation time (s)
+    // line width & axis span
+    let fwhm, mode;
+    if(isTh){ fwhm=S.dnu; mode='crystal'; }
+    else if(state.mode==='rabi'){ fwhm=0.799/T; mode='rabi'; }   // Rabi FWHM ~ 0.799/tp
+    else { fwhm=1/(2*T); mode='ramsey'; }
+    const span=isTh? fwhm*4 : (state.mode==='rabi'? fwhm*3.2 : fwhm*7);
+    const X=d=>px0+pw*(d+span)/(2*span), Yv=v=>py1-ph*v;
+    // frame
+    ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1;
+    for(let v=0;v<=1.001;v+=0.25){ const yy=Yv(v);
+      ctx.beginPath(); ctx.moveTo(px0,yy); ctx.lineTo(px1,yy); ctx.stroke();
+      txt(v.toFixed(2), px0-8, yy, '#888','11px -apple-system','right','middle'); }
+    // x ticks
+    for(let k=-1;k<=1;k++){ const d=k*span, xx=X(d);
+      ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.beginPath();
+      ctx.moveTo(xx,py0); ctx.lineTo(xx,py1); ctx.stroke();
+      txt((k===0?'0':(k>0?'+':'−')+fmtDnu(Math.abs(d))), xx, py1+6,'#888','10.5px -apple-system','center','top'); }
+    txt('detuning  ν − ν₀', (px0+px1)/2, HGT-6,'rgba(255,255,255,.6)','11px -apple-system','center','bottom');
+    ctx.save(); ctx.translate(b.x0+10,(py0+py1)/2); ctx.rotate(-PI/2);
+    txt('excitation probability  P', 0,0,'rgba(255,255,255,.6)','11px -apple-system','center','top'); ctx.restore();
+
+    // the lineshape
+    const P = d => isTh? lorentzP(d,fwhm) : (state.mode==='rabi'? rabiP(d,T) : ramseyP(d,T));
+    ctx.strokeStyle=rgb; ctx.lineWidth=1.9; ctx.beginPath();
+    for(let i=0;i<=pw;i++){ const d=-span+2*span*i/pw, xx=px0+i, yy=Yv(Math.max(0,Math.min(1,P(d))));
+      if(i===0)ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }
+    ctx.stroke();
+    // shade under central feature
+    ctx.fillStyle=cssOf(col,0.10);
+    ctx.beginPath(); ctx.moveTo(px0,py1);
+    for(let i=0;i<=pw;i++){ const d=-span+2*span*i/pw; ctx.lineTo(px0+i,Yv(Math.max(0,Math.min(1,P(d))))); }
+    ctx.lineTo(px1,py1); ctx.closePath(); ctx.fill();
+
+    // FWHM markers + the two servo probe points at +/- fwhm/2
+    const halfd=fwhm/2;
+    ctx.setLineDash([3,4]); ctx.strokeStyle='rgba(255,255,255,.45)'; ctx.lineWidth=1;
+    for(const d of [-halfd,halfd]){ ctx.beginPath(); ctx.moveTo(X(d),Yv(0)); ctx.lineTo(X(d),Yv(0.5)); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(X(-halfd),Yv(0.5)); ctx.lineTo(X(halfd),Yv(0.5)); ctx.stroke(); ctx.setLineDash([]);
+    txt('Δν = '+fmtDnu(fwhm), X(0), Yv(0.5)-6, 'rgba(255,255,255,.8)','11px -apple-system','center','bottom');
+    // servo probe dots
+    if(!isTh){ ctx.fillStyle=cssOf(col,0.95);
+      for(const d of [-halfd,halfd]){ ctx.beginPath(); ctx.arc(X(d),Yv(P(d)),3.4,0,TAU); ctx.fill(); }
+      txt('servo probes ±Δν/2 (steepest slope)', X(0), py0+2,'rgba(255,255,255,.55)','10.5px -apple-system','center','top'); }
+
+    const Q=S.nu0/fwhm;
+    geom={view:'resonance'};
+    $('roMain').textContent=S.label+'  —  '+(isTh?'crystal line':(state.mode==='rabi'?'Rabi':'Ramsey'));
+    $('roSub').className='sub';
+    $('roSub').textContent=isTh? 'inhomogeneous crystal line' : ('interrogation T = '+fmtTime(T));
+    $('roSub2').className='sub'; $('roSub2').textContent='Δν = '+fmtDnu(fwhm);
+    $('roSub3').className='sub good'; $('roSub3').textContent='Q = ν₀/Δν = '+sci(Q,2);
+  }
+
+  /* ===================== STABILITY view ===================== */
+  function stabCurves(){
+    // QPN curves for the atomic species + the two Th discriminator curves.
+    const out=[];
+    for(const k of ['rb','cs','hg','yb']){ const S=SPE[k];
+      out.push({key:k, label:S.label, col:colOf(k),
+        f:tau=>sigYqpn(Qof(k),S.N,S.Tc,tau), kind:'qpn'}); }
+    // Th today (300 kHz crystal, v1 budget) and improved (10 kHz, v2a)
+    const bNow=thBudget({P:30,eps:0.003,dnu:300e3,surround:false,bright:false,filter:false,N:5e17});
+    const bImp=thBudget({P:30,eps:0.03,dnu:10e3,surround:true,bright:false,filter:true,N:5e17});
+    out.push({key:'th', label:'²²⁹ᵐTh  crystal (300 kHz, lamp)', col:UV_RGB,
+      f:tau=>sigYdisc(bNow.Q,bNow.S,bNow.B,tau), kind:'th'});
+    out.push({key:'thi', label:'²²⁹ᵐTh  narrow crystal (10 kHz)', col:[0.80,0.55,1.0],
+      f:tau=>sigYdisc(bImp.Q,bImp.S,bImp.B,tau), kind:'thi', dash:true});
+    return out;
+  }
+  function drawStability(){
+    clear();
+    const b=stageBox();
+    const px0=b.x0+52, py0=b.y0+16, px1=b.x1-172, py1=b.y1-40;
+    const pw=px1-px0, ph=py1-py0;
+    const tauMin=1, tauMax=1e7, yTop=1e-11, yBot=1e-19;
+    const Lx=tau=>px0+pw*(Math.log10(tau)-0)/(Math.log10(tauMax)-0);
+    const Ly=v=>py1-ph*(Math.log10(v)-Math.log10(yBot))/(Math.log10(yTop)-Math.log10(yBot));
+    // grid
+    ctx.strokeStyle='rgba(255,255,255,.09)'; ctx.lineWidth=1;
+    for(let e=0;e<=7;e++){ const xx=Lx(Math.pow(10,e));
+      ctx.beginPath(); ctx.moveTo(xx,py0); ctx.lineTo(xx,py1); ctx.stroke();
+      txt('10'+sup(e), xx, py1+6,'#888','10px "SF Mono", monospace','center','top'); }
+    for(let e=-19;e<=-11;e++){ const yy=Ly(Math.pow(10,e));
+      ctx.beginPath(); ctx.moveTo(px0,yy); ctx.lineTo(px1,yy); ctx.stroke();
+      txt('10'+sup(e), px0-6, yy,'#888','10px "SF Mono", monospace','right','middle'); }
+    txt('averaging time  τ (s)', (px0+px1)/2, HGT-6,'rgba(255,255,255,.6)','11px -apple-system','center','bottom');
+    ctx.save(); ctx.translate(b.x0+10,(py0+py1)/2); ctx.rotate(-PI/2);
+    txt('Allan deviation  σᵧ(τ)', 0,0,'rgba(255,255,255,.6)','11px -apple-system','center','top'); ctx.restore();
+
+    // reference floors: LO/Dick ~1e-16/sqrt(tau), systematics ~1e-18
+    ctx.setLineDash([5,4]); ctx.strokeStyle='rgba(200,200,200,.5)'; ctx.lineWidth=1.2;
+    ctx.beginPath(); for(let i=0;i<=pw;i++){ const tau=Math.pow(10,7*i/pw), v=1e-16/Math.sqrt(tau);
+      const xx=px0+i, yy=Ly(v); if(i===0)ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); } ctx.stroke();
+    ctx.setLineDash([2,4]); ctx.strokeStyle='rgba(150,150,150,.5)';
+    ctx.beginPath(); ctx.moveTo(px0,Ly(1e-18)); ctx.lineTo(px1,Ly(1e-18)); ctx.stroke(); ctx.setLineDash([]);
+    txt('LO / Dick  ~10⁻¹⁶/√τ', px1-4, Ly(1e-16/Math.sqrt(1e7))+2,'rgba(200,200,200,.7)','10px -apple-system','right','top');
+    txt('systematics ~10⁻¹⁸', px0+4, Ly(1e-18)-4,'rgba(150,150,150,.7)','10px -apple-system','left','bottom');
+
+    const curves=stabCurves();
+    const tauSel=Math.pow(10,state.logTau);
+    // draw curves
+    for(const c of curves){ const hot=(c.key===state.species)||(state.species==='th'&&(c.key==='th'||c.key==='thi'));
+      ctx.strokeStyle=cssOf(c.col, hot?0.98:0.5); ctx.lineWidth=hot?2.2:1.4;
+      if(c.dash)ctx.setLineDash([6,3]);
+      ctx.beginPath(); for(let i=0;i<=pw;i++){ const tau=Math.pow(10,7*i/pw), v=c.f(tau);
+        const xx=px0+i, yy=Ly(v); if(i===0)ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    // selection marker at tauSel
+    ctx.setLineDash([2,3]); ctx.strokeStyle='rgba(255,255,255,.4)';
+    ctx.beginPath(); ctx.moveTo(Lx(tauSel),py0); ctx.lineTo(Lx(tauSel),py1); ctx.stroke(); ctx.setLineDash([]);
+
+    // legend + readout at selected tau (right column)
+    const lx=px1+16, lyv=py0+8; let ly=lyv;
+    txt('σᵧ at τ = '+fmtTime(tauSel), lx, ly-2,'rgba(255,255,255,.75)','11px -apple-system','left','top'); ly+=18;
+    for(const c of curves){ const v=c.f(tauSel);
+      const hot=(c.key===state.species)||(state.species==='th'&&(c.key==='th'||c.key==='thi'));
+      ctx.fillStyle=cssOf(c.col, hot?1:0.7); ctx.fillRect(lx,ly-8,14,3);
+      txt(c.label, lx+20, ly, hot?'#fff':'rgba(255,255,255,.7)','10.5px -apple-system','left','alphabetic');
+      txt(sci(v,1), lx+20, ly+12, cssOf(c.col,hot?1:0.7),'10.5px "SF Mono", monospace','left');
+      // marker dot on the curve
+      ctx.fillStyle=cssOf(c.col,hot?1:0.6); ctx.beginPath(); ctx.arc(Lx(tauSel),Ly(v),hot?3.6:2.4,0,TAU); ctx.fill();
+      ly+=30;
+    }
+
+    geom={view:'stability'};
+    const S=SPE[state.species];
+    $('roMain').textContent='Allan deviation σᵧ(τ)';
+    $('roSub').className='sub'; $('roSub').textContent='shot-noise (QPN) limit ∝ τ⁻¹ᐟ²';
+    $('roSub2').className='sub'; $('roSub2').textContent='optical &amp; narrow-Th sit far below microwave';
+    $('roSub3').className='sub warn'; $('roSub3').textContent='²²⁹ᵐTh today: huge ν₀, but Q (crystal) sets σᵧ';
+  }
+
+  /* ===================== THORIUM + Kr2 view ===================== */
+  function drawThorium(){
+    clear();
+    const b=stageBox();
+    const p={P:state.P, eps:state.epsPct/100, dnu:Math.pow(10,state.logDnu),
+             surround:state.surround, bright:state.bright, filter:state.filter, N:5e17};
+    const R=thBudget(p);
+
+    // --- top: Kr2 continuum overlap with the Th line
+    const sx0=b.x0+50, sy0=b.y0+24, sx1=b.x1-16, sy1=b.y0+24+186;
+    const sw=sx1-sx0, sh=sy1-sy0;
+    const lamA=110, lamB=190;                  // nm window
+    const Xw=nm=>sx0+sw*(nm-lamA)/(lamB-lamA);
+    const gauss=(nm,pk,fw)=>{ const s=fw/2.3548; return Math.exp(-0.5*Math.pow((nm-pk)/s,2)); };
+    txt('spectral overlap — excimer continua vs the ²²⁹ᵐTh line', sx0, sy0-8,'rgba(255,255,255,.72)','11.5px -apple-system','left','bottom');
+    // axis
+    ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1;
+    for(let nm=110;nm<=190;nm+=10){ const xx=Xw(nm);
+      ctx.beginPath(); ctx.moveTo(xx,sy0); ctx.lineTo(xx,sy1); ctx.stroke();
+      txt(nm+'', xx, sy1+5,'#888','10px "SF Mono", monospace','center','top'); }
+    txt('wavelength (nm)', (sx0+sx1)/2, sy1+22,'rgba(255,255,255,.55)','10.5px -apple-system','center','top');
+    // continua: Ar2 126, Kr2 146, Xe2 172
+    const cont=[['Ar₂*',126,'rgba(120,110,235,',0.5],
+                ['Kr₂*',146,'rgba(130,130,255,',0.95],
+                ['Xe₂*',172,'rgba(160,120,220,',0.5]];
+    for(const [nm0,pk,base,al] of cont){
+      ctx.strokeStyle=base+al+')'; ctx.lineWidth=(pk===146)?2.1:1.3;
+      ctx.beginPath();
+      for(let i=0;i<=sw;i++){ const nm=lamA+(lamB-lamA)*i/sw, v=gauss(nm,pk,14);
+        const xx=sx0+i, yy=sy1-(sh-8)*v; if(i===0)ctx.moveTo(xx,yy); else ctx.lineTo(xx,yy); }
+      ctx.stroke();
+      txt(nm0, Xw(pk), sy1-(sh-8)*1.0-4,'rgba(255,255,255,.7)','10.5px -apple-system','center','bottom');
+    }
+    // Kr2 fill
+    ctx.fillStyle='rgba(130,130,255,.10)'; ctx.beginPath(); ctx.moveTo(sx0,sy1);
+    for(let i=0;i<=sw;i++){ const nm=lamA+(lamB-lamA)*i/sw; ctx.lineTo(sx0+i, sy1-(sh-8)*gauss(nm,146,14)); }
+    ctx.lineTo(sx1,sy1); ctx.closePath(); ctx.fill();
+    // Th line (spike) at 148.382 with f_shape dot
+    const fsh=krShape(), thx=Xw(TH.thLine);
+    ctx.strokeStyle=cssOf(UV_RGB,0.95); ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(thx,sy1); ctx.lineTo(thx,sy1-(sh-8)); ctx.stroke();
+    ctx.fillStyle=cssOf(UV_RGB); ctx.beginPath(); ctx.arc(thx,sy1-(sh-8)*fsh,4,0,TAU); ctx.fill();
+    txt('²²⁹ᵐTh 148.382 nm', thx+6, sy0+4,cssOf(UV_RGB,0.95),'10.5px -apple-system','left','top');
+    txt('f_shape ≈ '+fsh.toFixed(2)+' of Kr₂ peak', thx+6, sy0+18,'rgba(255,255,255,.6)','10px -apple-system','left','top');
+
+    // --- bottom: the photon-budget ledger + verdict
+    const ly0=sy1+40, lx=b.x0+8;
+    txt('photon budget  (radiance, not power)', lx, ly0-8,'rgba(255,255,255,.72)','11.5px -apple-system','left','bottom');
+    const rows=[
+      ['∫σ dν', sci(R.sInt,1)+' m²·Hz', '(λ₀²/8π)(gₑ/g_g)A₂₁'],
+      ['Mν  (exitance)', sci(R.Mnu,1)+' W/m²/Hz', 'set by W/cm², not total W'],
+      ['Eν  (delivered)', sci(R.Enu,1)+' W/m²/Hz', 'η·G·'+(R.br>1?'×3·':'')+'Mν'+(R.imm>1?'·n²':'')+'  ('+ (R.Enu/5.203e-12).toFixed(0)+'× v1)'],
+      ['R₁  (per nucleus)', sci(R.R1,1)+' /s', '= Eν/(hν₀) · ∫σ dν'],
+      ['R_tot (flooded)', sci(R.Rtot,1)+' isomer/s', 'N = '+sci(R.N,0)+'  ('+sci(R.act,1)+' Bq)'],
+      ['S / B', sci(R.S,1)+' / '+sci(R.B,1)+' cps', 'S/B = '+R.SB.toFixed(2)+(R.filter?'  (filter)':'')],
+      ['Q = ν₀/Δν', sci(R.Q,2), 'Δν = '+fmtDnu(p.dnu)],
+    ];
+    let yy=ly0+8; const col1=lx, col2=lx+150, col3=lx+300;
+    for(const [a,vv,cc] of rows){
+      txt(a, col1, yy,'rgba(255,255,255,.75)','11px -apple-system','left');
+      txt(vv, col2, yy,'#fff','11px "SF Mono", monospace','left');
+      txt(cc, col3, yy,'#8a8a92','10.5px -apple-system','left');
+      yy+=18;
+    }
+    // E_nu vs the brightness-theorem ceiling bar
+    yy+=4;
+    const barX=col1, barW=380, barH=12;
+    const frac=Math.min(1, R.Enu/R.ceil);
+    txt('Eν vs commercial-radiance ceiling  (4 n² Mν)', barX, yy-3,'rgba(255,255,255,.6)','10.5px -apple-system','left','bottom');
+    ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(barX,yy,barW,barH);
+    ctx.fillStyle=cssOf(UV_RGB,0.8); ctx.fillRect(barX,yy,barW*frac,barH);
+    ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.strokeRect(barX+0.5,yy+0.5,barW,barH);
+    txt('ceiling ≈ 23× v1', barX+barW+6, yy+barH-1,'rgba(255,255,255,.6)','10px -apple-system','left');
+    if(R.br>1) txt('brighter source exceeds the commercial ceiling', barX, yy+barH+12,cssOf([0.8,0.55,1],0.9),'10px -apple-system','left');
+
+    // verdict block (right)
+    const vx=b.x1-236, vy=ly0+2;
+    const clears=R.lock>1, crosses=R.s1<1e-16*3;   // crosses toward the LO floor within ~1 s scale
+    ctx.strokeStyle='rgba(255,255,255,.18)'; roundRect(vx,vy,228,150,7); ctx.stroke();
+    txt('verdict', vx+10, vy+16,'rgba(255,255,255,.8)','11.5px -apple-system','left');
+    txt('σᵧ(1 s)  = '+sci(R.s1), vx+10, vy+38,'#fff','12px "SF Mono", monospace','left');
+    txt('σᵧ(1 day) = '+sci(R.sday), vx+10, vy+56,'#fff','12px "SF Mono", monospace','left');
+    txt('lock margin S/√B = '+R.lock.toFixed(0)+'×', vx+10, vy+76, clears?cssOf([0.72,0.925,0.30]):cssOf([0.96,0.4,0.4]),'11px -apple-system','left');
+    txt(clears?'✓ clears the lock floor':'✗ below the lock floor', vx+10, vy+92, clears?cssOf([0.72,0.925,0.30]):cssOf([0.96,0.4,0.4]),'11px -apple-system','left');
+    wrapText('photon supply is not the limit — the crystal linewidth Q dominates (t ∝ Q⁻²); a lamp pumps, it cannot discriminate.',
+             vx+114, vy+112, 214, 13,'rgba(210,210,215,.9)','10.5px -apple-system','center');
+
+    geom={view:'thorium'};
+    $('roMain').textContent='²²⁹ᵐTh ← Kr₂ lamp';
+    $('roSub').className='sub'; $('roSub').textContent='R_tot = '+sci(R.Rtot,1)+' isomer/s';
+    $('roSub2').className=clears?'sub good':'sub warn';
+    $('roSub2').textContent=clears?('σᵧ(1s) = '+sci(R.s1)):'below lock floor — flood more';
+    $('roSub3').className='sub'; $('roSub3').textContent='Δν = '+fmtDnu(p.dnu)+'   Q = '+sci(R.Q,1);
+  }
+
+  /* ========================= dispatch ========================= */
+  function drawView(){
+    if(state.view==='mechanism') drawMechanism();
+    else if(state.view==='resonance') drawResonance();
+    else if(state.view==='stability') drawStability();
+    else drawThorium();
+  }
+
+  /* ========================= notes / maths ========================= */
+  function updateHint(){
+    const h={
+      mechanism:'every clock counts the swings of an oscillator pinned to a natural resonance · watch the servo pull ν onto ν₀',
+      resonance:'longer interrogation T → narrower line → higher Q · Ramsey beats Rabi · thorium’s crystal line is fixed at ~300 kHz',
+      stability:'σᵧ falls as τ⁻¹ᐟ² · optical &amp; narrow-Th win · today’s Th is Q-limited, not ν₀-limited',
+      thorium:'tune the lamp &amp; crystal · narrowing Δν pays back quadratically · the lamp pumps; a separate LO discriminates'
+    };
+    $('hint').innerHTML=h[state.view]||'';
+  }
+  function updateInfo(){
+    const S=SPE[state.species]; let s='';
+    if(state.view==='mechanism'){
+      s+='<div class="cap">A clock pins a local oscillator to a natural resonance and counts its swings.</div>';
+      s+='<div class="eq">ν = ν₀ (1 + y)\nerror ∝ P(+Δν/2) − P(−Δν/2)\ny_{n+1} = (1−g) y_n − g·noise\n1 s ≡ N₀ periods of ν₀</div>';
+      s+='<b>'+S.label+'</b> ('+S.kind+')<br>';
+      s+='ν₀ = <span class="k">'+fmtHz(S.nu0)+'</span><br>';
+      s+='λ = '+fmtLam(wavelenOf(state.species))+(S.kind!=='microwave'?'  ('+photonEV(state.species).toFixed(3)+' eV)':'')+'<br>';
+      s+='transition: '+S.trans+'<br>';
+      if(S.lamp) s+='<span class="k">lamp:</span> '+S.lampTxt+'<br>';
+      s+='<div class="cap" style="margin-top:5px;">'+S.demo+'</div>';
+    } else if(state.view==='resonance'){
+      s+='<div class="cap">The line quality Q = ν₀/Δν is set by how long you interrogate.</div>';
+      s+='<div class="eq">Rabi:  P = (Ω²/Ω_R²) sin²(Ω_R t/2)\n       Ω_R = √(Ω² + (2πδ)²)\nRamsey: Δν = 1/(2T)  →  Q = 2 T ν₀</div>';
+      s+='<b>'+S.label+'</b><br>ν₀ = <span class="k">'+fmtHz(S.nu0)+'</span><br>';
+      if(S.kind==='nuclear'){ s+='<div class="cap" style="margin-top:5px;">No coherent interrogation in a crystal: the inhomogeneous ~300 kHz line fixes Q. A lamp simply floods it — see the Th + Kr₂ view.</div>'; }
+      else { const T=Math.pow(10,state.logT); s+='T = '+fmtTime(T)+'  →  Q = '+sci(S.nu0/(1/(2*T)),2)+' (Ramsey)<br>'; }
+    } else if(state.view==='stability'){
+      s+='<div class="cap">Shot-noise (quantum-projection-noise) floor. Real clocks are often Dick/LO-limited above this.</div>';
+      s+='<div class="eq">σᵧ(τ) = (1/πQ)(1/√N)√(T_c/τ)     [atoms]\nσᵧ(τ) = √(S+B) / (π Q S √τ)     [Th, lamp]</div>';
+      s+='Q(ν₀/Δν), N atoms/cycle, T_c cycle time.<br>';
+      s+='<div class="cap" style="margin-top:5px;">Optical (Yb) and a narrow-line Th crystal fall far below the microwave standards. Today’s Th crystal sits high — despite ν₀ = 2 PHz — because Q, not ν₀, sets σᵧ.</div>';
+    } else {
+      s+='<div class="cap">Can a Kr₂ excimer <b>lamp</b> replace the bespoke tunable VUV comb that drives the ²²⁹ᵐTh nuclear clock?</div>';
+      s+='<div class="eq">∫σ dν = (λ₀²/8π)(gₑ/g_g) A₂₁\nEν = η·G·(bright)·Mν·n²   (radiance)\nR₁ = (Eν/hν₀) ∫σ dν ,  R_tot = N R₁\nσᵧ = √(S+B)/(π Q S √τ) ,  S = ε R_tot</div>';
+      s+='ν₀ = <span class="k">'+fmtHz(TH.nu0)+'</span> ('+(H*TH.nu0/EV).toFixed(3)+' eV)<br>';
+      s+='σ_pk ≈ '+sci(sigmaPk(),1)+' m² (≈ λ₀²)<br>';
+      s+='<div class="cap" style="margin-top:5px;"><b>Multiple lamps raise rate, not radiance</b> (brightness theorem): surround (G: π→4, ≪4×) &amp; flood (N↑). Ceiling ≈ 4n²Mν (~23×). The lamp <b>pumps</b>; a separate LO must <b>discriminate</b> — as in the lamp-pumped ¹⁹⁹Hg⁺ clock.</div>';
+      s+='<div class="cap" style="margin-top:4px;">Anchored to Zhang et al., Nature 633, 63 (2024).</div>';
+    }
+    $('info').innerHTML=s;
+  }
+
+  /* ========================= controls ========================= */
+  function applyThPreset(name){
+    state.thPreset=name;
+    if(name==='v1'){ state.logDnu=Math.log10(300e3); state.P=30; state.epsPct=0.3;
+      state.surround=false; state.bright=false; state.filter=false; }
+    else if(name==='v2a'){ state.logDnu=Math.log10(10e3); state.P=30; state.epsPct=3;
+      state.surround=true; state.bright=false; state.filter=true; }
+    else if(name==='v2b'){ state.logDnu=Math.log10(1e3); state.P=30; state.epsPct=3;
+      state.surround=true; state.bright=true; state.filter=true; }
+  }
+  function syncControls(){
+    for(const [id,v] of [['viewM','mechanism'],['viewR','resonance'],['viewB','stability'],['viewT','thorium']])
+      $(id).classList.toggle('on', state.view===v);
+    for(const k of SPE_ORDER) $('sp'+k[0].toUpperCase()+k[1]).classList.toggle('on', state.species===k);
+    $('mRamsey').classList.toggle('on', state.mode==='ramsey');
+    $('mRabi').classList.toggle('on', state.mode==='rabi');
+    for(const [id,v] of [['thV1','v1'],['thV2a','v2a'],['thV2b','v2b']])
+      $(id).classList.toggle('on', state.thPreset===v);
+    $('thGeom').classList.toggle('on', state.surround);
+    $('thBright').classList.toggle('on', state.bright);
+    $('thFilter').classList.toggle('on', state.filter);
+    const T=Math.pow(10,state.logT); $('eTint').value=state.logT; $('eTintVal').textContent=fmtTime(T);
+    const tau=Math.pow(10,state.logTau); $('eTau').value=state.logTau; $('eTauVal').textContent=fmtTime(tau);
+    const dnu=Math.pow(10,state.logDnu); $('eDnu').value=state.logDnu; $('eDnuVal').textContent=fmtDnu(dnu);
+    $('eP').value=state.P; $('ePVal').textContent=state.P.toFixed(0)+' W';
+    $('eEps').value=state.epsPct; $('eEpsVal').textContent=state.epsPct.toFixed(1)+'%';
+    $('eSpeed').value=state.speed; $('eSpeedVal').textContent=state.speed.toFixed(1)+'×';
+    // group visibility
+    const v=state.view;
+    $('grpSpecies').hidden = (v==='thorium');
+    $('grpResonance').hidden = (v!=='resonance');
+    $('grpStab').hidden = (v!=='stability');
+    $('grpTh').hidden = (v!=='thorium');
+    $('grpAnim').hidden = (v!=='mechanism');
+    // Ramsey/Rabi toggle disabled for thorium species (nuclear)
+    const nuc = SPE[state.species].kind==='nuclear';
+    $('mRamsey').style.opacity = nuc?0.4:1; $('mRabi').style.opacity = nuc?0.4:1;
+  }
+  function applyChange(){ state=clampState(state); syncControls(); updateHint(); updateInfo(); }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  chip('viewM',()=>state.view='mechanism'); chip('viewR',()=>state.view='resonance');
+  chip('viewB',()=>state.view='stability');
+  chip('viewT',()=>{ state.view='thorium'; state.species='th'; });
+  for(const k of SPE_ORDER){ const id='sp'+k[0].toUpperCase()+k[1];
+    chip(id,()=>{ state.species=k; if(state.view==='thorium') state.view='mechanism';
+      servoY=5e-9; servoTrace=[]; secs=0; cyc=0; }); }
+  chip('mRamsey',()=>state.mode='ramsey'); chip('mRabi',()=>state.mode='rabi');
+  chip('thV1',()=>applyThPreset('v1')); chip('thV2a',()=>applyThPreset('v2a')); chip('thV2b',()=>applyThPreset('v2b'));
+  chip('thGeom',()=>{ state.surround=!state.surround; state.thPreset='custom'; });
+  chip('thBright',()=>{ state.bright=!state.bright; state.thPreset='custom'; });
+  chip('thFilter',()=>{ state.filter=!state.filter; state.thPreset='custom'; });
+  function slider(id,key,fn){ $(id).addEventListener('input',()=>{ state[key]=+$(id).value;
+    if(fn)fn(); applyChange(); }); }
+  slider('eTint','logT'); slider('eTau','logTau');
+  slider('eDnu','logDnu',()=>state.thPreset='custom');
+  slider('eP','P',()=>state.thPreset='custom');
+  slider('eEps','epsPct',()=>state.thPreset='custom');
+  $('eSpeed').addEventListener('input',()=>{ state.speed=+$('eSpeed').value; syncControls(); });
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+
+  function resize(){
+    W=cv.clientWidth||940; HGT=cv.clientHeight||620;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(HGT*dpr);
+    if(ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+  }
+  if(typeof window!=='undefined') window.addEventListener('resize',()=>resize());
+
+  function frame(){
+    if(!paused) t+=0.016*(state.speed||0.0001);
+    drawView();
+    requestAnimationFrame(frame);
+  }
+  resize(); syncControls(); updateHint(); updateInfo();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test =========================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if(cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const rel=(a,b)=>Math.abs(a/b-1);
+  const close=(a,b,tol)=>Math.abs(a/b-1) < (tol===undefined?1e-9:tol);   // boolean predicate
+
+  /* --- transition anchors --- */
+  ok(SPE.cs.nu0===9192631770,'Cs-133 nu0 = 9 192 631 770 Hz exactly (the SI second)');
+  ok(close(SPE.rb.nu0,6.834682610904e9,1e-15),'Rb-87 nu0 = 6.834 682 610 904 GHz');
+  ok(close(SPE.hg.nu0,40.5073479968e9,1e-12),'Hg-199+ nu0 = 40.507 GHz');
+  ok(close(SPE.yb.nu0,5.18295836590863e14,1e-14),'Yb-171 nu0 = 518.296 THz');
+  ok(close(SPE.th.nu0,2.020407384335e15,1e-14),'Th-229m nu0 = 2.020 PHz');
+  ok(close(wavelenOf('cs'),0.032612,1e-3),'lambda(Cs) = 3.26 cm (microwave)');
+  ok(close(wavelenOf('hg'),7.401e-3,1e-3),'lambda(Hg+) = 7.40 mm');
+  ok(close(wavelenOf('yb'),578.42e-9,1e-4),'lambda(Yb) = 578.42 nm (optical)');
+  ok(close(wavelenOf('th'),148.382e-9,1e-4),'lambda(Th) = 148.382 nm (VUV)');
+  ok(close(photonEV('th'),8.356,2e-3),'E(Th) = 8.356 eV');
+  ok(close(photonEV('yb'),2.143,3e-3),'E(Yb) = 2.14 eV (yellow)');
+  ok(SPE.th.nu0/SPE.cs.nu0>2e5,'Th nu0 is ~2.2e5 x the Cs nu0 (nuclear >> microwave)');
+
+  /* --- Q = nu0/dnu --- */
+  ok(close(Qof('cs'),9.19e9,1e-2),'Q(Cs) ~ 9.2e9 at 1 Hz line');
+  ok(close(Qof('yb'),5.18e14,1e-2),'Q(Yb) ~ 5.2e14 at 1 Hz line');
+  ok(close(Qof('th'),6.735e9,1e-2),'Q(Th) ~ 6.7e9 at the 300 kHz crystal line');
+  ok(Qof('yb')>Qof('hg') && Qof('hg')>Qof('cs'),'optical Q > trapped-ion Q > fountain Q');
+
+  /* --- Rabi lineshape: pi-pulse peak = 1, symmetric, decreasing --- */
+  { const tp=0.5;
+    ok(close(rabiP(0,tp),1,1e-9),'Rabi: on-resonance pi-pulse gives P = 1');
+    ok(rabiP(0.4,tp)<rabiP(0.1,tp) && rabiP(0.1,tp)<1,'Rabi: P falls off resonance');
+    ok(Math.abs(rabiP(0.3,tp)-rabiP(-0.3,tp))<1e-12,'Rabi lineshape is symmetric in detuning');
+    // Rabi FWHM ~ 0.799/tp -> half-max at 0.799/(2 tp)
+    const hw=0.799/tp/2; ok(Math.abs(rabiP(hw,tp)-0.5)<0.03,'Rabi FWHM ~ 0.799/tp (half-max at ~0.8/tp)'); }
+
+  /* --- Ramsey: central fringe P(0)=1, first null at 1/(2T), revival at 1/T --- */
+  { const T=1.0;
+    ok(close(ramseyP(0,T),1,1e-6),'Ramsey: central fringe P(0) = 1');
+    ok(ramseyP(0.5/T,T)<0.05,'Ramsey: first null at d = 1/(2T)');
+    ok(ramseyP(1.0/T,T)>0.5,'Ramsey: fringe revives at d = 1/T (period 1/T)');
+    const halfR = 1/(2*T)/2; ok(ramseyP(halfR,T)>0.4 && ramseyP(halfR,T)<0.6,'Ramsey half-max near 1/(4T)'); }
+
+  /* --- Lorentzian crystal line --- */
+  ok(close(lorentzP(0,300e3),1,1e-12),'crystal line peak P = 1 on resonance');
+  ok(close(lorentzP(150e3,300e3),0.5,1e-9),'crystal line half-max at dnu/2 = 150 kHz');
+
+  /* --- QPN stability: values & tau^-1/2 scaling --- */
+  { const sCs=sigYqpn(Qof('cs'),SPE.cs.N,SPE.cs.Tc,1.0);
+    ok(close(sCs,3.95e-14,0.1),'Cs QPN sigma_y(1s) ~ 4e-14');
+    const sYb=sigYqpn(Qof('yb'),SPE.yb.N,SPE.yb.Tc,1.0);
+    ok(close(sYb,6.1e-18,0.1),'Yb QPN sigma_y(1s) ~ 6e-18 (optical, far below microwave)');
+    const sHg=sigYqpn(Qof('hg'),SPE.hg.N,SPE.hg.Tc,1.0);
+    ok(close(sHg,3.14e-16,0.1),'Hg+ QPN sigma_y(1s) ~ 3e-16 (trapped-ion microwave)');
+    ok(close(sigYqpn(Qof('cs'),SPE.cs.N,SPE.cs.Tc,100)/sCs, 0.1, 1e-9),'sigma_y scales as tau^-1/2 (x1/10 at 100 s)');
+    ok(sYb<sHg && sHg<sCs,'stability ladder: Yb < Hg+ < Cs at 1 s'); }
+
+  /* ============ Kr2 / 229Th photon budget (vs kr2_photon_budget_v2.py) ============ */
+  ok(close(sigmaInt(),9.11e-19,0.02),'integrated cross section int sigma dnu = 9.1e-19 m^2 Hz');
+  ok(close(sigmaPk(),2.34e-15,0.02),'peak cross section sigma_pk = 2.3e-15 m^2 (~lambda^2)');
+  ok(close(krShape(),0.923,0.01),'Kr2 covers the Th line at f_shape = 0.92 of peak');
+  ok(close(lampExitance(30),1.406e-11,0.02),'lamp exitance M_nu = 1.4e-11 W/m^2/Hz at 30 W');
+  // v1 baseline
+  { const b1=thBudget({P:30,eps:0.003,dnu:300e3,surround:false,bright:false,filter:false,N:5e17});
+    ok(close(b1.Enu,5.203e-12,0.02),'v1 E_nu = 5.2e-12 W/m^2/Hz');
+    ok(close(b1.R1,3.542e-12,0.03),'v1 per-nucleus rate R1 = 3.5e-12 /s');
+    ok(close(b1.Rtot,1.771e6,0.03),'v1 total rate R_tot = 1.8e6 isomer/s (flooded cm-crystal)');
+    ok(close(b1.act,1.387e6,0.03),'flooded crystal activity ~ 1.4 MBq');
+    ok(close(b1.S,5.31e3,0.03),'v1 detected signal S = 5.3e3 cps');
+    ok(close(b1.s1,1.807e-12,0.03),'v1 sigma_y(1s) = 1.8e-12 (matches the paper)');
+    ok(close(b1.sday,6.15e-15,0.03),'v1 sigma_y(1 day) = 6.1e-15');
+    ok(b1.lock>1 && close(b1.lock,28,0.1),'v1 clears the lock floor: S/sqrt(B) ~ 28x (self-consistent B)');
+    ok(close(b1.ceil/b1.Enu,23.05,0.03),'radiance ceiling (4 n^2 M_nu) ~ 23x v1'); }
+  // v2a geometry
+  { const b2=thBudget({P:30,eps:0.03,dnu:10e3,surround:true,bright:false,filter:true,N:5e17});
+    ok(close(b2.Enu,5.936e-11,0.02),'v2a E_nu = 5.9e-11 (x11 geometry+immersion)');
+    ok(close(b2.s1,2.613e-15,0.03),'v2a sigma_y(1s) = 2.6e-15');
+    ok(close(b2.sday,8.89e-18,0.03),'v2a sigma_y(1 day) = 8.9e-18'); }
+  // v2b brighter
+  { const b3=thBudget({P:30,eps:0.03,dnu:1e3,surround:true,bright:true,filter:true,N:5e17});
+    ok(close(b3.Enu,1.781e-10,0.02),'v2b E_nu = 1.8e-10 (x34, brighter source)');
+    ok(close(b3.s1,1.509e-16,0.03),'v2b sigma_y(1s) = 1.5e-16'); }
+  // t ~ Q^-2 : narrowing dnu 300k->10k improves sigma_y at fixed S,B by exactly 30x from Q alone
+  { const S=5.31e3,B=S/0.15;
+    const a=sigYdisc(TH.nu0/300e3,S,B,1), c=sigYdisc(TH.nu0/10e3,S,B,1);
+    ok(close(a/c,30,1e-9),'sigma_y ~ 1/Q : 30x narrower line -> 30x better (t ~ Q^-2)'); }
+
+  /* --- colour pipeline sanity (shared fit) --- */
+  { const g=spectralRgb(550), b=spectralRgb(460), r=spectralRgb(660);
+    ok(g[1]>0.99,'CIE: 550 nm reads green'); ok(b[2]>0.99,'460 nm reads blue');
+    ok(r[0]>0.99,'660 nm reads red');
+    ok(colOf('th')===UV_RGB,'Th (148 nm VUV) uses the UV stand-in colour'); }
+
+  /* --- state clamp & formatters --- */
+  { const st=clampState({view:'zz',species:'xx',mode:'q',logT:9,logTau:-3,logDnu:9,P:999,epsPct:99,speed:9});
+    ok(st.view==='mechanism'&&st.species==='cs'&&st.mode==='ramsey'&&st.logT===1.0&&st.logTau===0&&
+       st.logDnu===6.0&&st.P===120&&st.epsPct===5&&st.speed===3,'clampState pins to sane state'); }
+  ok(fmtHz(9192631770)==='9.192632 GHz','fmtHz GHz'); ok(fmtDnu(300e3)==='300 kHz','fmtDnu kHz');
+  ok(sci(1.8e-12,1)==='1.8×10⁻¹²','sci superscripts');
+
+  console.log(pass+' passed, '+fail+' failed');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

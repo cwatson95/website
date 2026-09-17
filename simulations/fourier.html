@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fourier — transforms, series &amp; the fast Fourier transform</title>
+<!--
+  The Fourier transform, made visible, and the algorithm that makes it fast.
+  Three coherent views over one shared signal g(t); the strip below the stage
+  is always "the frequency domain." Single file, no dependencies, file://.
+
+  1. TRANSFORM — the winding machine. A real signal g(t) is wrapped around the
+     origin at a test frequency f: the plane point is g(t)·e^{-2πift}, radius =
+     the graph height, angle = -2π f t. Average all those points and you get
+     the winding's CENTER OF MASS,
+
+         ĝ(f) = ∫₀¹ g(t) e^{-2πi f t} dt         (window T = 1, so 1/T = 1)
+
+     which is exactly the (continuous, one-period) Fourier transform. It sits
+     near zero until f matches a frequency actually present in g, then lunges
+     out to that component's (amplitude/2). Sweeping f and reading |center of
+     mass| traces the spectrum in the scope — pure cosines give clean spikes;
+     a square wave gives the 1/k odd-harmonic ladder. (This is the 3Blue1Brown
+     "wind the graph around a circle" picture, computed honestly.)
+
+  2. SYNTHESIS — Fourier series as epicycles. Every periodic signal is a sum of
+     rotating phasors, one per integer harmonic k, radius = the harmonic
+     amplitude Aₖ. Chained tip-to-tail, the pen's height is the partial sum
+
+         g_M(t) = Σ_{k=1..M} Aₖ cos(2π k t + φₖ)        (+ DC)
+
+     of the first M terms. Presets load the exact analytic series of a square,
+     sawtooth, triangle or pulse train, so the pen closes in on the ideal wave
+     as M grows — and near a jump the partial sum overshoots by the stubborn
+     Gibbs constant (2/π)Si(π) ≈ 1.1790 (an ~8.95% ear that never shrinks),
+     asserted numerically in the self-test.
+
+  3. FFT — Cooley–Tukey, drawn. The DFT X[k] = Σ_n x[n] e^{-2πikn/N} is N²
+     complex multiplies. Split x into even/odd samples, transform each half,
+     and recombine with one twiddle W_N^k = e^{-2πik/N} per pair,
+
+         X[k]      = Eₖ + W_N^k Oₖ
+         X[k+N/2]  = Eₖ − W_N^k Oₖ,
+
+     recurse, and the cost collapses to (N/2)log₂N. The stage stepper walks the
+     radix-2 decimation-in-time butterfly network (inputs bit-reversed so
+     outputs come out in order); the readout compares the two operation counts.
+
+  Rendering: 2d canvas on black, family style of radio_waves.html /
+  blackbody_radiation.html (cyan carries the transform, chartreuse the live
+  center of mass / active stage, magenta the imaginary axis / ideal target).
+  The FFT here is the same code the diagram animates — fftTrace() snapshots
+  each stage, and the self-test checks that its final column equals a direct
+  DFT to machine precision.
+
+  Headless self-test: extract the script body (the substring between the LAST
+  <script> and </script> tags) and run it with
+      osascript -l JavaScript fourier_test.js
+  — when `document` is undefined it runs the assertion suite (radix-2 FFT vs
+  direct DFT, IFFT∘FFT = identity, Parseval, the shift theorem, the pure-tone
+  delta, bit-reversal involution, twiddle identities, the FFT/DFT op counts,
+  analytic square/saw/triangle/pulse coefficients recovered from the sampled
+  waveform, the winding integral peaking at A/2 on a component, Gibbs, clamps,
+  formula-bar text) instead of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; flex:1; min-height:0;}
+  #main{display:flex; flex-direction:column; flex:1; min-width:0;}
+  #stage{position:relative; flex:1; min-height:0;}
+  #view{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none;}
+  #view.grabbing{cursor:grabbing;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px "SF Mono", Menlo, monospace; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #scopewrap{flex-shrink:0; height:172px; border-top:1px solid var(--edge); background:#050508; position:relative;}
+  #scope{width:100%; height:100%; display:block; touch-action:none;}
+  #scopelab{position:absolute; left:12px; top:8px; font-size:10.5px; letter-spacing:.08em;
+            text-transform:uppercase; color:#777; pointer-events:none;}
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.6;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .efrac{display:inline-flex; flex-direction:column; vertical-align:middle;
+                text-align:center; margin:0 3px; line-height:1.25; font-size:14px;}
+  #eqbar .efrac .en{border-bottom:1px solid #9a9aa4; padding:0 5px;}
+  #eqbar .efrac .ed{padding:0 5px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+  #eqbar .dim{color:var(--dim);}
+  #panel{width:288px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 22px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:82px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:52px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:2px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .ro{font:11.5px "SF Mono", Menlo, monospace; color:var(--dim); margin:3px 0;}
+  .ro b{color:var(--text); font-weight:600;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Fourier</h1>
+  <span class="sub">the winding-machine transform &middot; series as rotating phasors &middot; the fast Fourier transform butterfly</span>
+</header>
+<div id="wrap">
+  <div id="main">
+    <div id="stage">
+      <canvas id="view"></canvas>
+      <div id="hint"></div>
+      <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    </div>
+    <div id="scopewrap"><div id="scopelab"></div><canvas id="scope"></canvas></div>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>view</h3>
+      <div class="chips">
+        <button class="chip on" id="modeTransform" title="wind g(t) around the origin at frequency f">transform</button>
+        <button class="chip" id="modeSynthesis" title="build g(t) from rotating phasors (Fourier series)">synthesis</button>
+        <button class="chip" id="modeFft" title="the radix-2 Cooley–Tukey butterfly network">FFT</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>presets</h3>
+      <div class="chips">
+        <button class="chip" id="pBeats" title="two pure tones — wind and watch two spikes appear">two tones</button>
+        <button class="chip" id="pSquare" title="square wave from its odd harmonics — Gibbs ears">square series</button>
+        <button class="chip" id="pFft" title="an 8-point transform on the butterfly network">FFT of 8</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>signal g(t)</h3>
+      <div class="chips">
+        <button class="chip on" id="sTones" title="sum of pure cosines">tones</button>
+        <button class="chip" id="sSquare" title="(4/π) Σ sin(2π(2n−1)t)/(2n−1)">square</button>
+        <button class="chip" id="sSaw" title="(2/π) Σ (−1)ⁿ⁺¹ sin(2πnt)/n">sawtooth</button>
+        <button class="chip" id="sTri" title="(8/π²) Σ cos(2π(2n−1)t)/(2n−1)²">triangle</button>
+        <button class="chip" id="sPulse" title="rectangular pulse train — sinc spectrum">pulse</button>
+      </div>
+      <div id="rowTones">
+        <div class="sliderrow"><label for="eF1">tone 1 &fnof;<sub>1</sub></label>
+          <input type="range" id="eF1" min="0" max="16" step="1"><span class="val" id="eF1Val"></span></div>
+        <div class="sliderrow"><label for="eF2">tone 2 &fnof;<sub>2</sub></label>
+          <input type="range" id="eF2" min="0" max="16" step="1"><span class="val" id="eF2Val"></span></div>
+        <div class="sliderrow"><label for="eF3">tone 3 &fnof;<sub>3</sub></label>
+          <input type="range" id="eF3" min="0" max="16" step="1"><span class="val" id="eF3Val"></span></div>
+      </div>
+      <div class="sliderrow" id="rowHarm"><label for="eHarm">harmonics M</label>
+        <input type="range" id="eHarm" min="1" max="40" step="1"><span class="val" id="eHarmVal"></span></div>
+      <div class="sliderrow" id="rowDuty"><label for="eDuty">duty d</label>
+        <input type="range" id="eDuty" min="0.05" max="0.5" step="0.01"><span class="val" id="eDutyVal"></span></div>
+    </div>
+
+    <div class="grp" id="grpTransform">
+      <h3>winding</h3>
+      <div class="sliderrow"><label for="eWindF">frequency &fnof;</label>
+        <input type="range" id="eWindF" min="0" max="12" step="0.02"><span class="val" id="eWindFVal"></span></div>
+      <div class="checks">
+        <label><input type="checkbox" id="ckSweep" checked> auto-sweep &fnof;</label>
+        <label><input type="checkbox" id="ckGuide" checked> guides</label>
+      </div>
+    </div>
+
+    <div class="grp" id="grpFft">
+      <h3>transform size N</h3>
+      <div class="chips" id="nRow">
+        <button class="chip" id="n4">4</button>
+        <button class="chip on" id="n8">8</button>
+        <button class="chip" id="n16">16</button>
+        <button class="chip" id="n32">32</button>
+        <button class="chip" id="n64">64</button>
+      </div>
+      <div class="sliderrow"><label for="eStage">stage</label>
+        <input type="range" id="eStage" min="0" max="3" step="1"><span class="val" id="eStageVal"></span></div>
+      <div class="checks"><label><input type="checkbox" id="ckPlay" checked> play stages</label>
+        <label><input type="checkbox" id="ckTw" checked> twiddles</label></div>
+      <div class="ro" id="roCost"></div>
+    </div>
+
+    <div class="grp" id="grpSynth">
+      <h3>reconstruction</h3>
+      <div class="checks">
+        <label><input type="checkbox" id="ckTarget" checked> ideal wave</label>
+        <label><input type="checkbox" id="ckEpi" checked> phasors</label>
+      </div>
+      <div class="ro" id="roErr"></div>
+    </div>
+
+    <div class="grp">
+      <h3>time</h3>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0" max="2.5" step="0.05"><span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow">
+        <button id="pauseBtn">pause</button>
+        <button id="restartBtn" title="back to phase 0">restart</button>
+        <button id="resetBtn" title="restore defaults">reset all</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<div id="eqbar"></div>
+<script>
+"use strict";
+/* ============================ constants ========================== */
+const TAU=Math.PI*2, PI=Math.PI;
+const COL={bg:'#070b18', acc:'#58c4dd', na:'#b8ec4c', nb:'#cd35c4',
+           txt:'#cccccc', dim:'#999999', edge:'#222228'};
+function clamp(x,a,b){ return x<a?a:(x>b?b:x); }
+function fmt(x,d){ d=(d===undefined?2:d); return (+x).toFixed(d); }
+function hx(h){ h=h.replace('#',''); return [parseInt(h.substr(0,2),16),parseInt(h.substr(2,2),16),parseInt(h.substr(4,2),16)]; }
+function mix(a,b,t){ const A=hx(a),B=hx(b); t=clamp(t,0,1);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','+Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+
+/* ===================== complex DFT / radix-2 FFT =================
+   All DOM-free and exercised by the self-test. Arrays are separate
+   real/imag Float64Arrays; forward transform is X[k]=Σ x[n] W^{kn},
+   W = e^{-2πi/N}. fftTrace() also snapshots every stage so the
+   butterfly diagram animates the *actual* intermediate values. */
+function bitrevIndices(N){
+  const bits=Math.round(Math.log2(N)), out=new Int32Array(N);
+  for (let i=0;i<N;i++){ let r=0;
+    for (let b=0;b<bits;b++) if (i&(1<<b)) r|=1<<(bits-1-b);
+    out[i]=r; }
+  return out;
+}
+function fftPlan(N){                                   // butterflies per stage
+  const stages=[], bits=Math.round(Math.log2(N));
+  for (let s=0;s<bits;s++){
+    const len=1<<(s+1), half=len>>1, bfs=[];
+    for (let i=0;i<N;i+=len)
+      for (let k=0;k<half;k++)
+        bfs.push({top:i+k, bot:i+k+half, twExp:k*(N/len)});   // W_N^{k N/len}
+    stages.push({len:len, half:half, bfs:bfs});
+  }
+  return stages;
+}
+function fftTrace(re0, im0){                            // decimation-in-time
+  const N=re0.length, bits=Math.round(Math.log2(N)), br=bitrevIndices(N);
+  const re=new Float64Array(N), im=new Float64Array(N);
+  for (let i=0;i<N;i++){ re[i]=re0[br[i]]; im[i]=im0[br[i]]; }
+  const snaps=[{re:re.slice(), im:im.slice()}];
+  for (let s=0;s<bits;s++){
+    const len=1<<(s+1), half=len>>1, ang=-TAU/len, wr=Math.cos(ang), wi=Math.sin(ang);
+    for (let i=0;i<N;i+=len){ let cr=1, ci=0;
+      for (let k=0;k<half;k++){
+        const ur=re[i+k], ui=im[i+k];
+        const vr=re[i+k+half]*cr-im[i+k+half]*ci;
+        const vi=re[i+k+half]*ci+im[i+k+half]*cr;
+        re[i+k]=ur+vr;      im[i+k]=ui+vi;
+        re[i+k+half]=ur-vr; im[i+k+half]=ui-vi;
+        const ncr=cr*wr-ci*wi, nci=cr*wi+ci*wr; cr=ncr; ci=nci;
+      }
+    }
+    snaps.push({re:re.slice(), im:im.slice()});
+  }
+  return snaps;                                         // snaps[bits] = X[k]
+}
+function fft(re,im){ const s=fftTrace(re,im); return s[s.length-1]; }
+function ifft(re,im){                                   // via conjugation
+  const N=re.length, ci=new Float64Array(N);
+  for (let i=0;i<N;i++) ci[i]=-im[i];
+  const X=fft(re.slice(), ci);
+  for (let i=0;i<N;i++){ X.re[i]/=N; X.im[i]=-X.im[i]/N; }
+  return X;
+}
+function dftDirect(re,im){                              // O(N^2) reference
+  const N=re.length, Re=new Float64Array(N), Im=new Float64Array(N);
+  for (let k=0;k<N;k++){ let sr=0, si=0;
+    for (let n=0;n<N;n++){ const a=-TAU*k*n/N, c=Math.cos(a), s=Math.sin(a);
+      sr+=re[n]*c-im[n]*s; si+=re[n]*s+im[n]*c; }
+    Re[k]=sr; Im[k]=si; }
+  return {re:Re, im:Im};
+}
+function fftCost(N){ return {fft:(N/2)*Math.log2(N), dft:N*N}; }
+
+/* ========================= signal model =========================
+   comps = [{k, A, phi}]; g(t) = Σ A cos(2π k t + φ), t on [0,1). */
+function sinc(x){ return x===0?1:Math.sin(PI*x)/(PI*x); }
+function toneComps(f1,f2,f3){
+  const out=[], seen={};
+  [f1,f2,f3].forEach(function(f){ f=Math.round(f);
+    if (f>0 && !seen[f]){ seen[f]=1; out.push({k:f, A:1, phi:0}); } });
+  return out;
+}
+function seriesComps(sig, M, duty){
+  const out=[];
+  if (sig==='square'){                                 // 4/π Σ sin(2π(2j-1)t)/(2j-1)
+    for (let j=1;j<=M;j++){ const k=2*j-1; out.push({k:k, A:4/(PI*k), phi:-PI/2}); }
+  } else if (sig==='saw'){                              // 2/π Σ (-1)^{k+1} sin(2πkt)/k
+    for (let k=1;k<=M;k++){ const s=(k%2===1)?1:-1; out.push({k:k, A:s*2/(PI*k), phi:-PI/2}); }
+  } else if (sig==='triangle'){                         // 8/π² Σ cos(2π(2j-1)t)/(2j-1)²
+    for (let j=1;j<=M;j++){ const k=2*j-1; out.push({k:k, A:8/(PI*PI*k*k), phi:0}); }
+  } else if (sig==='pulse'){                            // duty-d rectangle: d + 2d Σ sinc(kd) cos
+    out.push({k:0, A:duty, phi:0});
+    for (let k=1;k<=M;k++) out.push({k:k, A:2*duty*sinc(k*duty), phi:0});
+  }
+  return out;
+}
+function buildComps(st){
+  return st.sig==='tones' ? toneComps(st.f1,st.f2,st.f3)
+                          : seriesComps(st.sig, st.harm, st.duty);
+}
+function gAt(comps, t){
+  let s=0; for (let i=0;i<comps.length;i++){ const c=comps[i]; s+=c.A*Math.cos(TAU*c.k*t+c.phi); }
+  return s;
+}
+function targetAt(sig, t, duty){                        // the ideal periodic wave
+  const u=t-Math.floor(t);
+  if (sig==='square')   return u<0.5? 1:-1;
+  if (sig==='saw')      return u<0.5? 2*u : 2*u-2;
+  if (sig==='triangle') return u<0.5? 1-4*u : 4*u-3;
+  if (sig==='pulse')    return u<duty? 1:0;
+  return null;
+}
+function sampleReal(comps, N){
+  const x=new Float64Array(N);
+  for (let n=0;n<N;n++) x[n]=gAt(comps, n/N);
+  return x;
+}
+function windAt(comps, f, M){                           // ∫₀¹ g e^{-2πift} dt (midpoint)
+  M=M||1024; let sr=0, si=0;
+  for (let n=0;n<M;n++){ const t=(n+0.5)/M, g=gAt(comps,t), a=-TAU*f*t;
+    sr+=g*Math.cos(a); si+=g*Math.sin(a); }
+  return {re:sr/M, im:si/M};
+}
+function spectrumCurve(comps, fmax, nF){
+  const fs=new Float64Array(nF), mag=new Float64Array(nF);
+  for (let i=0;i<nF;i++){ const f=fmax*i/(nF-1), w=windAt(comps,f,512);
+    fs[i]=f; mag[i]=Math.hypot(w.re,w.im); }
+  return {fs:fs, mag:mag};
+}
+function maxHarm(comps){ let m=1; for (let i=0;i<comps.length;i++) m=Math.max(m,comps[i].k); return m; }
+
+/* ============================ state ============================= */
+const DEFAULTS={ mode:'transform', sig:'tones', f1:3, f2:5, f3:0, harm:8, duty:0.3,
+  windF:0.0, sweep:true, guide:true, Nfft:8, stage:0, play:true, tw:true,
+  target:true, epi:true, speed:1.0 };
+const NCHOICES=[4,8,16,32,64];
+const PRESETS={
+  pBeats:{ mode:'transform', sig:'tones', f1:3, f2:5, f3:0, sweep:true },
+  pSquare:{ mode:'synthesis', sig:'square', harm:9, target:true, epi:true },
+  pFft:{ mode:'fft', sig:'tones', f1:1, f2:3, f3:0, Nfft:8, play:true, stage:0 }
+};
+function clampState(s){
+  const o=Object.assign({}, DEFAULTS, s||{});
+  if (['transform','synthesis','fft'].indexOf(o.mode)<0) o.mode='transform';
+  if (['tones','square','saw','triangle','pulse'].indexOf(o.sig)<0) o.sig='tones';
+  o.f1=clamp(Math.round(o.f1),0,16); o.f2=clamp(Math.round(o.f2),0,16); o.f3=clamp(Math.round(o.f3),0,16);
+  o.harm=clamp(Math.round(o.harm),1,40); o.duty=clamp(o.duty,0.05,0.5);
+  o.windF=clamp(o.windF,0,12); o.speed=clamp(o.speed,0,2.5);
+  if (NCHOICES.indexOf(o.Nfft)<0) o.Nfft=8;
+  o.stage=clamp(Math.round(o.stage),0,Math.round(Math.log2(o.Nfft))-1);
+  ['sweep','guide','play','tw','target','epi'].forEach(function(k){ o[k]=!!o[k]; });
+  return o;
+}
+
+/* ========================== formula bar ========================= */
+function frac(n,d){ return '<span class="efrac"><span class="en">'+n+'</span><span class="ed">'+d+'</span></span>'; }
+function seriesLabelHTML(sig){
+  if (sig==='square')   return frac('4','&pi;')+' &Sigma; '+frac('sin 2&pi;(2n&minus;1)t','2n&minus;1');
+  if (sig==='saw')      return frac('2','&pi;')+' &Sigma; (&minus;1)<sup>n+1</sup> '+frac('sin 2&pi;nt','n');
+  if (sig==='triangle') return frac('8','&pi;<sup>2</sup>')+' &Sigma; '+frac('cos 2&pi;(2n&minus;1)t','(2n&minus;1)<sup>2</sup>');
+  if (sig==='pulse')    return 'd + 2d &Sigma; sinc(nd) cos 2&pi;nt';
+  return '&Sigma;<sub>k</sub> A<sub>k</sub> cos(2&pi;&fnof;<sub>k</sub>t + &phi;<sub>k</sub>)';
+}
+function eqbarHTML(st){
+  if (st.mode==='transform')
+    return '<span class="lhs">&gcirc;(&fnof;)</span> = &int;<sub>0</sub><sup>1</sup> g(t) e<sup>&minus;2&pi;i&fnof;t</sup> dt'+
+           '<span class="dim">&nbsp;&nbsp;&mdash;&nbsp; center of mass of g(t)&middot;e<sup>&minus;2&pi;i&fnof;t</sup></span>';
+  if (st.mode==='synthesis')
+    return '<span class="lhs">g(t)</span> = '+seriesLabelHTML(st.sig)+
+           '<span class="dim">&nbsp;&nbsp;(partial sum to M = '+st.harm+')</span>';
+  return '<span class="lhs">X[k]</span> = E<sub>k</sub> + W<sub>N</sub><sup>k</sup>O<sub>k</sub>, &nbsp; '+
+         'X[k+N/2] = E<sub>k</sub> &minus; W<sub>N</sub><sup>k</sup>O<sub>k</sub>'+
+         '<span class="dim">&nbsp;&nbsp; W<sub>N</sub> = e<sup>&minus;2&pi;i/N</sup>, &nbsp; cost '+
+         frac('N','2')+'log<sub>2</sub>N &Lt; N<sup>2</sup></span>';
+}
+function eqbarText(st){                                  // plain ASCII (tests)
+  if (st.mode==='transform') return 'ghat(f) = INT g(t) e^{-2pi i f t} dt';
+  if (st.mode==='synthesis') return 'g(t) = series to M='+st.harm;
+  return 'X[k] = E_k + W_N^k O_k ; cost N/2 log2 N << N^2';
+}
+
+/* ============================= boot ============================= */
+function boot(){
+  const $=function(id){ return document.getElementById(id); };
+  const cv=$('view'), ctx=cv.getContext('2d');
+  const scCv=$('scope'), scx=scCv.getContext('2d');
+  const dpr=Math.max(1, Math.min(2.5, window.devicePixelRatio||1));
+  let W=980, H=440, SW=980, SH=172;
+  const state=clampState(Object.assign({}, DEFAULTS));
+  let comps=buildComps(state), spec=null, snaps=null, plan=null;
+  let t=0, paused=false, frameNo=0;
+  let tau=0;                                            // drawing phase in [0,1)
+  let stageTimer=0;                                     // fft auto-advance
+
+  /* ---------- model rebuild ---------- */
+  function rebuildModel(){
+    comps=buildComps(state);
+    const fmax=Math.max(8, maxHarm(comps)+3);
+    spec=spectrumCurve(comps, fmax, 260);
+    const x=sampleReal(comps, state.Nfft);
+    const im0=new Float64Array(state.Nfft);
+    snaps=fftTrace(x, im0);
+    plan=fftPlan(state.Nfft);
+  }
+
+  /* ---------- small canvas helpers ---------- */
+  function line(c,x0,y0,x1,y1,col,w,dash){ c.strokeStyle=col; c.lineWidth=w||1;
+    if (dash) c.setLineDash(dash); c.beginPath(); c.moveTo(x0,y0); c.lineTo(x1,y1); c.stroke();
+    if (dash) c.setLineDash([]); }
+  function dot(c,x,y,r,col){ c.fillStyle=col; c.beginPath(); c.arc(x,y,r,0,TAU); c.fill(); }
+  function ring(c,x,y,r,col,w){ c.strokeStyle=col; c.lineWidth=w||1; c.beginPath(); c.arc(x,y,r,0,TAU); c.stroke(); }
+  function txt(c,s,x,y,col,f,al){ c.fillStyle=col; c.font=f||'12px -apple-system, sans-serif';
+    c.textAlign=al||'left'; c.textBaseline='alphabetic'; c.fillText(s,x,y); }
+
+  /* ---------- TRANSFORM: the winding machine ---------- */
+  function drawTransform(){
+    const side=Math.min(H-46, W*0.56), cx=28+side/2, cy=H/2, ax=side*0.5;
+    let ampSum=0.02; for (let i=0;i<comps.length;i++) ampSum+=Math.abs(comps[i].A);
+    const R=(side*0.46)/Math.max(1.1, ampSum);            // value 1 -> R; whole wound curve fits the box
+    // axes + reference circle (radius = amplitude 1)
+    line(ctx, cx-ax, cy, cx+ax, cy, '#1a1a20', 1);        // Re axis
+    line(ctx, cx, cy-ax, cx, cy+ax, '#1a1a20', 1);        // Im axis
+    ring(ctx, cx, cy, R, COL.edge, 1);
+    txt(ctx,'Re',cx+ax+3,cy+4,COL.dim,'11px "SF Mono",monospace');
+    txt(ctx,'Im',cx-8,cy-ax-4,COL.nb,'11px "SF Mono",monospace','right');
+    // wound curve g(τ)·e^{-2πi f τ}, coloured by τ (cyan -> magenta)
+    const NS=900, f=state.windF;
+    let px=0, py=0;
+    for (let i=0;i<=NS;i++){ const t0=i/NS, g=gAt(comps,t0), a=TAU*f*t0;
+      const X=cx+R*g*Math.cos(a), Y=cy+R*g*Math.sin(a);
+      if (i>0){ ctx.strokeStyle=mix(COL.acc, COL.nb, t0); ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(X,Y); ctx.stroke(); }
+      px=X; py=Y;
+    }
+    const com=windAt(comps, f, 720), mag=Math.hypot(com.re,com.im);
+    const comX=cx+R*com.re, comY=cy+R*com.im;
+    if (state.guide){ line(ctx, cx, cy, comX, comY, mix(COL.na,'#000000',0.15), 1.4); }
+    // the moving point on the wound curve (at τ)
+    { const g=gAt(comps,tau), a=TAU*f*tau; dot(ctx, cx+R*g*Math.cos(a), cy+R*g*Math.sin(a), 3, COL.acc); }
+    // centre of mass
+    ring(ctx, comX, comY, 7, COL.na, 2); dot(ctx, comX, comY, 3, COL.na);
+    txt(ctx,'center of mass',cx-ax,cy+ax+16,COL.dim,'11px -apple-system');
+    // g(t) strip, upper-right
+    const gx0=28+side+34, gx1=W-24, gy=H*0.30, gh=H*0.20;
+    if (gx1-gx0>90) drawSignalStrip(gx0, gx1, gy, gh);
+    return {mag:mag, f:f};
+  }
+  function drawSignalStrip(x0,x1,yc,h){
+    line(ctx, x0, yc, x1, yc, '#1a1a20', 1);
+    let amp=0.01; for (let i=0;i<comps.length;i++) amp+=Math.abs(comps[i].A);
+    const sc=h/Math.max(1.05, amp);
+    txt(ctx,'g(t)',x0,yc-h-6,COL.dim,'11px "SF Mono",monospace');
+    ctx.strokeStyle=COL.acc; ctx.lineWidth=1.6; ctx.beginPath();
+    const NP=Math.max(60, Math.round(x1-x0));
+    for (let i=0;i<=NP;i++){ const tt=i/NP, X=x0+(x1-x0)*tt, Y=yc-sc*gAt(comps,tt);
+      if (i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y); }
+    ctx.stroke();
+    dot(ctx, x0+(x1-x0)*tau, yc-sc*gAt(comps,tau), 3, COL.na);
+  }
+
+  /* ---------- SYNTHESIS: epicycles + reconstruction ---------- */
+  function drawSynthesis(){
+    const splitX=W*0.42;
+    const ax=Math.min(splitX*0.56, 210), ay=H/2;         // phasor anchor
+    let amp=0.02; for (let i=0;i<comps.length;i++) amp+=Math.abs(comps[i].A);
+    const S=Math.min(H*0.40, splitX*0.42)/Math.max(1.05, amp);
+    // chain the phasors, vertical component = g(τ). DC (k=0) shifts the anchor
+    // so the pen height still equals g(τ) and the connector stays horizontal.
+    let dc=0; for (let i=0;i<comps.length;i++) if (comps[i].k===0) dc+=comps[i].A;
+    const ord=comps.slice().filter(function(c){ return c.k>0; }).sort(function(a,b){ return a.k-b.k; });
+    let cxp=ax, cyp=ay-S*dc;
+    if (state.epi){
+      for (let i=0;i<ord.length;i++){ const c=ord[i], th=TAU*c.k*tau+c.phi, r=Math.abs(c.A)*S;
+        ring(ctx, cxp, cyp, r, 'rgba(120,120,140,0.28)', 1);
+        const nx=cxp+c.A*Math.sin(th)*S, ny=cyp-c.A*Math.cos(th)*S;
+        line(ctx, cxp, cyp, nx, ny, mix(COL.acc,COL.nb, i/Math.max(1,ord.length)), 1.4);
+        cxp=nx; cyp=ny;
+      }
+    } else { cyp=ay-S*gAt(comps,tau); cxp=ax; }
+    const penY=cyp;
+    dot(ctx, cxp, penY, 3.5, COL.na);
+    // reconstruction plot on the right, same baseline ay + scale S
+    const rx0=splitX+20, rx1=W-24, span=rx1-rx0;
+    line(ctx, rx0, ay, rx1, ay, '#1a1a20', 1);
+    txt(ctx,'partial sum gₘ(t)  vs  ideal',rx0,ay-S*1.15-8,COL.dim,'11px "SF Mono",monospace');
+    // ideal target (dim magenta dashed)
+    if (state.target && targetAt(state.sig,0,state.duty)!==null){
+      ctx.strokeStyle=mix(COL.nb,'#000',0.15); ctx.lineWidth=1.2; ctx.setLineDash([4,4]); ctx.beginPath();
+      const NP=Math.max(120, span);
+      for (let i=0;i<=NP;i++){ const tt=i/NP, X=rx0+span*tt, Y=ay-S*targetAt(state.sig,tt,state.duty);
+        if (i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y); }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    // partial sum (accent)
+    ctx.strokeStyle=COL.acc; ctx.lineWidth=1.8; ctx.beginPath();
+    const NP2=Math.max(160, span);
+    for (let i=0;i<=NP2;i++){ const tt=i/NP2, X=rx0+span*tt, Y=ay-S*gAt(comps,tt);
+      if (i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y); }
+    ctx.stroke();
+    // cursor + horizontal connector from pen
+    const curX=rx0+span*tau, curY=ay-S*gAt(comps,tau);
+    line(ctx, cxp, penY, curX, curY, 'rgba(184,236,76,0.35)', 1);
+    dot(ctx, curX, curY, 3.5, COL.na);
+    // rms error vs ideal
+    let err=null;
+    if (targetAt(state.sig,0,state.duty)!==null){
+      let se=0, M=400; for (let i=0;i<M;i++){ const tt=(i+0.5)/M, d=gAt(comps,tt)-targetAt(state.sig,tt,state.duty); se+=d*d; }
+      err=Math.sqrt(se/M);
+    }
+    return {err:err, M:state.harm};
+  }
+
+  /* ---------- FFT: the butterfly network ---------- */
+  function drawFft(){
+    const N=state.Nfft, bits=Math.round(Math.log2(N));
+    const cost=fftCost(N);
+    if (N>16){                                           // network too dense — show the payoff
+      const bx=W*0.5, by=H*0.36;
+      txt(ctx,'N = '+N,bx,by-38,'#fff','italic 26px Georgia, serif','center');
+      txt(ctx,'direct DFT: '+cost.dft+' complex multiplies',bx,by,COL.dim,'14px "SF Mono",monospace','center');
+      txt(ctx,'radix-2 FFT: '+cost.fft+' complex multiplies',bx,by+24,COL.na,'14px "SF Mono",monospace','center');
+      txt(ctx,'speedup ×'+fmt(cost.dft/cost.fft,1),bx,by+52,COL.acc,'italic 18px Georgia, serif','center');
+      // op-count bars
+      const barX=W*0.5-160, barY=by+86, barW=320, mx=cost.dft;
+      ctx.fillStyle=mix(COL.dim,'#000',0.3); ctx.fillRect(barX,barY,barW*cost.dft/mx,14);
+      ctx.fillStyle=COL.na; ctx.fillRect(barX,barY+22,barW*cost.fft/mx,14);
+      txt(ctx,'N²',barX-6,barY+12,COL.dim,'11px "SF Mono",monospace','right');
+      txt(ctx,'½N log₂N',barX-6,barY+34,COL.na,'11px "SF Mono",monospace','right');
+      txt(ctx,'butterfly network drawn for N ≤ 16 — the spectrum is below',W*0.5,H-16,COL.dim,'11px -apple-system','center');
+      return {N:N, stage:state.stage};
+    }
+    const lx=96, rx=W-96, topY=44, botY=H-30;
+    const colX=function(c){ return lx+(rx-lx)*c/bits; };
+    const rowY=function(i){ return topY+(botY-topY)*i/(N-1); };
+    const br=bitrevIndices(N);
+    const active=state.stage;
+    // faint horizontal rails
+    for (let i=0;i<N;i++) line(ctx, lx, rowY(i), rx, rowY(i), '#141419', 1);
+    // butterflies per stage
+    for (let s=0;s<bits;s++){
+      const x0=colX(s), x1=colX(s+1), on=(s===active);
+      const stg=plan[s];
+      for (let b=0;b<stg.bfs.length;b++){ const bf=stg.bfs[b];
+        const yT=rowY(bf.top), yB=rowY(bf.bot);
+        const cc = on ? COL.na : '#3a3a44';
+        line(ctx, x0, yT, x1, yT, cc, on?1.8:1.1);       // top straight
+        line(ctx, x0, yB, x1, yB, cc, on?1.8:1.1);       // bottom straight
+        line(ctx, x0, yT, x1, yB, cc, on?1.6:1.0);       // cross down
+        line(ctx, x0, yB, x1, yT, cc, on?1.6:1.0);       // cross up
+        if (state.tw && on && bf.twExp>0)
+          txt(ctx,'W'+String.fromCharCode(0x2099)+'^'+bf.twExp,(x0+x1)/2,yB+13,COL.nb,'10px "SF Mono",monospace','center');
+      }
+    }
+    // nodes coloured by |value| at each column (from the trace)
+    for (let c=0;c<=bits;c++){ const snap=snaps[c];
+      for (let i=0;i<N;i++){ const m=Math.hypot(snap.re[i],snap.im[i]);
+        const b=clamp(m/(N*0.5+0.001),0,1);
+        dot(ctx, colX(c), rowY(i), 3.2, mix('#33333a', COL.acc, Math.sqrt(b))); }
+    }
+    // labels: bit-reversed inputs on the left, X[k] on the right
+    for (let i=0;i<N;i++){
+      txt(ctx,'x['+br[i]+']',lx-10,rowY(i)+4,COL.dim,'11px "SF Mono",monospace','right');
+      txt(ctx,'X['+i+']',rx+10,rowY(i)+4,COL.acc,'11px "SF Mono",monospace','left');
+    }
+    // stage banner
+    for (let s=0;s<bits;s++){ const on=(s===active);
+      txt(ctx,'stage '+(s+1),colX(s+0.5),topY-14,on?COL.na:COL.dim, on?'italic 13px Georgia, serif':'11px -apple-system','center'); }
+    txt(ctx,'inputs bit-reversed',lx-10,botY+24,COL.dim,'10px -apple-system','right');
+    txt(ctx,'outputs in order',rx+10,botY+24,COL.dim,'10px -apple-system','left');
+    return {N:N, stage:active};
+  }
+
+  /* ---------- scope: the frequency domain ---------- */
+  function drawScope(){
+    scx.clearRect(0,0,SW,SH);
+    const padL=44, padR=18, padT=16, padB=24, w=SW-padL-padR, h=SH-padT-padB, base=padT+h;
+    line(scx, padL, base, padL+w, base, COL.edge, 1);
+    if (state.mode==='transform') drawScopeTransform(padL,padT,w,h,base);
+    else if (state.mode==='synthesis') drawScopeSeries(padL,padT,w,h,base);
+    else drawScopeFft(padL,padT,w,h,base);
+  }
+  function drawScopeTransform(padL,padT,w,h,base){
+    const fmax=spec.fs[spec.fs.length-1];
+    let mmax=0.001; for (let i=0;i<spec.mag.length;i++) mmax=Math.max(mmax,spec.mag[i]);
+    const yOf=function(m){ return base-h*clamp(m/(mmax*1.1),0,1); };
+    const xOf=function(f){ return padL+w*f/fmax; };
+    // filled spectrum curve
+    scx.beginPath(); scx.moveTo(padL,base);
+    for (let i=0;i<spec.fs.length;i++) scx.lineTo(xOf(spec.fs[i]), yOf(spec.mag[i]));
+    scx.lineTo(padL+w,base); scx.closePath();
+    scx.fillStyle='rgba(88,196,221,0.14)'; scx.fill();
+    scx.strokeStyle=COL.acc; scx.lineWidth=1.6; scx.beginPath();
+    for (let i=0;i<spec.fs.length;i++){ const X=xOf(spec.fs[i]), Y=yOf(spec.mag[i]);
+      if (i===0) scx.moveTo(X,Y); else scx.lineTo(X,Y); }
+    scx.stroke();
+    // marker at current winding frequency
+    const w0=windAt(comps,state.windF,512), m0=Math.hypot(w0.re,w0.im);
+    line(scx, xOf(state.windF), padT, xOf(state.windF), base, 'rgba(184,236,76,0.5)', 1);
+    dot(scx, xOf(state.windF), yOf(m0), 4, COL.na);
+    for (let f=0;f<=fmax;f++) txt(scx,String(f),xOf(f),base+15,COL.dim,'10px "SF Mono",monospace','center');
+    txt(scx,fmt(mmax,2),padL-6,padT+8,COL.dim,'10px "SF Mono",monospace','right');
+    txt(scx,'|ĝ(ƒ)|',padL-6,base,COL.dim,'10px "SF Mono",monospace','right');
+  }
+  function drawScopeSeries(padL,padT,w,h,base){
+    const kmax=Math.max(maxHarm(comps)+1, 6);
+    let mmax=0.001; for (let i=0;i<comps.length;i++) mmax=Math.max(mmax,Math.abs(comps[i].A)/2);
+    const xOf=function(k){ return padL+w*(k+0.5)/(kmax+1); };
+    const yOf=function(m){ return base-h*clamp(m/(mmax*1.15),0,1); };
+    for (let i=0;i<comps.length;i++){ const c=comps[i]; if (c.k===0) continue;
+      const X=xOf(c.k), Y=yOf(Math.abs(c.A)/2);
+      line(scx, X, base, X, Y, COL.acc, 2.4); dot(scx, X, Y, 3, COL.na);
+    }
+    for (let k=1;k<=kmax;k++) if (k%Math.ceil(kmax/12)===0||k===1)
+      txt(scx,String(k),xOf(k),base+15,COL.dim,'10px "SF Mono",monospace','center');
+    txt(scx,'|cₖ|',padL-6,base,COL.dim,'10px "SF Mono",monospace','right');
+    txt(scx,fmt(mmax,2),padL-6,padT+8,COL.dim,'10px "SF Mono",monospace','right');
+  }
+  function drawScopeFft(padL,padT,w,h,base){
+    const N=state.Nfft, X=snaps[snaps.length-1];
+    let mmax=0.001; for (let k=0;k<N;k++) mmax=Math.max(mmax,Math.hypot(X.re[k],X.im[k])/N);
+    const xOf=function(k){ return padL+w*(k+0.5)/N; };
+    const yOf=function(m){ return base-h*clamp(m/(mmax*1.15),0,1); };
+    for (let k=0;k<N;k++){ const m=Math.hypot(X.re[k],X.im[k])/N, Xp=xOf(k), Yp=yOf(m);
+      line(scx, Xp, base, Xp, Yp, COL.acc, Math.max(2, w/N*0.5)); dot(scx, Xp, Yp, 3, COL.na);
+      if (N<=16) txt(scx,String(k),Xp,base+15,COL.dim,'10px "SF Mono",monospace','center');
+    }
+    txt(scx,'|X[k]|/N',padL-6,base,COL.dim,'10px "SF Mono",monospace','right');
+    txt(scx,fmt(mmax,2),padL-6,padT+8,COL.dim,'10px "SF Mono",monospace','right');
+  }
+
+  /* ---------- readouts / info / eqbar ---------- */
+  let lastMag=0, lastErr=null;
+  function updateReadout(res){
+    if (state.mode==='transform'){
+      $('roMain').textContent='ƒ = '+fmt(state.windF,2);
+      $('roSub').textContent='|ĝ| = '+fmt(res?res.mag:lastMag,3);
+    } else if (state.mode==='synthesis'){
+      $('roMain').textContent='M = '+state.harm+(state.sig==='tones'?' tones':' harmonics');
+      $('roSub').textContent=(res&&res.err!=null)?('rms error '+fmt(res.err,3)):'';
+    } else {
+      const c=fftCost(state.Nfft);
+      $('roMain').textContent='N = '+state.Nfft;
+      $('roSub').textContent='FFT '+c.fft+' vs DFT '+c.dft+' mults  (×'+fmt(c.dft/c.fft,1)+')';
+    }
+  }
+  function updateEqbar(){ $('eqbar').innerHTML=eqbarHTML(state); }
+  function updateInfo(){
+    let s='';
+    if (state.mode==='transform')
+      s='<b>Wind g(t) around the origin</b> at test frequency &fnof;. The chartreuse dot is the '+
+        'winding’s center of mass. It hugs zero until &fnof; matches a frequency actually in g, '+
+        'then lunges out to that component’s amplitude/2. Sweep &fnof; and |center of mass| traces '+
+        '<b>|&gcirc;(&fnof;)|</b> — the Fourier transform, in the scope below.';
+    else if (state.mode==='synthesis')
+      s='<b>Every periodic signal is a sum of rotating phasors.</b> Each circle turns at an integer '+
+        'multiple of the fundamental; its radius is that harmonic’s amplitude. Chained tip-to-tail, '+
+        'the pen’s height is the partial sum of the first M terms. Near a jump it overshoots by the '+
+        'stubborn <b>Gibbs</b> ear (~9%) that never shrinks.';
+    else
+      s='<b>Cooley–Tukey.</b> The DFT is N&sup2; multiplies. Split x into even/odd samples, transform '+
+        'each half, recombine with one twiddle per pair — <b>X[k]=E<sub>k</sub>+W<sub>N</sub><sup>k</sup>O<sub>k</sub></b>. '+
+        'Recurse and cost falls to <b>&frac12;N&thinsp;log&#8322;N</b>. Inputs enter <b>bit-reversed</b> so outputs come out in order.';
+    $('info').innerHTML=s;
+    $('roCost').innerHTML='';
+    if (state.mode==='fft'){ const c=fftCost(state.Nfft);
+      $('roCost').innerHTML='FFT <b>'+c.fft+'</b> &middot; DFT <b>'+c.dft+'</b> mults'; }
+  }
+
+  /* ---------- control sync ---------- */
+  function setChip(id,on){ const e=$(id); if (e){ if (on) e.classList.add('on'); else e.classList.remove('on'); } }
+  function syncControls(){
+    setChip('modeTransform',state.mode==='transform'); setChip('modeSynthesis',state.mode==='synthesis'); setChip('modeFft',state.mode==='fft');
+    ['sTones','sSquare','sSaw','sTri','sPulse'].forEach(function(id){ setChip(id,false); });
+    setChip({tones:'sTones',square:'sSquare',saw:'sSaw',triangle:'sTri',pulse:'sPulse'}[state.sig],true);
+    NCHOICES.forEach(function(n){ setChip('n'+n, n===state.Nfft); });
+    // rows visibility
+    $('rowTones').hidden = state.sig!=='tones';
+    $('rowHarm').hidden = state.sig==='tones';
+    $('rowDuty').hidden = state.sig!=='pulse';
+    $('grpTransform').hidden = state.mode!=='transform';
+    $('grpFft').hidden = state.mode!=='fft';
+    $('grpSynth').hidden = state.mode!=='synthesis';
+    // slider values
+    $('eF1').value=state.f1; $('eF1Val').textContent=state.f1;
+    $('eF2').value=state.f2; $('eF2Val').textContent=state.f2;
+    $('eF3').value=state.f3; $('eF3Val').textContent=state.f3?state.f3:'off';
+    $('eHarm').value=state.harm; $('eHarmVal').textContent=state.harm;
+    $('eDuty').value=state.duty; $('eDutyVal').textContent=fmt(state.duty,2);
+    $('eWindF').value=state.windF; $('eWindFVal').textContent=fmt(state.windF,2);
+    $('eSpeed').value=state.speed; $('eSpeedVal').textContent=fmt(state.speed,2);
+    const bits=Math.round(Math.log2(state.Nfft));
+    $('eStage').max=String(bits-1); $('eStage').value=state.stage;
+    $('eStageVal').textContent=(state.stage+1)+'/'+bits;
+    $('ckSweep').checked=state.sweep; $('ckGuide').checked=state.guide;
+    $('ckPlay').checked=state.play; $('ckTw').checked=state.tw;
+    $('ckTarget').checked=state.target; $('ckEpi').checked=state.epi;
+    const lab={transform:'frequency domain — winding magnitude |ĝ(ƒ)|',
+               synthesis:'frequency domain — harmonic amplitudes |cₖ|',
+               fft:'frequency domain — DFT magnitude |X[k]|/N'};
+    $('scopelab').textContent=lab[state.mode];
+    $('hint').textContent = state.mode==='transform'
+      ? 'space = pause · drag on the plane to set ƒ'
+      : (state.mode==='fft' ? 'space = pause · ←/→ = step stages' : 'space = pause · r = restart');
+  }
+  function applyChange(){ state.stage=clamp(state.stage,0,Math.round(Math.log2(state.Nfft))-1);
+    rebuildModel(); syncControls(); updateEqbar(); updateInfo(); }
+
+  /* ---------- events ---------- */
+  function chip(id,fn){ const e=$(id); if (e) e.addEventListener('click',function(){ fn(); applyChange(); }); }
+  chip('modeTransform',function(){ state.mode='transform'; });
+  chip('modeSynthesis',function(){ state.mode='synthesis'; });
+  chip('modeFft',function(){ state.mode='fft'; });
+  chip('pBeats',function(){ Object.assign(state,PRESETS.pBeats); });
+  chip('pSquare',function(){ Object.assign(state,PRESETS.pSquare); });
+  chip('pFft',function(){ Object.assign(state,PRESETS.pFft); });
+  chip('sTones',function(){ state.sig='tones'; });
+  chip('sSquare',function(){ state.sig='square'; });
+  chip('sSaw',function(){ state.sig='saw'; });
+  chip('sTri',function(){ state.sig='triangle'; });
+  chip('sPulse',function(){ state.sig='pulse'; });
+  NCHOICES.forEach(function(n){ chip('n'+n,function(){ state.Nfft=n; state.stage=0; }); });
+  function bindSlider(id,key,round){ const e=$(id); if (!e) return;
+    e.addEventListener('input',function(){ state[key]=round?Math.round(+e.value):+e.value; applyChange(); }); }
+  bindSlider('eF1','f1',true); bindSlider('eF2','f2',true); bindSlider('eF3','f3',true);
+  bindSlider('eHarm','harm',true); bindSlider('eDuty','duty',false);
+  bindSlider('eWindF','windF',false); bindSlider('eStage','stage',true);
+  $('eSpeed').addEventListener('input',function(){ state.speed=+$('eSpeed').value; syncControls(); });
+  function bindCheck(id,key){ const e=$(id); if (e) e.addEventListener('change',function(){ state[key]=e.checked; syncControls(); }); }
+  bindCheck('ckSweep','sweep'); bindCheck('ckGuide','guide'); bindCheck('ckPlay','play');
+  bindCheck('ckTw','tw'); bindCheck('ckTarget','target'); bindCheck('ckEpi','epi');
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',function(){ setPaused(!paused); });
+  $('restartBtn').addEventListener('click',function(){ t=0; tau=0; if (state.mode==='transform'&&state.sweep) state.windF=0; syncControls(); });
+  $('resetBtn').addEventListener('click',function(){ Object.assign(state,clampState(Object.assign({},DEFAULTS))); t=0; tau=0; setPaused(false); applyChange(); });
+  document.addEventListener('keydown',function(ev){
+    if (ev.key===' '){ setPaused(!paused); ev.preventDefault(); }
+    else if (ev.key==='r'){ t=0; tau=0; }
+    else if (ev.key==='ArrowRight'&&state.mode==='fft'){ state.stage=clamp(state.stage+1,0,Math.round(Math.log2(state.Nfft))-1); state.play=false; applyChange(); }
+    else if (ev.key==='ArrowLeft'&&state.mode==='fft'){ state.stage=clamp(state.stage-1,0,Math.round(Math.log2(state.Nfft))-1); state.play=false; applyChange(); }
+  });
+  // drag on the plane sets the winding frequency (transform mode)
+  let dragging=false;
+  function planeF(ev){
+    const rect=cv.getBoundingClientRect(), mx=ev.clientX-rect.left, my=ev.clientY-rect.top;
+    const side=Math.min(H-46, W*0.56), cx=28+side/2, cy=H/2;
+    const ang=Math.atan2(my-cy, mx-cx);
+    // map angle turns accumulated to a small nudge; simpler: horizontal position -> f
+    return clamp(12*(mx-(28))/(side), 0, 12);
+  }
+  cv.addEventListener('pointerdown',function(ev){ if (state.mode==='transform'){ dragging=true; state.sweep=false; state.windF=planeF(ev); cv.classList.add('grabbing'); syncControls(); } });
+  cv.addEventListener('pointermove',function(ev){ if (dragging){ state.windF=planeF(ev); syncControls(); } });
+  cv.addEventListener('pointerup',function(){ dragging=false; cv.classList.remove('grabbing'); });
+
+  /* ---------- resize / loop ---------- */
+  function resize(){
+    W=cv.clientWidth||980; H=cv.clientHeight||440;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+    SW=scCv.clientWidth||980; SH=scCv.clientHeight||172;
+    scCv.width=Math.round(SW*dpr); scCv.height=Math.round(SH*dpr);
+    if (scx.setTransform) scx.setTransform(dpr,0,0,dpr,0,0); else scx.scale(dpr,dpr);
+  }
+  if (typeof window!=='undefined') window.addEventListener('resize',function(){ resize(); });
+
+  const SIM_DT=1/60;
+  function frame(){
+    if (!paused){
+      t+=SIM_DT*state.speed;
+      tau=(t*0.16)%1; if (tau<0) tau+=1;
+      if (state.mode==='transform' && state.sweep && !dragging){
+        const fmax=spec.fs[spec.fs.length-1];
+        state.windF+=SIM_DT*state.speed*0.55;
+        if (state.windF>fmax){ state.windF=0; }
+        $('eWindF').value=state.windF; $('eWindFVal').textContent=fmt(state.windF,2);
+      }
+      if (state.mode==='fft' && state.play){
+        stageTimer+=SIM_DT*state.speed;
+        if (stageTimer>0.9){ stageTimer=0; const bits=Math.round(Math.log2(state.Nfft));
+          state.stage=(state.stage+1)%bits; $('eStage').value=state.stage;
+          $('eStageVal').textContent=(state.stage+1)+'/'+bits; }
+      }
+    }
+    ctx.clearRect(0,0,W,H);
+    let res=null;
+    if (state.mode==='transform') res=drawTransform();
+    else if (state.mode==='synthesis') res=drawSynthesis();
+    else res=drawFft();
+    drawScope();
+    if (res&&res.mag!=null) lastMag=res.mag;
+    if (frameNo%4===0) updateReadout(res);
+    frameNo++;
+    requestAnimationFrame(frame);
+  }
+  resize(); rebuildModel(); syncControls(); updateEqbar(); updateInfo(); updateReadout(null);
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test ===========================
+   Runs headless (typeof document === 'undefined'). Every claim in the
+   header comment is checked numerically. */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=function(cond,name){ if (cond){ pass++; console.log('ok — '+name); }
+                                else { fail++; console.log('FAIL — '+name); } };
+  const approx=function(a,b,tol){ return Math.abs(a-b)<=(tol===undefined?1e-9:tol); };
+  const rel=function(a,b){ return Math.abs(a-b)/Math.max(1e-30,Math.abs(b)); };
+  // seeded PRNG (mulberry32) for reproducible random vectors
+  function rng(seed){ return function(){ seed|=0; seed=seed+0x6D2B79F5|0;
+    let x=Math.imul(seed^seed>>>15, 1|seed); x=x+Math.imul(x^x>>>7, 61|x)^x;
+    return ((x^x>>>14)>>>0)/4294967296; }; }
+
+  /* --- radix-2 FFT equals the direct DFT (forward) --- */
+  { let wmax=0; const R=rng(1);
+    [4,8,16,32,64].forEach(function(N){
+      const re=new Float64Array(N), im=new Float64Array(N);
+      for (let i=0;i<N;i++){ re[i]=R()*2-1; im[i]=R()*2-1; }
+      const A=fft(re.slice(),im.slice()), B=dftDirect(re,im);
+      for (let k=0;k<N;k++) wmax=Math.max(wmax, Math.abs(A.re[k]-B.re[k]), Math.abs(A.im[k]-B.im[k]));
+    });
+    ok(wmax<1e-9,'radix-2 FFT matches direct DFT to machine precision (N=4..64)'); }
+
+  /* --- fftTrace final column IS the DFT (the diagram shows real values) --- */
+  { const N=8, R=rng(7), re=new Float64Array(N), im=new Float64Array(N);
+    for (let i=0;i<N;i++){ re[i]=R(); im[i]=R(); }
+    const snaps=fftTrace(re,im), X=snaps[snaps.length-1], D=dftDirect(re,im);
+    let w=0; for (let k=0;k<N;k++) w=Math.max(w,Math.abs(X.re[k]-D.re[k]),Math.abs(X.im[k]-D.im[k]));
+    ok(snaps.length===Math.round(Math.log2(N))+1 && w<1e-12,'fftTrace: log₂N+1 stage snapshots, last = DFT'); }
+
+  /* --- IFFT inverts FFT --- */
+  { const N=16, R=rng(3), re=new Float64Array(N), im=new Float64Array(N);
+    for (let i=0;i<N;i++){ re[i]=R()*2-1; im[i]=R()*2-1; }
+    const X=fft(re.slice(),im.slice()), y=ifft(X.re,X.im);
+    let w=0; for (let i=0;i<N;i++) w=Math.max(w,Math.abs(y.re[i]-re[i]),Math.abs(y.im[i]-im[i]));
+    ok(w<1e-12,'IFFT∘FFT = identity'); }
+
+  /* --- linearity --- */
+  { const N=8, R=rng(9), a=new Float64Array(N), b=new Float64Array(N), z=new Float64Array(N);
+    for (let i=0;i<N;i++){ a[i]=R(); b[i]=R(); }
+    const Fa=fft(a.slice(),z.slice()), Fb=fft(b.slice(),z.slice());
+    const sum=new Float64Array(N); for (let i=0;i<N;i++) sum[i]=2.5*a[i]-1.3*b[i];
+    const Fs=fft(sum,z.slice());
+    let w=0; for (let k=0;k<N;k++) w=Math.max(w,Math.abs(Fs.re[k]-(2.5*Fa.re[k]-1.3*Fb.re[k])));
+    ok(w<1e-12,'DFT is linear'); }
+
+  /* --- Parseval: Σ|x|² = (1/N) Σ|X|² --- */
+  { const N=32, R=rng(11), re=new Float64Array(N), im=new Float64Array(N);
+    for (let i=0;i<N;i++){ re[i]=R()*2-1; im[i]=R()*2-1; }
+    let e1=0; for (let i=0;i<N;i++) e1+=re[i]*re[i]+im[i]*im[i];
+    const X=fft(re,im); let e2=0; for (let k=0;k<N;k++) e2+=X.re[k]*X.re[k]+X.im[k]*X.im[k];
+    ok(rel(e1, e2/N)<1e-12,'Parseval: energy preserved'); }
+
+  /* --- shift theorem: DFT(shift m)[k] = X[k] e^{-2πi k m/N} --- */
+  { const N=16, m=3, R=rng(5), re=new Float64Array(N), im=new Float64Array(N);
+    for (let i=0;i<N;i++){ re[i]=R()*2-1; }
+    const X=fft(re.slice(),im.slice());
+    const sr=new Float64Array(N), si=new Float64Array(N);
+    for (let i=0;i<N;i++) sr[i]=re[(i-m+N)%N];
+    const Xs=fft(sr,si);
+    let w=0; for (let k=0;k<N;k++){ const a=-TAU*k*m/N, c=Math.cos(a), s=Math.sin(a);
+      const pr=X.re[k]*c-X.im[k]*s, pi=X.re[k]*s+X.im[k]*c;
+      w=Math.max(w,Math.abs(Xs.re[k]-pr),Math.abs(Xs.im[k]-pi)); }
+    ok(w<1e-12,'circular shift theorem: shift ↔ linear phase ramp'); }
+
+  /* --- pure-tone delta: cos(2π k0 n/N) -> |X| = N/2 at k0 and N-k0 --- */
+  { const N=32, k0=5, re=new Float64Array(N), im=new Float64Array(N);
+    for (let n=0;n<N;n++) re[n]=Math.cos(TAU*k0*n/N);
+    const X=fft(re,im); let leak=0;
+    for (let k=0;k<N;k++){ const m=Math.hypot(X.re[k],X.im[k]);
+      if (k===k0||k===N-k0) ok(Math.abs(m-N/2)<1e-9, 'delta: |X['+k+']| = N/2 for cos tone');
+      else leak=Math.max(leak,m); }
+    ok(leak<1e-9,'delta: no spectral leakage off the two tone bins'); }
+
+  /* --- bit-reversal is a valid permutation and an involution --- */
+  { [8,16,64].forEach(function(N){ const br=bitrevIndices(N), seen=new Int8Array(N); let okp=true, inv=true;
+      for (let i=0;i<N;i++){ if (seen[br[i]]) okp=false; seen[br[i]]=1; if (bitrevIndices(N)[br[i]]!==i) inv=false; }
+      ok(okp&&inv,'bit-reversal(N='+N+') is a permutation and self-inverse'); }); }
+
+  /* --- twiddle identities: W_N^{N/2} = -1, W_N periodic --- */
+  { const N=8, plan=fftPlan(N);
+    let bf=0; for (let s=0;s<plan.length;s++) bf+=plan[s].bfs.length;
+    ok(bf===(N/2)*Math.log2(N),'plan has (N/2)log₂N butterflies');
+    const j=N/2, a=-TAU*j/N; ok(approx(Math.cos(a),-1)&&approx(Math.sin(a),0),'W_N^{N/2} = -1');
+    // stage 0 twiddles are all W^0=1, last stage exponents are 0..N/2-1
+    const last=plan[plan.length-1].bfs.map(function(b){ return b.twExp; });
+    ok(plan[0].bfs.every(function(b){ return b.twExp===0; }) && last[last.length-1]===N/2-1,
+       'twiddle exponents: stage 1 all zero, final stage 0..N/2−1'); }
+
+  /* --- operation counts and the speedup --- */
+  { const c=fftCost(64); ok(c.fft===192 && c.dft===4096 && Math.abs(c.dft/c.fft-64/3)<1e-9,
+      'N=64: FFT 192 vs DFT 4096 mults (×'+(4096/192).toFixed(1)+')'); }
+
+  /* --- analytic Fourier coefficients recovered from the sampled waveform --- */
+  function coefFromTarget(sig, k, duty){                // 2·(1/N)Σ target·e^{-2πikn/N}
+    const N=2048; let sr=0, si=0;
+    for (let n=0;n<N;n++){ const t=n/N, g=targetAt(sig,t,duty), a=-TAU*k*t;
+      sr+=g*Math.cos(a); si+=g*Math.sin(a); }
+    return {re:2*sr/N, im:2*si/N};                      // real amplitude of harmonic k
+  }
+  { // square: 4/(πk) at odd k, 0 at even
+    ok(rel(Math.hypot.apply(null,[coefFromTarget('square',1).re,coefFromTarget('square',1).im]), 4/PI)<2e-3,
+       'square: |c₁| = 4/π');
+    ok(rel(Math.hypot(coefFromTarget('square',3).re,coefFromTarget('square',3).im), 4/(3*PI))<3e-3,
+       'square: |c₃| = 4/3π');
+    ok(Math.hypot(coefFromTarget('square',2).re,coefFromTarget('square',2).im)<3e-3,'square: even harmonics vanish'); }
+  { ok(rel(Math.hypot(coefFromTarget('saw',1).re,coefFromTarget('saw',1).im), 2/PI)<3e-3,'sawtooth: |c₁| = 2/π');
+    ok(rel(Math.hypot(coefFromTarget('saw',2).re,coefFromTarget('saw',2).im), 2/(2*PI))<3e-3,'sawtooth: |c₂| = 1/π'); }
+  { ok(rel(Math.hypot(coefFromTarget('triangle',1).re,coefFromTarget('triangle',1).im), 8/(PI*PI))<3e-3,'triangle: |c₁| = 8/π²');
+    ok(rel(Math.hypot(coefFromTarget('triangle',3).re,coefFromTarget('triangle',3).im), 8/(PI*PI*9))<4e-3,'triangle: |c₃| = 8/9π²'); }
+  { const d=0.3; // pulse: |c_k| = 2 d |sinc(k d)|
+    ok(rel(Math.hypot(coefFromTarget('pulse',1,d).re,coefFromTarget('pulse',1,d).im), 2*d*Math.abs(sinc(1*d)))<3e-3,'pulse: |c₁| = 2d·sinc(d)');
+    ok(rel(Math.hypot(coefFromTarget('pulse',2,d).re,coefFromTarget('pulse',2,d).im), 2*d*Math.abs(sinc(2*d)))<3e-3,'pulse: sinc envelope'); }
+
+  /* --- our seriesComps agree with those analytic coefficients --- */
+  { const sq=seriesComps('square',5,0.3);
+    ok(sq.length===5 && approx(sq[0].A,4/PI,1e-12) && approx(sq[1].k,3) && approx(sq[1].A,4/(3*PI),1e-12),
+       'seriesComps(square): odd harmonics with 4/πk amplitudes');
+    const tri=seriesComps('triangle',3,0.3);
+    ok(approx(tri[0].A,8/(PI*PI),1e-12)&&tri[0].phi===0,'seriesComps(triangle): 8/π²k² cosine terms');
+    const pu=seriesComps('pulse',4,0.25); ok(pu[0].k===0&&approx(pu[0].A,0.25,1e-12),'seriesComps(pulse): DC = duty'); }
+
+  /* --- winding integral peaks at amplitude/2 on a component, ~0 elsewhere --- */
+  { const c=toneComps(3,5,0);                            // two unit cosines
+    const w3=windAt(c,3,4096), w5=windAt(c,5,4096), w4=windAt(c,4,4096);
+    ok(Math.abs(Math.hypot(w3.re,w3.im)-0.5)<1e-3,'winding: |ĝ(3)| = A/2 = 0.5 on a component');
+    ok(Math.abs(Math.hypot(w5.re,w5.im)-0.5)<1e-3,'winding: |ĝ(5)| = 0.5 on the other component');
+    ok(Math.hypot(w4.re,w4.im)<1e-3,'winding: |ĝ| ≈ 0 between components (orthogonality)');
+    ok(Math.hypot(windAt(c,0,4096).re,windAt(c,0,4096).im)<1e-3,'winding: no DC in a pure-cosine sum'); }
+
+  /* --- Gibbs overshoot: peak of the square partial sum -> (2/π)Si(π) --- */
+  { function Si(x){ const M=4000; let s=0; for (let i=0;i<M;i++){ const u=(i+0.5)*x/M;
+      s+=(u===0?1:Math.sin(u)/u); } return s*x/M; }
+    const gibbs=(2/PI)*Si(PI);                            // 1.178979...
+    const comps=seriesComps('square',64,0.3);
+    let peak=0; for (let i=1;i<=800;i++){ const t=0.0004*i; peak=Math.max(peak, gAt(comps,t)); }
+    ok(Math.abs(gibbs-1.178979)<1e-3,'Gibbs constant (2/π)Si(π) = 1.17898');
+    ok(Math.abs(peak-gibbs)<0.01,'square partial-sum (M=64) overshoots to the Gibbs value (~9% ear)'); }
+
+  /* --- partial sums converge in L² as M grows --- */
+  { function l2(M){ const c=seriesComps('square',M,0.3); let se=0, N=1000;
+      for (let i=0;i<N;i++){ const t=(i+0.5)/N, d=gAt(c,t)-targetAt('square',t,0.3); se+=d*d; } return Math.sqrt(se/N); }
+    ok(l2(4)>l2(16) && l2(16)>l2(40),'square partial sums converge in L² (error ↓ as M ↑)'); }
+
+  /* --- sampleReal reproduces g, and DC bin = mean --- */
+  { const c=seriesComps('pulse',20,0.3), x=sampleReal(c,64);
+    ok(approx(x[0], gAt(c,0),1e-12),'sampleReal[0] = g(0)');
+    const im=new Float64Array(64), X=fft(x.slice(),im);
+    ok(rel(X.re[0]/64, 0.3)<0.03,'DFT bin 0 / N ≈ duty (mean) for the pulse'); }
+
+  /* --- state clamps + presets land valid --- */
+  { const c=clampState({mode:'zzz',sig:'zzz',f1:99,f2:-3,f3:9.4,harm:999,duty:9,windF:99,Nfft:7,stage:99,speed:99});
+    ok(c.mode==='transform'&&c.sig==='tones'&&c.f1===16&&c.f2===0&&c.f3===9&&c.harm===40&&
+       c.duty===0.5&&c.windF===12&&c.Nfft===8&&c.speed===2.5,'clamps: enums fall back, sliders pin to range');
+    ['pBeats','pSquare','pFft'].forEach(function(k){ const s=clampState(Object.assign({},DEFAULTS,PRESETS[k]));
+      ok(['transform','synthesis','fft'].indexOf(s.mode)>=0 && NCHOICES.indexOf(s.Nfft)>=0,'preset '+k+' is valid'); });
+    const cs=clampState(Object.assign({},DEFAULTS,{Nfft:16,stage:9}));
+    ok(cs.stage===3,'clamp: stage ≤ log₂N − 1'); }
+
+  /* --- formula bar text per mode --- */
+  { ok(eqbarText({mode:'transform'}).indexOf('INT')>0 &&
+       eqbarText({mode:'synthesis',harm:8}).indexOf('M=8')>0 &&
+       eqbarText({mode:'fft'}).indexOf('W_N^k')>0,'formula-bar text per mode');
+    ok(eqbarHTML({mode:'fft'}).indexOf('efrac')>0 && eqbarHTML({mode:'transform'}).indexOf('&int;')>0,
+       'formula bar renders HTML (fraction + integral)'); }
+
+  console.log('\n'+pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================= */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

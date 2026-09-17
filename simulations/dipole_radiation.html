@@ -1,0 +1,1719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dipole radiation — multipole antennas, exact retarded fields</title>
+<!--
+  Multipole radiation, drawn from the exact physics: an oscillating point
+  dipole, a magnetic dipole (current loop), collinear dipole ARRAYS whose
+  leading multipole climbs the ladder (in-phase pair l=1, anti-phase pair =
+  linear QUADRUPOLE l=2, +1/-2/+1 triplet = linear OCTUPOLE l=3, +1/-3/+3/-1
+  = 16-pole l=4), and a ROTATING dipole seen in its equatorial plane (the
+  pulsar pinwheel, with its light cylinder r_LC = c/omega = lambda/2pi).
+
+  Fields. Every source is a point dipole p(t) z-hat at z = z_j with weight
+  w_j. In units 1/(4 pi eps0) = 1 (so mu0 = 4 pi/c^2), with tau = t - R/c,
+  the EXACT fields of one dipole are
+
+      E = [3n(n.p) - p]/R^3 + [3n(n.p') - p']/(c R^2) + [n(n.p'') - p'']/(c^2 R)
+      B = (p' x n)/(c^2 R^2) + (p'' x n)/(c^3 R)        (all at tau)
+
+  valid for ANY drive p(t): near zone, radiation zone, and in between. For
+  the axisymmetric stacks the meridian-plane E lines are exactly the level
+  curves of the flux (stream) function
+
+      Psi = SUM_j w_j sin^2(theta_j) [ p(tau_j)/r_j + p'(tau_j)/c ],
+
+  drawn by marching squares. The magnetic dipole is the exact EM dual
+  (E -> B, B -> -E with p -> m): the drawn lines become B lines and the
+  out-of-plane dot/cross symbols become E_phi. The rotating dipole's field
+  co-rotates RIGIDLY (steady state), so its equatorial field lines are
+  integrated once (RK4 on the exact E) and rotated each frame — the tight
+  double spiral with pitch lambda and kinks at the wave nodes.
+
+  Drives. Harmonic cos(omega t); a Gaussian pulse train (watch a single
+  spherical shell of radiation detach and leave at speed c); and a smooth
+  on-off top-hat ("switch-on statics"): the field builds to the STATIC
+  multipole line picture, holds it, then blows it off as a second burst.
+
+  Radiated power, closed forms. With b = ks (s = adjacent spacing) and
+      F(b) = (4/b^2)(sin b / b - cos b),        F(0) = 4/3,
+  time-averaged P = (omega^4 p0^2 / c^3) I with, exactly at ALL spacings,
+      dipole, magnetic     I = 1/3            rotating       I = 2/3
+      pair (in phase)      I = 2/3 + F(b)/2   -> 4x dipole as ks->0
+      quadrupole (+ -)     I = 2/3 - F(b)/2   -> (ks)^2/15   ~ omega^6 s^2
+      octupole (+ -2 +)    I = 2 - 2F(b) + F(2b)/2      -> (ks)^4/35
+      16-pole (+ -3 +3 -)  I = [40/3 - 15F(b) + 6F(2b) - F(3b)]/2 -> (ks)^6/63
+  (large-b limits = incoherent sums SUM w_j^2 / 3 — checked). The readout
+  compares these against the power actually integrated through a far sphere
+  of the code's own fields, and prints the local scaling exponent
+  d ln P / d ln omega -> 4, 6, 8, 10 down the ladder. The far-field pattern
+  inset samples <S_r>(theta) from the fields over the dashed ideal
+  (ks -> 0) multipole shape: sin^2, sin^2 cos^2, sin^2 cos^4, ...,
+  and (1 + cos^2)/2 for the rotating dipole.
+
+  A draggable field probe shows p(t), the local E components, and the local
+  polarization ellipse (linear in the far zone, fat ellipse in the near
+  zone). Rendering: 2d canvas on black, family style of radio_waves.html /
+  orbitals.html / particles_in_a_box.html (NeonColors; chartreuse/magenta =
+  the two signs of Psi; cyan = out-of-plane symbols). Single file, no
+  dependencies, works over file://.
+
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript dipole_test.js
+  — when `document` is undefined it runs the assertion suite (Maxwell's
+  equations by 3-D finite differences for stacks, magnetic and rotating
+  sources under all drives, vector vs stream-function consistency, statics
+  during the hold, far-field transversality and polarization, all six
+  pattern shapes, every closed-form power above vs sphere-integrated
+  fields, scaling exponents, pulse shell speed = c and burst energy,
+  rotation rigidity, RK4 tangency, marching squares, clamps/labels/units)
+  instead of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; flex:1; min-height:0;}
+  #main{display:flex; flex-direction:column; flex:1; min-width:0;}
+  #stage{position:relative; flex:1; min-height:0;}
+  #sky{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none;}
+  #sky.dragging{cursor:grabbing;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #probe{position:absolute; right:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.6;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .efrac{display:inline-flex; flex-direction:column; vertical-align:middle;
+                text-align:center; margin:0 2px; line-height:1.3; font-size:14.5px;}
+  #eqbar .efrac .en{border-bottom:1px solid #9a9aa4; padding:0 4px;}
+  #eqbar .efrac .ed{padding:0 4px;}
+  #eqbar .rb{border-top:1px solid currentColor; padding:0 2px;}
+  #eqbar sup{font-size:10.5px;}
+  #eqbar sub{font-size:10.5px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:76px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:48px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:2px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #gradbar{display:block; width:100%; height:10px; border-radius:5px; margin:6px 0 3px;}
+  #gradlabels{display:flex; justify-content:space-between; font-size:10.5px; color:#777;}
+  .ro{font:11.5px "SF Mono", Menlo, monospace; color:var(--dim); margin:3px 0;}
+  .ro b{color:var(--text); font-weight:600;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Dipole radiation</h1>
+  <span class="sub">oscillating multipoles &mdash; exact retarded E, B &middot; dipole &middot; quadrupole &middot; octupole &middot; rotating &amp; magnetic dipoles</span>
+</header>
+<div id="wrap">
+  <div id="main">
+    <div id="stage">
+      <canvas id="sky"></canvas>
+      <div id="hint">space = pause &middot; r = restart &middot; drag the probe</div>
+      <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+      <canvas id="inset" width="216" height="132"></canvas>
+      <canvas id="probe" width="276" height="154"></canvas>
+    </div>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>presets</h3>
+      <div class="chips">
+        <button class="chip" id="pHertz" title="one oscillating dipole, harmonic drive">Hertz dipole</button>
+        <button class="chip" id="pQuad" title="anti-phase pair at ks &lt;&lt; 1: the ideal quadrupole limit">ideal quadrupole</button>
+        <button class="chip" id="pArray" title="in-phase pair half a wavelength apart">&lambda;/2 array</button>
+        <button class="chip" id="pPulsar" title="rotating dipole: rigid pinwheel + light cylinder">pulsar</button>
+        <button class="chip" id="pStatics" title="octupole with the on-off drive: watch the static field build">switch-on statics</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>source</h3>
+      <div class="chips">
+        <button class="chip on" id="srcDip" title="one oscillating point dipole — the Hertz textbook case">dipole</button>
+        <button class="chip" id="srcMag" title="oscillating current loop m(t): the exact EM dual — lines become B lines">magnetic m</button>
+        <button class="chip" id="srcPair" title="two dipoles in phase: coherent l=1, 4x the power at ks&#8594;0">pair + +</button>
+        <button class="chip" id="srcQuad" title="two dipoles anti-phase: total p = 0, leading l=2 quadrupole">quad + &minus;</button>
+        <button class="chip" id="srcOct" title="weights +1 &minus;2 +1: p and Q vanish, leading l=3 octupole">octupole</button>
+        <button class="chip" id="srcHex" title="weights +1 &minus;3 +3 &minus;1: first three moments vanish, leading l=4">16-pole</button>
+        <button class="chip" id="srcRot" title="dipole rotating at omega, seen in its equatorial plane — the pulsar pinwheel">rotating</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>drive</h3>
+      <div class="chips" id="drvRow">
+        <button class="chip on" id="drvCW" title="p(t) = p0 cos(omega t)">harmonic</button>
+        <button class="chip" id="drvPulse" title="a Gaussian blip of p(t): one shell of radiation detaches at c">pulse</button>
+        <button class="chip" id="drvStep" title="smooth switch on, hold static, switch off — statics between two bursts">on&ndash;off</button>
+      </div>
+      <div class="ro" id="drvNote" hidden>rotation is the drive: p&#8407; turns at &omega;</div>
+      <div class="sliderrow"><label for="eF">freq f</label>
+        <input type="range" id="eF" min="0.4" max="2.4" step="0.05">
+        <span class="val" id="eFVal"></span></div>
+      <div class="sliderrow" id="rowS"><label for="eS">spacing s</label>
+        <input type="range" id="eS" min="8" max="100" step="1">
+        <span class="val" id="eSVal"></span></div>
+      <div class="ro" id="roMom"></div>
+    </div>
+
+    <div class="grp">
+      <h3>fields</h3>
+      <div class="checks">
+        <label><input type="checkbox" id="ckLines" checked> <span id="lblLines">E lines</span></label>
+        <label><input type="checkbox" id="ckW" checked> <span id="lblW">B &#8857;/&#8855;</span></label>
+        <label><input type="checkbox" id="ckE"> <span id="lblE">E arrows</span></label>
+        <label><input type="checkbox" id="ckS"> Poynting</label>
+        <label><input type="checkbox" id="ckZones" checked> zones</label>
+        <label><input type="checkbox" id="ckIdeal" checked> ideal overlay</label>
+      </div>
+      <canvas id="gradbar" width="248" height="10"></canvas>
+      <div id="gradlabels"><span>weak</span><span>|B|, glow &rarr; strong</span></div>
+      <div class="ro" id="roPow"></div>
+    </div>
+
+    <div class="grp">
+      <h3>time</h3>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0.1" max="2.5" step="0.05">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow">
+        <button id="pauseBtn">pause</button>
+        <button id="restartBtn" title="back to t = 0">restart</button>
+        <button id="resetBtn" title="back to the defaults">reset all</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<div id="eqbar" title=""></div>
+<script>
+'use strict';
+/* ======================= constants & palette ===================== */
+const PI = Math.PI, TAU = 2*PI;
+const C = 150;                                   // wave speed, px per sim-second
+const RMIN = 9;                                  // field clamp radius around a source
+const C_REAL = 2.99792458e8, FC_REAL = 1.0e8;    // real mapping: drawn f <-> 100 MHz
+
+/* colormap: Mathematica NeonColors — same 16-sample table as orbitals.html /
+   quantum_tunneling.html / radio_waves.html */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){
+  const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ==================== drives: p(t), p', p'' ======================
+   cw    : cos(w t), eternal.
+   pulse : Gaussian train, one blip per loopT, sigma = 0.3/f.
+   step  : smooth on-off top-hat (logistic edges, tw = 0.22/f): switch on
+           at 0.15 loopT, hold STATIC, switch off at 0.60 loopT.
+   loopT > (canvas diagonal)/c so each event leaves before the next. */
+function makeDrive(state){
+  const f=state.src==='rot'?state.f:state.f, w=TAU*f;
+  const kind=state.src==='rot'?'cw':state.drv;
+  if (kind==='pulse'){
+    const s=0.3/f, T=11+2/f, tc=T/2, is2=1/(s*s);
+    const x=t=>(t-Math.floor(t/T)*T)-tc;
+    return { kind:'pulse', w, f, loopT:T, sig:s,
+      p: t=>{ const u=x(t); return Math.exp(-0.5*u*u*is2); },
+      p1:t=>{ const u=x(t); return -u*is2*Math.exp(-0.5*u*u*is2); },
+      p2:t=>{ const u=x(t); return (u*u*is2-1)*is2*Math.exp(-0.5*u*u*is2); },
+    };
+  }
+  if (kind==='step'){
+    const tw=0.22/f, T=11+2/f, t1=0.15*T, t2=0.60*T, iw=1/tw;
+    const L=x=>1/(1+Math.exp(-x));
+    return { kind:'step', w, f, loopT:T, t1, t2, tw,
+      p: t=>{ const u=t-Math.floor(t/T)*T;
+              return L((u-t1)*iw)-L((u-t2)*iw); },
+      p1:t=>{ const u=t-Math.floor(t/T)*T, a=L((u-t1)*iw), b=L((u-t2)*iw);
+              return (a*(1-a)-b*(1-b))*iw; },
+      p2:t=>{ const u=t-Math.floor(t/T)*T, a=L((u-t1)*iw), b=L((u-t2)*iw);
+              return (a*(1-a)*(1-2*a)-b*(1-b)*(1-2*b))*iw*iw; },
+    };
+  }
+  return { kind:'cw', w, f, loopT:0,
+    p: t=>Math.cos(w*t),
+    p1:t=>-w*Math.sin(w*t),
+    p2:t=>-w*w*Math.cos(w*t),
+  };
+}
+
+/* =================== source configurations =======================
+   Each stack element: {z, w} — a point dipole w*p(t) z-hat at (0,0,z).
+   s = adjacent spacing in px. b = k s is the interference parameter. */
+function makeCfg(state, sEff){
+  const s=sEff===undefined?state.s:sEff;
+  switch(state.src){
+    case 'mag':  return {src:'mag', mag:true, rot:false, srcs:[{z:0,w:1}], span:0, zf:0};
+    case 'pair': return {src:'pair', mag:false, rot:false,
+                         srcs:[{z:s/2,w:1},{z:-s/2,w:1}], span:s, zf:0.5};
+    case 'quad': return {src:'quad', mag:false, rot:false,
+                         srcs:[{z:s/2,w:1},{z:-s/2,w:-1}], span:s, zf:0.5};
+    case 'oct':  return {src:'oct', mag:false, rot:false,
+                         srcs:[{z:s,w:1},{z:0,w:-2},{z:-s,w:1}], span:2*s, zf:1};
+    case 'hex':  return {src:'hex', mag:false, rot:false,
+                         srcs:[{z:1.5*s,w:1},{z:0.5*s,w:-3},{z:-0.5*s,w:3},{z:-1.5*s,w:-1}],
+                         span:3*s, zf:1.5};
+    case 'rot':  return {src:'rot', mag:false, rot:true, srcs:[{z:0,w:1}], span:0, zf:0};
+    default:     return {src:'dip', mag:false, rot:false, srcs:[{z:0,w:1}], span:0, zf:0};
+  }
+}
+
+/* ========== exact retarded fields, axisymmetric scalar path ======
+   One z-dipole of weight w at the origin; dx = distance off axis (any
+   sign), dz = height above the source. Units 1/(4 pi eps0) = 1. */
+function oneField(drv, dx, dz, t, w){
+  let r=Math.sqrt(dx*dx+dz*dz);
+  if (r<RMIN) r=RMIN;
+  const tau=t-r/C, W=w===undefined?1:w;
+  const P=W*drv.p(tau), P1=W*drv.p1(tau), P2=W*drv.p2(tau);
+  const ct=dz/r, st=Math.abs(dx)/r;
+  const near=P/(r*r*r)+P1/(C*r*r);
+  return {
+    Er: 2*ct*near,
+    Eth: st*(near+P2/(C*C*r)),
+    Bphi: st*(P1/(r*r)+P2/(C*r))/(C*C),
+    psi: st*st*(P/r+P1/C),
+    ct, st, r,
+  };
+}
+/* planar fields for the grid layers, in SCREEN-adapted components:
+   Vx, Vup = the drawn in-plane vector (E for electric stacks, B for the
+   magnetic dual); Wout = the out-of-SCREEN component of the other field.
+   Stacks are viewed in the x-z plane (screen up = +z, +y INTO the screen,
+   so out-of-screen = -y); the rotating dipole is viewed in the x-y plane
+   (screen up = +y, out-of-screen = +z). */
+function fieldsAtXZ(cfg, drv, wx, wz, t){
+  let Vx=0, Vup=0, Wout=0, psi=0;
+  const sg=wx<0?-1:(wx>0?1:0);
+  for (const src of cfg.srcs){
+    const F=oneField(drv, wx, wz-src.z, t, src.w);
+    const ex=sg*(F.Er*F.st+F.Eth*F.ct), ez=F.Er*F.ct-F.Eth*F.st;
+    if (cfg.mag){                                // dual: lines are B, symbols are E_phi
+      Vx+=ex/C; Vup+=ez/C;                       // B = E-form(m)/c
+      Wout+=sg*C*F.Bphi;                         // -E_y with E_phi = -c*Bphi(m)
+    } else {
+      Vx+=ex; Vup+=ez;
+      Wout+=-sg*F.Bphi;                          // -B_y (+y is INTO the screen)
+    }
+    psi+=F.psi;
+  }
+  return {Vx, Vup, Wout, psi};
+}
+
+/* ================= exact retarded fields, vector path ============
+   General 3-D observation point; used by the pattern/power integrals,
+   the rotating dipole, the probe, and the self-test cross-checks. */
+function vecDip(P, P1, P2, nx, ny, nz, R){
+  const nd0=nx*P[0]+ny*P[1]+nz*P[2],
+        nd1=nx*P1[0]+ny*P1[1]+nz*P1[2],
+        nd2=nx*P2[0]+ny*P2[1]+nz*P2[2];
+  const r3=1/(R*R*R), r2=1/(C*R*R), r1=1/(C*C*R);
+  const E=[(3*nx*nd0-P[0])*r3+(3*nx*nd1-P1[0])*r2+(nx*nd2-P2[0])*r1,
+           (3*ny*nd0-P[1])*r3+(3*ny*nd1-P1[1])*r2+(ny*nd2-P2[1])*r1,
+           (3*nz*nd0-P[2])*r3+(3*nz*nd1-P1[2])*r2+(nz*nd2-P2[2])*r1];
+  const c2=1/(C*C*R*R), c3=1/(C*C*C*R);
+  const B=[(P1[1]*nz-P1[2]*ny)*c2+(P2[1]*nz-P2[2]*ny)*c3,
+           (P1[2]*nx-P1[0]*nz)*c2+(P2[2]*nx-P2[0]*nz)*c3,
+           (P1[0]*ny-P1[1]*nx)*c2+(P2[0]*ny-P2[1]*nx)*c3];
+  return {E, B};
+}
+function vecFieldsAt(cfg, drv, x, y, z, t){
+  const E=[0,0,0], B=[0,0,0];
+  if (cfg.rot){
+    let R=Math.sqrt(x*x+y*y+z*z);
+    if (R<RMIN) R=RMIN;
+    const tau=t-R/C, w=drv.w, cw=Math.cos(w*tau), sw=Math.sin(w*tau);
+    const f=vecDip([cw,sw,0],[-w*sw,w*cw,0],[-w*w*cw,-w*w*sw,0], x/R,y/R,z/R, R);
+    for (let i=0;i<3;i++){ E[i]+=f.E[i]; B[i]+=f.B[i]; }
+    return {E, B};
+  }
+  for (const src of cfg.srcs){
+    const dz=z-src.z;
+    let R=Math.sqrt(x*x+y*y+dz*dz);
+    if (R<RMIN) R=RMIN;
+    const tau=t-R/C, W=src.w;
+    const f=vecDip([0,0,W*drv.p(tau)],[0,0,W*drv.p1(tau)],[0,0,W*drv.p2(tau)],
+                   x/R,y/R,dz/R, R);
+    for (let i=0;i<3;i++){ E[i]+=f.E[i]; B[i]+=f.B[i]; }
+  }
+  if (cfg.mag){                                  // duality: E -> B, B -> -E, p -> m
+    return {E:[-C*B[0],-C*B[1],-C*B[2]], B:[E[0]/C,E[1]/C,E[2]/C]};
+  }
+  return {E, B};
+}
+/* Poynting vector, code units up to the common c^2/4pi factor */
+function poyntingAt(cfg, drv, x, y, z, t){
+  const f=vecFieldsAt(cfg,drv,x,y,z,t);
+  return [f.E[1]*f.B[2]-f.E[2]*f.B[1],
+          f.E[2]*f.B[0]-f.E[0]*f.B[2],
+          f.E[0]*f.B[1]-f.E[1]*f.B[0]];
+}
+
+/* ==================== marching squares (contours) ================ */
+function marchingSquares(grid, nx, ny, x0, z0, cs, level){
+  const segs=[];
+  const lerp=(pa,pb,va,vb)=>{ const f=(level-va)/((vb-va)||1e-30);
+    return [pa[0]+(pb[0]-pa[0])*f, pa[1]+(pb[1]-pa[1])*f]; };
+  for (let j=0;j<ny-1;j++){
+    for (let i=0;i<nx-1;i++){
+      const v00=grid[j*nx+i],   v10=grid[j*nx+i+1],
+            v01=grid[(j+1)*nx+i], v11=grid[(j+1)*nx+i+1];
+      let code=0;
+      if (v00>level) code|=1;
+      if (v10>level) code|=2;
+      if (v11>level) code|=4;
+      if (v01>level) code|=8;
+      if (code===0||code===15) continue;
+      const x=x0+i*cs, z=z0+j*cs;
+      const p00=[x,z], p10=[x+cs,z], p01=[x,z+cs], p11=[x+cs,z+cs];
+      const eB=()=>lerp(p00,p10,v00,v10), eR=()=>lerp(p10,p11,v10,v11),
+            eT=()=>lerp(p01,p11,v01,v11), eL=()=>lerp(p00,p01,v00,v01);
+      const put=(a,b)=>{ segs.push(a[0],a[1],b[0],b[1]); };
+      switch(code){
+        case 1:  put(eL(),eB()); break;
+        case 2:  put(eB(),eR()); break;
+        case 3:  put(eL(),eR()); break;
+        case 4:  put(eR(),eT()); break;
+        case 5:{ const mid=(v00+v10+v01+v11)/4;
+                 if (mid>level){ put(eL(),eT()); put(eB(),eR()); }
+                 else { put(eL(),eB()); put(eR(),eT()); } break; }
+        case 6:  put(eB(),eT()); break;
+        case 7:  put(eL(),eT()); break;
+        case 8:  put(eT(),eL()); break;
+        case 9:  put(eT(),eB()); break;
+        case 10:{ const mid=(v00+v10+v01+v11)/4;
+                 if (mid>level){ put(eT(),eR()); put(eL(),eB()); }
+                 else { put(eT(),eL()); put(eB(),eR()); } break; }
+        case 11: put(eT(),eR()); break;
+        case 12: put(eR(),eL()); break;
+        case 13: put(eR(),eB()); break;
+        case 14: put(eB(),eL()); break;
+      }
+    }
+  }
+  return segs;
+}
+/* contour levels: geometric ladder pinned to the far-field Psi scale
+   (~ omega/c), +- pairs; multipliers keep levels off exact node values */
+function psiLevels(state){
+  const base=0.22*TAU*state.f/C, g=1.9, out=[];
+  for (let k=0;k<7;k++){ const L=base*Math.pow(g,k)*1.0137; out.push(L,-L); }
+  return out;
+}
+
+/* ===================== radiated power ============================
+   Time-averaged total power P = (omega^4 p0^2 / c^3) I(config). The
+   dimensionless I is a CLOSED FORM in b = k s (k = omega/c, s = adjacent
+   spacing) built from the pair integral
+       F(b) = (4/b^2)(sin b / b - cos b),   F(0) = 4/3,
+   which is exactly INT_{-1}^{1}(1-u^2) cos(b u) du. Derivations in the
+   header; every case is cross-checked against the sphere-integrated
+   fields in the self-test. */
+function Fb(b){
+  const ab=Math.abs(b);
+  if (ab<0.25){ const b2=b*b;                    // series: dodge cancellation
+    return 4/3 - 2*b2/15 + b2*b2/210 - b2*b2*b2/11340; }
+  return (4/(b*b))*(Math.sin(b)/b - Math.cos(b));
+}
+function kOf(state){ return TAU*state.f/C; }      // wavenumber, k = omega/c
+function powerClosedI(state){
+  const b=kOf(state)*state.s;
+  switch(state.src){
+    case 'mag':  return 1/3;                      // magnetic dipole: dual of electric
+    case 'rot':  return 2/3;                      // rotating dipole: two dipoles in quadrature
+    case 'pair': return 2/3 + Fb(b)/2;            // in phase  -> 4/3 (=4x) as b->0
+    case 'quad': return 2/3 - Fb(b)/2;            // anti-phase -> b^2/15
+    case 'oct':  return 2 - 2*Fb(b) + Fb(2*b)/2;  // +1 -2 +1  -> b^4/35
+    case 'hex':  return 20/3 - 7.5*Fb(b) + 3*Fb(2*b) - 0.5*Fb(3*b); // -> b^6/63
+    default:     return 1/3;                      // single dipole
+  }
+}
+/* local scaling exponent d ln P / d ln omega with P(omega) = omega^4 I(k s):
+   -> 4 (dipole), 6 (quad), 8 (oct), 10 (16-pole) as s->0; -> 4 as s->inf */
+function powerExponent(state){
+  const eps=1e-3, w=TAU*state.f;
+  const Pof=ff=>{ const st=Object.assign({},state,{f:ff}); return Math.pow(TAU*ff,4)*powerClosedI(st); };
+  const f1=state.f*(1-eps), f2=state.f*(1+eps);
+  return Math.log(Pof(f2)/Pof(f1))/Math.log(f2/f1);
+}
+/* leading multipole order l (for the label) */
+function multipoleOrder(src){
+  return {dip:1, mag:1, pair:1, quad:2, oct:3, hex:4, rot:1}[src];
+}
+
+/* far-field angular shape in the ks->0 limit (dashed ideal overlay).
+   theta measured from +z (the stack / spin axis). */
+function idealPattern(src, th){
+  const s=Math.sin(th), c=Math.cos(th), s2=s*s;
+  switch(src){
+    case 'quad': return s2*c*c;
+    case 'oct':  return s2*c*c*c*c;
+    case 'hex':  return s2*Math.pow(c,6);
+    case 'rot':  return 0.5*(1+c*c);
+    default:     return s2;                       // dip, mag, pair (l=1)
+  }
+}
+
+/* ============ numeric power + pattern from the code's own fields ==
+   S = (c^2/4pi) E x B (matches the Larmor normalization of the single
+   dipole); integrate the radial part over a far sphere, time-averaged. */
+function meanSr(cfg, drv, th, rFar, NT){
+  const nx=Math.sin(th), nz=Math.cos(th), Tc=TAU/drv.w;
+  let acc=0;
+  for (let k=0;k<NT;k++){
+    const S=poyntingAt(cfg,drv, rFar*nx, 0, rFar*nz, 5+k*Tc/NT);
+    acc+=(S[0]*nx+S[2]*nz);                       // S . n_hat, phi = 0 meridian
+  }
+  return acc/NT;
+}
+function powerNumericI(cfg, drv, rFar, nTh, nT){
+  const w=drv.w;
+  let P=0;
+  for (let a=0;a<nTh;a++){
+    const th=(a+0.5)*PI/nTh;
+    const Sr=meanSr(cfg,drv,th,rFar,nT);
+    P+=(C*C/(4*PI))*Sr*TAU*rFar*rFar*Math.sin(th)*(PI/nTh);  // 2pi from azimuth
+  }
+  return P*C*C*C/Math.pow(w,4);                   // = I
+}
+function patternSamples(cfg, drv, nA, rFar){
+  const out=new Float64Array(nA), NT=24;
+  let mx=0;
+  for (let a=0;a<nA;a++){
+    const th=(a+0.5)*PI/nA;
+    out[a]=Math.max(0,meanSr(cfg,drv,th,rFar,NT));
+    mx=Math.max(mx,out[a]);
+  }
+  if (mx>0) for (let a=0;a<nA;a++) out[a]/=mx;
+  return out;
+}
+
+/* ============ drive lookup table (per-frame grid speedup) ========= */
+function buildPTable(drv, fEff, tMin, tMax){
+  const dt=1/(110*fEff), n=Math.max(4,Math.ceil((tMax-tMin)/dt)+2);
+  const P=new Float64Array(n), P1=new Float64Array(n), P2=new Float64Array(n);
+  for (let i=0;i<n;i++){ const t=tMin+i*dt; P[i]=drv.p(t); P1[i]=drv.p1(t); P2[i]=drv.p2(t); }
+  return {t0:tMin, dt, n, P, P1, P2};
+}
+function tableAt(tab, t){
+  let x=(t-tab.t0)/tab.dt;
+  if (x<0) x=0;
+  if (x>tab.n-1.001) x=tab.n-1.001;
+  const i=Math.floor(x), f=x-i;
+  return [tab.P[i]+(tab.P[i+1]-tab.P[i])*f,
+          tab.P1[i]+(tab.P1[i+1]-tab.P1[i])*f,
+          tab.P2[i]+(tab.P2[i+1]-tab.P2[i])*f];
+}
+/* Psi only (the field-line grid needs nothing else) — skips the per-source
+   Er/Eth/Bphi/vector arithmetic, the dominant cost for the 3-4 source stacks */
+function psiAtXZTab(cfg, tab, wx, wz, t){
+  let psi=0;
+  const dx=wx, dx2=wx*wx;
+  for (const src of cfg.srcs){
+    const dz=wz-src.z;
+    let r=Math.sqrt(dx2+dz*dz);
+    if (r<RMIN) r=RMIN;
+    const q=tableAt(tab, t-r/C);
+    psi+=src.w*(dx2/(r*r))*(q[0]/r+q[1]/C);        // w sin^2(theta) [P/r + P1/c]
+  }
+  return psi;
+}
+/* planar draw fields (poloidal Vx,Vup; out-of-plane Wout; Psi) via table */
+function fieldsAtXZTab(cfg, tab, wx, wz, t){
+  let Vx=0, Vup=0, Wout=0, psi=0;
+  const sg=wx<0?-1:(wx>0?1:0);
+  for (const src of cfg.srcs){
+    const dx=wx, dz=wz-src.z;
+    let r=Math.sqrt(dx*dx+dz*dz);
+    if (r<RMIN) r=RMIN;
+    const q=tableAt(tab, t-r/C), P=src.w*q[0], P1=src.w*q[1], P2=src.w*q[2];
+    const ct=dz/r, st=Math.abs(dx)/r;
+    const near=P/(r*r*r)+P1/(C*r*r);
+    const Er=2*ct*near, Eth=st*(near+P2/(C*C*r)), Bphi=st*(P1/(r*r)+P2/(C*r))/(C*C);
+    const ex=sg*(Er*st+Eth*ct), ez=Er*ct-Eth*st;
+    if (cfg.mag){ Vx+=ex/C; Vup+=ez/C; Wout+=sg*C*Bphi; }
+    else { Vx+=ex; Vup+=ez; Wout+=-sg*Bphi; }
+    psi+=st*st*(P/r+P1/C);
+  }
+  return {Vx, Vup, Wout, psi};
+}
+
+/* ============ rotating-dipole equatorial streamlines (RK4) =========
+   In the z = 0 plane E is purely in-plane and B purely out-of-plane. The
+   steady rotating field co-rotates rigidly, so integrate the streamlines
+   ONCE at t = 0 and rotate the polylines by omega t each frame. */
+function eqField(cfg, drv, x, y, t){             // in-plane E at (x,y,0)
+  const f=vecFieldsAt(cfg, drv, x, y, 0, t);
+  return [f.E[0], f.E[1]];
+}
+function traceStreamline(cfg, drv, x0, y0, ds, maxPts, rMax, rStop){
+  const pts=[x0,y0];
+  let x=x0, y=y0;
+  for (let n=0;n<maxPts;n++){
+    const k1=eqField(cfg,drv,x,y,0);
+    const m1=Math.hypot(k1[0],k1[1])||1e-30;
+    const k2=eqField(cfg,drv,x+0.5*ds*k1[0]/m1,y+0.5*ds*k1[1]/m1,0);
+    const m2=Math.hypot(k2[0],k2[1])||1e-30;
+    const k3=eqField(cfg,drv,x+0.5*ds*k2[0]/m2,y+0.5*ds*k2[1]/m2,0);
+    const m3=Math.hypot(k3[0],k3[1])||1e-30;
+    const k4=eqField(cfg,drv,x+ds*k3[0]/m3,y+ds*k3[1]/m3,0);
+    const m4=Math.hypot(k4[0],k4[1])||1e-30;
+    const ux=(k1[0]/m1+2*k2[0]/m2+2*k3[0]/m3+k4[0]/m4)/6,
+          uy=(k1[1]/m1+2*k2[1]/m2+2*k3[1]/m3+k4[1]/m4)/6;
+    const um=Math.hypot(ux,uy)||1e-30;
+    x+=ds*ux/um; y+=ds*uy/um;
+    if (!isFinite(x)||!isFinite(y)) break;
+    pts.push(x,y);
+    const rr=Math.hypot(x,y);
+    if (rr>rMax||rr<(rStop||0)) break;             // stop at the frame edge or the clamped core
+  }
+  return pts;
+}
+
+/* ==================== state, clamps, real units ================== */
+const SRCS=['dip','mag','pair','quad','oct','hex','rot'];
+const DRIVES=['cw','pulse','step'];
+const DEFAULTS={ src:'dip', drv:'cw', f:1.2, s:40, speed:0.7,
+                 lines:true, showW:true, showE:false, showS:false,
+                 zones:true, ideal:true };
+const PRESETS={
+  pHertz:  {src:'dip',  drv:'cw',    f:1.2, s:40},
+  pQuad:   {src:'quad', drv:'cw',    f:1.0, s:12},
+  pArray:  {src:'pair', drv:'cw',    f:1.4, s:54},   // ~ half a wavelength (lam=107)
+  pPulsar: {src:'rot',  drv:'cw',    f:1.3, s:40, showW:true},
+  pStatics:{src:'oct',  drv:'step',  f:1.1, s:34},
+};
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,+v||lo));
+  if (SRCS.indexOf(c.src)<0) c.src='dip';
+  if (DRIVES.indexOf(c.drv)<0) c.drv='cw';
+  c.f=f(c.f,0.4,2.4);
+  c.s=f(c.s,8,100);
+  c.speed=f(c.speed,0.1,2.5);
+  for (const k of ['lines','showW','showE','showS','zones','ideal']) c[k]=!!c[k];
+  return c;
+}
+function hasSpacing(src){ return ['pair','quad','oct','hex'].indexOf(src)>=0; }
+function fmt(x,d){ return (+x).toFixed(d===undefined?2:d); }
+function fmtSI(x,unit){
+  const ax=Math.abs(x);
+  if (ax>=1e9) return fmt(x/1e9,1)+' G'+unit;
+  if (ax>=1e6) return fmt(x/1e6,1)+' M'+unit;
+  if (ax>=1e3) return fmt(x/1e3,1)+' k'+unit;
+  if (ax>=1)   return fmt(x,1)+' '+unit;
+  if (ax>=1e-2) return fmt(x*1e2,1)+' c'+unit;
+  if (ax>=1e-3) return fmt(x*1e3,1)+' m'+unit;
+  return fmt(x*1e6,1)+' &mu;'+unit;
+}
+const SRC_LABEL={
+  dip:'oscillating dipole', mag:'magnetic dipole (current loop)',
+  pair:'in-phase dipole pair', quad:'linear quadrupole', oct:'linear octupole',
+  hex:'linear 16-pole', rot:'rotating dipole',
+};
+function srcLabel(st){ return SRC_LABEL[st.src]; }
+function drvLabel(st){
+  if (st.src==='rot') return 'rotating at ω';
+  return {cw:'harmonic cos ωt', pulse:'Gaussian pulse', step:'on–off (switch-on statics)'}[st.drv];
+}
+/* real mapping: drawn f0 = 1.2 corresponds to 100 MHz; px<->m fixed by it */
+function realUnits(st){
+  const mPerPx=C_REAL*1.2/(FC_REAL*C);            // ~0.024 m/px (lam@1.2 = 3 m)
+  const realF=st.f/1.2*FC_REAL, realLam=C_REAL/realF;
+  return { mPerPx, realF, realLam,
+    fStr:fmtSI(realF,'Hz'), lamStr:fmtSI(realLam,'m'),
+    sStr:fmtSI(st.s*mPerPx,'m'), rlcStr:fmtSI((C/(TAU*st.f))*mPerPx,'m') };
+}
+
+/* ========================= formula bar =========================== */
+function frac(n,d){ return '<span class="efrac"><span class="en">'+n+
+  '</span><span class="ed">'+d+'</span></span>'; }
+function eqbarHTML(st){
+  const l=multipoleOrder(st.src);
+  let drive;
+  if (st.src==='rot')
+    drive='<span class="lhs"><b>p</b>(t)</span> = p&#8320;(x&#770; cos ωt + y&#770; sin ωt)';
+  else if (st.src==='mag')
+    drive='<span class="lhs"><b>m</b>(t)</span> = m&#8320; '+({cw:'cos ωt',pulse:'g(t)',step:'h(t)'}[st.drv])+' z&#770;';
+  else
+    drive='<span class="lhs">p(t)</span> = p&#8320; '+({cw:'cos ωt',pulse:'g(t)',step:'h(t)'}[st.drv])+'';
+  const fieldSym=st.src==='mag'?'B':'E';
+  const efield=fieldSym+' = ['+frac('3n&#770;(n&#770;&middot;p)&minus;p','R&sup3;')+' + '+
+    frac('&hellip;','cR&sup2;')+' + '+frac('n&#770;&times;(n&#770;&times;p&#776;)','&minus;c&sup2;R')+']'+
+    '<sub>ret</sub>';
+  const pw='<span class="lhs">P</span> = '+frac('ω&#8308;p&#8320;&sup2;','c&sup3;')+
+    '&thinsp;I(ks) &nbsp;&middot;&nbsp; P &prop; ω<sup>'+(2*l+2)+'</sup> as ks&#8594;0';
+  let out=drive+' &nbsp;&middot;&nbsp; '+efield+' &nbsp;&middot;&nbsp; '+pw;
+  return out;
+}
+function eqbarText(st){
+  const l=multipoleOrder(st.src);
+  const drive=st.src==='rot'?'p(t) = p0 (x cos wt + y sin wt)'
+    :st.src==='mag'?'m(t) = m0 f(t) z'
+    :'p(t) = p0 f(t) z';
+  return drive+'  ·  E = [3n(n.p)-p]/R^3 + [3n(n.p\')-p\']/cR^2 + [n(n.p\'\')-p\'\']/c^2R  (ret)'+
+    '  ·  P = (w^4 p0^2/c^3) I(ks),  P ~ w^'+(2*l+2)+' as ks->0';
+}
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('sky'), ctx=cv.getContext('2d');
+  const insetCv=$('inset'), inx=insetCv.getContext('2d');
+  const probeCv=$('probe'), pbx=probeCv.getContext('2d');
+  if (!ctx||!inx||!pbx) return;
+  const dpr=(typeof window!=='undefined'&&window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let t=0, paused=false, frameNo=0;
+  let W=980, H=560;
+  let drv=null, cfg=null, lam=125;
+  let patt=null, pattAngles=120;
+  let rotLines=null;                               // cached equatorial streamlines (t=0)
+  let probe={fx:0.66, fy:0.30}, dragProbe=false;
+
+  /* ---------- geometry ---------- */
+  const cx=()=>Math.round(W*0.44), cy=()=>Math.round(H*0.52);
+  const toSX=wx=>cx()+wx, toSY=wz=>cy()-wz;
+  const probeWorld=()=>({wx:Math.round(probe.fx*W)-cx(), wz:cy()-Math.round(probe.fy*H)});
+
+  function rebuildModel(){
+    state=clampState(state);
+    drv=makeDrive(state);
+    lam=C/state.f;
+    cfg=makeCfg(state);
+    patt=null;
+    rotLines=null;
+  }
+
+  /* ---------- per-frame drive table ---------- */
+  function frameTable(){
+    const rmax=Math.hypot(Math.max(cx(),W-cx())+40, Math.max(cy(),H-cy())+40)+(cfg.span||0);
+    const fEff=state.f*(state.drv==='cw'?1:1.6)+0.05;
+    return buildPTable(drv, fEff, t-rmax/C-0.05, t+0.02);
+  }
+
+  /* ---------- rotating streamlines (integrate once, rotate to draw) --- */
+  function buildRotLines(){
+    const lines=[], nSeed=30, r0=20, rStop=13;
+    const rMax=Math.hypot(W,H)*0.6;
+    for (let a=0;a<nSeed;a++){
+      const ph=a/nSeed*TAU, x0=r0*Math.cos(ph), y0=r0*Math.sin(ph);
+      const fwd=traceStreamline(cfg,drv,x0,y0,3.2,460,rMax,rStop);   // one arm out
+      const bwd=traceStreamline(cfg,drv,x0,y0,-3.2,460,rMax,rStop);  // the other way
+      if (fwd.length>8) lines.push(fwd);
+      if (bwd.length>8) lines.push(bwd);
+    }
+    return lines;
+  }
+
+  /* ---------- field-line layer (axisymmetric stacks) ---------- */
+  function drawFieldLines(tab){
+    const cs=10;                                   // grid spacing (px); coarser = faster contours
+    const wx0=-cx()+6, wx1=W-cx()-6, wz0=-(cy()-6), wz1=cy()-6;
+    const nx=Math.max(4,Math.floor((wx1-wx0)/cs)+1),
+          ny=Math.max(4,Math.floor((wz1-wz0)/cs)+1);
+    const grid=new Float64Array(nx*ny);
+    for (let j=0;j<ny;j++){
+      const wz=wz0+j*cs;
+      for (let i=0;i<nx;i++)
+        grid[j*nx+i]=psiAtXZTab(cfg,tab,wx0+i*cs,wz,t);
+    }
+    const levels=psiLevels(state);
+    ctx.lineWidth=1.1;
+    let segCount=0;
+    const arrowPts=[];
+    for (const L of levels){
+      const segs=marchingSquares(grid,nx,ny,wx0,wz0,cs,L);
+      if (!segs.length) continue;
+      ctx.strokeStyle=L>0?'#b8ec4c':'#cd35c4';
+      ctx.globalAlpha=0.62;
+      ctx.beginPath();
+      for (let k=0;k<segs.length;k+=4){
+        ctx.moveTo(toSX(segs[k]),toSY(segs[k+1]));
+        ctx.lineTo(toSX(segs[k+2]),toSY(segs[k+3]));
+      }
+      ctx.stroke();
+      segCount+=segs.length/4;
+      for (let k=0;k<segs.length;k+=4*24)
+        arrowPts.push([(segs[k]+segs[k+2])/2,(segs[k+1]+segs[k+3])/2,L>0]);
+    }
+    ctx.globalAlpha=0.9;
+    for (const q of arrowPts){
+      const f=fieldsAtXZTab(cfg,tab,q[0],q[1],t);
+      const m=Math.hypot(f.Vx,f.Vup);
+      if (m<1e-12) continue;
+      const ux=f.Vx/m, uz=f.Vup/m;
+      const px=toSX(q[0]), py=toSY(q[1]);
+      ctx.fillStyle=q[2]?'#b8ec4c':'#cd35c4';
+      ctx.beginPath();
+      ctx.moveTo(px+ux*4,py-uz*4);
+      ctx.lineTo(px-ux*2.4+uz*2.2,py+uz*2.4+ux*2.2);
+      ctx.lineTo(px-ux*2.4-uz*2.2,py+uz*2.4-ux*2.2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+    return segCount;
+  }
+
+  /* ---------- rotating equatorial streamlines ---------- */
+  function drawRotLines(){
+    if (!rotLines) rotLines=buildRotLines();
+    const ang=drv.w*t, ca=Math.cos(ang), sa=Math.sin(ang);
+    ctx.strokeStyle='#b8ec4c'; ctx.lineWidth=1.1; ctx.globalAlpha=0.6;
+    let segCount=0;
+    for (const pl of rotLines){
+      ctx.beginPath();
+      for (let k=0;k<pl.length;k+=2){
+        const x=pl[k]*ca-pl[k+1]*sa, y=pl[k]*sa+pl[k+1]*ca;
+        const sx=toSX(x), sy=toSY(y);
+        if (k===0) ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
+      }
+      ctx.stroke();
+      segCount+=pl.length/2;
+    }
+    // arrowheads along a few lines
+    ctx.globalAlpha=0.9; ctx.fillStyle='#b8ec4c';
+    for (const pl of rotLines){
+      for (let k=Math.floor(pl.length/4)*2;k<pl.length-2;k+=Math.max(2,Math.floor(pl.length/6))*2){
+        const x=pl[k]*ca-pl[k+1]*sa, y=pl[k]*sa+pl[k+1]*ca;
+        const x2=pl[k+2]*ca-pl[k+3]*sa, y2=pl[k+2]*sa+pl[k+3]*ca;
+        const ux=x2-x, uy=y2-y, m=Math.hypot(ux,uy)||1e-30;
+        const px=toSX(x), py=toSY(y);
+        const dx=ux/m, dy=uy/m;
+        ctx.beginPath();
+        ctx.moveTo(px+dx*4,py-dy*4);
+        ctx.lineTo(px-dx*2.4-dy*2.2,py+dy*2.4-dx*2.2);
+        ctx.lineTo(px-dx*2.4+dy*2.2,py+dy*2.4+dx*2.2);
+        ctx.closePath(); ctx.fill();
+        break;
+      }
+    }
+    ctx.globalAlpha=1;
+    return segCount;
+  }
+
+  /* ---------- out-of-plane field: dot / cross layer ---------- */
+  function drawWLayer(tab){
+    const step=44;
+    const pts=[]; let mx=0;
+    for (let sy=24;sy<H-16;sy+=step){
+      for (let sx=20;sx<W-16;sx+=step){
+        const wx=sx-cx(), wz=cy()-sy;
+        if (Math.hypot(wx,wz)<RMIN*2.0) continue;
+        let Wv;
+        if (cfg.rot) Wv=vecFieldsAt(cfg,drv,wx,wz,0,t).B[2];
+        else Wv=fieldsAtXZTab(cfg,tab,wx,wz,t).Wout;
+        pts.push([sx,sy,Wv]); mx=Math.max(mx,Math.abs(Wv));
+      }
+    }
+    if (!mx) return;
+    ctx.strokeStyle='#58c4dd'; ctx.fillStyle='#58c4dd';
+    for (const q of pts){
+      const a=Math.pow(Math.abs(q[2])/mx,0.45);
+      if (a<0.06) continue;
+      const rad=2.2+6*a;
+      ctx.globalAlpha=0.16+0.6*a;
+      ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(q[0],q[1],rad,0,TAU); ctx.stroke();
+      if (q[2]>0){                                 // out of screen: dot
+        ctx.beginPath(); ctx.arc(q[0],q[1],Math.max(0.8,rad*0.22),0,TAU); ctx.fill();
+      } else {                                      // into screen: cross
+        ctx.beginPath();
+        ctx.moveTo(q[0]-rad*0.55,q[1]-rad*0.55); ctx.lineTo(q[0]+rad*0.55,q[1]+rad*0.55);
+        ctx.moveTo(q[0]-rad*0.55,q[1]+rad*0.55); ctx.lineTo(q[0]+rad*0.55,q[1]-rad*0.55);
+        ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+
+  /* ---------- in-plane vector layer: field arrows or Poynting ---------- */
+  function inplaneVec(tab, wx, wz, kind){
+    if (cfg.rot){
+      const f=vecFieldsAt(cfg,drv,wx,wz,0,t);
+      if (kind==='E') return [f.E[0],f.E[1]];
+      return [f.E[1]*f.B[2]-f.E[2]*f.B[1], f.E[2]*f.B[0]-f.E[0]*f.B[2]];  // S_x, S_y
+    }
+    const f=fieldsAtXZTab(cfg,tab,wx,wz,t);
+    if (kind==='E') return [f.Vx,f.Vup];
+    // Poynting in the meridian plane: S ∝ V x W_out  ->  (Vup*Wout, -Vx*Wout)... use E x B
+    return [f.Vup*f.Wout, -f.Vx*f.Wout];
+  }
+  function drawVecLayer(tab, kind){
+    const step=kind==='E'?46:58, off=kind==='E'?23:29;
+    const pts=[]; let mx=0;
+    for (let sy=24+off%step;sy<H-14;sy+=step){
+      for (let sx=20+off;sx<W-16;sx+=step){
+        const wx=sx-cx(), wz=cy()-sy;
+        if (Math.hypot(wx,wz)<RMIN*2.0) continue;
+        const v=inplaneVec(tab,wx,wz,kind);
+        const m=Math.hypot(v[0],v[1]);
+        pts.push([sx,sy,v[0],v[1],m]); mx=Math.max(mx,m);
+      }
+    }
+    if (!mx) return;
+    ctx.strokeStyle=kind==='E'?'rgba(235,238,245,0.8)':'rgba(255,240,190,0.85)';
+    ctx.fillStyle=ctx.strokeStyle; ctx.lineWidth=1;
+    for (const q of pts){
+      const a=Math.pow(q[4]/mx,0.45);
+      if (a<0.07) continue;
+      const len=(kind==='E'?16:20)*a, ux=q[2]/q[4], uz=q[3]/q[4];
+      const x2=q[0]+ux*len, y2=q[1]-uz*len;
+      ctx.globalAlpha=0.25+0.55*a;
+      ctx.beginPath(); ctx.moveTo(q[0],q[1]); ctx.lineTo(x2,y2); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x2+ux*3.4,y2-uz*3.4);
+      ctx.lineTo(x2-uz*2,y2-ux*2);
+      ctx.lineTo(x2+uz*2,y2+ux*2);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha=1;
+  }
+
+  /* ---------- near/far zone rings ---------- */
+  function drawZones(){
+    const r1=C/drv.w, r2=lam, cxp=toSX(0), cyp=toSY(0);
+    ctx.strokeStyle='rgba(255,255,255,0.22)';
+    ctx.setLineDash([3,5]); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cxp,cyp,r1,0,TAU); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cxp,cyp,r2,0,TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(255,255,255,0.42)'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText(cfg.rot?'r_LC = λ/2π':'λ/2π',cxp+r1*0.70,cyp-r1*0.70);
+    ctx.fillText('λ',cxp+r2*0.72,cyp-r2*0.72);
+  }
+
+  /* ---------- source glyphs ---------- */
+  function chargeGlow(sx,sy,q){
+    const a=Math.min(1,Math.abs(q));
+    if (a<0.03) return;
+    const col=q>0?'184,236,76':'205,53,196';
+    const rad=3.5+9*Math.sqrt(a);
+    const g=ctx.createRadialGradient(sx,sy,0,sx,sy,rad);
+    g.addColorStop(0,'rgba('+col+','+(0.85*a)+')');
+    g.addColorStop(1,'rgba('+col+',0)');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(sx,sy,rad,0,TAU); ctx.fill();
+  }
+  function drawDipoleGlyph(sx,syTop,syBot,q,I){
+    ctx.strokeStyle='#b9bcc4'; ctx.lineWidth=2.4;
+    ctx.beginPath();
+    ctx.moveTo(sx,(syTop+syBot)/2-3); ctx.lineTo(sx,syTop);
+    ctx.moveTo(sx,(syTop+syBot)/2+3); ctx.lineTo(sx,syBot);
+    ctx.stroke();
+    ctx.strokeStyle='#58c4dd'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(sx,(syTop+syBot)/2,3.4,0,TAU); ctx.stroke();
+    chargeGlow(sx,syTop,q); chargeGlow(sx,syBot,-q);
+    // current chevrons
+    const a=Math.min(1,Math.abs(I));
+    if (a>=0.04){
+      ctx.strokeStyle='rgba(255,255,255,'+(0.22+0.6*a)+')'; ctx.lineWidth=1.3;
+      const sgn=I>0?1:-1, y0=syBot-3, y1=syTop+3, n=3;
+      for (let k=0;k<n;k++){
+        const y=y0+(y1-y0)*(k+0.5)/n;
+        ctx.beginPath();
+        ctx.moveTo(sx-3,y+2.4*sgn); ctx.lineTo(sx,y-2.4*sgn); ctx.lineTo(sx+3,y+2.4*sgn);
+        ctx.stroke();
+      }
+    }
+  }
+  function drawSources(){
+    const arm=Math.max(9,Math.min(20,lam/6));
+    const Q=drv.p(t), I=drv.p1(t)/(drv.w||1);
+    if (cfg.rot){
+      // rotating moment arrow in the equatorial plane
+      const ang=drv.w*t, L=Math.max(16,Math.min(30,lam/4));
+      const ex=L*Math.cos(ang), ey=L*Math.sin(ang);
+      chargeGlow(toSX(ex),toSY(ey),1); chargeGlow(toSX(-ex),toSY(-ey),-1);
+      ctx.strokeStyle='#e8e8f0'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(toSX(-ex),toSY(-ey)); ctx.lineTo(toSX(ex),toSY(ey)); ctx.stroke();
+      // arrowhead on +p
+      const ux=Math.cos(ang), uy=Math.sin(ang);
+      ctx.fillStyle='#e8e8f0';
+      const hx=toSX(ex), hy=toSY(ey);
+      ctx.beginPath();
+      ctx.moveTo(hx+ux*5,hy-uy*5);
+      ctx.lineTo(hx-ux*3-uy*3,hy+uy*3-ux*3);
+      ctx.lineTo(hx-ux*3+uy*3,hy+uy*3+ux*3);
+      ctx.closePath(); ctx.fill();
+      // spin direction hint
+      ctx.strokeStyle='rgba(88,196,221,0.6)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.arc(toSX(0),toSY(0),8,ang,ang+2.1); ctx.stroke();
+      return;
+    }
+    if (cfg.mag){
+      // current loop seen edge-on: horizontal bar with circulating current
+      const Iloop=drv.p1(t)/(drv.w||1);
+      const w=Math.max(12,Math.min(26,lam/5));
+      const sx=toSX(0), sy=toSY(0);
+      ctx.strokeStyle='#b9bcc4'; ctx.lineWidth=2.2;
+      ctx.beginPath(); ctx.ellipse?ctx.ellipse(sx,sy,w,4.5,0,0,TAU):ctx.arc(sx,sy,w,0,TAU); ctx.stroke();
+      // m arrow (vertical), sign from current
+      const mA=Math.max(10,Math.min(24,lam/5))*Math.sign(Iloop||1);
+      ctx.strokeStyle='#58c4dd'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx,sy-mA); ctx.stroke();
+      chargeGlow(sx,sy-Math.abs(mA),Iloop);
+      ctx.fillStyle='#58c4dd'; ctx.font='10px Georgia, serif';
+      ctx.fillText('m',sx+4,sy-Math.abs(mA)-2);
+      return;
+    }
+    // linear stacks: one glyph per element
+    for (const src of cfg.srcs){
+      const syc=toSY(src.z);
+      drawDipoleGlyph(toSX(0),syc-arm,syc+arm,src.w*Q,src.w*I);
+      if (Math.abs(src.w)>1.0001){
+        ctx.fillStyle='#888'; ctx.font='9px -apple-system, sans-serif'; ctx.textAlign='left';
+        ctx.fillText((src.w>0?'+':'')+src.w,toSX(0)+arm+3,syc+3);
+      }
+    }
+  }
+
+  /* ---------- probe on the main canvas + its panel ---------- */
+  function localInplane(wx,wz,tt,tab){
+    if (cfg.rot){ const f=vecFieldsAt(cfg,drv,wx,wz,0,tt); return [f.E[0],f.E[1]]; }
+    const f=tab?fieldsAtXZTab(cfg,tab,wx,wz,tt):fieldsAtXZ(cfg,drv,wx,wz,tt);
+    return [f.Vx,f.Vup];
+  }
+  function drawProbeMark(tab){
+    const p=probeWorld(), sx=toSX(p.wx), sy=toSY(p.wz);
+    const v=localInplane(p.wx,p.wz,t,tab), m=Math.hypot(v[0],v[1]);
+    ctx.strokeStyle='rgba(255,255,255,0.7)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(sx,sy,5,0,TAU); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sx-8,sy); ctx.lineTo(sx+8,sy);
+    ctx.moveTo(sx,sy-8); ctx.lineTo(sx,sy+8); ctx.stroke();
+    if (m>1e-12){
+      const ux=v[0]/m, uz=v[1]/m, L=16;
+      ctx.strokeStyle='#fff'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(sx+ux*L,sy-uz*L); ctx.stroke();
+    }
+  }
+  function drawProbePanel(){
+    const IW=probeCv.width, IH=probeCv.height;
+    pbx.clearRect(0,0,IW,IH);
+    const p=probeWorld(), rW=Math.hypot(p.wx,p.wz), rlam=rW/lam;
+    pbx.fillStyle='#aaa'; pbx.font='10px -apple-system, sans-serif'; pbx.textAlign='left';
+    pbx.fillText('probe  r = '+fmt(rlam,2)+' λ  ('+(rlam<0.16?'near zone':rlam>1?'far zone':'transition')+')',8,13);
+    // polarization ellipse: E-vector tip over one drive period
+    const Tc=TAU/drv.w, NE=72;
+    const ex=new Float64Array(NE), ez=new Float64Array(NE);
+    let em=1e-30;
+    for (let i=0;i<NE;i++){
+      const v=localInplane(p.wx,p.wz,t-Tc+ (i/(NE-1))*Tc, null);
+      ex[i]=v[0]; ez[i]=v[1]; em=Math.max(em,Math.hypot(v[0],v[1]));
+    }
+    const ecx=IW*0.24, ecy=IH*0.6, R=Math.min(IW*0.19,IH*0.32)/em;
+    pbx.strokeStyle='rgba(255,255,255,0.16)';
+    pbx.beginPath(); pbx.moveTo(ecx-IW*0.2,ecy); pbx.lineTo(ecx+IW*0.2,ecy);
+    pbx.moveTo(ecx,ecy-IH*0.33); pbx.lineTo(ecx,ecy+IH*0.33); pbx.stroke();
+    pbx.strokeStyle='#cd35c4'; pbx.lineWidth=1.3; pbx.beginPath();
+    for (let i=0;i<NE;i++){
+      const x=ecx+ex[i]*R, y=ecy-ez[i]*R;
+      if (i===0) pbx.moveTo(x,y); else pbx.lineTo(x,y);
+    }
+    pbx.stroke();
+    // instantaneous E vector
+    const vNow=localInplane(p.wx,p.wz,t,null);
+    pbx.strokeStyle='#fff'; pbx.lineWidth=1.4;
+    pbx.beginPath(); pbx.moveTo(ecx,ecy);
+    pbx.lineTo(ecx+vNow[0]*R,ecy-vNow[1]*R); pbx.stroke();
+    pbx.fillStyle='#fff';
+    pbx.beginPath(); pbx.arc(ecx+vNow[0]*R,ecy-vNow[1]*R,2,0,TAU); pbx.fill();
+    pbx.fillStyle='#777'; pbx.font='9px -apple-system, sans-serif';
+    pbx.fillText('E-vector locus',ecx-IW*0.19,IH-6);
+    // drive p(t) trace on the right half
+    const gx0=IW*0.5, gw=IW*0.44, gy=IH*0.42, gh=IH*0.3;
+    pbx.strokeStyle='rgba(255,255,255,0.12)';
+    pbx.beginPath(); pbx.moveTo(gx0,gy); pbx.lineTo(gx0+gw,gy); pbx.stroke();
+    const Tw=drv.kind==='cw'?3.2/state.f:drv.loopT;
+    let pm=1e-30, pa=new Float64Array(64);
+    for (let i=0;i<64;i++){ pa[i]=drv.p(t-Tw+ (i/63)*Tw); pm=Math.max(pm,Math.abs(pa[i])); }
+    pbx.strokeStyle='#b8ec4c'; pbx.lineWidth=1.2; pbx.beginPath();
+    for (let i=0;i<64;i++){
+      const x=gx0+gw*i/63, y=gy-pa[i]/pm*gh*0.9;
+      if (i===0) pbx.moveTo(x,y); else pbx.lineTo(x,y);
+    }
+    pbx.stroke();
+    pbx.fillStyle='#777'; pbx.font='9px -apple-system, sans-serif';
+    pbx.fillText(cfg.mag?'m(t)':'p(t)',gx0,gy-gh-3);
+    // now-marker
+    pbx.strokeStyle='rgba(255,255,255,0.5)';
+    pbx.beginPath(); pbx.moveTo(gx0+gw,gy-gh); pbx.lineTo(gx0+gw,gy+gh); pbx.stroke();
+  }
+
+  function drawScene(){
+    ctx.clearRect(0,0,W,H);
+    const tab=cfg.rot?null:frameTable();
+    if (state.zones) drawZones();
+    let segs=0;
+    if (state.lines) segs=cfg.rot?drawRotLines():drawFieldLines(tab);
+    if (state.showW) drawWLayer(tab);
+    if (state.showE) drawVecLayer(tab,'E');
+    if (state.showS) drawVecLayer(tab,'S');
+    drawSources();
+    drawProbeMark(tab);
+    drawLegend();
+    return segs;
+  }
+  function drawLegend(){
+    const el=cfg.mag?'B':'E', wl=cfg.mag?'E':'B';
+    const bits=[];
+    if (state.lines) bits.push(el+' lines (chartreuse +Ψ / magenta −Ψ)');
+    if (state.showW) bits.push(wl+': ⊙ out · ⊗ in');
+    if (state.showE) bits.push(el+' arrows');
+    if (state.showS) bits.push('S = E×H');
+    if (!bits.length) return;
+    ctx.fillStyle='rgba(255,255,255,0.34)';
+    ctx.font='10px -apple-system, sans-serif'; ctx.textAlign='right';
+    ctx.fillText(bits.join('  ·  '),W-12,H-10);
+    ctx.textAlign='left';
+  }
+
+  /* ---------- radiation-pattern inset ---------- */
+  function drawInset(){
+    const IW=insetCv.width, IH=insetCv.height;
+    inx.clearRect(0,0,IW,IH);
+    if (!patt) patt=patternSamples(cfg,drv,pattAngles,9*lam);
+    const cxp=IW/2, cyp=IH/2+6, R=Math.min(IW/2-14,IH/2-14);
+    inx.strokeStyle='rgba(255,255,255,0.18)'; inx.lineWidth=1;
+    inx.beginPath(); inx.moveTo(cxp-R-4,cyp); inx.lineTo(cxp+R+4,cyp); inx.stroke();
+    inx.setLineDash([2,4]);
+    inx.beginPath(); inx.moveTo(cxp,cyp-R-4); inx.lineTo(cxp,cyp+R+4); inx.stroke();
+    inx.setLineDash([]);
+    const nA=pattAngles;
+    // dashed ideal shape (ks -> 0), one meridian branch per side
+    if (state.ideal){
+      let mxI=0;
+      for (let a=0;a<nA;a++) mxI=Math.max(mxI,idealPattern(cfg.src,(a+0.5)*PI/nA));
+      inx.strokeStyle='rgba(255,255,255,0.32)'; inx.setLineDash([3,3]);
+      for (const sgn of [1,-1]){
+        inx.beginPath();
+        for (let a=0;a<nA;a++){
+          const th=(a+0.5)*PI/nA, P=idealPattern(cfg.src,th)/mxI;
+          const x=cxp+sgn*R*P*Math.sin(th), y=cyp-R*P*Math.cos(th);
+          if (a===0) inx.moveTo(x,y); else inx.lineTo(x,y);
+        }
+        inx.stroke();
+      }
+      inx.setLineDash([]);
+    }
+    // measured pattern, both meridian branches
+    inx.strokeStyle='#b8ec4c'; inx.lineWidth=1.4;
+    for (const sgn of [1,-1]){
+      inx.beginPath();
+      for (let a=0;a<nA;a++){
+        const th=(a+0.5)*PI/nA, P=patt[a];
+        const x=cxp+sgn*R*P*Math.sin(th), y=cyp-R*P*Math.cos(th);
+        if (a===0) inx.moveTo(x,y); else inx.lineTo(x,y);
+      }
+      inx.stroke();
+    }
+    inx.fillStyle='#888'; inx.font='9px -apple-system, sans-serif';
+    const shape={dip:'sin²θ',mag:'sin²θ',pair:'sin²θ',quad:'sin²θ cos²θ',
+      oct:'sin²θ cos⁴θ',hex:'sin²θ cos⁶θ',rot:'(1+cos²θ)/2'}[cfg.src];
+    inx.fillText('⟨S_r⟩(θ) — gray: '+shape,6,11);
+  }
+
+  /* ---------- readouts / info / formula bar ---------- */
+  function updateReadout(){
+    $('roMain').textContent=srcLabel(state);
+    const b=kOf(state)*state.s;
+    let sub=drvLabel(state)+' · f = '+fmt(state.f,2)+' Hz · λ = '+Math.round(lam)+' px';
+    if (hasSpacing(state.src)) sub+=' · ks = '+fmt(b,2);
+    sub+='<br>t = '+fmt(t,1)+' s · leading 2<sup>'+multipoleOrder(state.src)+'</sup>-pole';
+    const ru=realUnits(state);
+    sub+='<br>if f = '+ru.fStr+': λ = '+ru.lamStr;
+    if (hasSpacing(state.src)) sub+=' · s = '+ru.sStr;
+    if (state.src==='rot') sub+=' · light cyl. r<sub>LC</sub> = '+ru.rlcStr;
+    $('roSub').innerHTML=sub;
+  }
+  function updatePow(){
+    const eff=state.src==='rot'?'cw':state.drv;      // rotation is always harmonic
+    if (eff!=='cw'){
+      $('roPow').innerHTML='pulsed drive — watch one shell of radiation detach and leave at c';
+      return;
+    }
+    const I=powerClosedI(state), ex=powerExponent(state);
+    let s='<b>P</b> = (ω⁴p₀²/c³)·I,  I = '+fmt(I,3);
+    s+='<br>d ln P / d ln ω = <b>'+fmt(ex,2)+'</b>';
+    if (hasSpacing(state.src)) s+='  (→ '+(2*multipoleOrder(state.src)+2)+' as s→0, → 4 as s→∞)';
+    $('roPow').innerHTML=s;
+  }
+  function updateMom(){
+    const b=kOf(state)*state.s;
+    if (!hasSpacing(state.src)){ $('roMom').innerHTML=''; return; }
+    let s='spacing ks = '+fmt(b,2)+' · ';
+    s+={pair:'coherent, P→4× as ks→0',quad:'Σp=0, I≈(ks)²/15',
+        oct:'Σp=ΣQ=0, I≈(ks)⁴/35',hex:'first 3 moments=0, I≈(ks)⁶/63'}[state.src];
+    $('roMom').innerHTML=s;
+  }
+  function updateInfo(){
+    let s='';
+    const src=state.src;
+    if (src==='dip') s='<b>Oscillating (Hertz) dipole</b>: the textbook donut, sin²θ. Watch the E loops pinch off and detach near r ≈ λ/2π each half cycle; inside that the field is quasi-static, outside it is a transverse wave with B = E/c.';
+    else if (src==='mag') s='<b>Magnetic dipole</b> (oscillating current loop m ẑ): the <i>exact EM dual</i> of the electric dipole — the poloidal lines you see are now <b>B</b> lines, and the ⊙/⊗ symbols are the azimuthal <b>E</b>. Same sin²θ power, same 1/3 coefficient.';
+    else if (src==='pair') s='<b>Two dipoles in phase</b>: a coherent l=1 source. As the spacing ks→0 the fields add and the radiated power is <b>4×</b> one dipole (2p, squared). Pull them ~λ/2 apart and the array factor 2cos(½ks·cosθ) carves lobes.';
+    else if (src==='quad') s='<b>Linear quadrupole</b> (two anti-phase dipoles): the net dipole moment is <b>zero</b>, so l=1 radiation cancels and the leading term is l=2. Power collapses to ≈(ks)²/15 of a dipole — radiation ∝ ω⁶, and the pattern splits to sin²θcos²θ.';
+    else if (src==='oct') s='<b>Linear octupole</b> (weights +1 −2 +1): both the dipole and the quadrupole moment vanish, so the leading term is l=3. Power ≈(ks)⁴/35 — ∝ ω⁸ — and the pattern narrows to sin²θcos⁴θ. Each cancelled moment adds two powers of ω.';
+    else if (src==='hex') s='<b>Linear 16-pole</b> (weights +1 −3 +3 −1, a third finite difference): the first three multipole moments cancel, leaving l=4. Power ≈(ks)⁶/63 ∝ ω¹⁰ — a spectacularly weak, sharply forward pattern sin²θcos⁶θ.';
+    else if (src==='rot') s='<b>Rotating dipole</b> — the pulsar pinwheel. p⃗ turns at ω in the plane of the screen; its field co-rotates <i>rigidly</i>, trailing a double spiral with pitch λ. Radiation is circularly polarized on the spin axis, and the light cylinder r_LC = c/ω = λ/2π is where a co-rotating point would reach c.';
+    if (state.drv==='pulse'&&src!=='rot') s+='<br><b>Pulse</b>: a single Gaussian blip of p(t) — one spherical shell of radiation buds off and sails outward at exactly c, thinning as 1/r.';
+    else if (state.drv==='step'&&src!=='rot') s+='<br><b>On–off</b>: the moment ramps up, <i>holds</i> (the near field settles into the static multipole line picture), then switches off — each edge launches its own burst; the static field carries no energy away.';
+    $('info').innerHTML=s;
+  }
+  function updateEqbar(){ $('eqbar').innerHTML=eqbarHTML(state); $('eqbar').title=eqbarText(state); }
+  function paintGradbar(){
+    const g=$('gradbar').getContext('2d'); if (!g) return;
+    for (let i=0;i<248;i++){ g.fillStyle=neonCss(i/247); g.fillRect(i,0,1,10); }
+  }
+
+  /* ---------- control wiring ---------- */
+  function syncControls(){
+    const st=state, on=(id,v)=>$(id).classList.toggle('on',v);
+    for (const s of SRCS) on('src'+s.charAt(0).toUpperCase()+s.slice(1), st.src===s);
+    on('drvCW',st.drv==='cw'); on('drvPulse',st.drv==='pulse'); on('drvStep',st.drv==='step');
+    for (const k of ['pHertz','pQuad','pArray','pPulsar','pStatics']) on(k,false);
+    const magNow=st.src==='mag';
+    $('lblLines').textContent=magNow?'B lines':'E lines';
+    $('lblW').innerHTML=magNow?'E &#8857;/&#8855;':'B &#8857;/&#8855;';
+    $('lblE').textContent=magNow?'B arrows':'E arrows';
+    $('drvRow').hidden=st.src==='rot';
+    $('drvNote').hidden=st.src!=='rot';
+    $('rowS').hidden=!hasSpacing(st.src);
+    $('eF').value=st.f; $('eFVal').textContent=fmt(st.f,2)+' Hz';
+    $('eS').value=st.s; $('eSVal').textContent=Math.round(st.s)+' px';
+    $('eSpeed').value=st.speed; $('eSpeedVal').textContent='×'+fmt(st.speed,2);
+    $('ckLines').checked=st.lines; $('ckW').checked=st.showW;
+    $('ckE').checked=st.showE; $('ckS').checked=st.showS;
+    $('ckZones').checked=st.zones; $('ckIdeal').checked=st.ideal;
+  }
+  function applyChange(){
+    rebuildModel(); syncControls();
+    updateInfo(); updateEqbar(); updateReadout(); updatePow(); updateMom();
+  }
+  function srcId(s){ return 'src'+s.charAt(0).toUpperCase()+s.slice(1); }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  for (const s of SRCS) chip(srcId(s),(function(x){ return ()=>{ state.src=x; }; })(s));
+  chip('drvCW',()=>{ state.drv='cw'; });
+  chip('drvPulse',()=>{ state.drv='pulse'; });
+  chip('drvStep',()=>{ state.drv='step'; });
+  chip('pHertz',()=>{ Object.assign(state,PRESETS.pHertz); });
+  chip('pQuad',()=>{ Object.assign(state,PRESETS.pQuad); });
+  chip('pArray',()=>{ Object.assign(state,PRESETS.pArray); });
+  chip('pPulsar',()=>{ Object.assign(state,PRESETS.pPulsar); });
+  chip('pStatics',()=>{ Object.assign(state,PRESETS.pStatics); });
+  function bindSlider(id,key){
+    $(id).addEventListener('input',()=>{ state[key]=+$(id).value; applyChange(); });
+  }
+  bindSlider('eF','f'); bindSlider('eS','s');
+  $('eSpeed').addEventListener('input',()=>{ state.speed=+$('eSpeed').value; syncControls(); });
+  function bindCheck(id,key){
+    $(id).addEventListener('change',()=>{ state[key]=$(id).checked; });
+  }
+  bindCheck('ckLines','lines'); bindCheck('ckW','showW'); bindCheck('ckE','showE');
+  bindCheck('ckS','showS'); bindCheck('ckZones','zones'); bindCheck('ckIdeal','ideal');
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+  $('restartBtn').addEventListener('click',()=>{ t=0; });
+  $('resetBtn').addEventListener('click',()=>{
+    state=clampState(Object.assign({},DEFAULTS));
+    probe={fx:0.66, fy:0.30};
+    t=0; setPaused(false); applyChange();
+  });
+  document.addEventListener('keydown',ev=>{
+    if (ev.key===' '){ setPaused(!paused); ev.preventDefault(); }
+    else if (ev.key==='r'||ev.key==='R') t=0;
+  });
+  // drag the probe
+  function evXY(ev){
+    const b=cv.getBoundingClientRect?cv.getBoundingClientRect():{left:0,top:0};
+    return {x:(ev.clientX!==undefined?ev.clientX:0)-b.left,
+            y:(ev.clientY!==undefined?ev.clientY:0)-b.top};
+  }
+  cv.addEventListener('pointerdown',ev=>{
+    const q=evXY(ev), px=Math.round(probe.fx*W), py=Math.round(probe.fy*H);
+    if (Math.hypot(q.x-px,q.y-py)<22){ dragProbe=true; cv.classList.add('dragging');
+      if (cv.setPointerCapture&&ev.pointerId!==undefined) cv.setPointerCapture(ev.pointerId); }
+  });
+  cv.addEventListener('pointermove',ev=>{
+    if (!dragProbe) return;
+    const q=evXY(ev);
+    probe.fx=Math.max(0.02,Math.min(0.98,q.x/Math.max(1,W)));
+    probe.fy=Math.max(0.03,Math.min(0.97,q.y/Math.max(1,H)));
+  });
+  cv.addEventListener('pointerup',()=>{ dragProbe=false; cv.classList.remove('dragging'); });
+
+  /* ---------- resize / loop ---------- */
+  function resize(){
+    W=cv.clientWidth||980; H=cv.clientHeight||560;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+  }
+  if (typeof window!=='undefined')
+    window.addEventListener('resize',()=>{ resize(); });
+
+  const SIM_DT=1/60;
+  function frame(){
+    if (!paused) t+=SIM_DT*state.speed;
+    frameNo++;
+    if (frameNo%12===0) patt=null;
+    drawScene();
+    drawInset();
+    drawProbePanel();
+    if (frameNo%5===1){ updateReadout(); updatePow(); }
+    requestAnimationFrame(frame);
+  }
+  resize(); rebuildModel(); syncControls();
+  updateInfo(); updateEqbar(); updateReadout(); updatePow(); updateMom(); paintGradbar();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test ===========================
+   Runs headless (no DOM). Every physics claim in the header comment is
+   checked numerically here. */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+  const rel=(a,b)=>Math.abs(a-b)/Math.max(1e-30,Math.abs(b));
+
+  /* --- drives: closed-form p', p'' and defining values --- */
+  { const h=2e-6, ts=[0.3,1.1,2.7,4.9,6.1];
+    for (const drvKind of ['cw','pulse','step']){
+      const dv=makeDrive({src:'dip',drv:drvKind,f:0.9});
+      let w1=0,w2=0;
+      for (const t of ts){
+        w1=Math.max(w1,Math.abs((dv.p(t+h)-dv.p(t-h))/(2*h)-dv.p1(t)));
+        w2=Math.max(w2,Math.abs((dv.p1(t+h)-dv.p1(t-h))/(2*h)-dv.p2(t)));
+      }
+      ok(w1<1e-4&&w2<2e-2,drvKind+': p′, p″ are exact closed forms (FD check)');
+    }
+    const cw=makeDrive({src:'dip',drv:'cw',f:1.2});
+    ok(Math.abs(cw.p(0)-1)<1e-12&&Math.abs(cw.p1(0))<1e-12,'cw: p(0)=1, p′(0)=0');
+    const pu=makeDrive({src:'dip',drv:'pulse',f:1.0});
+    ok(Math.abs(pu.p(pu.loopT/2)-1)<1e-9&&pu.p(0)<0.02,'pulse: unit Gaussian centered in the loop');
+    const st=makeDrive({src:'dip',drv:'step',f:1.0});
+    const mid=st.p(0.375*st.loopT);               // between the two edges
+    ok(mid>0.98&&st.p(0.02*st.loopT)<0.05,'step: holds the static plateau ≈ 1 between edges'); }
+
+  const cwStat={src:'dip',drv:'cw',f:1.2,s:40,speed:1};
+
+  /* --- scalar (oneField) and vector (vecDip) paths agree --- */
+  { const drv=makeDrive(cwStat), cfg=makeCfg(cwStat), t0=1.7;
+    let wE=0,wB=0;
+    for (const q of [[60,80],[110,-40],[35,150]]){
+      const x=q[0], z=q[1], R=Math.hypot(x,z), st=x/R, ct=z/R;
+      const o=oneField(drv,x,z,t0,1);
+      const v=vecFieldsAt(cfg,drv,x,0,z,t0);
+      wE=Math.max(wE,Math.abs(v.E[0]-(o.Er*st+o.Eth*ct)),Math.abs(v.E[2]-(o.Er*ct-o.Eth*st)));
+      wB=Math.max(wB,Math.abs(v.B[1]-o.Bphi),Math.abs(v.E[1]));
+    }
+    ok(wE<1e-9&&wB<1e-9,'scalar oneField and vector vecFieldsAt describe the same dipole'); }
+
+  /* --- Maxwell's equations, 3-D finite differences, every source --- */
+  function maxwellResid(cfg, drv, pts, t0){
+    const h=0.04, dt=0.0015;
+    const F=(x,y,z,tt)=>vecFieldsAt(cfg,drv,x,y,z,tt);
+    let dE=0,dB=0,fa=0,am=0;
+    for (const q of pts){
+      const x=q[0],y=q[1],z=q[2];
+      const Exx=(F(x+h,y,z,t0).E[0]-F(x-h,y,z,t0).E[0])/(2*h),
+            Eyy=(F(x,y+h,z,t0).E[1]-F(x,y-h,z,t0).E[1])/(2*h),
+            Ezz=(F(x,y,z+h,t0).E[2]-F(x,y,z-h,t0).E[2])/(2*h);
+      const Bxx=(F(x+h,y,z,t0).B[0]-F(x-h,y,z,t0).B[0])/(2*h),
+            Byy=(F(x,y+h,z,t0).B[1]-F(x,y-h,z,t0).B[1])/(2*h),
+            Bzz=(F(x,y,z+h,t0).B[2]-F(x,y,z-h,t0).B[2])/(2*h);
+      const sc=Math.abs(Exx)+Math.abs(Eyy)+Math.abs(Ezz)+1e-28;
+      dE=Math.max(dE,Math.abs(Exx+Eyy+Ezz)/sc);
+      dB=Math.max(dB,Math.abs(Bxx+Byy+Bzz)/(Math.abs(Bxx)+Math.abs(Byy)+Math.abs(Bzz)+1e-28));
+      // curl E = -dB/dt
+      const cEx=(F(x,y+h,z,t0).E[2]-F(x,y-h,z,t0).E[2])/(2*h)-(F(x,y,z+h,t0).E[1]-F(x,y,z-h,t0).E[1])/(2*h),
+            cEy=(F(x,y,z+h,t0).E[0]-F(x,y,z-h,t0).E[0])/(2*h)-(F(x+h,y,z,t0).E[2]-F(x-h,y,z,t0).E[2])/(2*h),
+            cEz=(F(x+h,y,z,t0).E[1]-F(x-h,y,z,t0).E[1])/(2*h)-(F(x,y+h,z,t0).E[0]-F(x,y-h,z,t0).E[0])/(2*h);
+      const Bt=[(F(x,y,z,t0+dt).B[0]-F(x,y,z,t0-dt).B[0])/(2*dt),
+                (F(x,y,z,t0+dt).B[1]-F(x,y,z,t0-dt).B[1])/(2*dt),
+                (F(x,y,z,t0+dt).B[2]-F(x,y,z,t0-dt).B[2])/(2*dt)];
+      const fsc=Math.abs(cEx)+Math.abs(cEy)+Math.abs(cEz)+1e-28;
+      fa=Math.max(fa,(Math.abs(cEx+Bt[0])+Math.abs(cEy+Bt[1])+Math.abs(cEz+Bt[2]))/fsc);
+      // curl B = (1/c^2) dE/dt
+      const cBx=(F(x,y+h,z,t0).B[2]-F(x,y-h,z,t0).B[2])/(2*h)-(F(x,y,z+h,t0).B[1]-F(x,y,z-h,t0).B[1])/(2*h),
+            cBy=(F(x,y,z+h,t0).B[0]-F(x,y,z-h,t0).B[0])/(2*h)-(F(x+h,y,z,t0).B[2]-F(x-h,y,z,t0).B[2])/(2*h),
+            cBz=(F(x+h,y,z,t0).B[1]-F(x-h,y,z,t0).B[1])/(2*h)-(F(x,y+h,z,t0).B[0]-F(x,y-h,z,t0).B[0])/(2*h);
+      const Et=[(F(x,y,z,t0+dt).E[0]-F(x,y,z,t0-dt).E[0])/(2*dt)/(C*C),
+                (F(x,y,z,t0+dt).E[1]-F(x,y,z,t0-dt).E[1])/(2*dt)/(C*C),
+                (F(x,y,z,t0+dt).E[2]-F(x,y,z,t0-dt).E[2])/(2*dt)/(C*C)];
+      const asc=Math.abs(cBx)+Math.abs(cBy)+Math.abs(cBz)+1e-28;
+      am=Math.max(am,(Math.abs(cBx-Et[0])+Math.abs(cBy-Et[1])+Math.abs(cBz-Et[2]))/asc);
+    }
+    return {dE,dB,fa,am};
+  }
+  const mpts=[[120,40,60],[90,-70,110],[-140,50,40],[70,30,-120]];
+  { for (const src of ['dip','quad','oct','hex','mag']){
+      const cfg=makeCfg({src,s:40}), drv=makeDrive({src,drv:'cw',f:1.2,s:40});
+      const r=maxwellResid(cfg,drv,mpts,2.31);
+      ok(r.dE<5e-3&&r.dB<5e-3&&r.fa<5e-3&&r.am<5e-3,'Maxwell (∇·E=∇·B=0, Faraday, Ampère): '+src);
+    }
+    // non-harmonic drives through Maxwell
+    for (const drvKind of ['pulse','step']){
+      const cfg=makeCfg({src:'quad',s:40}), drv=makeDrive({src:'quad',drv:drvKind,f:1.0,s:40});
+      const r=maxwellResid(cfg,drv,mpts,drv.loopT*0.5);
+      ok(r.dE<6e-3&&r.fa<6e-3&&r.am<6e-3,'Maxwell holds under the '+drvKind+' drive too');
+    }
+    // rotating dipole
+    { const cfg=makeCfg({src:'rot',f:1.2}), drv=makeDrive({src:'rot',f:1.2});
+      const r=maxwellResid(cfg,drv,mpts,1.83);
+      ok(r.dE<5e-3&&r.dB<5e-3&&r.fa<5e-3&&r.am<5e-3,'Maxwell for the rotating dipole'); } }
+
+  /* --- duality: the magnetic dipole is the exact dual --- */
+  { const drv=makeDrive({src:'mag',drv:'cw',f:1.2}), t0=2.2;
+    const ce=makeCfg({src:'dip'}), cm=makeCfg({src:'mag'});
+    let w=0;
+    for (const q of [[80,20,50],[120,-40,90]]){
+      const e=vecFieldsAt(ce,drv,q[0],q[1],q[2],t0), m=vecFieldsAt(cm,drv,q[0],q[1],q[2],t0);
+      for (let i=0;i<3;i++){ w=Math.max(w,Math.abs(m.E[i]+C*e.B[i]),Math.abs(m.B[i]-e.E[i]/C)); }
+    }
+    ok(w<1e-9,'magnetic dipole fields = (−cB, E/c) of the electric dipole (duality)'); }
+
+  /* --- stream function generates the fields; contours tangent --- */
+  { const drv=makeDrive(cwStat), t0=1.5;
+    const r0=70, th0=1.05, hr=0.02, hth=3e-4;
+    const P=(r,th)=>oneField(drv,r*Math.sin(th),r*Math.cos(th),t0,1);
+    const ErFD=(P(r0,th0+hth).psi-P(r0,th0-hth).psi)/(2*hth)/(r0*r0*Math.sin(th0));
+    const EtFD=-(P(r0+hr,th0).psi-P(r0-hr,th0).psi)/(2*hr)/(r0*Math.sin(th0));
+    const f0=P(r0,th0);
+    ok(rel(ErFD,f0.Er)<1e-3,'E_r = (1/r²sinθ) ∂Ψ/∂θ');
+    ok(rel(EtFD,f0.Eth)<1e-3,'E_θ = −(1/r sinθ) ∂Ψ/∂r');
+    const cfg=makeCfg({src:'oct',s:40});
+    let wT=0;
+    for (const q of [[60,45],[120,20],[80,-90]]){
+      const h=0.03;
+      const gx=(fieldsAtXZ(cfg,drv,q[0]+h,q[1],t0).psi-fieldsAtXZ(cfg,drv,q[0]-h,q[1],t0).psi)/(2*h),
+            gz=(fieldsAtXZ(cfg,drv,q[0],q[1]+h,t0).psi-fieldsAtXZ(cfg,drv,q[0],q[1]-h,t0).psi)/(2*h);
+      const f=fieldsAtXZ(cfg,drv,q[0],q[1],t0);
+      wT=Math.max(wT,Math.abs(f.Vx*gx+f.Vup*gz)/(Math.hypot(f.Vx,f.Vup)*Math.hypot(gx,gz)+1e-30));
+    }
+    ok(wT<2e-3,'octupole: E ⊥ ∇Ψ — Ψ contours ARE the field lines'); }
+
+  /* --- far field: 1/r, B = E/c, transversality --- */
+  { const drv=makeDrive({src:'quad',drv:'cw',f:1.2,s:40});
+    const cfg=makeCfg({src:'quad',s:40}), lam=C/1.2, th=0.7, Tc=1/1.2;
+    const amp=r=>{ let m=0;
+      for (let k=0;k<24;k++){
+        const f=vecFieldsAt(cfg,drv,r*Math.sin(th),0,r*Math.cos(th),3+k*Tc/24);
+        m=Math.max(m,Math.hypot(f.E[0],f.E[2]));
+      }
+      return m; };
+    ok(Math.abs(amp(15*lam)*15*lam/(amp(30*lam)*30*lam)-1)<0.02,
+       'quadrupole far field: r·E amplitude is 1/r-clean');
+    let wB=0,mE=0,wLong=0;
+    for (let k=0;k<24;k++){
+      const r=30*lam, nx=Math.sin(th), nz=Math.cos(th);
+      const f=vecFieldsAt(cfg,drv,r*nx,0,r*nz,3+k*Tc/24);
+      const Emag=Math.hypot(f.E[0],f.E[1],f.E[2]), Bmag=Math.hypot(f.B[0],f.B[1],f.B[2]);
+      wB=Math.max(wB,Math.abs(Bmag*C-Emag));
+      const Elong=Math.abs(f.E[0]*nx+f.E[2]*nz);   // radial (longitudinal) part
+      wLong=Math.max(wLong,Elong); mE=Math.max(mE,Emag);
+    }
+    ok(wB/mE<0.02,'far field: |B| = |E|/c');
+    ok(wLong/mE<0.03,'far field: E is transverse (E·n̂ → 0)'); }
+
+  /* --- radiated power: closed forms vs sphere-integrated fields --- */
+  { const lam=C/1.2, rF=12*lam;
+    const cases=[['dip',40,1/3],['mag',40,1/3],['rot',40,2/3]];
+    for (const cc of cases){
+      const cfg=makeCfg({src:cc[0],s:cc[1]}), drv=makeDrive({src:cc[0],drv:'cw',f:1.2,s:cc[1]});
+      const I=powerNumericI(cfg,drv,rF,90,32);
+      ok(Math.abs(I/cc[2]-1)<0.04,cc[0]+': radiated power I = '+cc[2].toFixed(3)+' (fields vs Larmor, 4%)');
+    }
+    // arrays at ks = 2 (well-conditioned): numeric vs closed form
+    const k=TAU*1.2/C, sFor2=2/k;
+    for (const src of ['pair','quad','oct','hex']){
+      const st={src,drv:'cw',f:1.2,s:sFor2};
+      const cfg=makeCfg(st), drv=makeDrive(st);
+      const Inum=powerNumericI(cfg,drv,rF,110,32), Icl=powerClosedI(st);
+      ok(Math.abs(Inum/Icl-1)<0.05,src+': P(ks=2) matches its closed form '+Icl.toFixed(3)+' (5%)');
+    } }
+
+  /* --- power small-ks limits (closed forms) --- */
+  { const k=TAU*1.2/C, s=b=>b/k;
+    ok(Math.abs(powerClosedI({src:'pair',f:1.2,s:s(1e-3)})/(4/3)-1)<1e-3,'pair → 4/3 (=4× dipole) as ks→0');
+    ok(Math.abs(powerClosedI({src:'quad',f:1.2,s:s(0.02)})/(0.02*0.02/15)-1)<3e-3,'quadrupole → (ks)²/15');
+    ok(Math.abs(powerClosedI({src:'oct',f:1.2,s:s(0.08)})/(Math.pow(0.08,4)/35)-1)<0.02,'octupole → (ks)⁴/35');
+    ok(Math.abs(powerClosedI({src:'hex',f:1.2,s:s(0.15)})/(Math.pow(0.15,6)/63)-1)<0.03,'16-pole → (ks)⁶/63'); }
+
+  /* --- scaling exponent d ln P / d ln omega --- */
+  { ok(Math.abs(powerExponent({src:'dip',f:1.2,s:40})-4)<1e-6,'dipole: P ∝ ω⁴ exactly');
+    ok(Math.abs(powerExponent({src:'quad',f:1.2,s:2})-6)<0.02,'quadrupole: P ∝ ω⁶ as ks→0');
+    ok(Math.abs(powerExponent({src:'oct',f:1.2,s:2})-8)<0.02,'octupole: P ∝ ω⁸ as ks→0');
+    ok(Math.abs(powerExponent({src:'hex',f:1.2,s:2})-10)<0.02,'16-pole: P ∝ ω¹⁰ as ks→0');
+    ok(Math.abs(powerExponent({src:'quad',f:1.2,s:600})-4)<0.2,'array → incoherent ω⁴ as s→∞'); }
+
+  /* --- Fb identity --- */
+  { ok(Math.abs(Fb(0)-4/3)<1e-12,'F(0) = 4/3');
+    ok(Math.abs(Fb(PI)-4/(PI*PI))<1e-12,'F(π) = 4/π²');
+    // exact form vs series in the overlap
+    const bx=0.24, exact=(4/(bx*bx))*(Math.sin(bx)/bx-Math.cos(bx));
+    ok(Math.abs(Fb(bx)-exact)<1e-9,'F(b) series matches the closed form');
+    // definition: F(b) = INT_{-1}^{1}(1-u^2)cos(bu)du
+    let Iq=0; const nq=4000;
+    for (let i=0;i<nq;i++){ const u=-1+(i+0.5)*2/nq; Iq+=(1-u*u)*Math.cos(1.7*u); }
+    Iq*=2/nq;
+    ok(Math.abs(Iq-Fb(1.7))<1e-4,'F(b) = ∫₋₁¹(1−u²)cos(bu)du'); }
+
+  /* --- far-field patterns vs the ideal multipole shapes --- */
+  { const lam=C/1.2, nA=60, rF=9*lam;
+    const k=TAU*1.2/C, sSmall=0.25/k;              // ks = 0.25, near the ideal limit
+    const checks=[['dip',40],['quad',sSmall],['oct',sSmall],['rot',40]];
+    for (const cc of checks){
+      const cfg=makeCfg({src:cc[0],s:cc[1]}), drv=makeDrive({src:cc[0],drv:'cw',f:1.2,s:cc[1]});
+      const pm=patternSamples(cfg,drv,nA,rF);
+      let mxI=0;
+      for (let a=0;a<nA;a++) mxI=Math.max(mxI,idealPattern(cc[0],(a+0.5)*PI/nA));
+      let w=0;
+      for (let a=0;a<nA;a++){
+        const th=(a+0.5)*PI/nA;
+        w=Math.max(w,Math.abs(pm[a]-idealPattern(cc[0],th)/mxI));
+      }
+      ok(w<0.05,cc[0]+': ⟨S_r⟩(θ) matches its ideal shape (5%)');
+    } }
+
+  /* --- rotating dipole: rigid co-rotation --- */
+  { const cfg=makeCfg({src:'rot',f:1.1}), drv=makeDrive({src:'rot',f:1.1}), t0=1.3, ph=0.8;
+    const ca=Math.cos(ph), sa=Math.sin(ph);
+    let w=0;
+    for (const q of [[90,30,40],[60,-50,80]]){
+      const f0=vecFieldsAt(cfg,drv,q[0],q[1],q[2],t0);
+      const xr=q[0]*ca-q[1]*sa, yr=q[0]*sa+q[1]*ca;
+      const f1=vecFieldsAt(cfg,drv,xr,yr,q[2],t0+ph/drv.w);
+      // f1 should equal R_z(ph) f0
+      const Ex=f0.E[0]*ca-f0.E[1]*sa, Ey=f0.E[0]*sa+f0.E[1]*ca;
+      const Bx=f0.B[0]*ca-f0.B[1]*sa, By=f0.B[0]*sa+f0.B[1]*ca;
+      w=Math.max(w,Math.abs(f1.E[0]-Ex),Math.abs(f1.E[1]-Ey),Math.abs(f1.E[2]-f0.E[2]),
+                    Math.abs(f1.B[0]-Bx),Math.abs(f1.B[1]-By),Math.abs(f1.B[2]-f0.B[2]));
+    }
+    ok(w<1e-9,'rotating dipole: field co-rotates rigidly, E(R_z r, t+φ/ω) = R_z E(r,t)'); }
+
+  /* --- rotating dipole: on-axis circular polarization --- */
+  { const cfg=makeCfg({src:'rot',f:1.2}), drv=makeDrive({src:'rot',f:1.2});
+    const lam=C/1.2, R=30*lam, Tc=1/1.2;           // on the spin axis (z)
+    let mn=1e30, mx=0;
+    for (let k=0;k<40;k++){
+      const f=vecFieldsAt(cfg,drv,0,0,R,3+k*Tc/40);
+      const m=Math.hypot(f.E[0],f.E[1]);
+      mn=Math.min(mn,m); mx=Math.max(mx,m);
+    }
+    ok((mx-mn)/mx<0.02,'rotating dipole: |E| constant on the spin axis (circular polarization)'); }
+
+  /* --- pulse: one shell of radiation leaves at c --- */
+  { const cfg=makeCfg({src:'dip'}), drv=makeDrive({src:'dip',drv:'pulse',f:1.0}), lam=C;
+    const peakT=r=>{ let bt=0, bv=-1;
+      for (let i=0;i<400;i++){ const tt=i*drv.loopT/400;
+        const f=vecFieldsAt(cfg,drv,r,0,0,tt);      // equator: pure E_theta radiation
+        const m=Math.abs(f.E[2]);
+        if (m>bv){ bv=m; bt=tt; } }
+      return bt; };
+    const r1=8*lam, r2=15*lam, dtP=peakT(r2)-peakT(r1);
+    ok(Math.abs(dtP-(r2-r1)/C)/((r2-r1)/C)<0.03,'pulse: the radiation shell moves outward at speed c'); }
+
+  /* --- RK4 streamline is tangent to the field --- */
+  { const cfg=makeCfg({src:'rot',f:1.2}), drv=makeDrive({src:'rot',f:1.2});
+    const lines=[];                                  // a fan of seeds, like the drawn pinwheel
+    for (let a=0;a<16;a++){ const ph=a/16*TAU, r0=70;
+      lines.push(traceStreamline(cfg,drv,r0*Math.cos(ph),r0*Math.sin(ph),3,220,1100,13)); }
+    let maxF=0;
+    for (const pl of lines) for (let k=0;k<pl.length;k+=2){
+      const f=eqField(cfg,drv,pl[k],pl[k+1],0); maxF=Math.max(maxF,Math.hypot(f[0],f[1])); }
+    let w=0, n=0;
+    for (const pl of lines) for (let k=2;k<pl.length-2;k+=2){
+      const mx=(pl[k]+pl[k+2])/2, my=(pl[k+1]+pl[k+3])/2, r=Math.hypot(mx,my);
+      const f=eqField(cfg,drv,mx,my,0), fm=Math.hypot(f[0],f[1]);
+      if (r<16||fm<0.05*maxF) continue;              // skip the clamped core and field nulls
+      const sx=pl[k+2]-pl[k], sy=pl[k+3]-pl[k+1], sm=Math.hypot(sx,sy)||1e-30;
+      w=Math.max(w,Math.abs((sx*f[1]-sy*f[0])/(sm*fm))); n++;
+    }
+    ok(n>40&&w<0.06,'RK4 streamline stays tangent to E where the field is well-defined'); }
+
+  /* --- drive lookup table accuracy --- */
+  { const drv=makeDrive({src:'dip',drv:'step',f:1.1});
+    const tab=buildPTable(drv,1.1*1.6,-3,9);
+    let w0=0,w1=0;
+    for (let i=0;i<300;i++){ const t=-2.8+11.6*i/299, q=tableAt(tab,t);
+      w0=Math.max(w0,Math.abs(q[0]-drv.p(t)));
+      w1=Math.max(w1,Math.abs(q[1]-drv.p1(t))); }
+    ok(w0<5e-3&&w1<5e-2,'drive p(τ) lookup table interpolates cleanly');
+    // fieldsAtXZ vs its table version
+    const cfg=makeCfg({src:'quad',s:40});
+    let wf=0, wp=0;
+    for (const q of [[60,40],[110,-30]]){
+      const a=fieldsAtXZ(cfg,drv,q[0],q[1],3.2), b=fieldsAtXZTab(cfg,tab,q[0],q[1],3.2);
+      wf=Math.max(wf,Math.abs(a.psi-b.psi),Math.abs(a.Vx-b.Vx),Math.abs(a.Wout-b.Wout));
+      wp=Math.max(wp,Math.abs(psiAtXZTab(cfg,tab,q[0],q[1],3.2)-b.psi));  // lean grid path
+    }
+    ok(wf<5e-3,'tabulated field layer matches the direct field');
+    ok(wp<1e-12,'lean Ψ-only grid path equals the full field layer’s Ψ'); }
+
+  /* --- marching squares --- */
+  { const nx=51,ny=51,cs=2,x0=-50,z0=-50;
+    const g=new Float64Array(nx*ny);
+    for (let j=0;j<ny;j++) for (let i=0;i<nx;i++){
+      const x=x0+i*cs,z=z0+j*cs; g[j*nx+i]=x*x+z*z; }
+    const R0=Math.sqrt(880);
+    const segs=marchingSquares(g,nx,ny,x0,z0,cs,880);
+    let wR=0;
+    for (let k=0;k<segs.length;k+=2) wR=Math.max(wR,Math.abs(Math.hypot(segs[k],segs[k+1])-R0));
+    ok(segs.length/4>40&&segs.length/4<160&&wR<1,'marching squares traces a circle to sub-cell accuracy');
+    const deg={};
+    for (let k=0;k<segs.length;k+=2){ const key=segs[k].toFixed(2)+','+segs[k+1].toFixed(2);
+      deg[key]=(deg[key]||0)+1; }
+    let d2=0,tot=0;
+    for (const k in deg){ tot++; if (deg[k]===2) d2++; }
+    ok(d2/tot>0.95,'marching squares: contour closes (endpoints shared pairwise)');
+    const sad=marchingSquares(new Float64Array([-1,1,1,-1]),2,2,0,0,1,0);
+    ok(sad.length===8,'marching squares: saddle cell emits two segments'); }
+
+  /* --- state clamps, labels, units, formula bar --- */
+  { const c=clampState({src:'x',drv:'x',f:99,s:0,speed:99});
+    ok(c.src==='dip'&&c.drv==='cw'&&c.f===2.4&&c.s===8&&c.speed===2.5,'clamps: enums fall back, sliders pin');
+    for (const k of ['pHertz','pQuad','pArray','pPulsar','pStatics']){
+      const s=clampState(Object.assign({},DEFAULTS,PRESETS[k]));
+      ok(SRCS.indexOf(s.src)>=0&&s.f>=0.4&&s.f<=2.4&&s.s>=8&&s.s<=100,'preset '+k+' lands valid');
+    } }
+  { ok(multipoleOrder('dip')===1&&multipoleOrder('quad')===2&&multipoleOrder('oct')===3&&
+       multipoleOrder('hex')===4&&multipoleOrder('rot')===1,'leading multipole orders');
+    ok(srcLabel({src:'quad'}).indexOf('quadrupole')>=0&&drvLabel({src:'dip',drv:'pulse'}).indexOf('pulse')>=0,
+       'readout labels'); }
+  { const ru=realUnits({f:1.2,s:40});
+    ok(Math.abs(ru.realLam-3.0)<0.02&&ru.lamStr.indexOf('m')>=0,'real mapping: λ at f=1.2 (=100 MHz) is 3.0 m');
+    ok(fmtSI(3e8,'Hz')==='300.0 MHz'&&fmtSI(3,'m')==='3.0 m','SI formatting'); }
+  { ok(eqbarText({src:'quad',drv:'cw'}).indexOf('w^6')>0&&
+       eqbarText({src:'oct',drv:'cw'}).indexOf('w^8')>0&&
+       eqbarText({src:'rot',drv:'cw'}).indexOf('cos wt')>0&&
+       eqbarText({src:'mag',drv:'cw'}).indexOf('m(t)')>=0,'formula bar: correct drive + P scaling per source');
+    ok(eqbarHTML({src:'dip',drv:'cw'}).indexOf('efrac')>0,'formula bar renders fractions'); }
+  { const L=psiLevels({f:1.2}), L2=psiLevels({f:2.4});
+    ok(L.length===14&&Math.abs(L[0]+L[1])<1e-18&&Math.abs(L2[0]/L[0]-2)<1e-9,
+       'contour levels: ± pairs, scale ∝ f'); }
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS;
+    ok(approx(c0[0],S[0][1])&&approx(c1[2],S[15][3])&&/^rgb\(\d+,\d+,\d+\)$/.test(neonCss(0.62)),
+       'NeonColors endpoints and css'); }
+  { ok(fmt(1.5)==='1.50'&&fmt(1.567,1)==='1.6','number formatting'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

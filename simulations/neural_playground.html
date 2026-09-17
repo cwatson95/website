@@ -1,0 +1,4086 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neural Playground &mdash; small networks hunting &pi;</title>
+<!--
+  ===================================================================
+  neural_playground.html  —  watching small neural networks learn
+  ===================================================================
+
+  A teaching bench for the three classic architectures, trained LIVE in the
+  page in float64 by real backpropagation — no canned curves, no library.
+  The running example is Monte-Carlo estimates of pi: a feed-forward net
+  learns the circle inside a square (pi = 4 x the inside fraction) and
+  Buffon's needle-crossing rule (P = 2L/pi d), a convolutional net learns to
+  tell discs from rings from sticks, and a recurrent net watches sequences —
+  the needle bit-stream, a sine wave, and the digits of pi themselves (which
+  it can only memorise, never predict — that failure is the lesson).
+
+  WHAT IS EXACT
+  -------------
+  * Everything.  There are no measured data in this file: every reference
+    number is mathematics.  P(inside) = pi/4 and P(cross) = 2/pi (Buffon
+    1777, short-needle case L = d) are closed forms; the digits of pi come
+    from a Rabinowitz-Wagon integer spigot in this file, asserted against an
+    INDEPENDENT Machin-formula computation under Python Decimal.
+  * The networks are real: dense / convolution+maxpool / vanilla-recurrent
+    layers, BCE / cross-entropy / MSE losses, SGD / momentum / RMSprop /
+    Adam, all implemented here and verified in selfTest() by
+      (a) numeric-vs-analytic gradient checks on every layer type,
+      (b) bit-level PRNG parity with build_neural/gen_reference.py, which
+          re-implements the whole engine in Python in the same operation
+          order and prints init weights, gradients, and training-loss
+          trajectories this suite pins (tolerances stated per checkpoint —
+          float trajectories drift slowly through libm, so early checkpoints
+          are ~1e-12 and step-500 is looser, honestly labelled).
+
+  WHAT IS MODELLED / CHOSEN (not claims about the world)
+  ------------------------------------------------------
+  * Architectures and hyperparameters are the small teaching kind: nets of
+    2-16 hidden units, a 6-filter CNN on 16x16 binary shapes, a 16-unit RNN
+    with full-window BPTT and global-norm gradient clipping at 5.
+  * The per-task presets (TUNED) are MEASURED, not folklore: a 480-config
+    sweep over arch x act x opt x lr (build_neural/sweep_tail.js; table in
+    build_neural/sweep_results.txt) ranks by median steps to 95% accuracy
+    over five net seeds, run through the exact shipping update path.
+    selfTest re-runs the winners and pins the claims with stated libm-drift
+    margins.  Auto-tune applies a preset only when a task STARTS FRESH;
+    training sessions are parked PER TASK, so switching views or tasks
+    resumes — never resets — a run.  Empirical statements about "best",
+    as the race caption says, are experiments at these settings, not
+    theorems.
+  * "Which optimizer is fastest" (the race view) is an EMPIRICAL statement
+    about THESE tasks at the shared learning rate you picked — the caption
+    says so; it is not a theorem about optimizers.
+  * The pi estimate read off a trained net integrates the net's sigmoid over
+    the input square (midpoint rule).  It inherits the net's bias: unlike
+    raw Monte Carlo it does NOT converge to pi as n grows, only as the
+    decision boundary converges.  The convergence panels draw both so the
+    difference is the point, not a surprise.
+
+  NOT MODELLED
+  ------------
+  * No regularisation, no dropout, no batch-norm, no learning-rate
+    schedules, no convolution padding/stride options.  Long-needle Buffon
+    (L > d) is out of scope; the needle view fixes L = d = 1.
+
+  Scaffold and 2-D plot layer extracted from sbs_sims.html (which carries
+  the plain()-strips-tags and polyline()-clips-in-data fixes); the
+  axes()-sorts-its-range fix is ported from standard_candle.html; both are
+  asserted in selfTest so they cannot rot (Known-bad list, 2026-08-11).
+  The 3-D camera block was deliberately NOT extracted — this sim is
+  entirely 2-D, and dead code is a mutation-sweep finding.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours for this sim: green = the thing being learned/computed,
+       orange = the analytic reference (true boundary, true pi), magenta =
+       the live/inspected object, cyan = structure (positive weights). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:default;}
+  #scene.drawing{cursor:crosshair;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .dimtail{color:#6b7284;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Neural Playground</h1>
+  <span class="sub" id="sub">small networks, trained live in this page, hunting &pi; two different ways</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Relative luminance (WCAG linearised sRGB) — used to ASSERT that the
+   probability ramp is monotone in brightness on each side of P = 0.5. */
+function lumOf(col){ const c=toRgb(col).map(v=>{ const x=v/255;
+    return x<=0.04045?x/12.92:Math.pow((x+0.055)/1.055,2.4); });
+  return 0.2126*c[0]+0.7152*c[1]+0.0722*c[2]; }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  the engine — PRNG, layers, optimizers, tasks, estimators           *
+ *                                                                     *
+ *  Every function here mirrors build_neural/gen_reference.py in the   *
+ *  SAME operation order (sequential scalar accumulation, no clever    *
+ *  reductions), which is what makes the Python-printed reference      *
+ *  values assertable at 1e-12-ish tolerances in selfTest().           *
+ * ================================================================== */
+
+/* house PRNG — same mulberry32 as blackbody_radiation.html etc. */
+function mulberry32(seed){ let a=seed>>>0;
+  return function(){ a|=0; a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a);
+    t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296; }; }
+
+/* Box-Muller with cached spare — parity with gen_reference.py gauss_of */
+function gaussOf(rnd){ let spare=null;
+  return function(){
+    if(spare!==null){ const v=spare; spare=null; return v; }
+    let u=0; while(u===0) u=rnd();
+    const v=rnd();
+    const r=Math.sqrt(-2*Math.log(u)), th=TAU*v;
+    spare=r*Math.sin(th);
+    return r*Math.cos(th); }; }
+
+/* ---- numerically stable pieces ---- */
+function softplus(z){ return z>0 ? z+Math.log1p(Math.exp(-z)) : Math.log1p(Math.exp(z)); }
+function sigmoid(z){ return z>=0 ? 1/(1+Math.exp(-z)) : Math.exp(z)/(1+Math.exp(z)); }
+function bceLoss(z,y){ return softplus(z)-y*z; }        /* y in {0,1}, z a logit */
+function ceLoss(z,y){ let m=z[0];                        /* z logits, y a class  */
+  for(let i=1;i<z.length;i++) if(z[i]>m) m=z[i];
+  let s=0; for(let i=0;i<z.length;i++) s+=Math.exp(z[i]-m);
+  return Math.log(s)+m-z[y]; }
+function softmax(z){ let m=z[0];
+  for(let i=1;i<z.length;i++) if(z[i]>m) m=z[i];
+  const e=z.map(v=>Math.exp(v-m)); let s=0;
+  for(const v of e) s+=v;
+  return e.map(v=>v/s); }
+function actF(kind,s){ return kind==='tanh'?Math.tanh(s)
+                            : kind==='relu'?(s>0?s:0) : sigmoid(s); }
+function actDf(kind,s,a){ return kind==='tanh'?1-a*a
+                               : kind==='relu'?(s>0?1:0) : a*(1-a); }
+
+/* ================================================================== *
+ *  feed-forward network (a bare logit out; BCE-with-logits loss)      *
+ * ================================================================== */
+function netNew(sizes,act,seed){
+  const g=gaussOf(mulberry32(seed));
+  const W=[],B=[];
+  for(let l=1;l<sizes.length;l++){
+    const nin=sizes[l-1], nout=sizes[l], s=Math.sqrt(1/nin);
+    const Wl=[];
+    for(let j=0;j<nout;j++){ const row=[];
+      for(let i=0;i<nin;i++) row.push(g()*s);
+      Wl.push(row); }
+    W.push(Wl); B.push(new Array(nout).fill(0));
+  }
+  return {sizes:sizes.slice(),act,W,B};
+}
+function netForward(net,x){
+  const acts=[x.slice()], zs=[];
+  const L=net.W.length;
+  for(let l=0;l<L;l++){
+    const prev=acts[acts.length-1], z=[];
+    for(let j=0;j<net.W[l].length;j++){
+      let s=net.B[l][j]; const row=net.W[l][j];
+      for(let i=0;i<row.length;i++) s+=row[i]*prev[i];
+      z.push(s);
+    }
+    zs.push(z);
+    acts.push(l<L-1 ? z.map(s=>actF(net.act,s)) : z.slice());
+  }
+  return {acts,zs};
+}
+function netLogit(net,x){ const F=netForward(net,x); return F.acts[F.acts.length-1][0]; }
+function netBatchLoss(net,X,Y,idx){
+  const ii=idx||null; const n=ii?ii.length:X.length;
+  let tot=0;
+  for(let q=0;q<n;q++){ const k=ii?ii[q]:q;
+    tot+=bceLoss(netLogit(net,X[k]),Y[k]); }
+  return tot/n;
+}
+function netAccuracy(net,X,Y){
+  let acc=0;
+  for(let k=0;k<X.length;k++)
+    if((netLogit(net,X[k])>0)===(Y[k]>0.5)) acc++;
+  return acc/X.length;
+}
+function netGrads(net,X,Y,idx){
+  const L=net.W.length;
+  const gW=net.W.map(Wl=>Wl.map(r=>new Array(r.length).fill(0)));
+  const gB=net.B.map(b=>new Array(b.length).fill(0));
+  const n=idx.length;
+  for(const k of idx){
+    const {acts,zs}=netForward(net,X[k]);
+    let delta=[(sigmoid(zs[L-1][0])-Y[k])/n];
+    for(let l=L-1;l>=0;l--){
+      const prev=acts[l];
+      for(let j=0;j<delta.length;j++){
+        const d=delta[j];
+        gB[l][j]+=d;
+        const row=gW[l][j];
+        for(let i=0;i<prev.length;i++) row[i]+=d*prev[i];
+      }
+      if(l>0){
+        const nd=[];
+        for(let i=0;i<prev.length;i++){
+          let s=0;
+          for(let j=0;j<delta.length;j++) s+=net.W[l][j][i]*delta[j];
+          nd.push(s*actDf(net.act,zs[l-1][i],acts[l][i]));
+        }
+        delta=nd;
+      }
+    }
+  }
+  return {gW,gB};
+}
+function netFlatten(net){
+  const out=[];
+  for(let l=0;l<net.W.length;l++){
+    for(const row of net.W[l]) for(const v of row) out.push(v);
+    for(const v of net.B[l]) out.push(v);
+  }
+  return out;
+}
+function netUnflatten(net,flat){
+  let i=0;
+  for(let l=0;l<net.W.length;l++){
+    for(const row of net.W[l]) for(let c=0;c<row.length;c++) row[c]=flat[i++];
+    for(let c=0;c<net.B[l].length;c++) net.B[l][c]=flat[i++];
+  }
+}
+function gradsFlatten(g){
+  const out=[];
+  for(let l=0;l<g.gW.length;l++){
+    for(const row of g.gW[l]) for(const v of row) out.push(v);
+    for(const v of g.gB[l]) out.push(v);
+  }
+  return out;
+}
+
+/* ================================================================== *
+ *  optimizers over a flat parameter vector                            *
+ *  conventions (stated, and asserted against gen_reference.py):       *
+ *    momentum: heavy-ball, m = 0.9 m + g,  p -= lr m   (no dampening) *
+ *    rmsprop : v = 0.99 v + 0.01 g^2,      p -= lr g/(sqrt(v)+1e-8)   *
+ *              NO bias correction — its huge first step is one of the *
+ *              teaching points in the race view                       *
+ *    adam    : b1 .9, b2 .999, eps 1e-8, bias-corrected               *
+ * ================================================================== */
+function optNew(kind,lr){ return {kind,lr,m:null,v:null,t:0}; }
+function optStepFlat(opt,params,grads){
+  opt.t++;
+  const n=params.length, out=params.slice();
+  if(!opt.m||opt.m.length!==n){ opt.m=new Array(n).fill(0); opt.v=new Array(n).fill(0); }
+  const lr=opt.lr, m=opt.m, v=opt.v, k=opt.kind;
+  for(let i=0;i<n;i++){
+    const g=grads[i];
+    if(k==='sgd') out[i]-=lr*g;
+    else if(k==='momentum'){ m[i]=0.9*m[i]+g; out[i]-=lr*m[i]; }
+    else if(k==='rmsprop'){ v[i]=0.99*v[i]+0.01*g*g; out[i]-=lr*g/(Math.sqrt(v[i])+1e-8); }
+    else { m[i]=0.9*m[i]+0.1*g; v[i]=0.999*v[i]+0.001*g*g;
+      const mh=m[i]/(1-Math.pow(0.9,opt.t)), vh=v[i]/(1-Math.pow(0.999,opt.t));
+      out[i]-=lr*mh/(Math.sqrt(vh)+1e-8); }
+  }
+  return out;
+}
+
+/* ================================================================== *
+ *  the two pi tasks                                                   *
+ *  dartboard: (x,y) ~ U[-1,1]^2, label = inside the unit circle;      *
+ *             P(inside) = pi/4 exactly, so pi = 4P.                   *
+ *  needles  : Buffon, L = d = 1.  theta ~ U[0,pi/2] is the needle's   *
+ *             angle to the lines, x ~ U[0,1/2] the centre's distance  *
+ *             to the NEAREST line; it crosses iff x <= (1/2) sin(th). *
+ *             P(cross) = 2L/(pi d) = 2/pi exactly, so pi = 2/P.       *
+ *             Net inputs are u = th/(pi/4)-1, v = x/0.25-1 (both in   *
+ *             [-1,1]).                                                *
+ * ================================================================== */
+function needleCross(th,x){ return x<=0.5*Math.sin(th); }
+function genDart(seed,n,noise){
+  const r=mulberry32(seed), rn=mulberry32(seed+9000);
+  const X=[],Y=[];
+  for(let k=0;k<n;k++){
+    const x=r()*2-1, y=r()*2-1;
+    let lab=(x*x+y*y<1)?1:0;
+    if(noise>0&&rn()<noise) lab=1-lab;
+    X.push([x,y]); Y.push(lab);
+  }
+  return {X,Y};
+}
+function genNeedle(seed,n,noise){
+  const r=mulberry32(seed), rn=mulberry32(seed+9000);
+  const X=[],Y=[],raw=[];
+  for(let k=0;k<n;k++){
+    const th=r()*(PI/2), x=r()*0.5;
+    let lab=needleCross(th,x)?1:0;
+    if(noise>0&&rn()<noise) lab=1-lab;
+    X.push([th/(PI/4)-1, x/0.25-1]); Y.push(lab); raw.push([th,x]);
+  }
+  return {X,Y,raw};
+}
+/* estimators — every displayed number is a model quantity, never drawn math */
+function piDartMC(inside,n){ return n>0 ? 4*inside/n : NaN; }
+function piNeedleMC(cross,n){ return cross>0 ? 2*n/cross : NaN; }
+/* exact midpoint counts of the TRUE indicator (integers; pinned bit-exact) */
+function gridCountDart(N){
+  let c=0;
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    const x=-1+(i+0.5)*(2/N), y=-1+(j+0.5)*(2/N);
+    if(x*x+y*y<1) c++;
+  }
+  return c;
+}
+function gridCountNeedle(N){
+  let c=0;
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    const u=-1+(i+0.5)*(2/N), v=-1+(j+0.5)*(2/N);
+    if(needleCross((u+1)*(PI/4),(v+1)*0.25)) c++;
+  }
+  return c;
+}
+/* the net's own P-hat: midpoint quadrature of sigmoid(logit) over the square */
+function netQuadP(net,N){
+  let s=0;
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    const u=-1+(i+0.5)*(2/N), v=-1+(j+0.5)*(2/N);
+    s+=sigmoid(netLogit(net,[u,v]));
+  }
+  return s/(N*N);
+}
+function piFromNet(task,net,N){
+  const P=netQuadP(net,N);
+  return task==='dart' ? 4*P : 2/P;
+}
+/* raw-MC running curve: exact prefix counts at log-spaced n (own stream, so
+   it is the 1/sqrt(n) story, independent of what the trainer consumed) */
+function mcCurve(task,seed,nmax){
+  const r=mulberry32(seed), pts=[]; let c=0, next=10, n=0;
+  while(n<nmax){
+    n++;
+    if(task==='dart'){ const x=r()*2-1, y=r()*2-1; if(x*x+y*y<1) c++; }
+    else { const th=r()*(PI/2), x=r()*0.5; if(needleCross(th,x)) c++; }
+    if(n>=next||n===nmax){
+      pts.push([n,c, task==='dart'?piDartMC(c,n):piNeedleMC(c,n)]);
+      next=Math.max(next+1,Math.round(next*1.12));
+    }
+  }
+  return pts;
+}
+/* the true boundary, for the orange reference overlay (in NET coordinates) */
+function trueBoundary(task,m){
+  const xs=[],ys=[];
+  for(let i=0;i<=m;i++){
+    if(task==='dart'){ const t=i/m*TAU;
+      xs.push(Math.cos(t)); ys.push(Math.sin(t)); }
+    else { const u=-1+2*i/m, th=(u+1)*(PI/4), x=0.5*Math.sin(th);
+      xs.push(u); ys.push(x/0.25-1); }
+  }
+  return {xs,ys};
+}
+
+/* ================================================================== *
+ *  the CNN — 16x16 binary shapes: disc / ring / stick                 *
+ *  conv 6 @ 3x3 valid -> ReLU -> 2x2 maxpool -> dense 294 -> 3        *
+ * ================================================================== */
+const CN=16, CK=3, CF=6, CO=CN-CK+1, CPOOL=CO>>1;   /* 16, 3, 6, 14, 7 */
+const SHAPE_NAMES=['disc','ring','stick'];
+function genShapes(seed,n){
+  const r=mulberry32(seed), imgs=[],ys=[];
+  for(let q=0;q<n;q++){
+    const cls=Math.floor(r()*3);
+    const cx=4+r()*8, cy=4+r()*8;
+    const img=[];
+    for(let i=0;i<CN;i++) img.push(new Array(CN).fill(0));
+    if(cls===0||cls===1){
+      const rad=2.2+r()*2.6;
+      for(let i=0;i<CN;i++) for(let j=0;j<CN;j++){
+        const d=Math.sqrt((j+0.5-cx)*(j+0.5-cx)+(i+0.5-cy)*(i+0.5-cy));
+        if(cls===0 ? d<=rad : Math.abs(d-rad)<=0.9) img[i][j]=1;
+      }
+    } else {
+      const phi=r()*PI, hl=3.5+r()*3;
+      const ux=Math.cos(phi), uy=Math.sin(phi);
+      for(let i=0;i<CN;i++) for(let j=0;j<CN;j++){
+        const px=j+0.5-cx, py=i+0.5-cy;
+        let t=px*ux+py*uy; t=Math.max(-hl,Math.min(hl,t));
+        if(Math.hypot(px-t*ux,py-t*uy)<=0.7) img[i][j]=1;
+      }
+    }
+    imgs.push(img); ys.push(cls);
+  }
+  return {imgs,ys};
+}
+function cnnNew(seed){
+  const g=gaussOf(mulberry32(seed));
+  const sK=Math.sqrt(1/(CK*CK));
+  const K=[],Kb=new Array(CF).fill(0);
+  for(let f=0;f<CF;f++){ const Kf=[];
+    for(let a=0;a<CK;a++){ const row=[];
+      for(let b=0;b<CK;b++) row.push(g()*sK);
+      Kf.push(row); }
+    K.push(Kf); }
+  const nin=CPOOL*CPOOL*CF, sD=Math.sqrt(1/nin);
+  const D=[];
+  for(let c=0;c<3;c++){ const row=[];
+    for(let i=0;i<nin;i++) row.push(g()*sD);
+    D.push(row); }
+  return {K,Kb,D,Db:[0,0,0]};
+}
+function cnnForward(net,img){
+  const conv=[],relu=[],pool=[],arg=[];
+  for(let f=0;f<CF;f++){
+    const Kf=net.K[f], cf=[],rf=[];
+    for(let y=0;y<CO;y++){
+      const crow=[],rrow=[];
+      for(let x=0;x<CO;x++){
+        let s=net.Kb[f];
+        for(let dy=0;dy<CK;dy++){
+          const irow=img[y+dy], Kr=Kf[dy];
+          for(let dx=0;dx<CK;dx++) s+=Kr[dx]*irow[x+dx];
+        }
+        crow.push(s); rrow.push(s>0?s:0);
+      }
+      cf.push(crow); rf.push(rrow);
+    }
+    conv.push(cf); relu.push(rf);
+    const pf=[],af=[];
+    for(let y=0;y<CPOOL;y++){
+      const prow=[],arow=[];
+      for(let x=0;x<CPOOL;x++){
+        let best=-1e300, bi=0;
+        for(let dy=0;dy<2;dy++) for(let dx=0;dx<2;dx++){
+          const v=rf[2*y+dy][2*x+dx];
+          if(v>best){ best=v; bi=dy*2+dx; }
+        }
+        prow.push(best); arow.push(bi);
+      }
+      pf.push(prow); af.push(arow);
+    }
+    pool.push(pf); arg.push(af);
+  }
+  const flat=[];
+  for(let f=0;f<CF;f++) for(let y=0;y<CPOOL;y++) for(let x=0;x<CPOOL;x++)
+    flat.push(pool[f][y][x]);
+  const z=[];
+  for(let c=0;c<3;c++){
+    let s=net.Db[c]; const row=net.D[c];
+    for(let i=0;i<flat.length;i++) s+=row[i]*flat[i];
+    z.push(s);
+  }
+  return {conv,relu,pool,arg,flat,z};
+}
+function cnnGrads(net,imgs,ys){
+  const gK=[],gKb=new Array(CF).fill(0);
+  for(let f=0;f<CF;f++){ const Kf=[];
+    for(let a=0;a<CK;a++) Kf.push(new Array(CK).fill(0));
+    gK.push(Kf); }
+  const nin=CPOOL*CPOOL*CF;
+  const gD=[[],[],[]];
+  for(let c=0;c<3;c++) gD[c]=new Array(nin).fill(0);
+  const gDb=[0,0,0];
+  const n=imgs.length;
+  let loss=0;
+  for(let si=0;si<n;si++){
+    const img=imgs[si], y=ys[si];
+    const F=cnnForward(net,img);
+    loss+=ceLoss(F.z,y);
+    const p=softmax(F.z);
+    const dz=[ (p[0]-(y===0?1:0))/n, (p[1]-(y===1?1:0))/n, (p[2]-(y===2?1:0))/n ];
+    const dflat=new Array(nin).fill(0);
+    for(let c=0;c<3;c++){
+      gDb[c]+=dz[c];
+      const row=net.D[c], grow=gD[c];
+      for(let i=0;i<nin;i++){
+        grow[i]+=dz[c]*F.flat[i];
+        dflat[i]+=row[i]*dz[c];
+      }
+    }
+    for(let f=0;f<CF;f++) for(let y2=0;y2<CPOOL;y2++) for(let x2=0;x2<CPOOL;x2++){
+      const d=dflat[f*CPOOL*CPOOL+y2*CPOOL+x2];
+      if(d===0) continue;
+      const bi=F.arg[f][y2][x2];
+      const cy=2*y2+(bi>>1), cx=2*x2+(bi&1);
+      if(F.conv[f][cy][cx]<=0) continue;               /* ReLU gate */
+      gKb[f]+=d;
+      for(let dy=0;dy<CK;dy++) for(let dx=0;dx<CK;dx++)
+        gK[f][dy][dx]+=d*img[cy+dy][cx+dx];
+    }
+  }
+  return {gK,gKb,gD,gDb,loss:loss/n};
+}
+function cnnFlatten(net){
+  const out=[];
+  for(let f=0;f<CF;f++) for(const row of net.K[f]) for(const v of row) out.push(v);
+  for(const v of net.Kb) out.push(v);
+  for(let c=0;c<3;c++) for(const v of net.D[c]) out.push(v);
+  for(const v of net.Db) out.push(v);
+  return out;
+}
+function cnnUnflatten(net,flat){
+  let i=0;
+  for(let f=0;f<CF;f++) for(const row of net.K[f]) for(let c=0;c<CK;c++) row[c]=flat[i++];
+  for(let f=0;f<CF;f++) net.Kb[f]=flat[i++];
+  for(let c=0;c<3;c++) for(let q=0;q<net.D[c].length;q++) net.D[c][q]=flat[i++];
+  for(let c=0;c<3;c++) net.Db[c]=flat[i++];
+}
+function cnnGradsFlatten(g){
+  const out=[];
+  for(let f=0;f<CF;f++) for(const row of g.gK[f]) for(const v of row) out.push(v);
+  for(const v of g.gKb) out.push(v);
+  for(let c=0;c<3;c++) for(const v of g.gD[c]) out.push(v);
+  for(const v of g.gDb) out.push(v);
+  return out;
+}
+function cnnAccuracy(net,imgs,ys){
+  let acc=0;
+  for(let k=0;k<imgs.length;k++){
+    const z=cnnForward(net,imgs[k]).z;
+    let bi=0; for(let c=1;c<3;c++) if(z[c]>z[bi]) bi=c;
+    if(bi===ys[k]) acc++;
+  }
+  return acc/imgs.length;
+}
+
+/* ================================================================== *
+ *  the RNN — vanilla tanh, 16 hidden units, full-window BPTT          *
+ *  h_t = tanh(Wx x_t + Wh h_{t-1} + b),  y_t = Wo h_t + bo            *
+ * ================================================================== */
+const RH=16;
+function rnnNew(seed,nin,nout){
+  const g=gaussOf(mulberry32(seed));
+  const sx=Math.sqrt(1/Math.max(1,nin)), sh=Math.sqrt(1/RH);
+  const Wx=[],Wh=[],Wo=[];
+  for(let j=0;j<RH;j++){ const row=[];
+    for(let i=0;i<nin;i++) row.push(g()*sx);
+    Wx.push(row); }
+  for(let j=0;j<RH;j++){ const row=[];
+    for(let k=0;k<RH;k++) row.push(g()*sh);
+    Wh.push(row); }
+  const bh=new Array(RH).fill(0);
+  for(let c=0;c<nout;c++){ const row=[];
+    for(let k=0;k<RH;k++) row.push(g()*sh);
+    Wo.push(row); }
+  return {Wx,Wh,bh,Wo,bo:new Array(nout).fill(0),nin,nout};
+}
+function rnnForward(net,xs){
+  const hs=[new Array(RH).fill(0)], outs=[];
+  for(const x of xs){
+    const hp=hs[hs.length-1], hcur=[];
+    for(let j=0;j<RH;j++){
+      let s=net.bh[j];
+      for(let i=0;i<x.length;i++) s+=net.Wx[j][i]*x[i];
+      const Wr=net.Wh[j];
+      for(let k=0;k<RH;k++) s+=Wr[k]*hp[k];
+      hcur.push(Math.tanh(s));
+    }
+    hs.push(hcur);
+    const o=[];
+    for(let c=0;c<net.nout;c++){
+      let s=net.bo[c]; const row=net.Wo[c];
+      for(let k=0;k<RH;k++) s+=row[k]*hcur[k];
+      o.push(s);
+    }
+    outs.push(o);
+  }
+  return {hs,outs};
+}
+/* targets[t] pairs with outs[t]; null skips that step.  mode: bce|mse|ce */
+function rnnBPTT(net,xs,targets,mode){
+  const {hs,outs}=rnnForward(net,xs);
+  const T=xs.length;
+  let nt=0; for(const t of targets) if(t!==null) nt++;
+  const gWx=net.Wx.map(r=>new Array(r.length).fill(0));
+  const gWh=net.Wh.map(r=>new Array(r.length).fill(0));
+  const gbh=new Array(RH).fill(0);
+  const gWo=net.Wo.map(r=>new Array(r.length).fill(0));
+  const gbo=new Array(net.nout).fill(0);
+  let dhNext=new Array(RH).fill(0);
+  let loss=0;
+  for(let t=T-1;t>=0;t--){
+    const dh=dhNext.slice();
+    dhNext=new Array(RH).fill(0);
+    if(targets[t]!==null){
+      let dz;
+      if(mode==='bce'){ loss+=bceLoss(outs[t][0],targets[t]);
+        dz=[(sigmoid(outs[t][0])-targets[t])/nt]; }
+      else if(mode==='mse'){ const d=outs[t][0]-targets[t];
+        loss+=d*d; dz=[2*d/nt]; }
+      else { loss+=ceLoss(outs[t],targets[t]);
+        const p=softmax(outs[t]);
+        dz=p.map((pv,c)=>(pv-(c===targets[t]?1:0))/nt); }
+      for(let c=0;c<dz.length;c++){
+        gbo[c]+=dz[c];
+        for(let k=0;k<RH;k++){
+          gWo[c][k]+=dz[c]*hs[t+1][k];
+          dh[k]+=net.Wo[c][k]*dz[c];
+        }
+      }
+    }
+    const ds=[];
+    for(let j=0;j<RH;j++) ds.push(dh[j]*(1-hs[t+1][j]*hs[t+1][j]));
+    for(let j=0;j<RH;j++){
+      const d=ds[j];
+      gbh[j]+=d;
+      for(let i=0;i<xs[t].length;i++) gWx[j][i]+=d*xs[t][i];
+      for(let k=0;k<RH;k++){
+        gWh[j][k]+=d*hs[t][k];
+        dhNext[k]+=net.Wh[j][k]*d;
+      }
+    }
+  }
+  return {gWx,gWh,gbh,gWo,gbo,loss:loss/nt,hs,outs};
+}
+function rnnFlatten(net){
+  const out=[];
+  for(const r of net.Wx) for(const v of r) out.push(v);
+  for(const r of net.Wh) for(const v of r) out.push(v);
+  for(const v of net.bh) out.push(v);
+  for(const r of net.Wo) for(const v of r) out.push(v);
+  for(const v of net.bo) out.push(v);
+  return out;
+}
+function rnnUnflatten(net,flat){
+  let i=0;
+  for(const r of net.Wx) for(let c=0;c<r.length;c++) r[c]=flat[i++];
+  for(const r of net.Wh) for(let c=0;c<r.length;c++) r[c]=flat[i++];
+  for(let c=0;c<RH;c++) net.bh[c]=flat[i++];
+  for(const r of net.Wo) for(let c=0;c<r.length;c++) r[c]=flat[i++];
+  for(let c=0;c<net.nout;c++) net.bo[c]=flat[i++];
+}
+function rnnGradsFlatten(g){
+  const out=[];
+  for(const r of g.gWx) for(const v of r) out.push(v);
+  for(const r of g.gWh) for(const v of r) out.push(v);
+  for(const v of g.gbh) out.push(v);
+  for(const r of g.gWo) for(const v of r) out.push(v);
+  for(const v of g.gbo) out.push(v);
+  return out;
+}
+/* global-norm clip at 5 — returns {flat, norm} so the norm is assertable */
+function clipNorm(flat,c){
+  const cc=c===undefined?5:c;
+  let s=0; for(const g of flat) s+=g*g;
+  const n=Math.sqrt(s);
+  if(n<=cc) return {flat,norm:n};
+  const f=cc/n;
+  return {flat:flat.map(g=>g*f),norm:n};
+}
+
+/* ---- sequence data ---- */
+function genBits(seed,n){                    /* Buffon crossings as a bit stream */
+  const r=mulberry32(seed), bits=[];
+  for(let k=0;k<n;k++){
+    const th=r()*(PI/2), x=r()*0.5;
+    bits.push(needleCross(th,x)?1:0);
+  }
+  return bits;
+}
+function waveAt(t){ return Math.sin(0.31*t+1.234); }   /* deliberately non-round */
+
+/* Rabinowitz–Wagon streaming spigot; integer arithmetic only, safe well past
+   the 2000-digit range (values stay < 2^45 here, doubles are exact to 2^53).
+   Asserted against a Machin/Decimal computation from gen_reference.py AND
+   against Math.PI's own first 15 digits. */
+function piDigits(n){
+  const len=Math.floor(10*n/3)+3;
+  const A=new Array(len).fill(2);
+  let out='', nines=0, predigit=0, first=true;
+  for(let j=0;j<n+2;j++){
+    let q=0;
+    for(let i=len-1;i>=0;i--){
+      const x=10*A[i]+q*(i+1);
+      A[i]=x%(2*i+1);
+      q=Math.floor(x/(2*i+1));
+    }
+    A[0]=q%10; q=Math.floor(q/10);
+    if(q===9) nines++;
+    else if(q===10){
+      out+=String(predigit+1)+'0'.repeat(nines);
+      predigit=0; nines=0;
+    } else {
+      if(!first) out+=String(predigit);
+      first=false;
+      predigit=q;
+      if(nines){ out+='9'.repeat(nines); nines=0; }
+    }
+  }
+  out+=String(predigit);
+  return out.slice(0,n);
+}
+
+/* ================================================================== *
+ *  state, training sessions, and the per-view model                   *
+ *                                                                     *
+ *  Everything a panel prints or a canvas draws is computed HERE (or   *
+ *  in the engine above) and read off the model object — never inside  *
+ *  a draw call, so every displayed number is assertable.  Heavy       *
+ *  fields hide behind lazy getters so the selfTest sweeps stay fast   *
+ *  (Known-bad list: a slow suite is a suite that does not get         *
+ *  mutation-tested).                                                  *
+ * ================================================================== */
+const TABS=[['net','the network'],['dart','the dartboard'],['needle','the needles'],
+            ['race','the race'],['cnn','the filters'],['rnn','the sequence'],
+            ['learn','the primer']];
+const ARCHS=[
+  {id:'4',   name:'2–4–1',        sizes:[2,4,1]},
+  {id:'8',   name:'2–8–1',        sizes:[2,8,1]},
+  {id:'16',  name:'2–16–1',       sizes:[2,16,1]},
+  {id:'8x8', name:'2–8–8–1', sizes:[2,8,8,1]},
+];
+const ACT_LIST=[{id:'tanh',name:'tanh'},{id:'relu',name:'ReLU'},{id:'sigmoid',name:'sigmoid'}];
+const OPT_LIST=[{id:'sgd',name:'SGD'},{id:'momentum',name:'momentum'},
+                {id:'rmsprop',name:'RMSprop'},{id:'adam',name:'Adam'}];
+const LR_LIST=[{id:0.003,name:'0.003'},{id:0.01,name:'0.01'},
+               {id:0.03,name:'0.03'},{id:0.1,name:'0.1'},{id:0.3,name:'0.3'}];
+const BATCH_LIST=[{id:8,name:'8'},{id:32,name:'32'},{id:128,name:'128'}];
+const SEQ_LIST=[{id:'stream',name:'needle stream'},{id:'wave',name:'sine wave'},
+                {id:'digits',name:'digits of π'}];
+const TASK_LIST=[{id:'dart',name:'the dartboard'},{id:'needle',name:'the needles'}];
+
+/* Per-task tuned presets — MEASURED, not guessed: build_neural/sweep_tail.js
+   trains every (arch x act x opt x lr) on each task for 5 net seeds through
+   the exact shipping update path and ranks by median steps to 95% accuracy
+   (tiebreak: median |pi-hat - pi| at step 800).  The winners live here; the
+   race view is the in-page version of the same experiment.  Sweep results:
+   build_neural/sweep_results.txt.  ADDING A NEW PROBLEM = a generator +
+   TASK_LIST entry + boundary in the engine, then one sweep run to fill its
+   row here — the auto-tune toggle picks it up with no other wiring. */
+const TUNED={
+  dart:  {cfg:{arch:'16',act:'relu',opt:'adam',lr:0.1},
+          med:{steps95:90,piErr:0.0362},
+          why:'the circle needs a genuinely bent boundary: ReLU facets and '
+             +'Adam at a hot &eta; carve it in ~90 steps; RMSprop-led configs '
+             +'trail near 250'},
+  needle:{cfg:{arch:'16',act:'tanh',opt:'rmsprop',lr:0.03},
+          med:{steps95:10,piErr:0.0010},
+          why:'x &le; &frac12; sin &theta; is nearly separable in phase '
+             +'space — every top-12 needle config is RMSprop, whose huge '
+             +'uncorrected first strides snap to the sine by the first check'},
+};
+
+/* data seeds are FIXED so every run of the page is the run the reference
+   trajectory pinned; "new seed" reseeds only the network init. */
+const SEED_DART=11, SEED_NEEDLE=12, SEED_SHAPES=31, SEED_CNN_NET=32,
+      SEED_RNN=41, SEED_BITS=42, SEED_BATCH=7, SEED_MC_DART=21, SEED_MC_NEEDLE=22;
+const OPT_COL={sgd:'#5ac8e0',momentum:'#cd35c4',rmsprop:'#e8843a',adam:'#b8ec4c'};
+const QUAD_N=48;              /* pi-from-net quadrature grid while training */
+const QUAD_N_FINAL=200;       /* and the honest one the readout quotes      */
+const ACC_TARGET=0.95;
+/* EMA weight for the readout's averaged pi-hat: applied at the pi-history
+   cadence (every 25 steps), so ~1/0.05 = 20 samples ~ 500 steps of memory */
+const PI_AVG_ALPHA=0.05;
+
+/* the page opens on the dartboard CARRYING ITS TUNED PRESET (autoTune on);
+   selfTest pins DEFAULTS' arch/act/opt/lr === TUNED.dart so the two cannot
+   drift apart.  The py-ref training trajectories are pinned under their own
+   explicit REF_CFG (adam, 2-8-1), independent of what ships here. */
+const DEFAULTS={
+  view:'dart', task:'dart', arch:'16', act:'relu', opt:'adam', lr:0.1, batch:32,
+  ntrain:512, noise:0, seed:3,
+  running:true, speed:20, autoTune:true,
+  inspect:5, showGrad:false,
+  showDots:true, showHeat:true, showTrue:true,
+  seqTask:'stream',
+};
+const ST=Object.assign({},DEFAULTS);
+
+function sizesOf(archId){
+  for(const a of ARCHS) if(a.id===archId) return a.sizes;
+  throw new Error('unknown arch '+archId);
+}
+function taskData(task,ntrain,noise){
+  return task==='dart' ? genDart(SEED_DART,ntrain,noise)
+                       : genNeedle(SEED_NEEDLE,ntrain,noise);
+}
+
+/* ---------------- histories: capped, decimated rings ---------------- */
+function histNew(){ return []; }
+function histPush(hst,step,val){
+  hst.push([step,val]);
+  if(hst.length>900){
+    const out=[];
+    for(let i=0;i<hst.length;i++) if(i%2===0||i>=hst.length-8) out.push(hst[i]);
+    hst.length=0;
+    for(const p of out) hst.push(p);
+  }
+}
+
+/* ---------------- FNN session (network / dartboard / needles) ------- */
+/* cfg is the settings snapshot a session runs under: it is what lets a
+   parked session RESUME truthfully (the panel adopts cfg on task switch) and
+   what "reset nets" replays.  Two LIVE knobs never restart an FNN net:
+   batch (read at advance time) and — the polish move — eta, which
+   fnnActive() syncs into the running optimizer so a run can be trained hot
+   and then cooled to freeze the SGD wobble.  cfg.lr therefore tracks the
+   CURRENT eta, and the FNN key omits it.  The RACE key keeps lr: four rules
+   at one shared eta from one init is a controlled experiment, and changing
+   its conditions honestly restarts it. */
+function fnnCfg(st){ return {task:st.task,arch:st.arch,act:st.act,opt:st.opt,
+  lr:st.lr,ntrain:st.ntrain,noise:st.noise,seed:st.seed}; }
+function fnnKey(c){ return [c.task,c.arch,c.act,c.opt,c.ntrain,c.noise,
+  c.seed].join('|'); }
+/* the race ignores cfg.opt (it always runs all four rules) but keeps lr */
+function raceKey(c){ return [c.task,c.arch,c.act,c.lr,c.ntrain,c.noise,
+  c.seed].join('|'); }
+function fnnSessionNew(st){
+  const data=taskData(st.task,st.ntrain,st.noise);
+  return {
+    task:st.task, data, cfg:fnnCfg(st),
+    net:netNew(sizesOf(st.arch),st.act,st.seed),
+    opt:optNew(st.opt,st.lr),
+    batchRng:mulberry32(SEED_BATCH),
+    step:0,
+    hist:{loss:histNew(),acc:histNew(),pi:histNew()},
+    piAvg:null,
+  };
+}
+function fnnAdvance(sess,k){
+  const n=sess.data.X.length, B=Math.min(ST.batch,n);
+  for(let q=0;q<k;q++){
+    const idx=[];
+    for(let b=0;b<B;b++) idx.push(Math.floor(sess.batchRng()*n));
+    const g=netGrads(sess.net,sess.data.X,sess.data.Y,idx);
+    netUnflatten(sess.net,optStepFlat(sess.opt,netFlatten(sess.net),gradsFlatten(g)));
+    sess.step++;
+    if(sess.step<=10||sess.step%5===0){
+      histPush(sess.hist.loss,sess.step,netBatchLoss(sess.net,sess.data.X,sess.data.Y));
+      histPush(sess.hist.acc,sess.step,netAccuracy(sess.net,sess.data.X,sess.data.Y));
+    }
+    if(sess.step<=10||sess.step%25===0){
+      const v=piFromNet(sess.task,sess.net,QUAD_N);
+      histPush(sess.hist.pi,sess.step,v);
+      /* the readout's steadied estimate: an EMA over the same cadence */
+      sess.piAvg=sess.piAvg===null?v:sess.piAvg+PI_AVG_ALPHA*(v-sess.piAvg);
+    }
+  }
+}
+
+/* ---------------- race session (4 optimizers, same init, same batches) */
+function raceSessionNew(st){
+  const data=taskData(st.task,st.ntrain,st.noise);
+  const proto=netNew(sizesOf(st.arch),st.act,st.seed);
+  const lanes=OPT_LIST.map(o=>({
+    kind:o.id,
+    net:JSON.parse(JSON.stringify(proto)),
+    opt:optNew(o.id,st.lr),
+    hist:histNew(), acc:0, reachedAt:null,
+  }));
+  return {task:st.task,data,lanes,step:0,batchRng:mulberry32(SEED_BATCH),
+          cfg:fnnCfg(st)};
+}
+function raceAdvance(sess,k){
+  const n=sess.data.X.length, B=Math.min(ST.batch,n);
+  for(let q=0;q<k;q++){
+    const idx=[];
+    for(let b=0;b<B;b++) idx.push(Math.floor(sess.batchRng()*n));
+    for(const lane of sess.lanes){
+      const g=netGrads(lane.net,sess.data.X,sess.data.Y,idx);
+      netUnflatten(lane.net,optStepFlat(lane.opt,netFlatten(lane.net),gradsFlatten(g)));
+    }
+    sess.step++;
+    const record=sess.step<=10||sess.step%5===0;
+    /* accuracy checked at a cadence 7 (deliberately incommensurate with the
+       loss cadence 5 — Known-bad: round cadences hide off-by-one blindness) */
+    const check=sess.step<=10||sess.step%7===0;
+    for(const lane of sess.lanes){
+      if(record)
+        histPush(lane.hist,sess.step,netBatchLoss(lane.net,sess.data.X,sess.data.Y));
+      if(check){
+        lane.acc=netAccuracy(lane.net,sess.data.X,sess.data.Y);
+        if(lane.reachedAt===null&&lane.acc>=ACC_TARGET) lane.reachedAt=sess.step;
+      }
+    }
+  }
+}
+
+/* ---------------- CNN session (the filters) ------------------------- */
+const CNN_NTRAIN=64, CNN_NTEST=32;
+function cnnSessionNew(){
+  const all=genShapes(SEED_SHAPES,CNN_NTRAIN+CNN_NTEST);
+  const sess={
+    imgs:all.imgs.slice(0,CNN_NTRAIN), ys:all.ys.slice(0,CNN_NTRAIN),
+    timgs:all.imgs.slice(CNN_NTRAIN),  tys:all.ys.slice(CNN_NTRAIN),
+    net:cnnNew(SEED_CNN_NET), opt:optNew('adam',0.01),
+    batchRng:mulberry32(SEED_BATCH),
+    step:0, hist:{loss:histNew(),acc:histNew(),tacc:histNew()},
+    pad:null, padFrom:'sample 0',
+  };
+  sess.pad=all.imgs[0].map(r=>r.slice());
+  return sess;
+}
+function cnnAdvance(sess,k){
+  const n=sess.imgs.length, B=16;
+  for(let q=0;q<k;q++){
+    const bi=[],by=[],bimgs=[];
+    for(let b=0;b<B;b++){ const i=Math.floor(sess.batchRng()*n);
+      bi.push(i); bimgs.push(sess.imgs[i]); by.push(sess.ys[i]); }
+    const g=cnnGrads(sess.net,bimgs,by);
+    cnnUnflatten(sess.net,optStepFlat(sess.opt,cnnFlatten(sess.net),cnnGradsFlatten(g)));
+    sess.step++;
+    if(sess.step<=10||sess.step%5===0){
+      histPush(sess.hist.loss,sess.step,g.loss);
+      histPush(sess.hist.acc,sess.step,cnnAccuracy(sess.net,sess.imgs,sess.ys));
+      histPush(sess.hist.tacc,sess.step,cnnAccuracy(sess.net,sess.timgs,sess.tys));
+    }
+  }
+}
+function padStamp(sess,which){          /* copy a dataset image into the pad */
+  const k=which%sess.imgs.length;
+  sess.pad=sess.imgs[k].map(r=>r.slice());
+  sess.padFrom='sample '+k+' ('+SHAPE_NAMES[sess.ys[k]]+')';
+}
+function padClear(sess){
+  sess.pad=sess.pad.map(r=>r.map(()=>0));
+  sess.padFrom='your drawing';
+}
+function padPaint(sess,i,j){
+  for(let di=-1;di<=1;di++) for(let dj=-1;dj<=1;dj++){
+    const y=i+di, x=j+dj;
+    if(y<0||x<0||y>=CN||x>=CN) continue;
+    if(Math.abs(di)+Math.abs(dj)<=1) sess.pad[y][x]=1;
+  }
+  sess.padFrom='your drawing';
+}
+
+/* ---------------- RNN sessions (the sequence) ----------------------- */
+const RNN_T=64, DIG_TRAIN=128, DIG_HOLD=48;
+const PI_DIGITS_STR=piDigits(DIG_TRAIN+DIG_HOLD);
+function oneHot(d){ const v=new Array(10).fill(0); v[d]=1; return v; }
+function rnnSessionNew(kind){
+  const sess={kind,step:0,opt:optNew('adam',0.01),batchRng:mulberry32(SEED_BATCH),
+              hist:{loss:histNew()},};
+  if(kind==='stream'){ sess.bits=genBits(SEED_BITS,4096); sess.net=rnnNew(SEED_RNN,1,1); }
+  else if(kind==='wave'){ sess.net=rnnNew(SEED_RNN+2,1,1); }
+  else { sess.digits=PI_DIGITS_STR.split('').map(Number);
+         sess.net=rnnNew(SEED_RNN+4,10,10); sess.hist.hold=histNew(); }
+  return sess;
+}
+function rnnSeq(sess){
+  if(sess.kind==='stream'){
+    const s0=Math.floor(sess.batchRng()*(sess.bits.length-RNN_T-1));
+    const xs=[],tg=[];
+    for(let t=0;t<RNN_T;t++){ xs.push([sess.bits[s0+t]]); tg.push(sess.bits[s0+t+1]); }
+    return {xs,tg,mode:'bce'};
+  }
+  if(sess.kind==='wave'){
+    const t0=Math.floor(sess.batchRng()*1000);
+    const xs=[],tg=[];
+    for(let t=0;t<RNN_T;t++){ xs.push([waveAt(t0+t)]); tg.push(waveAt(t0+t+1)); }
+    return {xs,tg,mode:'mse'};
+  }
+  const xs=[],tg=[];
+  for(let t=0;t<DIG_TRAIN-1;t++){ xs.push(oneHot(sess.digits[t])); tg.push(sess.digits[t+1]); }
+  return {xs,tg,mode:'ce'};
+}
+function rnnAdvance(sess,k){
+  for(let q=0;q<k;q++){
+    const {xs,tg,mode}=rnnSeq(sess);
+    const g=rnnBPTT(sess.net,xs,tg,mode);
+    const c=clipNorm(rnnGradsFlatten(g));
+    rnnUnflatten(sess.net,optStepFlat(sess.opt,rnnFlatten(sess.net),c.flat));
+    sess.step++;
+    if(sess.step<=10||sess.step%5===0){
+      histPush(sess.hist.loss,sess.step,g.loss);
+      if(sess.kind==='digits')
+        histPush(sess.hist.hold,sess.step,digitsHoldoutCE(sess));
+    }
+  }
+}
+/* probe quantities — model fields, not draw-call math ------------------ */
+function streamProbe(sess){       /* run over a fixed window; mean sigma(out) */
+  const xs=[];
+  for(let t=0;t<128;t++) xs.push([sess.bits[t]]);
+  const {outs}=rnnForward(sess.net,xs);
+  let s=0;
+  for(let t=64;t<128;t++) s+=sigmoid(outs[t][0]);
+  const p=s/64;
+  return {pHat:p, piHat:2/p, outs};
+}
+function waveProbe(sess){
+  const xs=[],tg=[];
+  for(let t=0;t<RNN_T;t++){ xs.push([waveAt(t)]); tg.push(waveAt(t+1)); }
+  const {hs,outs}=rnnForward(sess.net,xs);
+  let mse=0;
+  for(let t=0;t<RNN_T;t++){ const d=outs[t][0]-tg[t]; mse+=d*d; }
+  /* dream: from the warmed hidden state, feed predictions back in */
+  const dream=[]; let hcur=hs[hs.length-1].slice(), xin=outs[RNN_T-1][0];
+  for(let t=0;t<RNN_T;t++){
+    const hp=hcur; hcur=[];
+    for(let j=0;j<RH;j++){
+      let s=sess.net.bh[j]+sess.net.Wx[j][0]*xin;
+      const Wr=sess.net.Wh[j];
+      for(let kk=0;kk<RH;kk++) s+=Wr[kk]*hp[kk];
+      hcur.push(Math.tanh(s));
+    }
+    let o=sess.net.bo[0];
+    for(let kk=0;kk<RH;kk++) o+=sess.net.Wo[0][kk]*hcur[kk];
+    dream.push(o); xin=o;
+  }
+  return {mse:mse/RNN_T, outs, tg, dream, hs};
+}
+function digitsTrainCE(sess){
+  const {xs,tg}=rnnSeq(sess);
+  const {outs}=rnnForward(sess.net,xs);
+  let ce=0, acc=0;
+  for(let t=0;t<tg.length;t++){
+    ce+=ceLoss(outs[t],tg[t]);
+    let bi=0; for(let c=1;c<10;c++) if(outs[t][c]>outs[t][bi]) bi=c;
+    if(bi===tg[t]) acc++;
+  }
+  return {ce:ce/tg.length, acc:acc/tg.length};
+}
+function digitsHoldoutCE(sess){
+  /* warm the state through the training digits, score only the holdout */
+  const D=sess.digits, xs=[];
+  for(let t=0;t<D.length-1;t++) xs.push(oneHot(D[t]));
+  const {outs}=rnnForward(sess.net,xs);
+  let ce=0, n=0;
+  for(let t=DIG_TRAIN-1;t<D.length-1;t++){ ce+=ceLoss(outs[t],D[t+1]); n++; }
+  return ce/n;
+}
+function digitsRecite(sess){
+  /* seed "3", then argmax feedback; count correct digits until first miss */
+  const D=sess.digits;
+  let hcur=new Array(RH).fill(0), x=oneHot(D[0]), okCount=1;
+  for(let t=1;t<D.length;t++){
+    const hp=hcur; hcur=[];
+    for(let j=0;j<RH;j++){
+      let s=sess.net.bh[j];
+      for(let i=0;i<10;i++) s+=sess.net.Wx[j][i]*x[i];
+      const Wr=sess.net.Wh[j];
+      for(let kk=0;kk<RH;kk++) s+=Wr[kk]*hp[kk];
+      hcur.push(Math.tanh(s));
+    }
+    const o=[];
+    for(let c=0;c<10;c++){
+      let s=sess.net.bo[c];
+      for(let kk=0;kk<RH;kk++) s+=sess.net.Wo[c][kk]*hcur[kk];
+      o.push(s);
+    }
+    let bi=0; for(let c=1;c<10;c++) if(o[c]>o[bi]) bi=c;
+    if(bi!==D[t]) break;
+    okCount++; x=oneHot(bi);
+  }
+  return okCount;
+}
+
+/* ---------------- the session registry ------------------------------ */
+/* One live session PER TASK (plus the CNN and the three RNNs): switching a
+   view or a task PARKS the old session and resumes it later — nothing resets
+   on navigation.  A session is recreated only when its settings key no
+   longer matches the panel (a chip genuinely changed) or a reset button is
+   pressed.  Clicking the already-selected chip is therefore a no-op, not an
+   accidental restart. */
+const SESS={fnn:{dart:null,needle:null},race:{dart:null,needle:null},
+            cnn:null,rnn:{stream:null,wave:null,digits:null}};
+function fnnActive(){
+  const s=SESS.fnn[ST.task];
+  if(s&&fnnKey(s.cfg)===fnnKey(fnnCfg(ST))){
+    /* eta is live: the running optimizer follows the panel, mid-run */
+    if(s.opt.lr!==ST.lr){ s.opt.lr=ST.lr; s.cfg.lr=ST.lr; }
+    return s;
+  }
+  return (SESS.fnn[ST.task]=fnnSessionNew(ST));
+}
+function raceActive(){
+  const s=SESS.race[ST.task];
+  if(s&&raceKey(s.cfg)===raceKey(fnnCfg(ST))) return s;
+  return (SESS.race[ST.task]=raceSessionNew(ST));
+}
+/* switching to a task RESUMES its parked session (the panel adopts the
+   session's own settings, so the chips keep telling the truth); a task with
+   no session yet starts from its TUNED preset when auto-tune is on. */
+function switchTask(task){
+  ST.task=task;
+  const s=SESS.fnn[task];
+  if(s) Object.assign(ST,s.cfg);
+  else if(ST.autoTune&&TUNED[task]) Object.assign(ST,TUNED[task].cfg);
+  return fnnActive();
+}
+function resetFnn(){ SESS.fnn[ST.task]=fnnSessionNew(ST); }
+function resetRace(){ SESS.race[ST.task]=raceSessionNew(ST); }
+function resetCnn(){ SESS.cnn=cnnSessionNew(); }
+function resetRnn(kind){ SESS.rnn[kind]=rnnSessionNew(kind); }
+/* "reset nets": every EXISTING session replays its own exact run */
+function replayNets(){
+  for(const t of ['dart','needle']){
+    if(SESS.fnn[t]) SESS.fnn[t]=fnnSessionNew(SESS.fnn[t].cfg);
+    if(SESS.race[t]) SESS.race[t]=raceSessionNew(SESS.race[t].cfg);
+  }
+  resetCnn(); resetRnn('stream'); resetRnn('wave'); resetRnn('digits');
+}
+function resetAllSessions(){
+  SESS.fnn={dart:null,needle:null}; SESS.race={dart:null,needle:null};
+  resetFnn(); resetRace(); resetCnn();
+  resetRnn('stream'); resetRnn('wave'); resetRnn('digits');
+}
+resetAllSessions();
+function advanceActive(k){
+  const v=ST.view;
+  if(v==='learn') return;                       /* the primer is a still page */
+  if(v==='net'||v==='dart'||v==='needle') fnnAdvance(fnnActive(),k);
+  else if(v==='race') raceAdvance(raceActive(),k);
+  else if(v==='cnn') cnnAdvance(SESS.cnn,Math.max(1,Math.round(k/4)));
+  else rnnAdvance(SESS.rnn[ST.seqTask],Math.max(1,Math.round(k/4)));
+}
+
+/* ---------------- lazy model ---------------------------------------- */
+function lazy(obj,name,fn){
+  Object.defineProperty(obj,name,{configurable:true,get(){
+    const v=fn(); Object.defineProperty(obj,name,{value:v,configurable:true});
+    return v; }});
+}
+/* probability heat field over the net square, cached per (net-step, N) */
+function heatField(net,N){
+  const f=new Float64Array(N*N);
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    const u=-1+(i+0.5)*(2/N), v=-1+(j+0.5)*(2/N);
+    f[i*N+j]=sigmoid(netLogit(net,[u,v]));
+  }
+  return f;
+}
+const MC_CACHE={};
+function mcCurveCached(task){
+  if(!MC_CACHE[task])
+    MC_CACHE[task]=mcCurve(task,task==='dart'?SEED_MC_DART:SEED_MC_NEEDLE,20000);
+  return MC_CACHE[task];
+}
+
+function buildModel(){
+  const st=ST, M={view:st.view,st};
+  if(st.view==='net'||st.view==='dart'||st.view==='needle'){
+    const sess=fnnActive();
+    M.sess=sess; M.task=sess.task; M.step=sess.step;
+    M.sizes=sess.net.sizes;
+    M.nParams=netFlatten(sess.net).length;
+    lazy(M,'loss',()=>netBatchLoss(sess.net,sess.data.X,sess.data.Y));
+    lazy(M,'acc',()=>netAccuracy(sess.net,sess.data.X,sess.data.Y));
+    lazy(M,'heat',()=>heatField(sess.net,56));
+    M.heatN=56;
+    lazy(M,'piNN',()=>piFromNet(sess.task,sess.net,QUAD_N));
+    lazy(M,'piNNfine',()=>piFromNet(sess.task,sess.net,QUAD_N_FINAL));
+    M.piAvg=sess.piAvg;
+    lazy(M,'mc',()=>mcCurveCached(sess.task));
+    lazy(M,'mcFinal',()=>{ const c=mcCurveCached(sess.task);
+      return c[c.length-1]; });
+    M.boundary=trueBoundary(sess.task,128);
+    M.piTrue=PI;
+    /* does the session run its task's measured preset? (a model field so the
+       readout's "preset" row is assertable, per the drawn-number rule) */
+    M.isTuned=['arch','act','opt','lr'].every(k=>sess.cfg[k]===TUNED[sess.task].cfg[k]);
+    /* label counts off the data actually trained on */
+    lazy(M,'nPos',()=>{ let c=0; for(const y of sess.data.Y) if(y>0.5) c++; return c; });
+    if(st.view==='net'){
+      /* floor: a driven range input can carry a non-integer value */
+      const k=Math.max(0,Math.min(Math.floor(st.inspect),sess.data.X.length-1));
+      M.inspect=k;
+      M.x=sess.data.X[k]; M.y=sess.data.Y[k];
+      lazy(M,'trace',()=>netForward(sess.net,sess.data.X[k]));
+      lazy(M,'sampleLoss',()=>bceLoss(netLogit(sess.net,sess.data.X[k]),sess.data.Y[k]));
+      lazy(M,'sampleGrads',()=>netGrads(sess.net,sess.data.X,sess.data.Y,[k]));
+    }
+  }
+  else if(st.view==='race'){
+    const sess=raceActive();
+    M.sess=sess; M.task=sess.task; M.step=sess.step;
+    M.lanes=sess.lanes.map(l=>({kind:l.kind,hist:l.hist,acc:l.acc,
+                                reachedAt:l.reachedAt,col:OPT_COL[l.kind]}));
+    lazy(M,'winner',()=>{
+      let best=null;
+      for(const l of sess.lanes)
+        if(l.reachedAt!==null&&(best===null||l.reachedAt<best.reachedAt)) best=l;
+      return best?{kind:best.kind,at:best.reachedAt}:null; });
+  }
+  else if(st.view==='cnn'){
+    const sess=SESS.cnn;
+    M.sess=sess; M.step=sess.step;
+    M.kernels=sess.net.K; M.pad=sess.pad; M.padFrom=sess.padFrom;
+    M.nTrain=sess.imgs.length; M.nTest=sess.timgs.length;
+    lazy(M,'padF',()=>cnnForward(sess.net,sess.pad));
+    lazy(M,'padProbs',()=>softmax(M.padF.z));
+    lazy(M,'padClass',()=>{ const p=M.padProbs;
+      let bi=0; for(let c=1;c<3;c++) if(p[c]>p[bi]) bi=c; return bi; });
+    lazy(M,'acc',()=>cnnAccuracy(sess.net,sess.imgs,sess.ys));
+    lazy(M,'tacc',()=>cnnAccuracy(sess.net,sess.timgs,sess.tys));
+  }
+  else if(st.view==='learn'){
+    /* the primer is static teaching material, but its "bench" numbers are
+       live: they show every parked session still holding its progress */
+    M.tuned=TUNED;
+    M.bench={
+      dart:SESS.fnn.dart?SESS.fnn.dart.step:0,
+      needle:SESS.fnn.needle?SESS.fnn.needle.step:0,
+      cnn:SESS.cnn.step,
+      rnn:SESS.rnn.stream.step+SESS.rnn.wave.step+SESS.rnn.digits.step,
+    };
+    M.counts={
+      fnn:netFlatten(fnnActive().net).length,
+      cnn:cnnFlatten(SESS.cnn.net).length,
+      rnn:rnnFlatten(SESS.rnn.stream.net).length,
+    };
+  }
+  else {
+    const sess=SESS.rnn[st.seqTask];
+    M.sess=sess; M.seqTask=st.seqTask; M.step=sess.step;
+    if(st.seqTask==='stream'){
+      lazy(M,'probe',()=>streamProbe(sess));
+      M.pTrue=2/PI; M.piTrue=PI;
+      M.bits=sess.bits;
+    } else if(st.seqTask==='wave'){
+      lazy(M,'probe',()=>waveProbe(sess));
+    } else {
+      M.digits=sess.digits; M.nTrainDig=DIG_TRAIN; M.nHold=DIG_HOLD;
+      lazy(M,'train',()=>digitsTrainCE(sess));
+      lazy(M,'holdCE',()=>digitsHoldoutCE(sess));
+      lazy(M,'recite',()=>digitsRecite(sess));
+      M.ceChance=Math.log(10);
+    }
+  }
+  return M;
+}
+
+/* ================================================================== *
+ *  drawing helpers — the shared 2-D layer                             *
+ *                                                                     *
+ *  Provenance (the helper layer has DRIFTED across sims and no one    *
+ *  file carries every fix — Known-bad 2026-08-11):                    *
+ *    ENTS/plain/wrapText/caption/box/frame/polyline  <- sbs_sims.html *
+ *      (plain strips tags, entity regex is [a-zA-Z], polyline clips   *
+ *       in DATA space so the display-list audit stays honest)         *
+ *    axes() range-sort                        <- standard_candle.html *
+ *    axes() runs title AND axis labels through plain()  <- drum_head  *
+ *  All three fixes are asserted in selfTest so they cannot rot.       *
+ * ================================================================== */
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+/* Digit-honest long formatter for the pi readouts: TRUNCATES, never rounds,
+   so every printed digit is a true leading digit of the value — rounding
+   3.14159265358979 at 12 decimals would print "...590" and misstate the
+   digit string this whole sim is about.  Two guard digits absorb toFixed's
+   own rounding; a carry could only reach the last kept digit off a 99 tail
+   in the guards, which for a noisy estimate is a 1-ulp non-event. */
+function piLong(x,nDec){
+  if(!isFinite(x)) return '—';
+  const s=Number(x).toFixed(nDec+2);
+  return s.slice(0,s.length-2);
+}
+/* Split a formatted estimate into the prefix that MATCHES the true digits of
+   pi (from the in-file spigot, so the reference is exact integer math) and
+   the tail that does not — the readout paints the match green.  Model-layer
+   on purpose: a quantity computed inside a draw call cannot be tested. */
+function piMatchParts(x,nDec){
+  const s=piLong(x,nDec);
+  const ref='3.'+PI_DIGITS_STR.slice(1);
+  let i=0;
+  while(i<s.length&&i<ref.length&&s[i]===ref[i]) i++;
+  return {str:s,match:s.slice(0,i),rest:s.slice(i)};
+}
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥'};
+function plain(s){
+  return String(s).replace(/&[a-zA-Z][a-zA-Z0-9]*;/g,
+                           m=>ENTS[m]!==undefined?ENTS[m]:m)
+                  .replace(/<\/?[a-zA-Z][^>]*>/g,'');
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range (sbs_sims.html).
+   A canvas ctx.clip() would fix the browser but NOT the audit — the
+   display-list recorder treats clip() as a no-op, so the captured geometry
+   would still lie.  Crossings are interpolated so a clipped curve still meets
+   the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const inY=y=>y>=ylo&&y<=yhi;
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    let x0=xs[i], y0=ys[i], x1=xs[i+1], y1=ys[i+1];
+    if(!isFinite(x0)||!isFinite(y0)||!isFinite(x1)||!isFinite(y1)){
+      started=false; continue; }
+    const a=inY(y0), c=inY(y1);
+    if(!a&&!c){ started=false; continue; }
+    if(!a){
+      const yc=y0<ylo?ylo:yhi, t=(yc-y0)/(y1-y0);
+      x0=x0+(x1-x0)*t; y0=yc; started=false;
+    }
+    if(!c){
+      const yc=y1<ylo?ylo:yhi, t=(yc-y0)/(y1-y0);
+      x1=x0+(x1-x0)*t; y1=yc;
+    }
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(!c) started=false;
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed (an untrained dream can fill the panel): draw no
+     legend rather than a lying one — the caption names the colours */
+  return null;
+}
+
+/* ---- this sim's role colours ---- */
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', cyan:'#5ac8e0',
+           wp:'#5ac8e0', wm:'#cd35c4', dim:'#8b93a6', gridtx:'#6f7789'};
+/* Probability ramp: class-0 slate -> near-bg -> class-1 green, opaque and
+   premixed against the page (seams composite twice under alpha, Known-bad).
+   Diverging on purpose; each HALF is monotone in luminance — asserted. */
+const HEAT_LUT=(function(){
+  const lut=[];
+  for(let i=0;i<=64;i++){
+    const t=i/64;
+    lut.push(t<0.5 ? mix('#4a5468','#0d1017',t*2)
+                   : mix('#0d1017',shade('#b8ec4c',0.82),(t-0.5)*2));
+  }
+  return lut;
+})();
+function heatCss(p){ return HEAT_LUT[Math.max(0,Math.min(64,Math.round(p*64)))]; }
+
+/* ---- layout ------------------------------------------------------- */
+/* The floating readout overlays the top-right of the stage (~296 px wide,
+   up to ~548 tall) and views must reserve it rather than hope. */
+const RO_W=310, RO_H=560;
+function stageTop(){ return 46; }          /* the #tag line lives above this */
+
+/* ================================================================== *
+ *  view: the network                                                  *
+ * ================================================================== */
+/* the diagram shares the stage with a ~190px output annotation and, when the
+   window affords it, a 136px right column (mini map + legend) */
+function netColRoom(W){ return W-RO_W>=720; }
+function layerXs(nL,W){
+  const x0=90;
+  const x1=Math.max(x0+160,
+    Math.min(W-RO_W-(netColRoom(W)?340:250),W*0.62));
+  const out=[];
+  for(let l=0;l<nL;l++) out.push(x0+(x1-x0)*(nL>1?l/(nL-1):0.5));
+  return out;
+}
+function nodeYs(n,top,bot){
+  const out=[];
+  for(let j=0;j<n;j++) out.push(lerp(top,bot,n>1?j/(n-1):0.5));
+  return out;
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+function actNorm(act,a){                    /* activation -> [0,1] for fill */
+  if(act==='tanh') return (clamp(a,-1,1)+1)/2;
+  if(act==='sigmoid') return clamp(a,0,1);
+  return clamp(a/2,0,1);                    /* relu: 2 is "bright" */
+}
+function drawNet(ctx,W,H,M){
+  const st=M.st, sizes=M.sizes, L=sizes.length;
+  const trace=M.trace, acts=trace.acts, zs=trace.zs;
+  const sg=st.showGrad?M.sampleGrads:null;
+  const top=stageTop()+64, bot=H-190;
+  const xs=layerXs(L,W);
+  const ys=sizes.map(n=>nodeYs(n,top+(n<=2?(bot-top)*0.28:0),bot-(n<=2?(bot-top)*0.28:0)));
+  /* absolute-scale edge weight -> width; the SAME |w| always draws the same */
+  const lwOf=w=>clamp(0.35+2.1*Math.abs(w),0.35,4.2);
+  let wmaxG=1e-12;
+  if(sg) for(const Wl of sg.gW) for(const r of Wl) for(const v of r)
+    wmaxG=Math.max(wmaxG,Math.abs(v));
+  for(let l=0;l<L-1;l++){
+    const net=M.sess.net;
+    for(let j=0;j<sizes[l+1];j++) for(let i=0;i<sizes[l];i++){
+      const w=net.W[l][j][i];
+      if(sg){
+        const g=sg.gW[l][j][i];
+        ctx.strokeStyle=g>=0?COL.ref:COL.cyan;
+        ctx.lineWidth=clamp(0.3+3.6*Math.abs(g)/wmaxG,0.3,4);
+        ctx.globalAlpha=0.28+0.6*Math.abs(g)/wmaxG;
+      } else {
+        ctx.strokeStyle=w>=0?COL.wp:COL.wm;
+        ctx.lineWidth=lwOf(w);
+        ctx.globalAlpha=clamp(0.25+0.55*Math.abs(w),0.25,0.85);
+      }
+      ctx.beginPath(); ctx.moveTo(xs[l]+13,ys[l][i]); ctx.lineTo(xs[l+1]-13,ys[l+1][j]);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha=1;
+  const labIn=['x₁','x₂'];
+  for(let l=0;l<L;l++){
+    const many=sizes[l]>10;
+    for(let j=0;j<sizes[l];j++){
+      const a=acts[l][j], t=l===0?(a+1)/2:(l===L-1?sigmoid(a):actNorm(st.act,a));
+      const r=many?9:13;
+      ctx.beginPath(); ctx.arc(xs[l],ys[l][j],r,0,TAU);
+      ctx.fillStyle=shade(COL.pos,0.12+0.75*clamp(t,0,1)); ctx.fill();
+      ctx.strokeStyle='#39404f'; ctx.lineWidth=1; ctx.stroke();
+      if(!many){
+        ctx.fillStyle='#0b0e14'; ctx.font='9.5px "SF Mono", Menlo, monospace';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(fmt(a,1),xs[l],ys[l][j]);
+      }
+    }
+    ctx.fillStyle=COL.gridtx; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    const lab=l===0?'input':(l===L-1?'logit':'hidden '+(L>3?l:''));
+    ctx.fillText(lab,xs[l],top-18);
+  }
+  for(let j=0;j<2;j++){
+    ctx.fillStyle=COL.dim; ctx.font='11px -apple-system, sans-serif';
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(plain(labIn[j]+' = '+fmt(M.x[j],2)),xs[0]-20,ys[0][j]);
+  }
+  /* output annotation */
+  const zOut=zs[zs.length-1][0], sOut=sigmoid(zOut);
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillStyle=COL.dim; ctx.font='11px -apple-system, sans-serif';
+  ctx.fillText(plain('z = '+fmt(zOut,2)+' → σ(z) = '+fmt(sOut,3)),
+               xs[L-1]+22,ys[L-1][0]);
+  /* the sample being traced, shown in its own task square (wide windows) */
+  if(netColRoom(W)){
+    const mini=box(W-RO_W-8-128,stageTop()+8,128,128);
+    drawMiniTask(ctx,mini,M);
+  }
+  /* the arithmetic strip along the bottom — live numbers off the model */
+  const yb=H-158;
+  ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif';
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.fillText(plain('the forward pass, sample #'+M.inspect+' of the '
+    +(M.task==='dart'?'dartboard':'needles')+' set'),24,yb);
+  ctx.font='11px "SF Mono", Menlo, monospace'; ctx.fillStyle=COL.dim;
+  const lines=[
+    'a⁰ = ('+fmt(M.x[0],3)+', '+fmt(M.x[1],3)+')      y = '+M.y
+      +(M.task==='needle'?'   (crosses a line: '+(M.y>0.5?'yes':'no')+')'
+                          :'   (inside the circle: '+(M.y>0.5?'yes':'no')+')'),
+    'z¹ = W¹a⁰+b¹ → ['
+      +zs[0].slice(0,Math.min(4,zs[0].length)).map(v=>fmt(v,2)).join(', ')
+      +(zs[0].length>4?', …':'')+']   a¹ = '+st.act+'(z¹)',
+    (L>2? 'zᴼᵘᵗ = '+fmt(zOut,4)+'   σ = '+fmt(sOut,4)
+      +'   loss = −ln('+(M.y>0.5?'σ':'1−σ')+') = '
+      +fmt(M.sampleLoss,4):''),
+  ];
+  let yy=yb+20;
+  for(const ln of lines){ if(ln){ ctx.fillText(ln,24,yy); yy+=17; } }
+  caption(ctx,24,yy+6,
+    st.showGrad
+      ? 'edges now show ∂L/∂w for this one sample — orange pushes the '
+        +'weight down, cyan pushes it up; backprop is just the chain rule '
+        +'delivering these arrows in one backward sweep'
+      : 'edge width is |w|, cyan positive, magenta negative; node brightness is '
+        +'the activation.  Train and watch the first layer turn into little '
+        +'boundary detectors.',
+    Math.min(W-48,760));
+  /* under the mini task square, clear of the layer labels; skipped along
+     with the mini when the right-hand column has no room to exist */
+  if(netColRoom(W))
+    legendBox(ctx,W-RO_W-8-128,stageTop()+144,[[COL.wp,'w > 0'],[COL.wm,'w < 0'],
+      [COL.pos,'activation'],[COL.ref,st.showGrad?'gradient':'reference']]);
+}
+/* small task square used by the network view */
+function drawMiniTask(ctx,b,M){
+  ctx.fillStyle='#0a0c12'; ctx.fillRect(b.x,b.y,b.w,b.h);
+  frame(ctx,b,'#2a2f3d');
+  const N=28, s=b.w/N;
+  for(let i=0;i<N;i++) for(let j=0;j<N;j++){
+    const u=-1+(i+0.5)*(2/N), v=-1+(j+0.5)*(2/N);
+    const p=sigmoid(netLogit(M.sess.net,[u,v]));
+    ctx.fillStyle=heatCss(p);
+    ctx.fillRect(b.x+i*s,b.y1-(j+1)*s,Math.ceil(s),Math.ceil(s));
+  }
+  const bd=M.boundary;
+  polyline(ctx,b,bd.xs,bd.ys,-1,1,-1,1,COL.ref,1.2);
+  const k=M.inspect, X=M.sess.data.X[k];
+  const px=b.x+b.w*(X[0]+1)/2, py=b.y1-b.h*(X[1]+1)/2;
+  ctx.beginPath(); ctx.arc(px,py,4,0,TAU);
+  ctx.fillStyle=COL.live; ctx.fill();
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.2; ctx.stroke();
+}
+
+/* ================================================================== *
+ *  views: the dartboard and the needles (they share the strips)       *
+ * ================================================================== */
+function drawHeatSquare(ctx,b,M,axesOpt){
+  const N=M.heatN, heat=M.heat;
+  const step=b.w/N;
+  for(let i=0;i<N;i++){
+    const x0=Math.round(b.x+i*step), x1=Math.round(b.x+(i+1)*step);
+    for(let j=0;j<N;j++){
+      const y0=Math.round(b.y1-(j+1)*step), y1=Math.round(b.y1-j*step);
+      ctx.fillStyle=heatCss(heat[i*N+j]);
+      ctx.fillRect(x0,y0,x1-x0,y1-y0);
+    }
+  }
+  axes(ctx,b,-1,1,-1,1,axesOpt);
+}
+function drawDots(ctx,b,M,maxDots){
+  const X=M.sess.data.X, Y=M.sess.data.Y, net=M.sess.net;
+  const n=Math.min(maxDots,X.length);
+  for(let k=0;k<n;k++){
+    const px=b.x+b.w*(X[k][0]+1)/2, py=b.y1-b.h*(X[k][1]+1)/2;
+    const pred=netLogit(net,X[k])>0;
+    ctx.beginPath(); ctx.arc(px,py,2.4,0,TAU);
+    ctx.fillStyle=Y[k]>0.5?COL.pos:'#5c6478'; ctx.fill();
+    if(pred!==(Y[k]>0.5)){
+      ctx.beginPath(); ctx.arc(px,py,4.2,0,TAU);
+      ctx.strokeStyle=COL.ref; ctx.lineWidth=1.1; ctx.stroke();
+    }
+  }
+}
+function piStrip(ctx,b,M){
+  const hist=M.sess.hist.pi;
+  const xs=hist.map(p=>p[0]), ys=hist.map(p=>p[1]);
+  let lo=PI-0.55, hi=PI+0.55;
+  for(const v of ys){ if(isFinite(v)){ lo=Math.min(lo,v-0.05); hi=Math.max(hi,v+0.05); } }
+  lo=Math.max(lo,1.2); hi=Math.min(hi,6);
+  const xmax=Math.max(50,M.step);
+  axes(ctx,b,0,xmax,lo,hi,{title:'&pi; by learning',xlab:'training step',
+    xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,2)});
+  polyline(ctx,b,[0,xmax],[PI,PI],0,xmax,lo,hi,COL.ref,1.1,[4,3]);
+  if(xs.length>1) polyline(ctx,b,xs,ys,0,xmax,lo,hi,COL.pos,1.8);
+  const last=ys.length?ys[ys.length-1]:NaN;
+  /* top-right INSIDE the panel: the early spikes live at the left edge, and
+     a bottom-right label leaks into the next panel's tick gutter */
+  ctx.fillStyle=COL.pos; ctx.font='10.5px "SF Mono", Menlo, monospace';
+  ctx.textAlign='right'; ctx.textBaseline='top';
+  ctx.fillText(plain('π̂ = '+fmt(last,4)),b.x1-6,b.y+5);
+}
+function mcStrip(ctx,b,M){
+  const mc=M.mc;
+  const xs=mc.map(p=>Math.log10(p[0])), ys=mc.map(p=>p[2]);
+  const lo=PI-0.55, hi=PI+0.55;
+  axes(ctx,b,1,Math.log10(20000),lo,hi,{title:'&pi; by counting',
+    xlab:'samples n (log)',xticks:intTicks(1,Math.log10(20000)),
+    xfmt:t=>sigf(Math.pow(10,t),2),yfmt:t=>fmt(t,2)});
+  polyline(ctx,b,[1,Math.log10(20000)],[PI,PI],1,Math.log10(20000),lo,hi,COL.ref,1.1,[4,3]);
+  polyline(ctx,b,xs,ys,1,Math.log10(20000),lo,hi,COL.cyan,1.5);
+  const last=mc[mc.length-1];
+  /* top-right inside the panel, same reasoning as piStrip */
+  ctx.fillStyle=COL.cyan; ctx.font='10.5px "SF Mono", Menlo, monospace';
+  ctx.textAlign='right'; ctx.textBaseline='top';
+  ctx.fillText(plain('π̂(20000) = '+fmt(last[2],4)),b.x1-6,b.y+5);
+}
+function lossStrip(ctx,b,M){
+  const hist=M.sess.hist.loss, accs=M.sess.hist.acc;
+  const xs=hist.map(p=>p[0]), ys=hist.map(p=>Math.log10(Math.max(p[1],1e-6)));
+  const xmax=Math.max(50,M.step);
+  let lo=-3, hi=0.2;
+  for(const v of ys) lo=Math.min(lo,v-0.1);
+  axes(ctx,b,0,xmax,lo,hi,{title:b.w<230?'loss (log)':'loss (log) and accuracy',
+    xlab:'training step',
+    xfmt:t=>fmt(t,0),yticks:intTicks(lo,hi),yfmt:t=>'1e'+fmt(t,0)});
+  if(xs.length>1) polyline(ctx,b,xs,ys,0,xmax,lo,hi,COL.pos,1.6);
+  if(accs.length>1){
+    const ay=accs.map(p=>lo+(hi-lo)*p[1]);
+    polyline(ctx,b,accs.map(p=>p[0]),ay,0,xmax,lo,hi,COL.cyan,1.2,[2,3]);
+  }
+  if(b.w>=230){
+    /* bottom-left: the loss curve enters top-left and the accuracy dashes
+       run along the top, so this is the corner neither occupies */
+    ctx.fillStyle=COL.cyan; ctx.font='10px -apple-system, sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText(plain('dashed: accuracy 0→1 across the box'),b.x+6,b.y1-4);
+  }
+}
+let DART_BOX=null;      /* exposed so selfTest can assert the panel is SQUARE */
+function drawDart(ctx,W,H,M){
+  const st=M.st;
+  const stripH=Math.max(96,Math.min(132,H*0.19));
+  const side=Math.min(H-stageTop()-stripH-96,W-RO_W-140,560);
+  const b=box(70,stageTop()+26,side,side);
+  DART_BOX=b;
+  /* axis letters are dropped on a small square — they collide with the strip
+     titles below and say nothing the picture does not */
+  const ax=side>=300?{xlab:'x',ylab:'y'}:{};
+  if(st.showHeat) drawHeatSquare(ctx,b,M,Object.assign({title:
+    'the square, coloured by the net&rsquo;s P(inside)'},ax));
+  else axes(ctx,b,-1,1,-1,1,Object.assign({title:'the square'},ax));
+  if(st.showTrue){
+    const bd=M.boundary;
+    polyline(ctx,b,bd.xs,bd.ys,-1,1,-1,1,COL.ref,1.6);
+  }
+  if(st.showDots) drawDots(ctx,b,M,400);
+  if(side>=300){
+    legendBox(ctx,b.x1+12,b.y+2,[[COL.pos,'inside (label 1)'],['#5c6478','outside'],
+      [COL.ref,'true circle / wrong'],['#e8f0d0','net P: dark 0 → green 1']]);
+    const cy=b.y+Math.min(150,side*0.4);
+    caption(ctx,b.x1+12,cy,
+      'The net never sees the circle — only labelled dots.  Its P(inside) '
+      +'field is painted behind them; the orange ring is the truth it is '
+      +'trying to rediscover.  '+fmt(100*M.acc,1)+'% of the '+M.sess.data.X.length
+      +' dots are on the right side of its boundary right now.',
+      Math.max(150,Math.min(230,W-RO_W-30-(b.x1+12))));
+  }
+  const y0=b.y1+46;
+  const bw=(W-70-24-2*46)/3;
+  if(H-y0>=110){
+    mcStrip(ctx,box(70,y0,bw,H-y0-40),M);
+    piStrip(ctx,box(70+bw+46,y0,bw,H-y0-40),M);
+    lossStrip(ctx,box(70+2*(bw+46),y0,bw,H-y0-40),M);
+  } else caption(ctx,70,Math.min(y0,H-20),
+    'window too short for the convergence strips — stretch it taller',W-100);
+}
+function needleWorld(i,worldW){
+  const r=mulberry32(9500+i);
+  const cx=0.55+r()*(worldW-1.1);
+  const strip=Math.floor(r()*4);
+  const side=r()<0.5;
+  return {cx,strip,side,flip:r()<0.5?-1:1};
+}
+function drawNeedles(ctx,W,H,M){
+  const st=M.st;
+  const stripH=Math.max(96,Math.min(132,H*0.19));
+  const availH=H-stageTop()-stripH-96;
+  /* below this width the floor and the phase square cannot sit side by side
+     with the readout; draw the floor alone and say so (sparse-view rule) */
+  const narrow=(W-RO_W-170)<300+160;
+  const phSide=narrow?0
+    :Math.min(availH,Math.max(200,Math.min(340,(W-RO_W-190)*0.44)));
+  /* left: the physical experiment, EQUAL ASPECT (needles are shapes) */
+  const bl=narrow
+    ? box(64,stageTop()+26,Math.max(220,Math.min(W-128,620)),Math.max(150,availH))
+    : box(64,stageTop()+26,Math.max(220,Math.min(W-RO_W-170-phSide,620)),phSide);
+  frame(ctx,bl,'#242a3a');
+  const worldH=4, scale=bl.h/worldH, worldW=bl.w/scale;
+  ctx.strokeStyle='#39404f'; ctx.lineWidth=1.4;
+  for(let l=0;l<=4;l++){
+    const y=bl.y+l*scale;
+    ctx.beginPath(); ctx.moveTo(bl.x,y); ctx.lineTo(bl.x1,y); ctx.stroke();
+  }
+  const raw=M.sess.data.raw, Y=M.sess.data.Y, net=M.sess.net, X=M.sess.data.X;
+  const nN=Math.min(110,raw.length);
+  for(let k=0;k<nN;k++){
+    const [th,x]=raw[k], wpos=needleWorld(k,worldW);
+    const cyW=wpos.side?wpos.strip+x:wpos.strip+1-x;
+    const phi=wpos.flip*th;
+    const dx=0.5*Math.cos(phi), dy=0.5*Math.sin(phi);
+    const x0=bl.x+(wpos.cx-dx)*scale, y0=bl.y+(cyW-dy)*scale;
+    const x1=bl.x+(wpos.cx+dx)*scale, y1=bl.y+(cyW+dy)*scale;
+    const wrong=(netLogit(net,X[k])>0)!==(Y[k]>0.5);
+    ctx.strokeStyle=Y[k]>0.5?COL.pos:'#5c6478';
+    ctx.lineWidth=Y[k]>0.5?1.7:1.2;
+    ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    if(wrong){
+      ctx.strokeStyle=COL.ref; ctx.lineWidth=1;
+      ctx.beginPath();
+      ctx.arc(bl.x+wpos.cx*scale,bl.y+cyW*scale,4.5,0,TAU); ctx.stroke();
+    }
+  }
+  ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif';
+  ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText(plain('the floor — '+nN+' of '+raw.length
+    +' needles, ℓ = d = 1, to scale'),bl.x,bl.y-9);
+  /* right: phase space (theta, x) — where the learning actually happens */
+  if(!narrow){
+    const br=box(bl.x1+58,bl.y,phSide,phSide);
+    if(st.showHeat) drawHeatSquare(ctx,br,M,{title:
+      'phase space, coloured by the net&rsquo;s P(cross)',
+      xlab:'&theta; → (0…π/2 as −1…1)',
+      ylab:'x → (0…½ as −1…1)'});
+    else axes(ctx,br,-1,1,-1,1,{title:'phase space (&theta;, x)',
+      xlab:'&theta;',ylab:'x'});
+    if(st.showTrue){
+      const bd=M.boundary;
+      polyline(ctx,br,bd.xs,bd.ys,-1,1,-1,1,COL.ref,1.6);
+    }
+    if(st.showDots) drawDots(ctx,br,M,400);
+  }
+  /* the phase panel's tick labels and x-title live in bl.y1+5..+32; the
+     caption starts below them */
+  const capW=narrow?Math.min(bl.w,W-128):Math.min(bl.w+58+phSide,W-RO_W-90);
+  const capTx=narrow
+    ? 'Each needle is a dot at (angle θ, distance x); it crosses iff '
+      +'x ≤ ½ sin θ, and π = 2/P(cross).  Widen the window to see the '
+      +'phase-space panel where the net learns that sine.'
+    : 'Every needle is one dot in phase space: its angle θ and its '
+      +'centre&rsquo;s distance x to the nearest line.  It crosses iff '
+      +'x ≤ ½ sin θ — the orange sine.  The net has to learn that curve from '
+      +'green-vs-grey dots alone; π then falls out of the area under it.';
+  const capH=caption(ctx,bl.x,bl.y1+38,capTx,capW);
+  const y0=bl.y1+38+capH+26;
+  const bw=(W-64-24-2*46)/3;
+  if(H-y0>=110){
+    mcStrip(ctx,box(64,y0,bw,H-y0-40),M);
+    piStrip(ctx,box(64+bw+46,y0,bw,H-y0-40),M);
+    lossStrip(ctx,box(64+2*(bw+46),y0,bw,H-y0-40),M);
+  }
+}
+
+/* ================================================================== *
+ *  view: the race                                                     *
+ * ================================================================== */
+function drawRace(ctx,W,H,M){
+  const capTxt='Same initial weights, same minibatch sequence — the ONLY '
+    +'difference is the update rule, at the one shared learning rate η = '
+    +M.st.lr+'.  Watch RMSprop&rsquo;s huge first strides (no bias '
+    +'correction: v starts near zero, so the first step is ~10η), and how '
+    +'plain SGD eventually follows the same road, later.  Change η in the '
+    +'panel and the ranking can change — fastest is an experiment, not a '
+    +'theorem.';
+  const bw=Math.min(W-RO_W-420,760);
+  const capW=Math.min(Math.max(340,bw),W-140);
+  /* measure the caption FIRST and lay out from the bottom up (Known-bad:
+     wrapped text has no fixed height) */
+  const capLines=wrapText(ctx,capTxt,capW,'11.5px -apple-system, sans-serif').length;
+  const bh=H-stageTop()-78-capLines*14-34;
+  const b=box(74,stageTop()+30,Math.max(340,bw),Math.max(170,bh));
+  let lo=-3.2, hi=0.3, xmax=Math.max(60,M.step);
+  for(const lane of M.lanes)
+    for(const p of lane.hist) lo=Math.min(lo,Math.log10(Math.max(p[1],1e-7))-0.1);
+  lo=Math.max(lo,-7);
+  axes(ctx,b,0,xmax,lo,hi,{title:'four optimizers, one start, the same batches',
+    xlab:'training step',xfmt:t=>fmt(t,0),
+    yticks:intTicks(lo,hi),yfmt:t=>'1e'+fmt(t,0)});
+  for(const lane of M.lanes){
+    const xs=lane.hist.map(p=>p[0]);
+    const ys=lane.hist.map(p=>Math.log10(Math.max(p[1],1e-7)));
+    if(xs.length>1) polyline(ctx,b,xs,ys,0,xmax,lo,hi,lane.col,1.8);
+  }
+  legendAuto(ctx,b,M.lanes.map(l=>[l.col,
+    l.kind+(l.reachedAt!==null?'  ('+ACC_TARGET*100+'% at '+l.reachedAt+')':'')]));
+  /* steps-to-target bars, right of the plot and BELOW the readout */
+  const bx=b.x1+40, byTop=RO_H+8;
+  const bb=box(bx,byTop,Math.max(200,W-bx-26),Math.min(170,H-byTop-40));
+  if(bb.w>=170&&bb.h>=100){
+    ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText(plain('steps to '+(ACC_TARGET*100)+'% accuracy'),bb.x,bb.y-8);
+    const worst=Math.max(...M.lanes.map(l=>l.reachedAt||0),M.step,1);
+    M.lanes.forEach((l,i)=>{
+      const y=bb.y+i*(bb.h/4)+6, hgt=bb.h/4-14;
+      /* finished lanes: bar length = steps taken; unfinished: current
+         accuracy as a fraction, so the four bars stay distinguishable */
+      const w=l.reachedAt!==null? bb.w*l.reachedAt/worst : bb.w*Math.min(1,l.acc);
+      ctx.fillStyle=l.reachedAt!==null?l.col:'#2a2f3d';
+      ctx.fillRect(bb.x,y,Math.max(2,w),hgt);
+      ctx.fillStyle=l.reachedAt!==null?'#0b0e14':'#7a8296';
+      ctx.font='10.5px "SF Mono", Menlo, monospace';
+      ctx.textAlign='left'; ctx.textBaseline='middle';
+      const txt=l.kind+': '+(l.reachedAt!==null?l.reachedAt:'not yet ('
+        +fmt(100*l.acc,0)+'%)');
+      ctx.fillText(plain(txt),bb.x+6,y+hgt/2);
+    });
+  }
+  if(H-(b.y1+34)>=capLines*14+6) caption(ctx,b.x,b.y1+34,capTxt,capW);
+  else caption(ctx,b.x,b.y1+34,
+    'η = '+M.st.lr+' shared by all four rules — stretch the window taller '
+    +'for the full story',capW);
+}
+
+/* ================================================================== *
+ *  view: the filters (CNN)                                            *
+ * ================================================================== */
+function layoutCnn(W,H){
+  const padSize=Math.min(238,Math.max(176,H*0.34));
+  const cell=padSize/CN;
+  const pad=box(64,stageTop()+40,padSize,padSize);
+  const kx=pad.x1+56;
+  const mapS=Math.min(58,Math.max(44,H*0.082));
+  const gap=Math.max(10,mapS*0.18);
+  return {pad,cell,kx,kw:52,mx:kx+52+42,mapS,gap,
+          px:kx+52+42+mapS+34,
+          barx:kx+52+42+mapS+34+7*Math.min(8,mapS/7)+40};
+}
+function drawCnn(ctx,W,H,M){
+  const st=M.st, lay=layoutCnn(W,H), sess=M.sess;
+  /* the pad */
+  frame(ctx,lay.pad,'#39404f');
+  for(let i=0;i<CN;i++) for(let j=0;j<CN;j++){
+    ctx.fillStyle=M.pad[i][j]>0.5?'#cfd4de':'#10131b';
+    ctx.fillRect(lay.pad.x+j*lay.cell+0.5,lay.pad.y+i*lay.cell+0.5,
+                 lay.cell-1,lay.cell-1);
+  }
+  ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif';
+  ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText(plain('the input — draw on it ('+M.padFrom+')'),
+               lay.pad.x,lay.pad.y-9);
+  /* kernels */
+  const F=M.padF;
+  let kmax=1e-9;
+  for(const Kf of M.kernels) for(const r of Kf) for(const v of r)
+    kmax=Math.max(kmax,Math.abs(v));
+  const ks=lay.kw/CK;
+  for(let f=0;f<CF;f++){
+    const ky=lay.pad.y+f*(lay.kw+16);
+    if(ky+lay.kw>H-90) break;
+    for(let a=0;a<CK;a++) for(let bcol=0;bcol<CK;bcol++){
+      const v=M.kernels[f][a][bcol], t=Math.abs(v)/kmax;
+      ctx.fillStyle=v>=0?shade(COL.wp,0.15+0.8*t):shade(COL.wm,0.15+0.8*t);
+      ctx.fillRect(lay.kx+bcol*ks,ky+a*ks,Math.ceil(ks)-1,Math.ceil(ks)-1);
+    }
+    frame(ctx,box(lay.kx,ky,lay.kw,lay.kw),'#2a2f3d');
+  }
+  /* feature maps (post-ReLU) and pooled maps */
+  const mS=lay.mapS, pS=Math.min(8,mS/7)*CPOOL;
+  let fmax=1e-9;
+  for(let f=0;f<CF;f++) for(const row of F.relu[f]) for(const v of row)
+    fmax=Math.max(fmax,v);
+  for(let f=0;f<CF;f++){
+    const my=lay.pad.y+f*(lay.kw+16);
+    if(my+mS>H-90) break;
+    const cs=mS/CO;
+    for(let y=0;y<CO;y++) for(let x=0;x<CO;x++){
+      ctx.fillStyle=shade(COL.pos,0.08+0.85*(F.relu[f][y][x]/fmax));
+      ctx.fillRect(lay.mx+x*cs,my+y*cs,Math.ceil(cs),Math.ceil(cs));
+    }
+    frame(ctx,box(lay.mx,my,mS,mS),'#2a2f3d');
+    const ps=pS/CPOOL;
+    for(let y=0;y<CPOOL;y++) for(let x=0;x<CPOOL;x++){
+      ctx.fillStyle=shade(COL.pos,0.08+0.85*(F.pool[f][y][x]/fmax));
+      ctx.fillRect(lay.px+x*ps,my+y*ps,Math.ceil(ps),Math.ceil(ps));
+    }
+    frame(ctx,box(lay.px,my,pS,pS),'#2a2f3d');
+  }
+  ctx.fillStyle=COL.gridtx; ctx.font='10.5px -apple-system, sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='bottom';
+  ctx.fillText('6 kernels 3×3',lay.kx+lay.kw/2,lay.pad.y-9);
+  ctx.fillText('feature maps 14×14',lay.mx+mS/2,lay.pad.y-9);
+  ctx.fillText('pooled 7×7',lay.px+pS/2,lay.pad.y-9);
+  /* class probabilities — only when the column actually fits on the canvas */
+  const probs=M.padProbs, names=SHAPE_NAMES;
+  const bx=lay.barx, bw2=Math.max(120,Math.min(210,W-RO_W-30-bx));
+  if(bw2>=110&&bx+bw2<=W-8){
+    ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('the verdict',bx,lay.pad.y-9);
+    for(let c=0;c<3;c++){
+      const y=lay.pad.y+c*44;
+      ctx.fillStyle='#1b1f29'; ctx.fillRect(bx,y,bw2,16);
+      ctx.fillStyle=c===M.padClass?COL.pos:'#4a5266';
+      ctx.fillRect(bx,y,bw2*probs[c],16);
+      ctx.fillStyle='#cfd4de'; ctx.font='10.5px "SF Mono", Menlo, monospace';
+      ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(names[c]+' '+fmt(100*probs[c],1)+'%',bx+4,y+8+14);
+    }
+  }
+  /* caption measured FIRST, then the accuracy strip gets what is left
+     (Known-bad: wrapped text has no fixed height — lay out bottom-up) */
+  const capTxt='One 3×3 stencil per kernel slides over the whole image, so a '
+    +'shape is recognised wherever it sits — that is weight sharing.  Cyan '
+    +'kernel cells are positive weights, magenta negative; the feature maps '
+    +'show where each kernel fires, and max-pooling keeps only the strongest '
+    +'2×2 answer.  Train accuracy: '+fmt(100*M.acc,1)+'%, held-out: '
+    +fmt(100*M.tacc,1)+'%.';
+  const capW=Math.min(W-128,900);
+  const capLines=wrapText(ctx,capTxt,capW,'11.5px -apple-system, sans-serif').length;
+  const capY=H-12-capLines*14;
+  const y0=Math.max(lay.pad.y1,lay.pad.y+CF*(lay.kw+16))+58;
+  const sb=box(64,y0,Math.max(280,W-64-340),capY-26-y0-30);
+  if(sb.h>=56){
+    const hl=sess.hist.loss, ha=sess.hist.acc, ht=sess.hist.tacc;
+    const xmax=Math.max(40,M.step);
+    axes(ctx,sb,0,xmax,0,1,{title:'train (green) vs held-out (magenta) accuracy; loss dashed',
+      xlab:'training step',xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,1)});
+    if(ha.length>1) polyline(ctx,sb,ha.map(p=>p[0]),ha.map(p=>p[1]),0,xmax,0,1,COL.pos,1.7);
+    if(ht.length>1) polyline(ctx,sb,ht.map(p=>p[0]),ht.map(p=>p[1]),0,xmax,0,1,COL.live,1.7);
+    if(hl.length>1) polyline(ctx,sb,hl.map(p=>p[0]),hl.map(p=>Math.min(1,p[1]/1.6)),
+      0,xmax,0,1,'#7a8296',1,[3,3]);
+  }
+  caption(ctx,64,capY,capTxt,capW);
+}
+
+/* ================================================================== *
+ *  view: the sequence (RNN)                                           *
+ * ================================================================== */
+function drawRnnCore(ctx,W,H,M,probeXs,hs,title){
+  /* the unrolled ribbon: inputs along time, hidden-state heat matrix */
+  const T=Math.min(64,probeXs.length);
+  const rb=box(70,stageTop()+42,Math.min(W-RO_W-120,640),16*7);
+  const cw=rb.w/T, chh=rb.h/RH;
+  for(let t=0;t<T;t++){
+    const hcur=hs[t+1];
+    for(let j=0;j<RH;j++){
+      const a=(clamp(hcur[j],-1,1)+1)/2;
+      ctx.fillStyle=mix(mix('#3a4254','#0d1017',Math.min(1,a*2)),
+                        shade('#b8ec4c',0.82),Math.max(0,a*2-1));
+      ctx.fillRect(rb.x+t*cw,rb.y+j*chh,Math.ceil(cw),Math.ceil(chh));
+    }
+  }
+  frame(ctx,rb,'#2a2f3d');
+  ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif';
+  ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText(plain(title),rb.x,rb.y-9);
+  ctx.fillStyle=COL.gridtx; ctx.font='10px -apple-system, sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText('16 hidden units × '+T+' time steps — the state h is the only memory the network has',
+               rb.x,rb.y1+5);
+  return rb;
+}
+/* bottom-up fit for the sequence views: measure the caption, hand the panel
+   whatever height remains, and skip the panel honestly when there is none */
+function rnnFit(ctx,yTop,W,H,capTxt,capW){
+  const lines=wrapText(ctx,capTxt,capW,'11.5px -apple-system, sans-serif').length;
+  const capY=H-12-lines*14;
+  const ph=capY-30-yTop-34;
+  return {capY,ph};
+}
+function drawRnn(ctx,W,H,M){
+  const st=M.st;
+  if(M.seqTask==='stream'){
+    const pr=M.probe;
+    const xs=[]; for(let t=0;t<128;t++) xs.push([M.bits[t]]);
+    const {hs}=rnnForward(M.sess.net,xs.slice(0,64));
+    const rb=drawRnnCore(ctx,W,H,M,xs,hs,'hidden state while watching the needle stream');
+    /* bit ticks under the ribbon */
+    for(let t=0;t<64;t++){
+      ctx.fillStyle=M.bits[t]?COL.pos:'#3a4254';
+      ctx.fillRect(rb.x+t*(rb.w/64),rb.y1+22,Math.ceil(rb.w/64)-1,6);
+    }
+    ctx.fillStyle=COL.gridtx; ctx.font='10px -apple-system, sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText('the bits it watched (green = the needle crossed)',rb.x,rb.y1+32);
+    const capTxt='The crossings are independent coin flips with P = 2/π '
+      +'(the orange rule), so there is no pattern to find: the best possible '
+      +'predictor is the constant base rate, and the green curve shows the '
+      +'net finding it — from P̂ = '+fmt(pr.pHat,4)+' it hands back '
+      +'π ≈ 2/P̂ = '+fmt(pr.piHat,4)+'.';
+    const capW=Math.min(Math.max(rb.w,300),W-160);
+    const fit=rnnFit(ctx,rb.y1+66,W,H,capTxt,capW);
+    if(fit.ph>=70){
+      const pb=box(70,rb.y1+66,rb.w,fit.ph);
+      const outs=pr.outs, py=[];
+      for(let t=0;t<128;t++) py.push(sigmoid(outs[t][0]));
+      axes(ctx,pb,0,127,0,1,{title:'the net&rsquo;s running P(next crossing)',
+        xlab:'time step',xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,1)});
+      polyline(ctx,pb,[0,127],[M.pTrue,M.pTrue],0,127,0,1,COL.ref,1.2,[4,3]);
+      polyline(ctx,pb,py.map((v,i)=>i),py,0,127,0,1,COL.pos,1.7);
+      if(pb.w>=300) legendAuto(ctx,pb,[[COL.pos,'net P(cross)'],
+        [COL.ref,'true 2/π = '+fmt(M.pTrue,4)]]);
+    }
+    caption(ctx,70,fit.capY,capTxt,capW);
+  }
+  else if(M.seqTask==='wave'){
+    const pr=M.probe;
+    const xs=[]; for(let t=0;t<RNN_T;t++) xs.push([waveAt(t)]);
+    const rb=drawRnnCore(ctx,W,H,M,xs,pr.hs,'hidden state while tracking the wave');
+    const capTxt='Left half: the net reads the true sine (orange dashes) and '
+      +'predicts one step ahead (green; MSE '+sigf(pr.mse,2)+').  Right '
+      +'half: its input is cut and the magenta dream is fed its own '
+      +'predictions — it can only keep the sine going if the hidden state '
+      +'actually carries phase and amplitude.  Early in training the dream '
+      +'collapses; watch it learn to hold the beat.';
+    const capW=Math.min(Math.max(rb.w,300),W-160);
+    const fit=rnnFit(ctx,rb.y1+40,W,H,capTxt,capW);
+    if(fit.ph>=70){
+      const pb=box(70,rb.y1+40,rb.w,fit.ph);
+      axes(ctx,pb,0,2*RNN_T-1,-1.8,1.8,
+        {title:'predict the next sample — then dream with eyes closed',
+         xlab:'time step',xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,1)});
+      const tgAll=[]; for(let t=0;t<2*RNN_T;t++) tgAll.push(waveAt(t+1));
+      polyline(ctx,pb,tgAll.map((v,i)=>i),tgAll,0,2*RNN_T-1,-1.8,1.8,COL.ref,1.2,[4,3]);
+      polyline(ctx,pb,pr.outs.map((o,i)=>i),pr.outs.map(o=>o[0]),
+               0,2*RNN_T-1,-1.8,1.8,COL.pos,1.8);
+      polyline(ctx,pb,pr.dream.map((v,i)=>RNN_T+i),pr.dream,
+               0,2*RNN_T-1,-1.8,1.8,COL.live,1.8);
+      if(pb.w>=340) legendAuto(ctx,pb,[[COL.pos,'prediction (sees the wave)'],
+        [COL.live,'dream (fed its own output)'],[COL.ref,'true sine']]);
+    }
+    caption(ctx,70,fit.capY,capTxt,capW);
+  }
+  else {
+    const D=M.digits;
+    const xs=[]; for(let t=0;t<64;t++) xs.push(oneHot(D[t]));
+    const {hs}=rnnForward(M.sess.net,xs);
+    const rb=drawRnnCore(ctx,W,H,M,xs,hs,'hidden state while reading π');
+    /* the digit strip: train region then holdout, prediction correctness */
+    const allXs=[]; for(let t=0;t<D.length-1;t++) allXs.push(oneHot(D[t]));
+    const outsAll=rnnForward(M.sess.net,allXs).outs;
+    /* the strip stays LEFT of the floating readout — 35 digits were hiding
+       under it at full width before this bound existed */
+    const dw=Math.min(9,(W-RO_W-90)/(D.length)), dy=rb.y1+40;
+    ctx.font='8.5px "SF Mono", Menlo, monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let t=1;t<D.length;t++){
+      const o=outsAll[t-1];
+      let bi=0; for(let c=1;c<10;c++) if(o[c]>o[bi]) bi=c;
+      const okd=bi===D[t];
+      const x=70+(t-1)*dw;
+      if(x>W-RO_W-16) break;
+      ctx.fillStyle=okd?(t<M.nTrainDig?COL.pos:'#7ec48f'):'#3a4254';
+      ctx.fillRect(x,dy,Math.max(1,dw-1),14);
+      if(dw>=7){ ctx.fillStyle='#0b0e14'; ctx.fillText(String(D[t]),x+dw/2,dy+7); }
+    }
+    /* the train/holdout divider, labelled only when the label has room
+       above the caption (560x380 has none) */
+    const xdiv=70+(M.nTrainDig-1)*dw;
+    ctx.strokeStyle=COL.live; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.moveTo(xdiv,dy-6); ctx.lineTo(xdiv,dy+20); ctx.stroke();
+    const capTxt='The digits of π pass every statistical test of randomness, '
+      +'so there is nothing to generalise: the net can only MEMORISE.  '
+      +'Training loss (green) collapses while held-out loss (magenta) never '
+      +'improves — it climbs PAST the orange chance line as the net grows '
+      +'confidently wrong.  That gap is overfitting itself.  Right now it '
+      +'recites '+M.recite+' digits before its first mistake.';
+    const pw=Math.min(W-RO_W-120,640);
+    const capW=Math.min(Math.max(pw,300),W-160);
+    const fit=rnnFit(ctx,dy+52,W,H,capTxt,capW);
+    if(dy+34<fit.capY-4){
+      ctx.fillStyle=COL.live; ctx.font='10px -apple-system, sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='top';
+      ctx.fillText('memorised ← | → never seen',Math.min(xdiv+4,W-RO_W-170),dy+22);
+    }
+    if(fit.ph>=70){
+      const pb=box(70,dy+52,pw,fit.ph);
+      const hl=M.sess.hist.loss, hh=M.sess.hist.hold;
+      const xmax=Math.max(40,M.step);
+      /* the y-range follows the held-out climb, or the most instructive part
+         of the picture sits clipped against the frame */
+      let yh=3;
+      if(hh) for(const p of hh) yh=Math.max(yh,Math.min(6,p[1]+0.3));
+      axes(ctx,pb,0,xmax,0,yh,{title:'cross-entropy: training digits vs held-out digits',
+        xlab:'training step',xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,1)});
+      polyline(ctx,pb,[0,xmax],[M.ceChance,M.ceChance],0,xmax,0,yh,COL.ref,1.1,[4,3]);
+      if(hl.length>1) polyline(ctx,pb,hl.map(p=>p[0]),hl.map(p=>p[1]),0,xmax,0,yh,COL.pos,1.7);
+      if(hh&&hh.length>1) polyline(ctx,pb,hh.map(p=>p[0]),hh.map(p=>p[1]),0,xmax,0,yh,COL.live,1.7);
+      if(pb.w>=380) legendAuto(ctx,pb,[[COL.pos,'train CE'],
+        [COL.live,'held-out CE'],[COL.ref,'chance = ln 10 ≈ 2.30']]);
+    }
+    caption(ctx,70,fit.capY,capTxt,capW);
+  }
+}
+
+/* ================================================================== *
+ *  view: the primer (a still page — the ideas behind the other tabs)  *
+ * ================================================================== */
+function arrowRt(ctx,x0,y,x1,col){
+  ctx.strokeStyle=col; ctx.lineWidth=1.3;
+  ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x1,y); ctx.lineTo(x1-5,y-3.5);
+  ctx.lineTo(x1-5,y+3.5); ctx.closePath();
+  ctx.fillStyle=col; ctx.fill();
+}
+function primerTitle(ctx,x,y,txt){
+  ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif';
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.fillText(plain(txt),x,y);
+}
+function drawMiniFnn(ctx,b){
+  const cols=[2,4,1], xs=[b.x+22,b.x+b.w/2,b.x1-22];
+  const ys=cols.map((n,l)=>nodeYs(n,b.y+(n<=2?b.h*0.3:16),b.y1-(n<=2?b.h*0.3:16)));
+  for(let l=0;l<2;l++) for(let j=0;j<cols[l+1];j++) for(let i=0;i<cols[l];i++){
+    ctx.strokeStyle=(i+j)%2?COL.wm:COL.wp; ctx.globalAlpha=0.55; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(xs[l]+7,ys[l][i]); ctx.lineTo(xs[l+1]-7,ys[l+1][j]);
+    ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+  for(let l=0;l<3;l++) for(let j=0;j<cols[l];j++){
+    ctx.beginPath(); ctx.arc(xs[l],ys[l][j],7,0,TAU);
+    ctx.fillStyle=shade(COL.pos,0.25+0.3*l); ctx.fill();
+    ctx.strokeStyle='#39404f'; ctx.lineWidth=1; ctx.stroke();
+  }
+}
+function drawMiniCnn(ctx,b){
+  const g=Math.min(52,b.h-28), cy=b.y+(b.h-g)/2;
+  const gx=b.x+10, cs=g/6;
+  for(let i=0;i<6;i++) for(let j=0;j<6;j++){
+    ctx.fillStyle=(i+j)%3?'#10131b':'#2a3140';
+    ctx.fillRect(gx+j*cs,cy+i*cs,cs-1,cs-1);
+  }
+  ctx.strokeStyle=COL.cyan; ctx.lineWidth=1.4;
+  ctx.strokeRect(gx+cs,cy+cs,3*cs,3*cs);
+  arrowRt(ctx,gx+g+6,cy+g/2,gx+g+24,COL.dim);
+  const fx=gx+g+28, fg=g*0.72, fs=fg/5;
+  for(let i=0;i<5;i++) for(let j=0;j<5;j++){
+    ctx.fillStyle=shade(COL.pos,0.15+0.6*(((i*5+j)%7)/7));
+    ctx.fillRect(fx+j*fs,cy+(g-fg)/2+i*fs,fs-1,fs-1);
+  }
+  arrowRt(ctx,fx+fg+6,cy+g/2,fx+fg+24,COL.dim);
+  const px2=fx+fg+28, pg=g*0.4, ps=pg/2;
+  for(let i=0;i<2;i++) for(let j=0;j<2;j++){
+    ctx.fillStyle=shade(COL.pos,0.3+0.5*((i+j)%2));
+    ctx.fillRect(px2+j*ps,cy+(g-pg)/2+i*ps,ps-1,ps-1);
+  }
+}
+function drawMiniRnn(ctx,b){
+  const n=3, bw=30, bh=20, gap=(b.w-40-n*bw)/(n-1);
+  const y=b.y+b.h/2-bh/2;
+  for(let k=0;k<n;k++){
+    const x=b.x+20+k*(bw+gap);
+    ctx.fillStyle='#171c28'; ctx.fillRect(x,y,bw,bh);
+    frame(ctx,box(x,y,bw,bh),'#39404f');
+    ctx.fillStyle=COL.pos; ctx.font='10.5px "SF Mono", Menlo, monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('h',x+bw/2,y+bh/2);
+    if(k<n-1) arrowRt(ctx,x+bw+2,y+bh/2,x+bw+gap-2,COL.cyan);
+    ctx.strokeStyle=COL.dim; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x+bw/2,y+bh+14); ctx.lineTo(x+bw/2,y+bh+3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x+bw/2,y-3); ctx.lineTo(x+bw/2,y-14); ctx.stroke();
+  }
+  ctx.fillStyle=COL.gridtx; ctx.font='9.5px -apple-system, sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText('x per step in, y out — h is the only memory',b.x+b.w/2,y+bh+18);
+}
+function drawLearn(ctx,W,H,M){
+  const y0=stageTop()+26;
+  /* row A spans [64, 64+Wu]; keep its far edge 24 px clear of the floating
+     readout (the audit flags any text crossing W-RO_W — it caught 4 px) */
+  const Wu=Math.max(150,W-RO_W-88);
+  const machines=[
+    ['feed-forward',drawMiniFnn,
+     'a function you can bend: weighted sums and squashes, layer after '
+     +'layer.  It learns the dartboard circle and the needle sine.'],
+    ['convolutional',drawMiniCnn,
+     'one 3×3 stencil slid over the whole image, so a shape is the same '
+     +'shape anywhere.  It learns disc / ring / stick on the filters tab.'],
+    ['recurrent',drawMiniRnn,
+     'reads one symbol at a time and carries everything it knows in a '
+     +'hidden state.  It powers all three sequence lessons.'],
+  ];
+  const optLines=[
+    ['SGD','w ← w − η g','the raw gradient, nothing else'],
+    ['momentum','m ← 0.9 m + g,  w ← w − η m','a rolling velocity smooths the ride'],
+    ['RMSprop','w ← w − η g/√v̄','per-weight rescale; huge uncorrected first steps'],
+    ['Adam','w ← w − η m̂/(√v̂ + ε)','momentum and rescale, bias-corrected'],
+  ];
+  const wide=Wu>=560;
+  let y=y0;
+  if(wide){
+    /* row A: the three machines, side by side */
+    const pw=(Wu-48)/3, ph=Math.min(118,Math.max(92,H*0.16));
+    let capMax=0;
+    for(let k=0;k<3;k++){
+      const px=64+k*(pw+24);
+      primerTitle(ctx,px,y+4,machines[k][0]);
+      const b=box(px,y+12,pw,ph);
+      ctx.fillStyle='#0a0c12'; ctx.fillRect(b.x,b.y,b.w,b.h);
+      frame(ctx,b,'#242a3a');
+      machines[k][1](ctx,b);
+      const chh=caption(ctx,px,b.y1+8,machines[k][2],pw-6);
+      capMax=Math.max(capMax,chh);
+    }
+    y+=12+ph+8+capMax+24;
+    /* row B: one training step */
+    if(H-y>=210){
+      primerTitle(ctx,64,y+4,'one training step');
+      const bw2=Math.min(178,(Wu-3*34)/4), bh2=32, yB=y+14;
+      const labels=['forward: f(x; w)','loss: ℓ(f, y)','backward: ∂L/∂w','update: w − η·step'];
+      for(let k=0;k<4;k++){
+        const x=64+k*(bw2+34);
+        ctx.fillStyle='#171c28'; ctx.fillRect(x,yB,bw2,bh2);
+        frame(ctx,box(x,yB,bw2,bh2),k===2?'#3d5a2f':'#39404f');
+        ctx.fillStyle=k===2?COL.pos:'#cfd4de';
+        ctx.font='10.5px "SF Mono", Menlo, monospace';
+        ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.fillText(plain(labels[k]),x+bw2/2,yB+bh2/2);
+        if(k<3) arrowRt(ctx,x+bw2+4,yB+bh2/2,x+bw2+30,COL.dim);
+      }
+      y=yB+bh2+8;
+      y+=caption(ctx,64,y,
+        'backward is the chain rule visiting every weight exactly once per '
+        +'sample — gradients cost about as much as one extra forward pass, '
+        +'and that single fact is why training deep networks is affordable.',
+        Math.min(Wu,760))+22;
+    }
+    /* row C: the four update rules */
+    if(H-y>=150){
+      primerTitle(ctx,64,y+4,'four ways to spend the same gradient');
+      ctx.font='11px "SF Mono", Menlo, monospace';
+      ctx.textBaseline='alphabetic';
+      let yy=y+22;
+      for(const [name,rule,note] of optLines){
+        ctx.textAlign='left';
+        ctx.fillStyle=OPT_COL[name.toLowerCase()]||COL.dim;
+        ctx.fillText(plain(name),64,yy);
+        ctx.fillStyle='#cfd4de';
+        ctx.fillText(plain(rule),64+88,yy);
+        if(Wu>=680){ ctx.fillStyle='#767e92';
+          ctx.fillText(plain(note),64+338,yy); }
+        yy+=17;
+      }
+      y=yy+12;
+    }
+    /* row D: the measured presets */
+    if(H-y>=120){
+      primerTitle(ctx,64,y+4,'measured: what wins on which problem');
+      ctx.font='11px "SF Mono", Menlo, monospace';
+      ctx.textBaseline='alphabetic';
+      let yy=y+22;
+      for(const [tk,tname] of [['dart','dartboard'],['needle','needles']]){
+        const t=TUNED[tk], c=t.cfg;
+        ctx.textAlign='left'; ctx.fillStyle=COL.pos;
+        ctx.fillText(plain(tname),64,yy);
+        ctx.fillStyle='#cfd4de';
+        ctx.fillText(plain(archName(c.arch)+' '+c.act+' · '+c.opt+' η='+c.lr),64+88,yy);
+        if(Wu>=680){ ctx.fillStyle='#767e92';
+          ctx.fillText(plain('95% in ~'+t.med.steps95+' steps · |π̂−π| ≈ '
+            +fmt(t.med.piErr,4)),64+338,yy); }
+        yy+=17;
+      }
+      y=yy+8;
+      y+=caption(ctx,64,y,
+        'Winners of a 480-configuration sweep (5 seeds each) through this '
+        +'very engine — the race tab is the two-minute version of that '
+        +'experiment.  With auto-tune on, a task that starts fresh starts '
+        +'from its preset; neither preset wins on the other problem, and '
+        +'that non-transfer is the lesson.  η stays live afterwards: train '
+        +'hot, then drop it to freeze the wobble (the polish move).  A new '
+        +'problem needs only a generator and a sweep to earn its own row.',
+        Math.min(Wu,760));
+    }
+  } else {
+    /* narrow: the same story as stacked text, dropped honestly when the
+       window runs out (sparse-view rule) */
+    const capW=Math.max(150,Math.min(Wu,W-128));
+    const blocks=[
+      ['the three machines',
+       machines.map(m=>m[0]+' — '+m[2]).join('  ')],
+      ['one training step',
+       'forward, loss, backward, update.  Backward is the chain rule '
+       +'visiting every weight once — that is why deep learning is '
+       +'affordable.'],
+      ['four update rules',
+       optLines.map(o=>o[0]+': '+o[1]).join(' · ')],
+      ['measured presets',
+       'dartboard '+TUNED.dart.cfg.act+' '+TUNED.dart.cfg.opt+' η='
+       +TUNED.dart.cfg.lr+' · needles '+TUNED.needle.cfg.act+' '
+       +TUNED.needle.cfg.opt+' η='+TUNED.needle.cfg.lr
+       +' — winners of a 480-config sweep; auto-tune applies them when a '
+       +'task starts fresh.'],
+    ];
+    let shown=0;
+    for(const [t,txt] of blocks){
+      const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+      if(y+18+lines*14>H-30) break;
+      primerTitle(ctx,64,y+10,t);
+      y+=18;
+      y+=caption(ctx,64,y,txt,capW)+14;
+      shown++;
+    }
+    if(shown<blocks.length)
+      caption(ctx,64,Math.min(y,H-24),
+        'stretch the window for the rest of the primer',capW);
+  }
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[];
+  POLY_SEGS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='net') drawNet(ctx,W,H,M);
+  else if(M.view==='dart') drawDart(ctx,W,H,M);
+  else if(M.view==='needle') drawNeedles(ctx,W,H,M);
+  else if(M.view==='race') drawRace(ctx,W,H,M);
+  else if(M.view==='cnn') drawCnn(ctx,W,H,M);
+  else if(M.view==='learn') drawLearn(ctx,W,H,M);
+  else drawRnn(ctx,W,H,M);
+}
+
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.rebuild=function(){};                       /* sessions rebuild on demand */
+  S.fit=function(){};
+  S.draw=function(){
+    /* fetch the context HERE, not at boot — the UI harness swaps in a fresh
+       recording context per capture (Known-bad, polyhedra.html) */
+    const ctx=canvas.getContext('2d');
+    drawView(ctx,S.W,S.H,buildModel());
+  };
+  S.step=function(){
+    if(!ST.running||ST.view==='learn') return false;
+    advanceActive(ST.speed);
+    return true;
+  };
+  /* pointer: ONLY the CNN pad listens; every other view ignores it, and the
+     UI harness asserts that ignoring (no dead wheel/pointer stubs left to
+     rot — Known-bad, scattering.html). Returns true if it consumed. */
+  S.pointer=function(type,x,y){
+    if(ST.view!=='cnn') return false;
+    const lay=layoutCnn(S.W,S.H);
+    if(x<lay.pad.x||x>=lay.pad.x1||y<lay.pad.y||y>=lay.pad.y1) return false;
+    const j=Math.floor((x-lay.pad.x)/lay.cell), i=Math.floor((y-lay.pad.y)/lay.cell);
+    padPaint(SESS.cnn,i,j);
+    return true;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function row(k,v,cls){ return '<tr><td>'+k+'</td><td class="v'+(cls?' '+cls:'')
+  +'">'+v+'</td></tr>'; }
+function archName(id){ for(const a of ARCHS) if(a.id===id) return a.name; return id; }
+/* a pi estimate at 12 truncated decimals, its true leading digits in green */
+function piVal(x){
+  const p=piMatchParts(x,12);
+  return '<span class="good">'+p.match+'</span><span class="dimtail">'
+    +p.rest+'</span>';
+}
+/* the real thing: 20 decimals straight off the integer spigot */
+function piTrueStr(){ return '3.'+PI_DIGITS_STR.slice(1,21)+'&hellip;'; }
+function tunedName(t){
+  const c=TUNED[t].cfg;
+  return archName(c.arch)+' '+c.act+' &middot; '
+    +(function(){ for(const o of OPT_LIST) if(o.id===c.opt) return o.name;
+       return c.opt; })()+' &middot; &eta; '+c.lr;
+}
+function readoutHTML(M){
+  const st=ST;
+  let s='';
+  if(M.view==='net'||M.view==='dart'||M.view==='needle'){
+    const piMC=M.mcFinal, name=M.task==='dart'?'the dartboard':'the needles';
+    s+='<div class="rname">'+(M.view==='net'?'the network':name)
+      +'<small>'+(M.task==='dart'
+        ?'π = 4 · P(dot inside the circle)'
+        :'π = 2 / P(needle crosses a line)')+'</small></div>';
+    s+='<table>';
+    s+=hd('the machine');
+    s+=row('architecture',archName(st.arch)+' · '+st.act);
+    s+=row('parameters',M.nParams);
+    s+=row('optimizer',st.opt+' · η = '+st.lr);
+    s+=row('preset',M.isTuned?'tuned for this task':'manual',
+           M.isTuned?'good':'');
+    s+=row('batch / data',st.batch+' of '+M.sess.data.X.length);
+    s+=hd('training');
+    s+=row('step',M.step);
+    s+=row('loss (BCE)',fmt(M.loss,4));
+    s+=row('accuracy',fmt(100*M.acc,1)+'%',M.acc>0.9?'good':'');
+    s+=hd('&pi;, four ways &mdash; green digits are right');
+    s+=row('counting '+M.sess.data.X.length+' labels',
+      piVal(M.task==='dart'?piDartMC(M.nPos,M.sess.data.X.length)
+                           :piNeedleMC(M.nPos,M.sess.data.X.length)));
+    s+=row('counting 20 000 fresh',piVal(piMC[2]));
+    s+=row('integrating the net',piVal(M.piNNfine));
+    s+=row('averaged, ~500 steps',M.piAvg===null?'—':piVal(M.piAvg));
+    s+=row('the real thing',piTrueStr());
+    s+='</table>';
+    const e=Math.abs(M.piNNfine-PI);
+    s+='<div class="bar"><div class="fill" style="width:'
+      +fmt(100*clamp(1-e/0.6,0,1),0)+'%"></div></div>';
+    s+='<div class="note">Digits are truncated, never rounded, and painted '
+      +'green as far as they agree with the spigot&rsquo;s exact π. The live '
+      +'estimate rattles with the minibatches; η is LIVE — drop it after '
+      +'convergence (the polish move) and the wobble freezes onto the '
+      +'boundary the data can actually pin. Counting earns ~one digit per '
+      +'hundredfold more samples.</div>';
+  }
+  else if(M.view==='race'){
+    s+='<div class="rname">the race<small>same start · same batches · '
+      +'four update rules</small></div>';
+    s+='<table>';
+    s+=hd('conditions');
+    s+=row('task',M.task==='dart'?'dartboard':'needles');
+    s+=row('architecture',archName(st.arch)+' · '+st.act);
+    s+=row('shared η',st.lr);
+    s+=row('step',M.step);
+    s+=hd('steps to '+(ACC_TARGET*100)+'%');
+    for(const l of M.lanes)
+      s+=row('<span style="color:'+l.col+'">'+l.kind+'</span>',
+        l.reachedAt!==null?String(l.reachedAt):fmt(100*l.acc,0)+'% so far',
+        l.reachedAt!==null&&M.winner&&M.winner.kind===l.kind?'good':'');
+    s+=hd('the sweep says');
+    s+=row('best for this task',tunedName(M.task));
+    s+='</table>';
+    s+='<div class="note">'+(M.winner
+      ?('<b>'+M.winner.kind+'</b> got there first at this η. Try η = 0.3: '
+        +'Adam&rsquo;s edge shrinks and plain SGD stops embarrassing itself.')
+      :'Nobody has reached the target yet — space runs the race.')+'</div>';
+  }
+  else if(M.view==='cnn'){
+    s+='<div class="rname">the filters<small>disc · ring · stick, learned '
+      +'from 64 examples</small></div>';
+    s+='<table>';
+    s+=hd('the machine');
+    s+=row('input','16×16 binary image');
+    s+=row('conv',CF+' kernels 3×3 + ReLU');
+    s+=row('pool','2×2 max → 7×7');
+    s+=row('head','294 → 3 softmax');
+    s+=row('optimizer','Adam · η = 0.01');
+    s+=hd('training');
+    s+=row('step',M.step);
+    s+=row('train accuracy',fmt(100*M.acc,1)+'%',M.acc>0.9?'good':'');
+    s+=row('held-out ('+M.nTest+')',fmt(100*M.tacc,1)+'%',M.tacc>0.85?'good':'');
+    s+=hd('the drawing pad');
+    s+=row('input from',M.padFrom);
+    s+=row('verdict',SHAPE_NAMES[M.padClass]+' ('+fmt(100*M.padProbs[M.padClass],1)+'%)');
+    s+='</table>';
+    s+='<div class="note">The same 60 conv weights look at every patch of '
+      +'the image — that is why your stick is a stick wherever you draw it. '
+      +'The dense head sees only the pooled 7×7 summaries.</div>';
+  }
+  else if(M.view==='learn'){
+    s+='<div class="rname">the primer<small>the ideas behind every other '
+      +'tab, in one place</small></div>';
+    s+='<table>';
+    s+=hd('three machines, live parameter counts');
+    s+=row('feed-forward',M.counts.fnn+' weights');
+    s+=row('convolutional',M.counts.cnn+' weights');
+    s+=row('recurrent',M.counts.rnn+' weights');
+    s+=hd('the bench so far &mdash; nothing resets');
+    s+=row('dartboard net',SESS.fnn.dart?M.bench.dart+' steps':'not started');
+    s+=row('needle net',SESS.fnn.needle?M.bench.needle+' steps':'not started');
+    s+=row('CNN',M.bench.cnn+' steps');
+    s+=row('RNNs (together)',M.bench.rnn+' steps');
+    s+=hd('measured presets (the sweep)');
+    s+=row('dartboard',tunedName('dart'));
+    s+=row('needles',tunedName('needle'));
+    s+='</table>';
+    s+='<div class="note">Switching tabs parks a network and resumes it '
+      +'later — the step counts above only ever grow. The presets are the '
+      +'winners of a 480-config sweep run through this same engine; the '
+      +'race tab is the two-minute version of that experiment.</div>';
+  }
+  else {
+    s+='<div class="rname">the sequence<small>one 16-unit recurrent state, '
+      +'three very different lessons</small></div>';
+    s+='<table>';
+    s+=hd('the machine');
+    s+=row('cell','h ← tanh(Wx·x + Wh·h + b)');
+    s+=row('hidden units',RH);
+    s+=row('training','full-window BPTT, clip 5, Adam 0.01');
+    s+=hd(st.seqTask==='stream'?'the needle stream'
+         :st.seqTask==='wave'?'the sine wave':'the digits of π');
+    s+=row('step',M.step);
+    if(st.seqTask==='stream'){
+      s+=row('P̂(cross)',piLong(M.probe.pHat,12));
+      s+=row('true 2/π',piLong(M.pTrue,12));
+      s+=row('π ≈ 2/P̂',piVal(M.probe.piHat));
+    } else if(st.seqTask==='wave'){
+      s+=row('one-step MSE',sigf(M.probe.mse,3),M.probe.mse<0.01?'good':'');
+      s+=row('dream span',RNN_T+' steps');
+    } else {
+      s+=row('train CE',fmt(M.train.ce,3),M.train.ce<0.3?'good':'');
+      s+=row('held-out CE',fmt(M.holdCE,3),'bad');
+      s+=row('chance ln 10',fmt(M.ceChance,3));
+      s+=row('recites',M.recite+' digits');
+    }
+    s+='</table>';
+    s+='<div class="note">'+(st.seqTask==='stream'
+      ?'Independent coin flips have no pattern; the honest optimum is the '
+       +'base rate, and the net finds it — which is itself a π estimate.'
+      :st.seqTask==='wave'
+      ?'The dream half of the plot is the real test of memory: with no input, '
+       +'only the hidden state can keep the phase.'
+      :'Digits of π are statistically random: the train/held-out gap IS the '
+       +'definition of memorisation without understanding.')+'</div>';
+  }
+  return s;
+}
+function eqbarHTML(M){
+  const v=M.view;
+  if(v==='net')
+    return '<span class="lhs">a<sup>(l)</sup></span> = σ(W<sup>(l)</sup>'
+      +'a<sup>(l−1)</sup> + b<sup>(l)</sup>) &nbsp;&nbsp;·&nbsp;&nbsp; '
+      +'<span class="hl">L = −ln p(y)</span> &nbsp;&nbsp;·&nbsp;&nbsp; '
+      +'w ← w − η ∂L/∂w'
+      +'<span class="sm">a weighted vote, a squash, a score — and the chain rule '
+      +'nudging every weight downhill. That is the whole subject.</span>';
+  if(v==='dart')
+    return '<span class="lhs">π</span> = 4 · P(x²+y² &lt; 1) '
+      +'&nbsp;&nbsp;≈&nbsp;&nbsp; <span class="hl2">4 · inside/n</span>'
+      +' &nbsp;&nbsp;or&nbsp;&nbsp; <span class="hl">4 · ⟨σ(f<sub>θ</sub>)⟩'
+      +'<sub>square</sub></span>'
+      +'<span class="sm">count dots for the classic Monte-Carlo π — or teach a '
+      +'net the circle and integrate its belief over the square instead.</span>';
+  if(v==='needle')
+    return '<span class="lhs">P(cross)</span> = 2ℓ/(πd) '
+      +'&nbsp;&nbsp;⇒&nbsp;&nbsp; <span class="hl">π ≈ 2/P̂</span>'
+      +' &nbsp;&nbsp;·&nbsp;&nbsp; crossing iff x ≤ (ℓ/2)·sin θ'
+      +'<span class="sm">Buffon, 1777, with ℓ = d = 1: drop sticks, count '
+      +'crossings, and π falls out of the sine the net has to learn.</span>';
+  if(v==='race')
+    return 'SGD: w−ηg &nbsp;·&nbsp; momentum: m←0.9m+g '
+      +'&nbsp;·&nbsp; RMSprop: w−ηg/√v̄ &nbsp;·&nbsp; '
+      +'<span class="hl">Adam: w − η m̂/(√v̂+ε)</span>'
+      +'<span class="sm">four ways to spend the same gradient — the race is run '
+      +'on identical batches, so the rule is the only variable.</span>';
+  if(v==='cnn')
+    return '<span class="lhs">(K ∗ I)<sub>ij</sub></span> = Σ<sub>ab</sub> '
+      +'K<sub>ab</sub> · I<sub>i+a,j+b</sub> &nbsp;&nbsp;→&nbsp;&nbsp; ReLU '
+      +'&nbsp;→&nbsp; <span class="hl">max-pool 2×2</span> &nbsp;→&nbsp; softmax'
+      +'<span class="sm">the same tiny stencil everywhere: translation becomes a '
+      +'property of the wiring, not something to learn 256 times.</span>';
+  if(v==='learn')
+    return '<span class="lhs">L</span> = ℓ(f(x; w)) &nbsp;&nbsp;·&nbsp;&nbsp; '
+      +'<span class="hl">∂L/∂w by the chain rule</span> &nbsp;&nbsp;·&nbsp;&nbsp; '
+      +'w ← w − η · step(∂L/∂w)'
+      +'<span class="sm">score the guess, differentiate the score, walk '
+      +'downhill — every tab on this page is those three moves in a costume.</span>';
+  return '<span class="lhs">h<sub>t</sub></span> = tanh(W<sub>x</sub>x<sub>t</sub> '
+    +'+ W<sub>h</sub>h<sub>t−1</sub> + b) &nbsp;&nbsp;·&nbsp;&nbsp; '
+    +'<span class="hl">y<sub>t</sub> = W<sub>o</sub>h<sub>t</sub></span>'
+    +'<span class="sm">the network reads one symbol at a time; everything it '
+    +'remembers must fit in h — sixteen numbers.</span>';
+}
+function tagHTML(M){
+  const t={net:'the network — one sample, traced through the wiring',
+    dart:'the dartboard — π by counting, then π by learning',
+    needle:'the needles — Buffon&rsquo;s 1777 experiment, learned from data',
+    race:'the race — four optimizers on identical batches',
+    cnn:'the filters — a convolution finds shapes wherever they hide',
+    learn:'the primer — what these machines are and how they learn',
+    rnn:{stream:'the sequence — a coin with P = 2/π',
+         wave:'the sequence — memory holds the beat',
+         digits:'the sequence — π cannot be learned, only memorised'}}[M.view];
+  return '<b>'+(typeof t==='string'?t:t[ST.seqTask])+'</b>';
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  /* the dartboard and needle views ARE their experiments: entering one binds
+     the task (a needle view of a dart-trained net would be meaningless).
+     Binding RESUMES the task's parked session — nothing resets on a tab
+     switch; the task chips stay where the choice is real (net, race). */
+  function setView(k){
+    st.view=k;
+    if(k==='dart') switchTask('dart');
+    if(k==='needle') switchTask('needle');
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===k?'active':'');
+    syncChips(); syncPanel(); refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',
+      onclick:()=>setView(k)},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); refresh(); });
+    return h('label',null,inp,lab);
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>
+          b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+
+  /* settings chips need no reset hook any more: the session accessors
+     recreate a net exactly when its settings KEY genuinely changed, so
+     re-clicking the active chip is a no-op instead of an accidental restart */
+  const gTask=h('div',{class:'grp'},h('h3',null,'the experiment'));
+  const taskChips=chipRow(TASK_LIST,'task',o=>{ switchTask(o.id); syncChips(); });
+  gTask.appendChild(taskChips); trackChips(gTask,TASK_LIST,'task');
+
+  const gNet=h('div',{class:'grp'},h('h3',null,'the network'));
+  gNet.appendChild(chipRow(ARCHS,'arch')); trackChips(gNet,ARCHS,'arch');
+  const actChips=chipRow(ACT_LIST,'act');
+  gNet.appendChild(actChips); trackChips(gNet,ACT_LIST,'act');
+  const netTag=h('div',{class:'tag'}); gNet.appendChild(netTag);
+
+  const gTrain=h('div',{class:'grp'},h('h3',null,'the training'));
+  const optChips=chipRow(OPT_LIST,'opt');
+  gTrain.appendChild(optChips); trackChips(gTrain,OPT_LIST,'opt');
+  gTrain.appendChild(chipRow(LR_LIST,'lr')); trackChips(gTrain,LR_LIST,'lr');
+  const tuneChecks=h('div',{class:'checks'},
+    checkbox('autoTune','auto-tune per task'));
+  gTrain.appendChild(tuneChecks);
+  gTrain.appendChild(chipRow(BATCH_LIST,'batch')); trackChips(gTrain,BATCH_LIST,'batch');
+  gTrain.appendChild(slider('ntrain','data size',128,2048,128,v=>fmt(v,0)));
+  gTrain.appendChild(slider('noise','label noise',0,0.25,0.01,v=>fmt(100*v,0)+'%'));
+  const trainTag=h('div',{class:'tag'}); gTrain.appendChild(trainTag);
+
+  const gSeq=h('div',{class:'grp'},h('h3',null,'the sequence task'));
+  gSeq.appendChild(chipRow(SEQ_LIST,'seqTask')); trackChips(gSeq,SEQ_LIST,'seqTask');
+
+  let padIdx=0;
+  const gPad=h('div',{class:'grp'},h('h3',null,'the drawing pad'));
+  gPad.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ padIdx=(padIdx+1)%CNN_NTRAIN;
+      padStamp(SESS.cnn,padIdx); refresh(); }},'next sample'),
+    h('button',{onclick:()=>{ padClear(SESS.cnn); refresh(); }},'clear pad')));
+  gPad.appendChild(h('div',{class:'tag'},
+    'draw with the pointer; the verdict updates live'));
+
+  const gShow=h('div',{class:'grp'},h('h3',null,'the display'));
+  const showChecks=h('div',{class:'checks'},
+    checkbox('showHeat','the belief field'),
+    checkbox('showTrue','the true boundary'),
+    checkbox('showDots','the training data'),
+    checkbox('showGrad','gradients, not weights'));
+  gShow.appendChild(showChecks);
+  gShow.appendChild(slider('inspect','inspect sample',0,127,1,v=>'#'+fmt(v,0)));
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the run'));
+  const runChecks=h('div',{class:'checks'},checkbox('running','training runs'));
+  gRun.appendChild(runChecks);
+  gRun.appendChild(slider('speed','speed',1,80,1,v=>fmt(v,0)+' steps/frame'));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ advanceActive(1); dirty=true; refresh(); }},'step ×1'),
+    h('button',{onclick:()=>{ advanceActive(200); dirty=true; refresh(); }},'step ×200')));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ replayNets(); dirty=true; refresh(); }},'reset nets'),
+    h('button',{onclick:()=>{ st.seed++; dirty=true; refresh(); }},'new seed')));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ Object.assign(st,DEFAULTS); resetAllSessions();
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+                h('div',{id:'info'}),
+                h('div',{class:'src',html:'no measured data anywhere in this '
+                  +'file: P = &pi;/4 and 2/&pi; are closed forms (Buffon 1777, '
+                  +'short needle); &pi; digits from an in-file integer spigot, '
+                  +'asserted against a Machin/Decimal computation; the engine '
+                  +'is pinned bit-level to build_neural/gen_reference.py.'}));
+  [gTask,gNet,gTrain,gSeq,gPad,gShow,gRun,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++)
+          if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>
+            b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view, fnnish=(v==='net'||v==='dart'||v==='needle');
+    gTask.hidden=!(v==='net'||v==='race');
+    gNet.hidden=!(fnnish||v==='race');
+    gTrain.hidden=!(fnnish||v==='race');
+    optChips.hidden=(v==='race');            /* the race runs all four */
+    gSeq.hidden=(v!=='rnn');
+    gPad.hidden=(v!=='cnn');
+    gShow.hidden=!fnnish;
+    gRun.hidden=(v==='learn');               /* the primer holds still */
+    rows.inspect.row.hidden=(v!=='net');
+    let gradRow=null;
+    [].forEach.call(showChecks.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['showHeat','showTrue','showDots','showGrad'][i]];
+      if(i===3) gradRow=inp;
+    });
+    [].forEach.call(runChecks.querySelectorAll('input'),inp=>{ inp.checked=st.running; });
+    [].forEach.call(tuneChecks.querySelectorAll('input'),inp=>{ inp.checked=st.autoTune; });
+    for(const k in rows) rows[k].sync();
+    netTag.innerHTML='params: <b>'
+      +netFlatten(fnnActive().net).length+'</b> &nbsp; seed <b>'+st.seed+'</b>'
+      +'<br>changing a setting here restarts THIS task&rsquo;s net; the '
+      +'other task keeps its progress';
+    trainTag.innerHTML=((v==='race')
+      ?'the race runs <b>all four</b> rules at the shared &eta;; changing '
+       +'&eta; restarts it &mdash; same conditions ARE the experiment'
+      :'&eta; is <b>live</b>: train hot, then drop it to freeze the wobble '
+       +'(the polish move) &mdash; everything else restarts the net')
+      +'<br>auto-tune starts a FRESH task on its measured preset (<b>'
+      +tunedName(st.task)+'</b>)';
+    runTag.innerHTML='data seeds fixed; <b>reset nets</b> replays the exact run';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent = st.view==='cnn'
+        ? 'draw on the pad · space runs training · r restarts the nets'
+        : st.view==='net'
+        ? 'pick a sample, flip to gradients, single-step to watch one update'
+        : st.view==='learn'
+        ? 'a still page — training waits, parked, on every other tab'
+        : 'space runs · s steps once · r restarts · 1–7 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){
+      canvas.classList.add('drawing'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('drawing')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)) dirty=true;
+  });
+  const up=()=>canvas.classList.remove('drawing');
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); refresh(); }
+    else if(e.key==='s'){ advanceActive(1); dirty=true; refresh(); }
+    else if(e.key==='r'){ replayNets(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{
+        S.draw();
+        if(advanced&&frameN%10===0){
+          const M=S.model();
+          roEl.innerHTML=readoutHTML(M);
+        }
+      }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+}
+
+const INFO={
+  net:'This is the whole machine, laid bare: two inputs, a hidden layer, one '
+    +'output logit. <b>Forward pass</b>: each neuron computes a weighted sum '
+    +'of the layer before it, adds a bias, and squashes the result — edge '
+    +'width is the weight&rsquo;s size, cyan positive, magenta negative. '
+    +'<b>Backward pass</b>: tick &ldquo;gradients, not weights&rdquo; and the '
+    +'edges show ∂L/∂w for the inspected sample instead — the chain rule '
+    +'computes all of them in one sweep, which is the entire reason deep '
+    +'learning is affordable. Single-step with the button and watch the '
+    +'weights move against their gradients.',
+  dart:'Scatter dots uniformly over a square holding a circle: the fraction '
+    +'inside is π/4, which is the classic Monte-Carlo π. The network is given '
+    +'only the labelled dots — never the circle — and must learn P(inside) '
+    +'from them. Two estimates of π run side by side: <b>counting</b> '
+    +'(unbiased, noisy, ~1/√n) and <b>integrating the net&rsquo;s belief</b> '
+    +'(smooth, but biased until the boundary is right). Label noise and '
+    +'stingier data both bend the learned circle; the orange ring is the '
+    +'truth it is groping for.',
+  needle:'Buffon&rsquo;s 1777 experiment: drop needles of length ℓ = d on a '
+    +'lined floor; a needle crosses a line with probability 2/π. The left '
+    +'panel is the floor; the right panel is the same needles as the network '
+    +'sees them — one dot per needle at (angle θ, distance x to the nearest '
+    +'line). The crossing rule x ≤ ½ sin θ is a SINE the net has to '
+    +'discover from labels alone; π then falls out of the area under its '
+    +'learned boundary. A hidden layer is essential here: no single straight '
+    +'line separates crossers from missers.',
+  race:'Four copies of the same network, identical initial weights, identical '
+    +'minibatch sequence — only the update rule differs. Plain <b>SGD</b> '
+    +'follows the raw gradient; <b>momentum</b> remembers its velocity; '
+    +'<b>RMSprop</b> rescales each weight by its recent gradient size (and, '
+    +'with no bias correction, takes enormous first strides); <b>Adam</b> '
+    +'does both, corrected. The bars record steps to '
+    +(ACC_TARGET*100)+'% accuracy. Change the shared learning rate and '
+    +'re-run: the ranking is an experiment, not a law of nature.',
+  cnn:'A dense layer would need separate weights for every pixel position; a '
+    +'<b>convolution</b> slides one 3×3 stencil across the whole image, so a '
+    +'shape is the same shape anywhere — translation invariance is built into '
+    +'the wiring, not learned. Six kernels each produce a feature map of '
+    +'&ldquo;where I fire&rdquo;; max-pooling keeps the strongest answer in '
+    +'each 2×2 block; a small dense head reads the pooled summaries. Watch '
+    +'the kernels organise from noise into edge and curve detectors, then '
+    +'draw your own shape and try to fool it.',
+  learn:'The reference card for everything else on this page. Top: the three '
+    +'machine shapes — a <b>feed-forward</b> net is a bendable function, a '
+    +'<b>convolution</b> is one stencil slid everywhere, a <b>recurrent</b> '
+    +'net is a loop with a memory. Middle: the training step every tab runs — '
+    +'forward, loss, backward (the chain rule), update — and the four ways of '
+    +'spending a gradient. Bottom: the <b>measured</b> per-problem presets. '
+    +'They came from a 480-configuration sweep through this same engine, and '
+    +'they are different per problem: the dartboard&rsquo;s round boundary '
+    +'wants ReLU facets and Adam, the needles&rsquo; near-separable sine '
+    +'wants RMSprop&rsquo;s huge first strides. Auto-tune (in the training '
+    +'panel) applies the right preset whenever a task starts fresh — and '
+    +'nothing here ever resets just because you changed tabs.',
+  rnn:'A recurrent network reads one symbol at a time and carries everything '
+    +'it knows in sixteen numbers of hidden state. Three sequences, three '
+    +'morals. <b>Needle stream</b>: independent coin flips — nothing to '
+    +'learn but the base rate 2/π, and finding it IS a π estimate. <b>Sine '
+    +'wave</b>: prediction is easy with the wave in view; the &ldquo;'
+    +'dream&rdquo; half, fed its own output, only works if the state truly '
+    +'carries phase — that is memory. <b>Digits of π</b>: statistically '
+    +'random, so the net can only memorise; training loss collapses while '
+    +'held-out loss sits at chance, the cleanest portrait of overfitting '
+    +'there is.',
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification                                   *
+ *                                                                     *
+ *  "(py ref)" marks a value printed by build_neural/gen_reference.py  *
+ *  and read from its full output — the Python twin of this engine,    *
+ *  same operation order, independent runtime.  PRNG-derived values    *
+ *  are BIT-EXACT; libm-derived ones carry stated tolerances that      *
+ *  grow along the training trajectory.                                *
+ * ================================================================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(c,n)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+n); } };
+  const close=(a,b,tol,n)=>ok(Math.abs(a-b)<=tol,n+'  (got '+a+', want '+b+')');
+  const rel=(a,b,t,n)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),
+    n+'  (got '+a+', want '+b+', rel '+Math.abs(a-b)/Math.abs(b||1)+')');
+  const T0=Date.now();
+
+  /* ---- 0. the shared-helper fixes cannot rot (Known-bad 2026-08-11) */
+  ok(plain('&Delta;x &rho;')==='Δx ρ','plain() decodes capital+Greek entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(plain('&theta;')==='θ','plain() knows &theta;');
+  ok(ticksFor(0.2,0.8,5).length>=3,'ticksFor works on a sorted range');
+  ok(ticksFor(0.8,0.2,5).length===1,
+     'unsorted ticksFor still collapses — the axes() sort is what saves it');
+  ok(ticksFor(Math.min(0.8,0.2),Math.max(0.8,0.2),5).length>=3,
+     'axes()-style sorted call yields a full tick set');
+  ok(ticksFor(0,-1,5).length===1&&ticksFor(-1,0,5).length>=2,
+     'non-positive spans return a single tick, no infinite loop');
+  { let threw=false;
+    try{ toRgb('not-a-colour'); }catch(e){ threw=true; }
+    ok(threw,'toRgb throws on garbage rather than defaulting');
+    ok(mix('rgb(58,111,142)','#ffffff',0)==='rgb(58,111,142)',
+       'mix() accepts its own output format'); }
+  { /* polyline clips IN DATA SPACE: an off-scale point must be interpolated
+       to the frame edge, and the recorded geometry must say so */
+    const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},
+                restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100);
+    POLY_SEGS=[];
+    polyline(stub,bb,[0,1,2],[0,10,0],0,2,0,1,'#fff',1);
+    let ymin=1e9, atTop=false, sloped=false;
+    for(let i=0;i<POLY_SEGS.length;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      ymin=Math.min(ymin,y0,y1);
+      if(Math.abs(y0-bb.y)<1e-9||Math.abs(y1-bb.y)<1e-9) atTop=true;
+      /* a REAL segment touching the edge: one end on it, the other not, with
+         horizontal extent — a degenerate point-recording mutant has neither
+         (found by the mutation sweep, 2026-08-12) */
+      if((Math.abs(y0-bb.y)<1e-9)!==(Math.abs(y1-bb.y)<1e-9)&&x0!==x1) sloped=true;
+    }
+    ok(ymin>=bb.y-1e-9,'polyline never emits geometry above the frame');
+    ok(atTop,'and the clipped crossing is interpolated exactly onto the edge');
+    ok(sloped,'and the recorded segments are real segments, not points');
+    POLY_SEGS=[]; }
+  { /* the probability ramp: diverging on purpose, each half monotone */
+    let mono1=true, mono0=true;
+    for(let i=1;i<=32;i++){
+      if(lumOf(HEAT_LUT[32+i])<lumOf(HEAT_LUT[32+i-1])) mono1=false;
+      if(lumOf(HEAT_LUT[32-i])<lumOf(HEAT_LUT[32-i+1])) mono0=false;
+    }
+    ok(mono1,'heat ramp: P>0.5 half is monotone brighter toward 1');
+    ok(mono0,'heat ramp: P<0.5 half is monotone brighter toward 0');
+    ok(lumOf(HEAT_LUT[32])<lumOf(HEAT_LUT[0])&&lumOf(HEAT_LUT[32])<lumOf(HEAT_LUT[64]),
+       'and the P=0.5 midpoint is its darkest point'); }
+
+  /* ---- 1. PRNG parity — bit exact ---------------------------------- */
+  { const r=mulberry32(1);
+    const want=[0.62707394058816135,0.0027357211802154779,0.52744703995995224,
+                0.98105096747167408,0.96837789821438491];
+    for(let i=0;i<5;i++) ok(r()===want[i],'(py ref) mulberry32(1) #'+i+' bit-exact');
+    const r2=mulberry32(123456789);
+    const want2=[0.2577907438389957,0.97077211155556142,0.78532801428809762,
+                 0.20616457983851433,0.30307188746519387];
+    for(let i=0;i<5;i++) ok(r2()===want2[i],'(py ref) mulberry32(123456789) #'+i); }
+  { const g=gaussOf(mulberry32(7));
+    const want=[2.7593729870288439,1.131981118666697,-0.068051356507354041,
+                -0.20517153568050719,-0.94594896044528853,0.63834354738987931];
+    for(let i=0;i<6;i++) close(g(),want[i],1e-13,'(py ref) gauss(seed7) #'+i); }
+
+  /* ---- 2. closed forms and stable branches ------------------------- */
+  close(PI,3.141592653589793,1e-15,'pi');
+  close(PI/4,0.7853981633974483,1e-16,'pi/4 — the dartboard P');
+  close(2/PI,0.6366197723675814,1e-16,'2/pi — the Buffon P');
+  rel(softplus(20),20.000000002061153,1e-15,'(py ref) softplus(20), big-z branch');
+  rel(softplus(-20),2.0611536203143808e-09,1e-12,'(py ref) softplus(-20), small branch');
+  rel(softplus(0.5),0.97407698418010669,1e-14,'(py ref) softplus at the join region');
+  rel(bceLoss(2,1),0.12692801104297269,1e-14,'(py ref) bce(z=2,y=1)');
+  rel(ceLoss([2,-1,0.5],1),3.2413112966571571,1e-14,'(py ref) softmax-CE');
+  /* identities implemented twice — catches typing */
+  close(sigmoid(0.7),Math.exp(-softplus(-0.7)),1e-15,
+        'sigma(z) === exp(-softplus(-z)) identity');
+  close(bceLoss(1.3,1)+bceLoss(-1.3,0),2*softplus(-1.3)+0,1e-15,
+        'bce symmetry: L(z,1)+L(-z,0) = 2 softplus(-z)... twice the one-sided form');
+  { const p=softmax([2,-1,0.5]); let s=0; for(const v of p) s+=v;
+    close(s,1,1e-14,'softmax sums to 1');
+    close(-Math.log(p[1]),ceLoss([2,-1,0.5],1),1e-13,'CE === -log softmax[y]'); }
+
+  /* ---- 3. FNN init + forward + grads parity ------------------------ */
+  { const net=netNew([2,8,1],'tanh',3);
+    rel(net.W[0][0][0],0.55605789145389217,1e-13,'(py ref) init W1[0][0]');
+    rel(net.W[0][3][1],0.72155714125018455,1e-13,'(py ref) init W1[3][1]');
+    rel(net.W[0][7][0],0.34989837757172965,1e-13,'(py ref) init W1[7][0]');
+    rel(net.W[1][0][5],-0.34884860619355701,1e-13,'(py ref) init W2[0][5]');
+    ok(netFlatten(net).length===33,'(py ref) [2,8,1] has 33 parameters');
+    ok(netFlatten(netNew([2,8,8,1],'tanh',3)).length===105,
+       '(py ref) [2,8,8,1] has 105 parameters');
+    const D=genDart(SEED_DART,512,0);
+    ok(D.X[0][0]===0.023174097295850515&&D.X[0][1]===0.059892816469073296,
+       '(py ref) dart X[0] bit-exact');
+    ok(D.X[5][0]===-0.03991506015881896&&D.X[5][1]===0.68704134412109852,
+       '(py ref) dart X[5] bit-exact');
+    { let s=0; for(const y of D.Y) s+=y;
+      ok(s===394,'(py ref) dart labels sum to 394 of 512'); }
+    const F=netForward(net,D.X[5]);
+    rel(F.zs[0][0],0.072479014743442552,1e-12,'(py ref) z1[0] on sample 5');
+    rel(F.zs[0][7],-0.24035698027972399,1e-12,'(py ref) z1[7]');
+    rel(F.zs[1][0],-0.51636696429942419,1e-12,'(py ref) output logit');
+    rel(sigmoid(F.zs[1][0]),0.37370215061168205,1e-12,'(py ref) sigma(logit)');
+    rel(bceLoss(F.zs[1][0],D.Y[5]),0.98429618759240145,1e-12,'(py ref) sample loss');
+    rel(netBatchLoss(net,D.X,D.Y),0.78003136152270625,1e-12,
+        '(py ref) full-train loss, untrained');
+    const g=netGrads(net,D.X,D.Y,[0,1,2,3,4,5,6,7]);
+    rel(g.gW[0][0][0],0.013678384262303195,1e-11,'(py ref) dW1[0][0], batch 0..7');
+    rel(g.gW[0][5][1],0.014501182314025291,1e-11,'(py ref) dW1[5][1]');
+    rel(g.gB[0][3],0.24441976766231213,1e-11,'(py ref) db1[3]');
+    rel(g.gW[1][0][2],0.034758839467857641,1e-11,'(py ref) dW2[0][2]');
+    rel(g.gB[1][0],-0.53753871507741957,1e-11,'(py ref) db2[0]');
+    /* activation variants, forward loss on batch 0..7 */
+    rel(netBatchLoss(netNew([2,8,1],'relu',3),D.X,D.Y,[0,1,2,3,4,5,6,7]),
+        0.8223011833656122,1e-12,'(py ref) relu forward loss');
+    rel(netBatchLoss(netNew([2,8,1],'sigmoid',3),D.X,D.Y,[0,1,2,3,4,5,6,7]),
+        1.0567067721805488,1e-12,'(py ref) sigmoid forward loss');
+    rel(netBatchLoss(netNew([2,8,8,1],'tanh',3),D.X,D.Y,[0,1,2,3,4,5,6,7]),
+        0.6567813038368292,1e-12,'(py ref) two-hidden-layer forward loss'); }
+
+  /* ---- 4. numeric-vs-analytic gradients (the gold standard) -------- */
+  function numGradCheck(name,flat,unflat,lossFn,picks,tol){
+    const base=flat();
+    const ana=lossFn.grads();
+    let worst=0, worstI=-1;
+    for(const i of picks){
+      const hstep=1e-6;
+      const p1=base.slice(); p1[i]+=hstep; unflat(p1);
+      const lp=lossFn.loss();
+      const p2=base.slice(); p2[i]-=hstep; unflat(p2);
+      const lm=lossFn.loss();
+      unflat(base);
+      const num=(lp-lm)/(2*hstep);
+      const err=Math.abs(num-ana[i])/Math.max(Math.abs(num),Math.abs(ana[i]),1e-6);
+      if(err>worst){ worst=err; worstI=i; }
+    }
+    ok(worst<tol,name+' numeric-vs-analytic gradient (worst rel '
+       +worst.toExponential(2)+' at param '+worstI+')');
+  }
+  { const D=genDart(SEED_DART,64,0);
+    for(const act of ['tanh','relu','sigmoid']){
+      const net=netNew([2,5,4,1],act,9);
+      const idx=[0,1,2,3,4,5];
+      numGradCheck('dense['+act+']',
+        ()=>netFlatten(net), f=>netUnflatten(net,f),
+        {loss:()=>netBatchLoss(net,D.X,D.Y,idx),
+         grads:()=>gradsFlatten(netGrads(net,D.X,D.Y,idx))},
+        [0,3,11,15,22,30,39,44],1e-4);
+    } }
+  { const sh=genShapes(SEED_SHAPES,4);
+    const net=cnnNew(77);
+    const lossFn={
+      loss:()=>cnnGrads(net,sh.imgs.slice(0,2),sh.ys.slice(0,2)).loss,
+      grads:()=>cnnGradsFlatten(cnnGrads(net,sh.imgs.slice(0,2),sh.ys.slice(0,2))),
+    };
+    numGradCheck('conv+pool+dense',
+      ()=>cnnFlatten(net), f=>cnnUnflatten(net,f), lossFn,
+      [0,4,8,27,53,60,61,70,300,940],1e-4); }
+  { const bits=genBits(SEED_BITS,20);
+    const xs=[],tg=[];
+    for(let t=0;t<12;t++){ xs.push([bits[t]]); tg.push(bits[t+1]); }
+    const net=rnnNew(55,1,1);
+    const lossFn={
+      loss:()=>rnnBPTT(net,xs,tg,'bce').loss,
+      grads:()=>rnnGradsFlatten(rnnBPTT(net,xs,tg,'bce')),
+    };
+    numGradCheck('rnn bptt (bce)',
+      ()=>rnnFlatten(net), f=>rnnUnflatten(net,f), lossFn,
+      [0,5,16,40,120,272,288,300],1e-4); }
+  { const xs=[],tg=[];
+    for(let t=0;t<12;t++){ xs.push([waveAt(t)]); tg.push(waveAt(t+1)); }
+    const net=rnnNew(56,1,1);
+    numGradCheck('rnn bptt (mse)',
+      ()=>rnnFlatten(net), f=>rnnUnflatten(net,f),
+      {loss:()=>rnnBPTT(net,xs,tg,'mse').loss,
+       grads:()=>rnnGradsFlatten(rnnBPTT(net,xs,tg,'mse'))},
+      [1,17,50,272,290,301],1e-4); }
+  { const D=PI_DIGITS_STR.split('').map(Number);
+    const xs=[],tg=[];
+    for(let t=0;t<10;t++){ xs.push(oneHot(D[t])); tg.push(D[t+1]); }
+    const net=rnnNew(57,10,10);
+    numGradCheck('rnn bptt (softmax-ce)',
+      ()=>rnnFlatten(net), f=>rnnUnflatten(net,f),
+      {loss:()=>rnnBPTT(net,xs,tg,'ce').loss,
+       grads:()=>rnnGradsFlatten(rnnBPTT(net,xs,tg,'ce'))},
+      [2,30,170,436,530,600],1e-4); }
+  /* maxpool routes the gradient to the argmax cell and nowhere else */
+  { const img=[]; for(let i=0;i<CN;i++) img.push(new Array(CN).fill(0));
+    img[1][1]=1;                                     /* one bright pixel */
+    const net=cnnNew(91);
+    const F=cnnForward(net,img);
+    let okRoute=true;
+    for(let f=0;f<CF;f++) for(let y=0;y<CPOOL;y++) for(let x=0;x<CPOOL;x++){
+      let best=-1e300;
+      for(let dy=0;dy<2;dy++) for(let dx=0;dx<2;dx++)
+        best=Math.max(best,F.relu[f][2*y+dy][2*x+dx]);
+      if(F.pool[f][y][x]!==best) okRoute=false;
+    }
+    ok(okRoute,'maxpool value equals the max of its 2x2 block, every block'); }
+
+  /* ---- 5. optimizers ------------------------------------------------ */
+  function runOpt(kind,lr,g,steps){
+    const o=optNew(kind,lr); let th=[0];
+    for(let i=0;i<steps;i++) th=optStepFlat(o,th,[g]);
+    return th[0];
+  }
+  rel(runOpt('sgd',0.1,0.3,3),-0.089999999999999997,1e-14,'(py ref) sgd 3 steps');
+  rel(runOpt('momentum',0.1,0.3,5),-0.39432300000000009,1e-14,'(py ref) momentum 5 steps');
+  rel(runOpt('rmsprop',0.1,0.3,5),-3.2446048297152532,1e-13,'(py ref) rmsprop 5 steps');
+  rel(runOpt('adam',0.1,0.3,8),-0.79999997333333317,1e-13,'(py ref) adam 8 steps');
+  /* the far end of the range (Known-bad: saturation limits pin what bounds
+     cannot): with constant g, every bias-corrected Adam step is ~lr exactly */
+  { const o=optNew('adam',0.1); let th=[0], prev=0;
+    for(let i=0;i<200;i++){ prev=th[0]; th=optStepFlat(o,th,[0.3]); }
+    close(prev-th[0],0.1,1e-6,'adam step size settles to exactly lr under constant g');
+    const o2=optNew('rmsprop',0.1); let t2=[0];
+    t2=optStepFlat(o2,t2,[0.3]);
+    close(-t2[0],1.0,1e-5,
+      'rmsprop first step is ~10x lr whatever g is — no bias correction, '
+      +'the race-view lesson (v warms up from zero)'); }
+
+  /* ---- 6. the pi machinery ------------------------------------------ */
+  ok(gridCountDart(200)===31428,'(py ref) midpoint grid count, dart, N=200');
+  ok(gridCountNeedle(200)===25464,'(py ref) midpoint grid count, needle, N=200');
+  rel(4*31428/40000,3.1427999999999998,1e-15,'grid pi-hat (dart) from the count');
+  rel(2/(25464/40000),3.1416902293433866,1e-14,'grid pi-hat (needle) from the count');
+  { let c=0; const r=mulberry32(SEED_MC_DART);
+    for(let i=0;i<100000;i++){ const x=r()*2-1,y=r()*2-1; if(x*x+y*y<1) c++; }
+    ok(c===78415,'(py ref) dart MC count at 100k, bit-exact');
+    close(piDartMC(78415,100000),3.1366,1e-12,'and its pi-hat');
+  }
+  { let c=0; const r=mulberry32(SEED_MC_NEEDLE);
+    for(let i=0;i<100000;i++){ const th=r()*(PI/2),x=r()*0.5; if(needleCross(th,x)) c++; }
+    ok(c===63623,'(py ref) needle MC count at 100k, bit-exact'); }
+  { const mc=mcCurve('dart',SEED_MC_DART,1000);
+    const last=mc[mc.length-1];
+    ok(last[0]===1000&&last[1]===818,'(py ref) mcCurve prefix count at n=1000');
+    const mcN=mcCurve('needle',SEED_MC_NEEDLE,1000);
+    ok(mcN[mcN.length-1][1]===606,'(py ref) needle prefix count at n=1000'); }
+  /* estimators pinned at absolute hand-computable values */
+  ok(piDartMC(818,1000)===3.272,'piDartMC(818,1000) is exactly 4·818/1000');
+  close(piNeedleMC(637,1000),3.139717425431711,1e-14,'piNeedleMC(637,1000) = 2000/637');
+  ok(isNaN(piNeedleMC(0,1000)),'zero crossings refuses with NaN, not Infinity');
+  ok(isNaN(piDartMC(5,0)),'zero samples refuses with NaN');
+  { const bd=trueBoundary('dart',64);
+    let worst=0;
+    for(let i=0;i<bd.xs.length;i++)
+      worst=Math.max(worst,Math.abs(bd.xs[i]*bd.xs[i]+bd.ys[i]*bd.ys[i]-1));
+    ok(worst<1e-12,'dart boundary samples lie on the unit circle');
+    const bn=trueBoundary('needle',64);
+    let worstN=0;
+    for(let i=0;i<bn.xs.length;i++){
+      const th=(bn.xs[i]+1)*(PI/4), x=(bn.ys[i]+1)*0.25;
+      worstN=Math.max(worstN,Math.abs(x-0.5*Math.sin(th)));
+    }
+    ok(worstN<1e-12,'needle boundary samples satisfy x = (1/2) sin theta'); }
+  /* needle crossing rule spot checks at hand-computable points */
+  ok(needleCross(PI/2,0.49999),'vertical needle at x<1/2 crosses');
+  ok(!needleCross(PI/2,0.50001),'vertical needle at x>1/2 misses');
+  ok(!needleCross(0.3,0.5*Math.sin(0.3)+1e-9)&&needleCross(0.3,0.5*Math.sin(0.3)-1e-9),
+     'crossing boundary sits exactly at (1/2) sin theta');
+
+  /* ---- 7. the training trajectory, through the SHIPPING session path.
+     The py-ref values were generated under THIS explicit config (the page
+     default before per-task tuning); DEFAULTS itself now ships the tuned
+     preset, so the pins carry their own settings. */
+  const REF_CFG={task:'dart',arch:'8',act:'tanh',opt:'adam',lr:0.01,batch:32,
+                 ntrain:512,noise:0,seed:3};
+  { Object.assign(ST,DEFAULTS,REF_CFG);
+    const sess=fnnSessionNew(ST);
+    rel(netBatchLoss(sess.net,sess.data.X,sess.data.Y),0.78003136152270625,1e-12,
+        '(py ref) session loss@0');
+    fnnAdvance(sess,1);
+    rel(netBatchLoss(sess.net,sess.data.X,sess.data.Y),0.76454595937457259,1e-11,
+        '(py ref) session loss@1');
+    fnnAdvance(sess,9);
+    rel(netBatchLoss(sess.net,sess.data.X,sess.data.Y),0.66154171951296636,1e-10,
+        '(py ref) session loss@10');
+    fnnAdvance(sess,90);
+    rel(netBatchLoss(sess.net,sess.data.X,sess.data.Y),0.50122021885961454,1e-8,
+        '(py ref) session loss@100');
+    fnnAdvance(sess,400);
+    rel(netBatchLoss(sess.net,sess.data.X,sess.data.Y),0.28276643742363056,1e-5,
+        '(py ref) session loss@500 (drift-tolerant — 500 steps of libm)');
+    close(netAccuracy(sess.net,sess.data.X,sess.data.Y),0.880859375,2/512+1e-12,
+        '(py ref) session acc@500 within 2 flips');
+    const piHat=piFromNet('dart',sess.net,QUAD_N_FINAL);
+    ok(Math.abs(piHat-PI)<0.25,'pi-from-net at step 500 lands within 0.25 ('
+       +fmt(piHat,4)+')');
+    ok(sess.hist.loss.length>60&&sess.hist.pi.length>15,
+       'histories carry the whole run ('+sess.hist.loss.length+' loss, '
+       +sess.hist.pi.length+' pi points)');
+    /* heatField and netQuadP are the same quadrature written twice — the
+       identity is deliberate and asserted so neither can drift */
+    { const hf=heatField(sess.net,8);
+      let s=0; for(const v of hf) s+=v;
+      rel(s/64,netQuadP(sess.net,8),1e-13,
+          'mean(heatField) === netQuadP on the same grid'); }
+    ok(QUAD_N===48&&QUAD_N_FINAL===200,
+       'quadrature grids are the documented 48 (live) and 200 (readout)'); }
+  { /* determinism: the same session twice is bit-identical */
+    Object.assign(ST,DEFAULTS);
+    const a=fnnSessionNew(ST), b=fnnSessionNew(ST);
+    fnnAdvance(a,60); fnnAdvance(b,60);
+    ok(netBatchLoss(a.net,a.data.X,a.data.Y)===netBatchLoss(b.net,b.data.X,b.data.Y),
+       'two identical sessions advance bit-identically'); }
+  { /* the needle task learns, and its pi comes out right */
+    Object.assign(ST,DEFAULTS,REF_CFG); ST.task='needle';
+    const sess=fnnSessionNew(ST);
+    fnnAdvance(sess,200);
+    rel(netBatchLoss(sess.net,sess.data.X,sess.data.Y),0.10772969115855174,1e-7,
+        '(py ref) needle session loss@200');
+    fnnAdvance(sess,600);
+    ok(netAccuracy(sess.net,sess.data.X,sess.data.Y)>=0.95,
+       'needle net reaches 95% by step 800');
+    const piHat=piFromNet('needle',sess.net,QUAD_N_FINAL);
+    ok(Math.abs(piHat-PI)<0.2,'needle pi-from-net within 0.2 ('+fmt(piHat,4)+')');
+    ST.task='dart'; }
+  { /* label noise flips labels at the stated rate, deterministically */
+    const clean=genDart(SEED_DART,2048,0), noisy=genDart(SEED_DART,2048,0.15);
+    let flips=0;
+    for(let i=0;i<2048;i++) if(clean.Y[i]!==noisy.Y[i]) flips++;
+    ok(Math.abs(flips/2048-0.15)<0.03,'label noise flips ~15% ('+flips+'/2048)');
+    ok(clean.X[7][0]===noisy.X[7][0],'and never moves the points themselves'); }
+
+  /* ---- 8. the race is fair, and the lanes genuinely differ ---------- */
+  { Object.assign(ST,DEFAULTS);
+    const race=raceSessionNew(ST);
+    const l0=race.lanes.map(l=>netBatchLoss(l.net,race.data.X,race.data.Y));
+    ok(l0.every(v=>v===l0[0]),'all four lanes start from the identical net');
+    raceAdvance(race,120);
+    const l1=race.lanes.map(l=>netBatchLoss(l.net,race.data.X,race.data.Y));
+    let distinct=new Set(l1.map(v=>v.toFixed(12))).size;
+    ok(distinct===4,'after 120 shared batches the four rules have diverged');
+    ok(race.lanes.every(l=>isFinite(l.acc)),'lane accuracies recorded');
+    /* the batch stream is SHARED: a lane cannot see different data */
+    const race2=raceSessionNew(ST);
+    raceAdvance(race2,120);
+    for(let i=0;i<4;i++)
+      ok(netBatchLoss(race2.lanes[i].net,race2.data.X,race2.data.Y)===l1[i],
+         'race replay is deterministic, lane '+race2.lanes[i].kind); }
+
+  /* ---- 9. CNN parity + it actually learns --------------------------- */
+  { const sh=genShapes(SEED_SHAPES,64);
+    ok(sh.ys.slice(0,10).join(' ')==='2 1 1 1 2 2 0 0 2 1',
+       '(py ref) shape classes, first ten');
+    { let s0=0,s1=0;
+      for(const row of sh.imgs[0]) for(const v of row) s0+=v;
+      for(const row of sh.imgs[1]) for(const v of row) s1+=v;
+      ok(s0===14&&s1===46,'(py ref) pixel sums of the first two images'); }
+    const net=cnnNew(SEED_CNN_NET);
+    rel(net.K[0][0][0],0.12585080283246644,1e-13,'(py ref) conv kernel K[0][0][0]');
+    rel(net.K[5][2][2],-0.33723949077449678,1e-13,'(py ref) K[5][2][2]');
+    rel(net.D[2][100],-0.056120582107401215,1e-13,'(py ref) dense D[2][100]');
+    const F=cnnForward(net,sh.imgs[0]);
+    rel(F.z[0],0.38638338343954115,1e-12,'(py ref) logit 0, image 0');
+    rel(F.z[1],0.25890415377310522,1e-12,'(py ref) logit 1');
+    rel(F.z[2],-0.19805638845743367,1e-12,'(py ref) logit 2');
+    const g=cnnGrads(net,sh.imgs.slice(0,16),sh.ys.slice(0,16));
+    rel(g.loss,1.1611708738566766,1e-12,'(py ref) CNN batch-16 loss, untrained');
+    rel(g.gK[0][0][0],-0.043153664286109762,1e-11,'(py ref) dK[0][0][0]');
+    rel(g.gK[3][1][2],-0.048933230659403526,1e-11,'(py ref) dK[3][1][2]');
+    rel(g.gDb[1],0.055345147561400479,1e-11,'(py ref) dDb[1]');
+    const o=optNew('adam',0.01);
+    cnnUnflatten(net,optStepFlat(o,cnnFlatten(net),cnnGradsFlatten(g)));
+    rel(cnnGrads(net,sh.imgs.slice(0,16),sh.ys.slice(0,16)).loss,
+        0.99952213091467179,1e-11,'(py ref) CNN loss after one adam step'); }
+  { const sess=cnnSessionNew();
+    cnnAdvance(sess,260);
+    const acc=cnnAccuracy(sess.net,sess.imgs,sess.ys);
+    const tacc=cnnAccuracy(sess.net,sess.timgs,sess.tys);
+    ok(acc>=0.9,'CNN reaches 90% train accuracy in 260 steps ('+fmt(100*acc,1)+'%)');
+    ok(tacc>=0.78,'and generalises to held-out shapes ('+fmt(100*tacc,1)+'%) — '
+      +'unlike the pi digits, shapes have structure to learn');
+    /* the pad classifies, and painting it changes the verdict inputs */
+    padClear(sess);
+    let sum=0; for(const row of sess.pad) for(const v of row) sum+=v;
+    ok(sum===0,'padClear empties the pad');
+    padPaint(sess,8,8);
+    sum=0; for(const row of sess.pad) for(const v of row) sum+=v;
+    ok(sum===5,'padPaint stamps the plus-brush (5 cells)');
+    padStamp(sess,3);
+    ok(sess.padFrom.indexOf('sample 3')===0,'padStamp names its source'); }
+
+  /* ---- 10. RNN parity + the three lessons --------------------------- */
+  { const rn=rnnNew(SEED_RNN,1,1);
+    rel(rn.Wx[0][0],-0.56714790322688757,1e-13,'(py ref) rnn Wx[0][0]');
+    rel(rn.Wh[7][3],-0.12523873261727256,1e-13,'(py ref) rnn Wh[7][3]');
+    rel(rn.Wo[0][15],0.18852498007691643,1e-13,'(py ref) rnn Wo[0][15]');
+    const bits=genBits(SEED_BITS,64);
+    ok(bits.slice(0,16).join('')==='1100101010111010','(py ref) needle bit stream');
+    const xs=[],tg=[];
+    for(let t=0;t<63;t++){ xs.push([bits[t]]); tg.push(bits[t+1]); }
+    const g=rnnBPTT(rn,xs,tg,'bce');
+    rel(g.loss,0.76422286010002893,1e-12,'(py ref) stream loss, untrained');
+    rel(g.gWx[0][0],0.014701648979912262,1e-11,'(py ref) rnn dWx[0][0]');
+    rel(g.gWh[7][3],-0.0023609662278782423,1e-10,'(py ref) rnn dWh[7][3]');
+    rel(g.gbo[0],-0.19873521976965963,1e-11,'(py ref) rnn dbo[0]');
+    rel(clipNorm(rnnGradsFlatten(g)).norm,0.63113101858551113,1e-11,
+        '(py ref) gradient global norm');
+    { const big=clipNorm([3,4,12],5);          /* norm 13 -> scaled to 5 */
+      close(Math.sqrt(big.flat[0]**2+big.flat[1]**2+big.flat[2]**2),5,1e-12,
+        'clipNorm actually clips to the ceiling');
+      const small=clipNorm([0.3,0.4],5);
+      ok(small.flat[0]===0.3,'and leaves small gradients untouched');
+      /* the DEFAULT ceiling, no argument passed — a test that passes the
+         parameter explicitly pins nothing about it (Known-bad, wind_tunnel) */
+      const dflt=clipNorm([30,40,120]);
+      close(Math.sqrt(dflt.flat[0]**2+dflt.flat[1]**2+dflt.flat[2]**2),5,1e-12,
+        'the no-argument clip ceiling is 5'); }
+    const rw=rnnNew(SEED_RNN+2,1,1);
+    const xsw=[],tgw=[];
+    for(let t=0;t<64;t++){ xsw.push([waveAt(t)]); tgw.push(waveAt(t+1)); }
+    rel(rnnBPTT(rw,xsw,tgw,'mse').loss,0.23324572629951598,1e-12,
+        '(py ref) wave loss, untrained'); }
+  { const sess=rnnSessionNew('stream');
+    rnnAdvance(sess,700);
+    const pr=streamProbe(sess);
+    ok(Math.abs(pr.pHat-2/PI)<0.04,'stream RNN finds the base rate 2/pi ('
+       +fmt(pr.pHat,4)+' vs '+fmt(2/PI,4)+')');
+    ok(Math.abs(pr.piHat-PI)<0.25,'so 2/P-hat is a pi estimate ('+fmt(pr.piHat,3)+')'); }
+  { const sess=rnnSessionNew('wave');
+    rnnAdvance(sess,500);
+    const pr=waveProbe(sess);
+    ok(pr.mse<0.01,'wave RNN one-step MSE under 0.01 ('+sigf(pr.mse,2)+')');
+    let mx=0;
+    for(const v of pr.dream) mx=Math.max(mx,Math.abs(v));
+    ok(mx>0.35&&mx<1.6,'and the dream neither collapses nor explodes (max |x| '
+       +fmt(mx,2)+') — the hidden state is carrying the wave'); }
+  { const sess=rnnSessionNew('digits');
+    rnnAdvance(sess,600);
+    const tr=digitsTrainCE(sess), hold=digitsHoldoutCE(sess);
+    ok(tr.ce<0.35,'digits RNN memorises its training window (train CE '
+       +fmt(tr.ce,3)+')');
+    ok(hold>1.55,'but held-out digits sit at or past chance ln10=2.30 (CE '
+       +fmt(hold,3)+') — pi cannot be learned, only memorised');
+    ok(hold-tr.ce>1.0,'the generalisation gap is the lesson, and it is wide');
+    /* independent-route pin of the WINDOW itself: a mutant that averages the
+       whole sequence still clears the thresholds above, because the held-out
+       CE climbs so high that even diluted it looks like "worse than chance"
+       (found by the mutation sweep, 2026-08-12) */
+    { const D=sess.digits, xs2=[];
+      for(let t=0;t<D.length-1;t++) xs2.push(oneHot(D[t]));
+      const outs2=rnnForward(sess.net,xs2).outs;
+      let ce2=0, n2=0;
+      for(let t=DIG_TRAIN-1;t<D.length-1;t++){ ce2+=ceLoss(outs2[t],D[t+1]); n2++; }
+      rel(hold,ce2/n2,1e-12,'digitsHoldoutCE averages EXACTLY the '+DIG_HOLD
+          +'-digit holdout window, nothing else');
+      ok(n2===DIG_HOLD,'and that window is '+DIG_HOLD+' predictions wide'); }
+    const rec=digitsRecite(sess);
+    ok(rec>=25,'recites at least 25 digits before the first slip ('+rec+')'); }
+
+  /* ---- 11. pi digits: spigot vs Machin vs Math.PI ------------------- */
+  { const d=piDigits(160);
+    ok(d==='31415926535897932384626433832795028841971693993751058209749445923078'
+         +'16406286208998628034825342117067982148086513282306647093844609550582'
+         +'231725359408128481117450',
+       '(py ref) 160 spigot digits === the Machin/Decimal computation');
+    ok(d.slice(0,16)===Math.PI.toString().replace('.','').slice(0,16),
+       'and the first 16 agree with Math.PI itself');
+    ok(PI_DIGITS_STR.length===DIG_TRAIN+DIG_HOLD,'the RNN sees 176 digits'); }
+
+  /* ---- 12. every view builds clean and draws sanely ------------------ */
+  function recCtx(W,H){
+    const st2={font:'10px x',stack:[],tx:0,ty:0,rot:0};
+    const texts=[],ops={n:0,fills:0,strokes:0,texts:0};
+    const c={
+      canvas:{width:W,height:H},
+      save(){ st2.stack.push([st2.tx,st2.ty,st2.rot]); },
+      restore(){ const s=st2.stack.pop(); if(s){ st2.tx=s[0]; st2.ty=s[1]; st2.rot=s[2]; } },
+      translate(x,y){ st2.tx+=x; st2.ty+=y; },
+      rotate(a){ st2.rot+=a; },
+      setTransform(){}, scale(){}, setLineDash(){},
+      beginPath(){}, moveTo(){}, lineTo(){}, closePath(){}, arc(){}, rect(){},
+      fill(){ ops.n++; ops.fills++; }, stroke(){ ops.n++; ops.strokes++; },
+      clip(){}, fillRect(){ ops.n++; ops.fills++; }, strokeRect(){ ops.n++; },
+      clearRect(){},
+      fillText(t,x,y){ ops.n++; ops.texts++;
+        const m=/(\d+(?:\.\d+)?)px/.exec(c.font||'10px x');
+        const px=m?parseFloat(m[1]):10;
+        texts.push({t:String(t),x:st2.tx+x,y:st2.ty+y,px,
+                    w:String(t).length*px*0.52,
+                    align:c.textAlign||'left',base:c.textBaseline||'alphabetic',
+                    rot:Math.abs(st2.rot)>1e-9}); },
+      strokeText(){}, measureText(t){
+        const m=/(\d+(?:\.\d+)?)px/.exec(c.font||'10px x');
+        return {width:String(t).length*(m?parseFloat(m[1]):10)*0.52}; },
+      createLinearGradient(){ return {addColorStop(){}}; },
+    };
+    c.font='10px x'; c.textAlign='left'; c.textBaseline='alphabetic';
+    c.fillStyle='#000'; c.strokeStyle='#000'; c.lineWidth=1; c.globalAlpha=1;
+    c.lineJoin='miter'; c.lineCap='butt';
+    return {c,texts,ops};
+  }
+  function textBox(tx){
+    let x0=tx.x;
+    if(tx.align==='center') x0-=tx.w/2;
+    else if(tx.align==='right'||tx.align==='end') x0-=tx.w;
+    let y0=tx.y;
+    if(tx.base==='middle') y0-=tx.px/2;
+    else if(tx.base==='alphabetic'||tx.base==='bottom') y0-=tx.px;
+    return {x0,y0,x1:x0+tx.w,y1:y0+tx.px};
+  }
+  { Object.assign(ST,DEFAULTS);
+    /* give the sessions a little history so the draws are realistic */
+    resetAllSessions();
+    fnnAdvance(fnnActive(),30);
+    raceAdvance(raceActive(),25);
+    cnnAdvance(SESS.cnn,12);
+    rnnAdvance(SESS.rnn.stream,10);
+    rnnAdvance(SESS.rnn.wave,10);
+    rnnAdvance(SESS.rnn.digits,10);
+    const sizes=[[1400,820],[1100,712],[820,560],[560,380]];
+    const states=[];
+    for(const [vk] of TABS){
+      if(vk==='rnn') for(const sq of ['stream','wave','digits'])
+        states.push({view:vk,seqTask:sq});
+      else if(vk==='dart'||vk==='needle'){
+        states.push({view:vk});
+        states.push({view:vk,showHeat:false,task:vk==='needle'?'needle':'dart'});
+      }
+      else states.push({view:vk});
+    }
+    let badText=0, badOverlap=0, badEnt=0, worstNote='';
+    for(const [W,H] of sizes){
+      for(const stOver of states){
+        Object.assign(ST,DEFAULTS,stOver);
+        if(stOver.view==='needle') ST.task='needle';
+        if(fnnActive().step===0) fnnAdvance(fnnActive(),30);
+        const M=buildModel();
+        const R=recCtx(W,H);
+        let threw=null;
+        try{ drawView(R.c,W,H,M); }catch(e){ threw=e; }
+        ok(!threw,'drawView('+stOver.view+(stOver.seqTask?'/'+stOver.seqTask:'')
+           +') at '+W+'x'+H+' draws without throwing'+(threw?': '+threw:''));
+        if(threw) continue;
+        /* the primer is a text page and honestly draws fewer ops when the
+           window is small; every other view keeps the picture floor */
+        const opFloor=stOver.view==='learn'?15:40;
+        ok(R.ops.n>=opFloor,'view '+stOver.view+' emits a real picture at '
+           +W+'x'+H+' ('+R.ops.n+' ops)');
+        for(const tx of R.texts){
+          if(/&[a-zA-Z][a-zA-Z0-9]*;|<[a-zA-Z][^>]*>/.test(tx.t)){ badEnt++;
+            worstNote='entity/tag: "'+tx.t.slice(0,40)+'"'; }
+          if(tx.rot) continue;
+          const b=textBox(tx);
+          if(b.x0<-2||b.x1>W+2||b.y0<-2||b.y1>H+2){ badText++;
+            if(badText<=12) console.log('  off-canvas: "'+tx.t.slice(0,36)
+              +'" at '+fmt(b.x0,0)+','+fmt(b.y0,0)+' in '+stOver.view
+              +(stOver.seqTask?'/'+stOver.seqTask:'')+'@'+W+'x'+H);
+            if(badText<3) worstNote='off-canvas: "'+tx.t.slice(0,40)+'" at '
+              +fmt(b.x0,0)+','+fmt(b.y0,0)+' in '+stOver.view+'@'+W+'x'+H; }
+        }
+        const unrot=R.texts.filter(t=>!t.rot);
+        for(let i=0;i<unrot.length;i++) for(let j=i+1;j<unrot.length;j++){
+          const A=textBox(unrot[i]), B=textBox(unrot[j]);
+          const wOver=Math.min(A.x1,B.x1)-Math.max(A.x0,B.x0);
+          const hOver=Math.min(A.y1,B.y1)-Math.max(A.y0,B.y0);
+          if(wOver>3&&hOver>3){ badOverlap++;
+            if(badOverlap<=12) console.log('  overlap: "'+unrot[i].t.slice(0,28)
+              +'" vs "'+unrot[j].t.slice(0,28)+'" in '+stOver.view
+              +(stOver.seqTask?'/'+stOver.seqTask:'')+'@'+W+'x'+H);
+            if(badOverlap<3) worstNote='overlap: "'+unrot[i].t.slice(0,24)
+              +'" vs "'+unrot[j].t.slice(0,24)+'" in '+stOver.view+'@'+W+'x'+H; }
+        }
+        /* no data curve may cross a legend's text box */
+        for(const L of LEGEND_RECTS){
+          for(let s2=0;s2<POLY_SEGS.length;s2+=4){
+            const x0=POLY_SEGS[s2],y0=POLY_SEGS[s2+1],
+                  x1=POLY_SEGS[s2+2],y1=POLY_SEGS[s2+3];
+            if(Math.max(x0,x1)<L.x||Math.min(x0,x1)>L.x+L.w||
+               Math.max(y0,y1)<L.y||Math.min(y0,y1)>L.y+L.h) continue;
+            badOverlap++;
+            console.log('  legend-cross in '+stOver.view
+              +(stOver.seqTask?'/'+stOver.seqTask:'')+'@'+W+'x'+H
+              +' rect '+fmt(L.x,0)+','+fmt(L.y,0)+' '+fmt(L.w,0)+'x'+fmt(L.h,0)
+              +' seg '+fmt(x0,0)+','+fmt(y0,0)+'-'+fmt(x1,0)+','+fmt(y1,0));
+            if(worstNote==='') worstNote='curve through legend in '+stOver.view;
+            break;
+          }
+        }
+      }
+    }
+    ok(badEnt===0,'no HTML entity or tag reaches a canvas text op ('+badEnt
+       +') '+worstNote);
+    ok(badText===0,'no text leaves the canvas at any size ('+badText+') '+worstNote);
+    ok(badOverlap===0,'no text-on-text or curve-through-legend collisions ('
+       +badOverlap+') '+worstNote);
+  }
+  { /* readout/eqbar/tag are clean HTML for every view and task */
+    let bad=0;
+    for(const [vk] of TABS){
+      for(const tk of ['dart','needle']){
+        Object.assign(ST,DEFAULTS,{view:vk,task:tk});
+        if(fnnActive().step===0) fnnAdvance(fnnActive(),5);
+        for(const sq of vk==='rnn'?['stream','wave','digits']:['stream']){
+          ST.seqTask=sq;
+          const M=buildModel();
+          const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+          if(html.indexOf('NaN')>=0||html.indexOf('Infinity')>=0) bad++;
+          if(/\bobject Object\b/.test(html)) bad++;
+        }
+      }
+    }
+    ok(bad===0,'no NaN/Infinity/object-Object in any readout/eqbar/tag');
+    /* containment with a value no other row can supply (Known-bad: vacuous
+       containment) — the tuned 2-16-1 has (2+1)*16 + (16+1)*1 = 65 params,
+       recomputed by hand here, printed only by the parameters row */
+    Object.assign(ST,DEFAULTS); resetFnn();
+    ok(netFlatten(fnnActive().net).length===65,
+       'the tuned dart net really has 65 parameters');
+    ok(readoutHTML(buildModel()).indexOf('>65<')>=0,
+       'the readout prints the parameter count off the built net'); }
+  { /* equal aspect: the dartboard panel is a SQUARE (a circle drawn into a
+       rectangle is a different picture — Known-bad, Rayleigh-Taylor mesas),
+       and the drawn true-circle's own bbox is square to a fraction of a
+       percent at several canvas sizes. */
+    for(const [W,H] of [[1400,820],[1100,712],[820,560]]){
+      Object.assign(ST,DEFAULTS);
+      const M=buildModel();
+      const R=recCtx(W,H);
+      drawView(R.c,W,H,M);
+      ok(DART_BOX&&Math.abs(DART_BOX.w-DART_BOX.h)<1e-9&&DART_BOX.w>150,
+         'dartboard panel is square at '+W+'x'+H+' ('+fmt(DART_BOX.w,0)+' px)');
+      /* the circle is the first polyline drawn in this view: 128 segments */
+      let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+      for(let i=0;i<128*4&&i<POLY_SEGS.length;i+=4){
+        x0=Math.min(x0,POLY_SEGS[i]); x1=Math.max(x1,POLY_SEGS[i+2]);
+        y0=Math.min(y0,POLY_SEGS[i+1]); y1=Math.max(y1,POLY_SEGS[i+3]);
+      }
+      const asp=(x1-x0)/Math.max(1e-9,(y1-y0));
+      ok(Math.abs(asp-1)<0.02,'the drawn circle is round at '+W+'x'+H
+         +' (aspect '+fmt(asp,3)+')');
+    }
+  }
+
+  /* ---- 13. parked sessions, measured presets, digit-honest readout --- */
+  { /* (a) sessions PARK and RESUME: two interruptions === one straight run */
+    Object.assign(ST,DEFAULTS); resetAllSessions();
+    const a=fnnActive();
+    ok(['arch','act','opt','lr'].every(k=>DEFAULTS[k]===TUNED.dart.cfg[k]),
+       'DEFAULTS carry the tuned dartboard preset — the page opens tuned');
+    ok(ARCHS.some(o=>o.id===TUNED.dart.cfg.arch)&&ARCHS.some(o=>o.id===TUNED.needle.cfg.arch)
+       &&ACT_LIST.some(o=>o.id===TUNED.dart.cfg.act)&&ACT_LIST.some(o=>o.id===TUNED.needle.cfg.act)
+       &&OPT_LIST.some(o=>o.id===TUNED.dart.cfg.opt)&&OPT_LIST.some(o=>o.id===TUNED.needle.cfg.opt)
+       &&LR_LIST.some(o=>o.id===TUNED.dart.cfg.lr)&&LR_LIST.some(o=>o.id===TUNED.needle.cfg.lr),
+       'every TUNED entry is a value the chips can actually show');
+    fnnAdvance(a,40);
+    switchTask('needle');
+    const b=fnnActive();
+    ok(b!==a&&b.task==='needle'&&b.step===0,'needle gets its own fresh session');
+    ok(ST.opt===TUNED.needle.cfg.opt&&ST.arch===TUNED.needle.cfg.arch
+       &&ST.act===TUNED.needle.cfg.act&&ST.lr===TUNED.needle.cfg.lr,
+       'auto-tune starts the fresh needle on ITS measured preset (RMSprop)');
+    fnnAdvance(b,25);
+    switchTask('dart');
+    ok(fnnActive()===a&&a.step===40,'the dart session came back untouched');
+    ok(ST.opt===TUNED.dart.cfg.opt&&ST.lr===TUNED.dart.cfg.lr,
+       'and the panel re-adopted the dart settings');
+    switchTask('needle');
+    ok(fnnActive()===b&&b.step===25,'the needle session came back untouched');
+    switchTask('dart');
+    fnnAdvance(fnnActive(),40);
+    const straight=fnnSessionNew(a.cfg);
+    fnnAdvance(straight,80);
+    ok(netBatchLoss(a.net,a.data.X,a.data.Y)
+       ===netBatchLoss(straight.net,straight.data.X,straight.data.Y),
+       'interrupted twice, the run is BIT-IDENTICAL to one straight 80-step run');
+    /* (b) eta is a LIVE knob (the polish move): changing it must NOT
+       restart, it must retarget the running optimizer and the session's
+       cfg, so a later task round-trip re-adopts the annealed eta */
+    ST.lr=0.03;
+    ok(fnnActive()===a&&a.step===80,
+       'changing eta does NOT restart — eta is live (the polish knob)');
+    ok(a.opt.lr===0.03&&a.cfg.lr===0.03,
+       'and the running optimizer + cfg follow the new eta immediately');
+    ST.lr=TUNED.dart.cfg.lr; fnnActive();
+    /* every OTHER setting still restarts, and only THIS task */
+    ST.opt='sgd';
+    const a2=fnnActive();
+    ok(a2!==a&&a2.step===0,
+       'changing the optimizer restarts — its state is per-rule');
+    ok(SESS.fnn.needle===b&&b.step===25,'while the needle net keeps its progress');
+    ok(fnnActive()===a2,'unchanged settings never recreate a session');
+    ST.lr=0.03; fnnActive();
+    /* a MANUAL session must survive the round-trip.  For a TUNED session the
+       auto-tune fallback happens to rebuild the same settings, so a dropped
+       cfg-adoption is invisible — the 64-mutant sweep proved it by letting
+       exactly that mutant survive.  A parked sgd/0.03 dart run is the case
+       that tells the two apart: resume must beat the preset. */
+    fnnAdvance(fnnActive(),7);
+    const aMan=fnnActive();
+    switchTask('needle');
+    ok(fnnActive()===b,'the needle stayed parked through the manual dart work');
+    switchTask('dart');
+    ok(fnnActive()===aMan&&aMan.step===7&&ST.opt==='sgd'&&ST.lr===0.03,
+       'a MANUAL session survives the round-trip and re-adopts its own '
+       +'settings — resume beats the preset'); }
+  { /* (c) auto-tune off: a fresh task inherits the panel settings instead */
+    Object.assign(ST,DEFAULTS,{autoTune:false}); resetAllSessions();
+    ST.arch='4'; ST.act='sigmoid'; ST.opt='sgd'; ST.lr=0.3;
+    switchTask('needle');
+    ok(ST.arch==='4'&&ST.opt==='sgd','auto-tune off: fresh needle keeps manual settings');
+    ok(fnnActive().cfg.opt==='sgd'&&fnnActive().cfg.arch==='4',
+       'and the session was genuinely built from them'); }
+  { /* (d) the race parks per task too */
+    Object.assign(ST,DEFAULTS); resetAllSessions();
+    const r0=raceActive(); raceAdvance(r0,30);
+    switchTask('needle');
+    ok(raceActive()!==r0,'the needle race is its own session');
+    switchTask('dart');
+    ok(raceActive()===r0&&r0.step===30,'the dart race resumed where it parked');
+    ST.arch='4';
+    ok(raceActive()!==r0&&raceActive().step===0,
+       'an architecture change restarts the race — its key watches settings too');
+    raceAdvance(raceActive(),5);
+    ST.lr=0.3;
+    ok(raceActive().step===0,
+       'and an eta change DOES restart the race (unlike the live FNN eta) — '
+       +'four rules at one shared eta from one init is the controlled '
+       +'experiment, so its conditions are pinned'); }
+  { /* (e) "reset nets" replays the SAME runs from each session's own cfg */
+    Object.assign(ST,DEFAULTS); resetAllSessions();
+    const a=fnnActive(); fnnAdvance(a,30);
+    const l30=netBatchLoss(a.net,a.data.X,a.data.Y);
+    switchTask('needle'); fnnAdvance(fnnActive(),12);
+    replayNets();
+    switchTask('dart');
+    const a2=fnnActive();
+    ok(a2.step===0,'reset nets rewound the dart run');
+    fnnAdvance(a2,30);
+    ok(netBatchLoss(a2.net,a2.data.X,a2.data.Y)===l30,
+       'and it replays bit-identically'); }
+  { /* (e2) the polish move measurably works.  Measured (deno, seed 3, this
+       exact sequence): hot jitter SD 0.1006 over 20 single steps at eta
+       0.1, cooled SD 0.00246 at eta 0.003 (x41 quieter), polished
+       |pi-err| 0.0437 — the frozen value sits at the finite-data floor
+       (~0.04 for 512 dots), which the flicker was hiding.  Bounds carry
+       cross-libm margins. */
+    Object.assign(ST,DEFAULTS); resetAllSessions();
+    const s=fnnActive(); fnnAdvance(s,800);
+    const hot=[];
+    for(let i=0;i<20;i++){ fnnAdvance(s,1); hot.push(piFromNet('dart',s.net,48)); }
+    ST.lr=0.003;
+    fnnAdvance(fnnActive(),400);
+    ok(fnnActive()===s&&s.step===1220,
+       'polish kept the SAME session running (eta live), now at step 1220');
+    const cool=[];
+    for(let i=0;i<20;i++){ fnnAdvance(s,1); cool.push(piFromNet('dart',s.net,48)); }
+    const sdOf=arr=>{ const m=arr.reduce((x,y)=>x+y,0)/arr.length;
+      return Math.sqrt(arr.reduce((x,y)=>x+(y-m)*(y-m),0)/arr.length); };
+    const sh=sdOf(hot), sc=sdOf(cool);
+    ok(sh>0.03,'(sweep ref) hot eta rattles pi-hat (SD '+fmt(sh,4)
+       +', measured 0.1006)');
+    ok(sc<0.01&&sc<sh/5,'(sweep ref) cooling to 0.003 freezes it (SD '
+       +fmt(sc,4)+', measured 0.0025) — the polish move works');
+    ok(Math.abs(piFromNet('dart',s.net,200)-PI)<0.09,
+       '(sweep ref) and the frozen boundary sits at the finite-data floor '
+       +'(measured 0.0437), not off in the weeds'); }
+  { /* (f) the sweep's winners, re-run here.  "(sweep ref)" = seed-3 rows of
+       build_neural/sweep_results.txt (dart tuned: 95% at step 80, |pi-err|
+       0.059@800; needle tuned: step 10, 0.00098; dart under the needle
+       preset: step 250; needle under the dart preset: 0.084; the old 2-8-1
+       adam 0.01 default: never reaches 95% on dart in 800).  Bounds carry
+       libm-drift margins, not exact pins — a trajectory 800 steps long is
+       runtime-flavoured. */
+    function sweepTrain(task,cfg,steps){
+      const st2=Object.assign({},DEFAULTS,cfg,{task});
+      const data=taskData(task,st2.ntrain,st2.noise);
+      const net=netNew(sizesOf(st2.arch),st2.act,st2.seed);
+      const o=optNew(st2.opt,st2.lr);
+      const rng=mulberry32(SEED_BATCH);
+      const n=data.X.length,B=st2.batch;
+      let steps95=null;
+      for(let s=1;s<=steps;s++){
+        const idx=[];
+        for(let b2=0;b2<B;b2++) idx.push(Math.floor(rng()*n));
+        const g=netGrads(net,data.X,data.Y,idx);
+        netUnflatten(net,optStepFlat(o,netFlatten(net),gradsFlatten(g)));
+        if(steps95===null&&s%10===0&&netAccuracy(net,data.X,data.Y)>=0.95)
+          steps95=s;
+      }
+      return {net,data,steps95,
+              piErr:Math.abs(piFromNet(task,net,100)-PI)};
+    }
+    { /* the loop above must BE the shipping path, or the pins pin nothing */
+      const p=sweepTrain('dart',TUNED.dart.cfg,30);
+      Object.assign(ST,DEFAULTS);
+      const sess=fnnSessionNew(ST); fnnAdvance(sess,30);
+      ok(netBatchLoss(p.net,p.data.X,p.data.Y)
+         ===netBatchLoss(sess.net,sess.data.X,sess.data.Y),
+         'sweepTrain is bit-identical to the shipping session path'); }
+    const dartT=sweepTrain('dart',TUNED.dart.cfg,800);
+    ok(dartT.steps95!==null&&dartT.steps95<=120,
+       '(sweep ref) tuned dart reaches 95% by step 120 (measured 80; got '
+       +dartT.steps95+')');
+    ok(dartT.piErr<0.08,
+       '(sweep ref) tuned dart |pi-err|@800 under 0.08 (measured 0.059; got '
+       +fmt(dartT.piErr,4)+')');
+    const needT=sweepTrain('needle',TUNED.needle.cfg,800);
+    ok(needT.steps95!==null&&needT.steps95<=30,
+       '(sweep ref) tuned needle reaches 95% by step 30 (measured 10; got '
+       +needT.steps95+')');
+    ok(needT.piErr<0.006,
+       '(sweep ref) tuned needle |pi-err|@800 under 0.006 (measured 0.00098; '
+       +'got '+fmt(needT.piErr,5)+')');
+    const dartX=sweepTrain('dart',TUNED.needle.cfg,300);
+    ok(dartX.steps95===null||dartX.steps95>180,
+       '(sweep ref) the needle preset is NOT best for the dartboard '
+       +'(95% at '+(dartX.steps95===null?'>300':dartX.steps95)
+       +' vs '+dartT.steps95+' tuned — measured 250 vs 80)');
+    const needX=sweepTrain('needle',TUNED.dart.cfg,800);
+    ok(needX.piErr>0.05&&needT.piErr<needX.piErr/5,
+       '(sweep ref) the dart preset is NOT best for the needles '
+       +'(|pi-err| '+fmt(needX.piErr,4)+' vs '+fmt(needT.piErr,5)
+       +' tuned — measured 0.084 vs 0.00098)');
+    { /* the pre-tuning default never got the dartboard to 95% at all */
+      const st2=Object.assign({},DEFAULTS,REF_CFG);
+      const data=taskData('dart',st2.ntrain,st2.noise);
+      const net=netNew(sizesOf(st2.arch),st2.act,st2.seed);
+      const o=optNew(st2.opt,st2.lr);
+      const rng=mulberry32(SEED_BATCH);
+      let touched=false;
+      for(let s=1;s<=400;s++){
+        const idx=[];
+        for(let b2=0;b2<32;b2++) idx.push(Math.floor(rng()*data.X.length));
+        const g=netGrads(net,data.X,data.Y,idx);
+        netUnflatten(net,optStepFlat(o,netFlatten(net),gradsFlatten(g)));
+        if(s%10===0&&netAccuracy(net,data.X,data.Y)>=0.95) touched=true;
+      }
+      ok(!touched,'(sweep ref) the old default (2-8-1 adam 0.01) never touches '
+         +'95% on the dartboard in 400 steps — tuning buys something real'); } }
+  { /* (g) the long pi readout is digit-honest */
+    ok(piLong(PI,12)==='3.141592653589',
+       'piLong TRUNCATES pi — ...589, never rounded to ...590');
+    ok(piLong(2/PI,12)==='0.636619772367',
+       'piLong truncates 2/pi — 13th decimal 5 must not round the 12th up');
+    ok(piLong(NaN,12)==='—','piLong refuses non-finite input');
+    ok(piLong(3.272,12)==='3.272000000000',
+       'an exact rational keeps its honest zero tail');
+    ok(piTrueStr()==='3.14159265358979323846&hellip;',
+       'the real-thing row is 20 spigot decimals, matching the Machin pin');
+    { const m=piMatchParts(3.1415929999,12);
+      ok(m.match==='3.141592'&&m.rest==='999900',
+         'piMatchParts splits at the first wrong digit (got "'
+         +m.match+'"/"'+m.rest+'")'); }
+    { const m=piMatchParts(2.7,12);
+      ok(m.match===''&&m.str==='2.700000000000',
+         'a wrong leading digit matches nothing'); }
+    { const m=piMatchParts(PI,12);
+      ok(m.rest===''&&m.match==='3.141592653589',
+         'a perfect estimate is all match — Math.PI truncated equals the spigot'); }
+    Object.assign(ST,DEFAULTS); resetAllSessions();
+    const html=readoutHTML(buildModel());
+    ok(html.indexOf('3.14159265358979323846')>=0,
+       'the dartboard readout carries the 20-decimal real thing');
+    ok(html.indexOf('dimtail')>=0,
+       'and the green-match/dim-tail split is really rendered');
+    ok(buildModel().isTuned===true&&html.indexOf('tuned for this task')>=0,
+       'the preset row reports tuned when the cfg IS the preset');
+    ST.opt='sgd';
+    ok(buildModel().isTuned===false,
+       'and reports manual when ANY of the four tuned fields differs');
+    ST.opt=TUNED.dart.cfg.opt;
+    /* the counting row at the fixed data seed: 394 of 512 inside, so the
+       printed estimate must be exactly 4*394/512 = 3.078125, truncated long */
+    ok(html.indexOf('078125000000')>=0,
+       'counting-the-labels row prints the exact rational 3.078125 long');
+    /* the integrating row must quote the HONEST 200 grid, not the live 48:
+       assert containment of the fine value's post-match digit run, which
+       differs from the coarse one on this untrained net */
+    { const fine=piMatchParts(piFromNet('dart',fnnActive().net,QUAD_N_FINAL),12);
+      const coarse=piMatchParts(piFromNet('dart',fnnActive().net,QUAD_N),12);
+      ok(fine.rest!==coarse.rest&&fine.rest.length>6,
+         'the two quadrature grids disagree in the printed digits here');
+      ok(html.indexOf(fine.rest)>=0,
+         'integrating-the-net row prints the 200-grid value');
+      ok(html.indexOf(coarse.rest)<0,
+         'and not the coarse 48-grid one'); }
+    /* the averaged row: an EMA over the pi-history cadence, recomputed here
+       with the LITERAL 0.05 so the shipped constant is pinned absolutely */
+    { Object.assign(ST,DEFAULTS); resetAllSessions();
+      const s2=fnnActive(); fnnAdvance(s2,200);
+      let ema=null;
+      for(const p of s2.hist.pi) ema=ema===null?p[1]:ema+0.05*(p[1]-ema);
+      ok(s2.hist.pi.length>10&&s2.hist.pi.length<900,
+         'short run: the pi history is undecimated, so the recompute is exact');
+      rel(s2.piAvg,ema,1e-12,
+          'piAvg is exactly the 0.05-EMA of the recorded pi history');
+      ok(readoutHTML(buildModel()).indexOf('averaged')>=0,
+         'and the readout carries the averaged row'); } }
+
+  /* leave the page state exactly as a fresh boot expects it */
+  Object.assign(ST,DEFAULTS);
+  resetAllSessions();
+
+  console.log(pass+' passed, '+fail+' failed  ('
+    +((Date.now()-T0)/1000).toFixed(1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

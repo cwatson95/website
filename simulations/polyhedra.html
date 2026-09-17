@@ -1,0 +1,3265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Platonic &amp; Catalan Solids</title>
+<!--
+  ============================================================================
+  POLYHEDRA — the five Platonic solids, the thirteen Archimedean solids and
+  the thirteen Catalan solids, each one CONSTRUCTED rather than tabulated.
+
+  WHAT IS EXACT
+    Everything.  This file contains no measured data and no fitted constant;
+    every number in it is an exact consequence of three integer pairs.
+
+    The construction.  A symmetry group is specified by its Coxeter diagram
+    alone — the Schwarz triangle (p q 2), with (p,q) one of (3,3), (4,3),
+    (5,3).  Its three mirrors are recovered from the Gram matrix
+    n_i . n_j = -cos(pi/m_ij) by Cholesky.  A seed point is reflected in the
+    mirrors until the orbit closes; that orbit is the vertex set.
+
+    The seven-fold rule.  An edge of the orbit is twice the seed's distance to
+    a mirror the seed does NOT lie on, so the orbit is uniform exactly when
+    every ACTIVE mirror is equidistant.  Writing M for the matrix of mirror
+    normals and w for the 0/1 indicator of the active set, that is M p = t w,
+    hence  p = normalise(M^-1 w).  The seven non-empty subsets of three
+    mirrors therefore give seven uniform solids per group — 21 in all, which
+    collapse to the 5 Platonic plus 11 Archimedean after the coincidences
+    (the rectified tetrahedron IS the octahedron, and so on).
+
+    The snubs.  The remaining two Archimedean solids are the orbit of the
+    ROTATION subgroup and satisfy no mirror condition; their seed solves
+    2 sin(pi/p) sin a = 2 sin(pi/q) sin b = 2 sin(pi/2) sin c, found here by
+    Newton.  This is why they are not ruler-and-compass constructible, and the
+    file demonstrates rather than asserts it: the snub cube's coordinate ratio
+    comes out as the tribonacci constant, the root of t^3 = t^2 + t + 1, whose
+    degree over Q is 3 and therefore not a power of two.
+
+    Faces come from the vertex figure (project a vertex's neighbours onto its
+    tangent plane, sort by angle, take consecutive pairs) — no convex-hull
+    code anywhere.  Catalan solids are the polar reciprocal about the
+    midsphere, taken COMBINATORIALLY from the primal, so incidence is exact by
+    construction and dual(dual(S)) returns S vertex for vertex.
+
+    Euclid.  Book XIII.13-17 gives the edge of each Platonic solid inscribed in
+    a sphere of diameter d.  Those five ratios are not typed in: a/d is exactly
+    the seed's distance to its mirror, because an edge is twice that distance
+    and the diameter is twice the radius.  Book IV's plane constructions
+    (I.1, IV.6, IV.11, IV.15) are drawn step by step in "the compass".
+
+  WHAT IS MODELLED
+    Nothing.  There is no model here, only geometry.
+
+  WHAT IS NOT MODELLED
+    Non-convex uniform polyhedra (the Kepler-Poinsot solids and the rest of
+    the 75), the prisms and antiprisms, and the two chiral pairs are drawn in
+    one handedness only.  None of these are claimed.
+
+  VERIFICATION
+    selfTest() runs when there is no document.  Reference values come from
+    build_polyhedra/derive.py (numpy/scipy), which builds every solid by an
+    independent route — a numerical search over seed positions plus scipy's
+    ConvexHull for the faces — and agrees with the closed forms to 2e-14.
+    See build_polyhedra/reference.txt for the full report.
+  ============================================================================
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* palette roles, per the house convention:
+       green   = the solid being constructed (the thing being computed)
+       orange  = its dual (the reference object drawn against it)
+       cyan    = structure: mirrors, spheres, construction lines
+       magenta = the live marker: the seed point and the active vertex   */
+    --face:#b8ec4c; --dual:#e8843a; --mirror:#5ac8e0; --seed:#cd35c4;
+    --sphere:#39404f; --gold:#d8b45a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Platonic &amp; Catalan Solids</h1>
+  <span class="sub" id="sub">eighteen uniform solids and their duals &mdash; every one the orbit of a single point reflected in three mirrors</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function fmtSI(x,unit,n){
+  if(!isFinite(x)) return '—';
+  const a=Math.abs(x);
+  if(a>=1e9)    return fmt(x/1e9,n===undefined?3:n)+' G'+unit;
+  if(a>=1e6)    return fmt(x/1e6,n===undefined?3:n)+' M'+unit;
+  if(a>=1e3)    return fmt(x/1e3,n===undefined?3:n)+' k'+unit;
+  if(a>=1)      return fmt(x,n===undefined?3:n)+' '+unit;
+  if(a>=1e-3)   return fmt(x*1e3,n===undefined?2:n)+' m'+unit;
+  if(a>=1e-6)   return fmt(x*1e6,n===undefined?2:n)+' µ'+unit;
+  return fmt(x*1e9,n===undefined?2:n)+' n'+unit;
+}
+
+/* ================================================================== *
+ *  THE CONSTRUCTION                                                   *
+ *                                                                     *
+ *  Three integers in, eighteen solids out.  Nothing below reads a      *
+ *  table of coordinates; the only inputs are the Coxeter diagrams      *
+ *  (3 3 2), (4 3 2), (5 3 2).                                          *
+ * ================================================================== */
+
+const GEOTOL = 1e-7;
+
+/* --- 3x3 linear algebra, enough for one Cholesky and one inverse --- */
+function chol3(G){
+  /* lower-triangular L with L L^T = G.  The ROWS of L are then a set of
+     vectors with the prescribed pairwise dot products, which is exactly
+     what a Gram matrix of mirror normals asks for. */
+  const L=[[0,0,0],[0,0,0],[0,0,0]];
+  for(let i=0;i<3;i++){
+    for(let j=0;j<=i;j++){
+      let s=G[i][j];
+      for(let k=0;k<j;k++) s-=L[i][k]*L[j][k];
+      if(i===j){
+        if(!(s>0)) throw new Error('chol3: Gram matrix is not positive definite');
+        L[i][j]=Math.sqrt(s);
+      } else {
+        L[i][j]=s/L[j][j];
+      }
+    }
+  }
+  /* Cholesky reads only the lower triangle, so a Gram matrix whose halves
+     disagree would be silently half-ignored — a mutation sweep found exactly
+     that.  Verify the reconstruction against the WHOLE matrix. */
+  for(let i=0;i<3;i++) for(let j=0;j<3;j++){
+    let s=0;
+    for(let k=0;k<3;k++) s+=L[i][k]*L[j][k];
+    if(Math.abs(s-G[i][j])>1e-12)
+      throw new Error('chol3: L L^T does not reproduce G at ('+i+','+j+')');
+  }
+  return L;
+}
+function det3(M){
+  return M[0][0]*(M[1][1]*M[2][2]-M[1][2]*M[2][1])
+       - M[0][1]*(M[1][0]*M[2][2]-M[1][2]*M[2][0])
+       + M[0][2]*(M[1][0]*M[2][1]-M[1][1]*M[2][0]);
+}
+function inv3(M){
+  const d=det3(M);
+  if(Math.abs(d)<1e-14) throw new Error('inv3: singular matrix');
+  const c=[
+    [ (M[1][1]*M[2][2]-M[1][2]*M[2][1]), -(M[0][1]*M[2][2]-M[0][2]*M[2][1]),
+      (M[0][1]*M[1][2]-M[0][2]*M[1][1])],
+    [-(M[1][0]*M[2][2]-M[1][2]*M[2][0]),  (M[0][0]*M[2][2]-M[0][2]*M[2][0]),
+     -(M[0][0]*M[1][2]-M[0][2]*M[1][0])],
+    [ (M[1][0]*M[2][1]-M[1][1]*M[2][0]), -(M[0][0]*M[2][1]-M[0][1]*M[2][0]),
+      (M[0][0]*M[1][1]-M[0][1]*M[1][0])]];
+  return c.map(r=>r.map(x=>x/d));
+}
+function mulMV(M,v){
+  return [M[0][0]*v[0]+M[0][1]*v[1]+M[0][2]*v[2],
+          M[1][0]*v[0]+M[1][1]*v[1]+M[1][2]*v[2],
+          M[2][0]*v[0]+M[2][1]*v[1]+M[2][2]*v[2]];
+}
+
+/* --- the Schwarz triangle ------------------------------------------ *
+   A Coxeter group [p,q] has three generating reflections with
+   (s1 s2)^p = (s2 s3)^q = (s1 s3)^2 = 1.  Inward mirror normals therefore
+   satisfy n_i . n_j = -cos(pi / m_ij), and that Gram matrix is all the
+   information there is.  Cholesky turns it into actual vectors.          */
+function schwarzMirrors(p,q,r){
+  const c=(m)=>-Math.cos(PI/m);
+  const G=[[1,     c(p),  c(r)],
+           [c(p),  1,     c(q)],
+           [c(r),  c(q),  1   ]];
+  return chol3(G);                 /* rows n1,n2,n3 */
+}
+/* the triangle's own corners: mirrors i,j meet in an m_ij-fold axis */
+function schwarzCorners(N){
+  const cor=(a,b,c)=>{
+    let v=v3.norm(v3.cross(N[a],N[b]));
+    if(v3.dot(v,N[c])<0) v=v3.mul(v,-1);
+    return v;
+  };
+  return {A:cor(0,1,2),   /* n1^n2 : the p-fold corner */
+          B:cor(1,2,0),   /* n2^n3 : the q-fold corner */
+          C:cor(2,0,1)};  /* n3^n1 : the 2-fold corner */
+}
+
+/* --- Wythoff's seed ------------------------------------------------- *
+   Reflecting the seed in mirror i moves it 2 (p.n_i), so that is the length
+   of the edge mirror i contributes.  Uniform  <=>  every ACTIVE mirror is
+   the same distance away  <=>  M p = t w  <=>  p = normalise(M^-1 w).
+   w runs over the seven non-empty subsets of {n1,n2,n3}.                */
+function wythoffSeed(N,w){
+  const p=mulMV(inv3(N),w);
+  const l=v3.len(p);
+  if(!(l>1e-12)) throw new Error('wythoffSeed: degenerate seed for w='+w);
+  return v3.mul(p,1/l);
+}
+
+function reflectIn(v,n){ const d=2*v3.dot(v,n); return [v[0]-d*n[0],v[1]-d*n[1],v[2]-d*n[2]]; }
+
+function dedupPts(pts,tol){
+  tol=tol||GEOTOL;
+  const out=[];
+  for(const p of pts){
+    let dup=false;
+    for(const q of out){
+      const dx=p[0]-q[0],dy=p[1]-q[1],dz=p[2]-q[2];
+      if(dx*dx+dy*dy+dz*dz<tol*tol){ dup=true; break; }
+    }
+    if(!dup) out.push(p);
+  }
+  return out;
+}
+
+/* Wythoff's construction proper: reflect until the set closes. */
+function orbitByReflection(N,seed,cap){
+  cap=cap||200;
+  const pts=[seed];
+  for(let head=0; head<pts.length; head++){
+    if(pts.length>cap) throw new Error('orbitByReflection: orbit did not close');
+    for(let k=0;k<3;k++){
+      const r=reflectIn(pts[head],N[k]);
+      let dup=false;
+      for(const q of pts){
+        const dx=r[0]-q[0],dy=r[1]-q[1],dz=r[2]-q[2];
+        if(dx*dx+dy*dy+dz*dz<GEOTOL*GEOTOL){ dup=true; break; }
+      }
+      if(!dup) pts.push(r);
+    }
+  }
+  return pts;
+}
+/* the rotation subgroup: even words only, generated by pairs of mirrors */
+function orbitByRotation(N,seed,cap){
+  cap=cap||200;
+  const gen=[[0,1],[1,2],[2,0]];
+  const pts=[seed];
+  for(let head=0; head<pts.length; head++){
+    if(pts.length>cap) throw new Error('orbitByRotation: orbit did not close');
+    for(const g of gen){
+      const r=reflectIn(reflectIn(pts[head],N[g[0]]),N[g[1]]);
+      let dup=false;
+      for(const q of pts){
+        const dx=r[0]-q[0],dy=r[1]-q[1],dz=r[2]-q[2];
+        if(dx*dx+dy*dy+dz*dz<GEOTOL*GEOTOL){ dup=true; break; }
+      }
+      if(!dup) pts.push(r);
+    }
+  }
+  return pts;
+}
+
+/* --- the snub seed -------------------------------------------------- *
+   A snub vertex has five neighbours, produced by the p-fold, 3-fold and
+   2-fold rotations and the inverses of the first two.  |R P - P| for a
+   rotation of angle th about axis n is 2 sin(th/2) sin(angle from P to n),
+   so all three edge classes agree when
+
+        sin(pi/p) sin a  =  sin(pi/q) sin b  =  sin(pi/2) sin c.
+
+   Two equations, two unknowns; Newton from the incentre.  There is no
+   mirror condition to satisfy and no closed form in square roots — which
+   is exactly why the snubs cannot be built with ruler and compass.        */
+function snubSeed(N,p,q,r){
+  const K=schwarzCorners(N);
+  const A=K.A,B=K.B,C=K.C;
+  const sp=Math.sin(PI/p), sq=Math.sin(PI/q), sr=Math.sin(PI/r);
+  const ang=(u,v)=>Math.acos(clamp(v3.dot(u,v),-1,1));
+  const pt=(u,v)=>v3.norm([u*A[0]+v*B[0]+(1-u-v)*C[0],
+                           u*A[1]+v*B[1]+(1-u-v)*C[1],
+                           u*A[2]+v*B[2]+(1-u-v)*C[2]]);
+  const F=(u,v)=>{
+    const P=pt(u,v);
+    const f1=2*sp*Math.sin(ang(P,A)), f2=2*sq*Math.sin(ang(P,B)),
+          f3=2*sr*Math.sin(ang(P,C));
+    return [f1-f2, f2-f3];
+  };
+  /* start at the incentre — equidistant from all three mirrors */
+  const inc=wythoffSeed(N,[1,1,1]);
+  const solve3=(M,b)=>mulMV(inv3([[M[0][0],M[0][1],0],[M[1][0],M[1][1],0],[0,0,1]]),
+                            [b[0],b[1],0]);
+  let u=v3.dot(inc,A)>0?0.34:0.34, v=0.34;
+  /* barycentric start from the incentre, projected back onto the triangle */
+  const dA=v3.dot(inc,A), dB=v3.dot(inc,B), dC=v3.dot(inc,C);
+  const s=dA+dB+dC; u=dA/s; v=dB/s;
+  const eps=1e-7;
+  let ok=false;
+  for(let it=0; it<80; it++){
+    const f=F(u,v);
+    if(Math.abs(f[0])<1e-15 && Math.abs(f[1])<1e-15){ ok=true; break; }
+    const fu=F(u+eps,v), fv=F(u,v+eps);
+    const J=[[(fu[0]-f[0])/eps,(fv[0]-f[0])/eps],
+             [(fu[1]-f[1])/eps,(fv[1]-f[1])/eps]];
+    const d=J[0][0]*J[1][1]-J[0][1]*J[1][0];
+    if(Math.abs(d)<1e-14) break;
+    const du=( J[1][1]*f[0]-J[0][1]*f[1])/d;
+    const dv=(-J[1][0]*f[0]+J[0][0]*f[1])/d;
+    let step=1.0;
+    /* damp so the iterate cannot leave the triangle */
+    while(step>1e-6 && (u-step*du<0 || v-step*dv<0 || (u-step*du)+(v-step*dv)>1)) step*=0.5;
+    u-=step*du; v-=step*dv;
+    if(Math.abs(step*du)<1e-16 && Math.abs(step*dv)<1e-16){ ok=true; break; }
+  }
+  const f=F(u,v);
+  if(!(Math.abs(f[0])<1e-12 && Math.abs(f[1])<1e-12))
+    throw new Error('snubSeed: Newton did not converge (residual '
+                    +f[0].toExponential(2)+', '+f[1].toExponential(2)+')');
+  return pt(u,v);
+}
+
+/* --- faces from the vertex figure ----------------------------------- *
+   No convex hull.  For a convex solid with all vertices on a sphere and all
+   edges equal, project a vertex's neighbours onto its tangent plane and sort
+   by angle: consecutive neighbours span a face with it.                   */
+function cyclicOrder(pts,normal,origin){
+  const nn=v3.norm(normal);
+  const flat=p=>{ const d=v3.sub(p,origin); return v3.sub(d,v3.mul(nn,v3.dot(d,nn))); };
+  let ref=null;
+  for(const p of pts){ const f=flat(p); if(v3.len(f)>1e-9){ ref=v3.norm(f); break; } }
+  if(!ref) throw new Error('cyclicOrder: all points project to the origin');
+  const perp=v3.cross(nn,ref);
+  const idx=pts.map((p,i)=>i);
+  const ang=pts.map(p=>{ const f=flat(p); return Math.atan2(v3.dot(f,perp),v3.dot(f,ref)); });
+  idx.sort((a,b)=>ang[a]-ang[b]);
+  return idx;
+}
+function facesOf(V){
+  const n=V.length;
+  let dmin=Infinity;
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+    const d=v3.len(v3.sub(V[i],V[j])); if(d<dmin) dmin=d;
+  }
+  const nb=[];
+  for(let i=0;i<n;i++){
+    const a=[];
+    for(let j=0;j<n;j++) if(j!==i && v3.len(v3.sub(V[i],V[j]))<dmin*(1+1e-6)) a.push(j);
+    if(a.length<3) throw new Error('facesOf: vertex '+i+' has degree '+a.length);
+    nb.push(a);
+  }
+  const seen={}, faces=[];
+  for(let i=0;i<n;i++){
+    const ord=cyclicOrder(nb[i].map(j=>V[j]), V[i], V[i]);
+    const ns=ord.map(k=>nb[i][k]);
+    for(let k=0;k<ns.length;k++){
+      const a=ns[k], b=ns[(k+1)%ns.length];
+      let nrm=v3.cross(v3.sub(V[a],V[i]), v3.sub(V[b],V[i]));
+      if(v3.len(nrm)<1e-12) continue;
+      nrm=v3.norm(nrm);
+      let off=v3.dot(nrm,V[i]);
+      if(off<0){ nrm=v3.mul(nrm,-1); off=-off; }
+      const on=[];
+      for(let j=0;j<n;j++) if(Math.abs(v3.dot(nrm,V[j])-off)<1e-7) on.push(j);
+      if(on.length<3) continue;
+      const key=on.join(',');
+      if(seen[key]) continue;
+      seen[key]=1;
+      const cen=centroidOf(on.map(j=>V[j]));
+      const o2=cyclicOrder(on.map(j=>V[j]), nrm, cen);
+      faces.push(o2.map(t=>on[t]));
+    }
+  }
+  return faces;
+}
+function centroidOf(pts){
+  const s=[0,0,0];
+  for(const p of pts){ s[0]+=p[0]; s[1]+=p[1]; s[2]+=p[2]; }
+  return [s[0]/pts.length, s[1]/pts.length, s[2]/pts.length];
+}
+function facePlane(V,f){
+  const pts=f.map(i=>V[i]);
+  const cen=centroidOf(pts);
+  let n=v3.cross(v3.sub(pts[1],pts[0]), v3.sub(pts[2],pts[0]));
+  n=v3.norm(n);
+  if(v3.dot(n,cen)<0) n=v3.mul(n,-1);
+  return {n:n, d:v3.dot(n,pts[0]), c:cen};
+}
+
+/* --- duality -------------------------------------------------------- *
+   Polar reciprocation about the midsphere: a face plane (n,d) becomes the
+   vertex (r^2/d) n.  The COMBINATORICS come from the primal — one dual face
+   per primal vertex — so incidence is exact and no hull is needed.        */
+function dualOf(V,F,rm){
+  const DV=F.map(f=>{ const pl=facePlane(V,f); return v3.mul(pl.n, rm*rm/pl.d); });
+  const DF=[];
+  for(let i=0;i<V.length;i++){
+    const inc=[];
+    for(let k=0;k<F.length;k++) if(F[k].indexOf(i)>=0) inc.push(k);
+    if(inc.length<3) throw new Error('dualOf: vertex '+i+' meets '+inc.length+' faces');
+    const cen=centroidOf(inc.map(k=>DV[k]));
+    const ord=cyclicOrder(inc.map(k=>DV[k]), v3.norm(V[i]), cen);
+    DF.push(ord.map(t=>inc[t]));
+  }
+  return {V:DV, F:DF};
+}
+
+/* --- measurement ---------------------------------------------------- */
+function edgesOf(F){
+  const seen={}, out=[];
+  for(const f of F) for(let i=0;i<f.length;i++){
+    const a=f[i], b=f[(i+1)%f.length];
+    const k=Math.min(a,b)+','+Math.max(a,b);
+    if(!seen[k]){ seen[k]=1; out.push([Math.min(a,b),Math.max(a,b)]); }
+  }
+  return out;
+}
+function spanOf(a){ let lo=Infinity,hi=-Infinity; for(const x of a){ if(x<lo)lo=x; if(x>hi)hi=x; } return hi-lo; }
+function meanOf(a){ let s=0; for(const x of a) s+=x; return s/a.length; }
+
+function analyse(V,F){
+  const E=edgesOf(F);
+  const el=E.map(e=>v3.len(v3.sub(V[e[0]],V[e[1]])));
+  const R=V.map(v=>v3.len(v));
+  const rin=F.map(f=>facePlane(V,f).d);
+  /* midradius: closest approach of each edge to the centre */
+  const rmid=E.map(e=>{
+    const a=V[e[0]], d=v3.sub(V[e[1]],a);
+    let t=-v3.dot(a,d)/v3.dot(d,d);
+    t=clamp(t,0,1);
+    return v3.len(v3.add(a,v3.mul(d,t)));
+  });
+  /* dihedral across every edge */
+  const owner={};
+  F.forEach((f,fi)=>{ for(let i=0;i<f.length;i++){
+    const a=f[i], b=f[(i+1)%f.length];
+    const k=Math.min(a,b)+','+Math.max(a,b);
+    (owner[k]=owner[k]||[]).push(fi);
+  }});
+  const dih=E.map(e=>{
+    const fs=owner[e[0]+','+e[1]];
+    const n1=facePlane(V,F[fs[0]]).n, n2=facePlane(V,F[fs[1]]).n;
+    return PI-Math.acos(clamp(v3.dot(n1,n2),-1,1));
+  });
+  /* volume and area by the divergence theorem, fanned from each centroid */
+  let vol=0, area=0;
+  for(const f of F){
+    const pl=facePlane(V,f);
+    let a=0;
+    for(let i=0;i<f.length;i++){
+      const p=v3.sub(V[f[i]],pl.c), q=v3.sub(V[f[(i+1)%f.length]],pl.c);
+      a+=0.5*v3.dot(pl.n, v3.cross(p,q));
+    }
+    area+=a; vol+=a*pl.d/3;
+  }
+  /* Descartes: the angle defect at every vertex sums to 4 pi */
+  const sub=V.map(()=>0);
+  for(const f of F) for(let i=0;i<f.length;i++){
+    const v=f[i], a=f[(i-1+f.length)%f.length], b=f[(i+1)%f.length];
+    const u1=v3.norm(v3.sub(V[a],V[v])), u2=v3.norm(v3.sub(V[b],V[v]));
+    sub[v]+=Math.acos(clamp(v3.dot(u1,u2),-1,1));
+  }
+  const defect=sub.map(s=>TAU-s);
+  /* face census and vertex configurations */
+  const fv={};
+  for(const f of F) fv[f.length]=(fv[f.length]||0)+1;
+  const vconf=V.map((v,i)=>{
+    const inc=F.filter(f=>f.indexOf(i)>=0);
+    const cen=inc.map(f=>centroidOf(f.map(j=>V[j])));
+    const ord=cyclicOrder(cen, v, v);
+    const seq=ord.map(k=>inc[k].length);
+    /* canonical form: smallest rotation/reflection compared NUMERICALLY.
+       Comparing the joined strings instead puts "10" before "3" and prints
+       a decagonal vertex as 10.10.3 rather than 3.10.10. */
+    const cmp=(a,b)=>{ for(let i=0;i<a.length;i++){ if(a[i]!==b[i]) return a[i]-b[i]; } return 0; };
+    let best=null;
+    for(const s of [seq, seq.slice().reverse()])
+      for(let j=0;j<s.length;j++){
+        const rot=s.slice(j).concat(s.slice(0,j));
+        if(best===null||cmp(rot,best)<0) best=rot;
+      }
+    return best.join('.');
+  });
+  const uv={}; for(const c of vconf) uv[c]=1;
+  return {
+    V:V, F:F, E:E,
+    nV:V.length, nE:E.length, nF:F.length,
+    chi:V.length-E.length+F.length,
+    edge:meanOf(el), edgeSpread:spanOf(el),
+    R:meanOf(R), Rspread:spanOf(R),
+    rmid:meanOf(rmid), rmidSpread:spanOf(rmid),
+    rin:meanOf(rin), rinSpread:spanOf(rin),
+    dih:dih, dihMean:meanOf(dih), dihSpread:spanOf(dih),
+    vol:vol, area:area,
+    defect:defect, defectSum:defect.reduce((a,b)=>a+b,0),
+    faceVec:fv, vconf:Object.keys(uv).sort(),
+    regular:facesAllRegular(V,F),
+  };
+}
+function facesAllRegular(V,F,tol){
+  tol=tol||1e-7;
+  for(const f of F){
+    const pts=f.map(i=>V[i]);
+    const cen=centroidOf(pts);
+    const rr=pts.map(p=>v3.len(v3.sub(p,cen)));
+    const ee=pts.map((p,i)=>v3.len(v3.sub(p,pts[(i+1)%pts.length])));
+    if(spanOf(rr)>tol*Math.max(1,meanOf(rr))) return false;
+    if(spanOf(ee)>tol*Math.max(1,meanOf(ee))) return false;
+  }
+  return true;
+}
+function scaleToEdge(V,F,a){
+  const E=edgesOf(F);
+  const s=(a===undefined?1:a)/meanOf(E.map(e=>v3.len(v3.sub(V[e[0]],V[e[1]]))));
+  return V.map(v=>v3.mul(v,s));
+}
+
+/* ================================================================== *
+ *  THE CATALOGUE                                                      *
+ *  Three Coxeter diagrams x seven mirror subsets, plus two snubs.      *
+ *  Names are attached to (group, subset) pairs; every one is printed   *
+ *  on screen beside its face census, so the naming can be checked      *
+ *  against the drawing rather than taken on trust.                     *
+ * ================================================================== */
+const GROUPS={
+  tet:{key:'tet', p:3, q:3, r:2, coxeter:'[3,3]', order:24, rot:12,
+       name:'tetrahedral', sym:'T<sub>d</sub>'},
+  oct:{key:'oct', p:4, q:3, r:2, coxeter:'[4,3]', order:48, rot:24,
+       name:'octahedral',  sym:'O<sub>h</sub>'},
+  ico:{key:'ico', p:5, q:3, r:2, coxeter:'[5,3]', order:120, rot:60,
+       name:'icosahedral', sym:'I<sub>h</sub>'},
+};
+const WSUBSETS=[[1,0,0],[0,1,0],[0,0,1],[1,1,0],[0,1,1],[1,0,1],[1,1,1]];
+
+/* canonical source for each named solid: [group, w] or [group,'snub'] */
+const CATALOGUE=[
+  /* --- Platonic ------------------------------------------------- */
+  {name:'tetrahedron',   fam:'platonic', g:'tet', w:[1,0,0], schlafli:'{3,3}',
+   dual:'tetrahedron', euclid:'XIII.13', euclidSays:'d&sup2; = 3/2 a&sup2;', euclidVal:1.5},
+  {name:'cube',          fam:'platonic', g:'oct', w:[1,0,0], schlafli:'{4,3}',
+   dual:'octahedron', euclid:'XIII.15', euclidSays:'d&sup2; = 3 a&sup2;', euclidVal:3},
+  {name:'octahedron',    fam:'platonic', g:'oct', w:[0,0,1], schlafli:'{3,4}',
+   dual:'cube', euclid:'XIII.14', euclidSays:'d&sup2; = 2 a&sup2;', euclidVal:2},
+  {name:'dodecahedron',  fam:'platonic', g:'ico', w:[1,0,0], schlafli:'{5,3}',
+   dual:'icosahedron', euclid:'XIII.17', euclidSays:'the edge is an apotome', euclidVal:null},
+  {name:'icosahedron',   fam:'platonic', g:'ico', w:[0,0,1], schlafli:'{3,5}',
+   dual:'dodecahedron', euclid:'XIII.16', euclidSays:'the edge is a minor', euclidVal:null},
+  /* --- Archimedean ---------------------------------------------- */
+  {name:'truncated tetrahedron',      fam:'arch', g:'tet', w:[1,1,0], dual:'triakis tetrahedron'},
+  {name:'cuboctahedron',              fam:'arch', g:'oct', w:[0,1,0], dual:'rhombic dodecahedron'},
+  {name:'truncated cube',             fam:'arch', g:'oct', w:[1,1,0], dual:'triakis octahedron'},
+  {name:'truncated octahedron',       fam:'arch', g:'oct', w:[0,1,1], dual:'tetrakis hexahedron'},
+  {name:'rhombicuboctahedron',        fam:'arch', g:'oct', w:[1,0,1], dual:'deltoidal icositetrahedron'},
+  {name:'truncated cuboctahedron',    fam:'arch', g:'oct', w:[1,1,1], dual:'disdyakis dodecahedron'},
+  {name:'snub cube',                  fam:'arch', g:'oct', w:'snub',  dual:'pentagonal icositetrahedron'},
+  {name:'icosidodecahedron',          fam:'arch', g:'ico', w:[0,1,0], dual:'rhombic triacontahedron'},
+  {name:'truncated dodecahedron',     fam:'arch', g:'ico', w:[1,1,0], dual:'triakis icosahedron'},
+  {name:'truncated icosahedron',      fam:'arch', g:'ico', w:[0,1,1], dual:'pentakis dodecahedron'},
+  {name:'rhombicosidodecahedron',     fam:'arch', g:'ico', w:[1,0,1], dual:'deltoidal hexecontahedron'},
+  {name:'truncated icosidodecahedron',fam:'arch', g:'ico', w:[1,1,1], dual:'disdyakis triacontahedron'},
+  {name:'snub dodecahedron',          fam:'arch', g:'ico', w:'snub',  dual:'pentagonal hexecontahedron'},
+];
+
+/* the tetrahedral group's seven subsets collapse onto solids that also
+   belong to the other two groups — worth stating, because it is why 21
+   constructions give only 16 non-snub solids */
+const COINCIDENCES=[
+  ['tet',[0,1,0],'octahedron',           'the rectified tetrahedron IS the octahedron'],
+  ['tet',[0,0,1],'tetrahedron',          'the two tetrahedra of the dual pair'],
+  ['tet',[1,0,1],'cuboctahedron',        'the cantellated tetrahedron IS the cuboctahedron'],
+  ['tet',[1,1,1],'truncated octahedron', 'the omnitruncated tetrahedron IS the truncated octahedron'],
+  ['tet','snub', 'icosahedron',          'the snub tetrahedron IS the icosahedron'],
+];
+
+/* Catalan face shapes, derived from the built dual rather than declared:
+   this table only carries the NAME, everything measurable is computed. */
+const CATALAN_OF={};
+CATALOGUE.forEach(c=>{ if(c.fam!=='platonic') CATALAN_OF[c.dual]=c.name; });
+
+/* --- build one solid, memoised ------------------------------------- */
+const _solidCache={};
+function buildSolid(name){
+  if(_solidCache[name]) return _solidCache[name];
+  const spec=CATALOGUE.filter(c=>c.name===name)[0];
+  if(!spec) throw new Error('buildSolid: unknown solid "'+name+'"');
+  const G=GROUPS[spec.g];
+  const N=schwarzMirrors(G.p,G.q,G.r);
+  let seed, V;
+  if(spec.w==='snub'){
+    seed=snubSeed(N,G.p,G.q,G.r);
+    V=orbitByRotation(N,seed);
+  } else {
+    seed=wythoffSeed(N,spec.w);
+    V=orbitByReflection(N,seed);
+  }
+  const F=facesOf(V);
+  const Vu=scaleToEdge(V,F,1);
+  const A=analyse(Vu,F);
+  A.name=name; A.spec=spec; A.group=G; A.seed=seed; A.mirrors=N;
+  A.corners=schwarzCorners(N);
+  /* a/d: the seed's distance to its mirror, which is exactly Euclid's ratio */
+  A.edgeOverDiam=A.edge/(2*A.R);
+  _solidCache[name]=A;
+  return A;
+}
+function buildDual(name){
+  const key='dual:'+name;
+  if(_solidCache[key]) return _solidCache[key];
+  const S=buildSolid(name);
+  const D=dualOf(S.V,S.F,S.rmid);
+  const Du=scaleToEdge(D.V,D.F,1);
+  const A=analyse(Du,D.F);
+  A.name=CATALOGUE.filter(c=>c.name===name)[0].dual;
+  A.primal=name;
+  A.faceShape=catalanFaceShape(A);
+  _solidCache[key]=A;
+  return A;
+}
+/* the face shape is MEASURED off the built dual, not looked up.  Equal edges
+   alone do not make a polygon regular — a rhombus has four equal edges — so
+   the vertices must also be equidistant from the face centroid, or the duals
+   of the Platonic solids come back labelled "rhombus" instead of "square". */
+function catalanFaceShape(A){
+  const f=A.F[0];
+  const pts=f.map(i=>A.V[i]);
+  const el=pts.map((p,i)=>v3.len(v3.sub(p,pts[(i+1)%pts.length])));
+  const cen=centroidOf(pts);
+  const rr=pts.map(p=>v3.len(v3.sub(p,cen)));
+  const distinct=[];
+  for(const x of el.map(y=>Math.round(y*1e8)/1e8))
+    if(distinct.indexOf(x)<0) distinct.push(x);
+  const equilateral=distinct.length===1;
+  const regular=equilateral && spanOf(rr)<1e-8*Math.max(1,meanOf(rr));
+  if(f.length===3) return regular?'equilateral triangle'
+                        :distinct.length===2?'isosceles triangle':'scalene triangle';
+  if(f.length===4) return regular?'square':equilateral?'rhombus':'kite';
+  if(f.length===5) return regular?'regular pentagon':'irregular pentagon';
+  return (regular?'regular ':'')+f.length+'-gon';
+}
+
+/* ================================================================== *
+ *  THE PLANE CONSTRUCTIONS — Euclid, Book IV                          *
+ *                                                                     *
+ *  Every face of every solid in this file is a regular 3-, 4-, 5-, 6-, *
+ *  8- or 10-gon, and Euclid builds all of them with ruler and compass  *
+ *  alone.  The step lists below are the actual constructions; the      *
+ *  vertices they produce are asserted against cos/sin(2 pi k / n) to   *
+ *  machine precision, so a wrong step fails the suite rather than      *
+ *  merely looking wrong.                                              *
+ *                                                                     *
+ *  Coordinates are in a unit circle centred at the origin.            *
+ * ================================================================== */
+
+const SQ3=Math.sqrt(3), SQ5=Math.sqrt(5), PHI=(1+Math.sqrt(5))/2;
+
+function ptOnCircle(k,n){ return [Math.cos(TAU*k/n), Math.sin(TAU*k/n)]; }
+
+/* Gauss-Wantzel: a regular n-gon is constructible exactly when n is a power
+   of two times a product of DISTINCT Fermat primes (3, 5, 17, 257, 65537). */
+const FERMAT_PRIMES=[3,5,17,257,65537];
+function constructibleNGon(n){
+  if(n<3) return false;
+  let m=n;
+  while(m%2===0) m/=2;
+  if(m===1) return true;
+  for(const f of FERMAT_PRIMES) if(m%f===0) m/=f;
+  /* No repeated-prime guard is needed: dividing out ONE copy of each Fermat
+     prime leaves m > 1 whenever a square divides n, and the final test
+     rejects it.  A guard here was dead code, and the sweep proved it. */
+  return m===1;
+}
+
+function CON_hexagon(){
+  const P=[]; for(let k=0;k<6;k++) P.push(ptOnCircle(k,6));
+  const steps=[
+    {say:'The given circle, centre O. Mark any point A on it.',
+     draw:[{k:'circle',c:[0,0],r:1,col:'mirror'},{k:'pt',p:[1,0],name:'A'}]},
+    {say:'Circle of the same radius, centred A. Euclid IV.15: the radius is '
+        +'a chord of sixty degrees, so it cuts the circle at two vertices.',
+     draw:[{k:'circle',c:P[0],r:1,col:'gold'},{k:'pt',p:P[1]},{k:'pt',p:P[5]}]},
+    {say:'Step the same radius on again, from the vertex just found.',
+     draw:[{k:'circle',c:P[1],r:1,col:'gold'},{k:'pt',p:P[2]}]},
+    {say:'And again. The sixth step lands back on A, which is the proof '
+        +'that the radius divides the circumference into exactly six.',
+     draw:[{k:'circle',c:P[2],r:1,col:'gold'},{k:'pt',p:P[3]},
+           {k:'circle',c:P[3],r:1,col:'gold'},{k:'pt',p:P[4]}]},
+    {say:'Join them: the regular hexagon.',
+     draw:[{k:'poly',pts:P}]},
+  ];
+  return {n:6, prop:'IV.15', steps:steps, verts:P, start:[1,0],
+          note:'The hexagon is the one case where the side equals the radius.'};
+}
+
+function CON_triangle(){
+  const H=[]; for(let k=0;k<6;k++) H.push(ptOnCircle(k,6));
+  const P=[H[0],H[2],H[4]];
+  const steps=[
+    {say:'The given circle, centre O, and a point A on it.',
+     draw:[{k:'circle',c:[0,0],r:1,col:'mirror'},{k:'pt',p:[1,0],name:'A'}]},
+    {say:'Step the radius round the circle, as for the hexagon (IV.15).',
+     draw:[{k:'circle',c:H[0],r:1,col:'gold'},{k:'pt',p:H[1]},{k:'pt',p:H[5]},
+           {k:'circle',c:H[1],r:1,col:'gold'},{k:'pt',p:H[2]},
+           {k:'circle',c:H[2],r:1,col:'gold'},{k:'pt',p:H[3]},
+           {k:'circle',c:H[3],r:1,col:'gold'},{k:'pt',p:H[4]}]},
+    {say:'Take every second point. Euclid IV.2 builds the triangle directly; '
+        +'bisecting the hexagon is the same figure seen twice.',
+     draw:[{k:'pt',p:P[0],hi:1},{k:'pt',p:P[1],hi:1},{k:'pt',p:P[2],hi:1}]},
+    {say:'Join them: the equilateral triangle.',
+     draw:[{k:'poly',pts:P}]},
+  ];
+  return {n:3, prop:'IV.2', steps:steps, verts:P, start:[1,0],
+          note:'Alternate vertices of the hexagon. Euclid I.1 &mdash; the very '
+              +'first proposition of the Elements &mdash; is the same idea on a '
+              +'given segment rather than in a given circle.'};
+}
+
+function CON_square(){
+  const P=[[1,0],[0,1],[-1,0],[0,-1]];
+  const steps=[
+    {say:'The given circle and a diameter through A.',
+     draw:[{k:'circle',c:[0,0],r:1,col:'mirror'},
+           {k:'seg',a:[-1,0],b:[1,0],col:'mirror'},
+           {k:'pt',p:[1,0],name:'A'},{k:'pt',p:[-1,0],name:'A&prime;'}]},
+    {say:'To raise the perpendicular, strike equal arcs from both ends of the '
+        +'diameter &mdash; any radius greater than half of it will do; here the '
+        +'diameter itself.',
+     draw:[{k:'circle',c:[1,0],r:2,col:'gold'},{k:'circle',c:[-1,0],r:2,col:'gold'},
+           {k:'pt',p:[0,SQ3]},{k:'pt',p:[0,-SQ3]}]},
+    {say:'The line through the two crossings is the perpendicular bisector; it '
+        +'meets the circle at the other two vertices.',
+     draw:[{k:'seg',a:[0,-SQ3],b:[0,SQ3],col:'mirror'},
+           {k:'pt',p:[0,1],hi:1},{k:'pt',p:[0,-1],hi:1}]},
+    {say:'Join them: the square (Euclid IV.6).',
+     draw:[{k:'poly',pts:P}]},
+  ];
+  return {n:4, prop:'IV.6', steps:steps, verts:P, start:[1,0],
+          note:'Two perpendicular diameters. Every further bisection doubles '
+              +'the count, which is why 8, 16, 32 &hellip; come free.'};
+}
+
+function CON_octagon(){
+  const s=Math.SQRT1_2;
+  const P=[]; for(let k=0;k<8;k++) P.push(ptOnCircle(k,8));
+  const steps=[
+    {say:'Start from the square of IV.6.',
+     draw:[{k:'circle',c:[0,0],r:1,col:'mirror'},
+           {k:'poly',pts:[[1,0],[0,1],[-1,0],[0,-1]],col:'mirror',thin:1}]},
+    {say:'Bisect one of its arcs: equal arcs from the two ends of a side cross '
+        +'on the bisector of that side.',
+     draw:[{k:'circle',c:[1,0],r:1,col:'gold'},{k:'circle',c:[0,1],r:1,col:'gold'},
+           {k:'pt',p:[0,0]},{k:'pt',p:[1,1]}]},
+    {say:'The bisector meets the circle at the new vertex. Repeat on each side.',
+     draw:[{k:'seg',a:[0,0],b:[1,1],col:'mirror'},
+           {k:'pt',p:[s,s],hi:1},{k:'pt',p:[-s,s],hi:1},
+           {k:'pt',p:[-s,-s],hi:1},{k:'pt',p:[s,-s],hi:1}]},
+    {say:'Join them: the regular octagon, the face of the truncated cube.',
+     draw:[{k:'poly',pts:P}]},
+  ];
+  return {n:8, prop:'IV.6 + III.30', steps:steps, verts:P, start:[1,0],
+          note:'Bisecting an arc is III.30; doubling any constructible polygon '
+              +'is therefore always possible.'};
+}
+
+function CON_pentagon(){
+  const M=[0.5,0], N=[0,1];
+  /* DERIVE the compass opening from M and N rather than writing sqrt(5)/2:
+     with the radius hard-coded, moving M left the drawn circle no longer
+     passing through either N or Q while every number stayed right, and the
+     suite could not see it.  Same family as a quantity computed twice. */
+  const rMN=v2len([N[0]-M[0],N[1]-M[1]]);    /* |MN| = sqrt(5)/2         */
+  const Q=[M[0]-rMN,0];                      /* |OQ| = 1/phi, the decagon side */
+  const side=v2len([N[0]-Q[0],N[1]-Q[1]]);   /* |NQ| = the pentagon side */
+  /* the construction steps NQ round the circle STARTING AT N, so the first
+     vertex must be N itself: a quarter turn is 90/72 = 1.25 fifths, not 0.25. */
+  const P=[]; for(let k=0;k<5;k++) P.push(ptOnCircle(k+1.25,5));
+  const steps=[
+    {say:'The given circle, a diameter, and the radius perpendicular to it '
+        +'(both by IV.6). Call the top point N.',
+     draw:[{k:'circle',c:[0,0],r:1,col:'mirror'},
+           {k:'seg',a:[-1,0],b:[1,0],col:'mirror'},
+           {k:'seg',a:[0,-1],b:[0,1],col:'mirror'},
+           {k:'pt',p:N,name:'N'},{k:'pt',p:[1,0],name:'A'}]},
+    {say:'Bisect the radius OA at M. This is the one step that makes the '
+        +'pentagon possible and the heptagon impossible.',
+     draw:[{k:'circle',c:[1,0],r:1,col:'gold'},{k:'circle',c:[0,0],r:1,col:'gold'},
+           {k:'pt',p:M,name:'M'}]},
+    {say:'Circle centred M through N. It crosses the diameter at Q, and OQ is '
+        +'the golden section of the radius: OQ = 1/&phi; = (&radic;5 &minus; 1)/2.',
+     draw:[{k:'circle',c:M,r:rMN,col:'gold'},{k:'pt',p:Q,name:'Q'},
+           {k:'seg',a:[0,0],b:Q,col:'seed',thick:1}]},
+    {say:'NQ is the side of the pentagon; OQ is the side of the decagon. '
+        +'One circle yields both.',
+     draw:[{k:'seg',a:N,b:Q,col:'face',thick:1},
+           {k:'lbl',p:[(N[0]+Q[0])/2,(N[1]+Q[1])/2+0.07],t:'NQ = the side'}]},
+    {say:'Step NQ round the circle from N, five times.',
+     draw:[{k:'circle',c:P[0],r:side,col:'gold'},{k:'pt',p:P[1],hi:1},
+           {k:'circle',c:P[1],r:side,col:'gold'},{k:'pt',p:P[2],hi:1},
+           {k:'circle',c:P[2],r:side,col:'gold'},{k:'pt',p:P[3],hi:1},
+           {k:'circle',c:P[3],r:side,col:'gold'},{k:'pt',p:P[4],hi:1}]},
+    {say:'Join them: the regular pentagon (Euclid IV.11).',
+     draw:[{k:'poly',pts:P}]},
+  ];
+  return {n:5, prop:'IV.11', steps:steps, verts:P, start:N, side:side, decagon:v2len(Q),
+          note:'The pentagon needs the golden section, which is II.11 / VI.30 '
+              +'&mdash; a quadratic, and so within reach of the compass.'};
+}
+
+function CON_decagon(){
+  const M=[0.5,0], N=[0,1];
+  const rMN=v2len([N[0]-M[0],N[1]-M[1]]), Q=[M[0]-rMN,0];
+  const side=v2len(Q);                       /* 1/phi */
+  const P=[]; for(let k=0;k<10;k++) P.push(ptOnCircle(k,10));
+  const steps=[
+    {say:'The pentagon construction again, as far as the point Q.',
+     draw:[{k:'circle',c:[0,0],r:1,col:'mirror'},
+           {k:'seg',a:[-1,0],b:[1,0],col:'mirror'},
+           {k:'seg',a:[0,-1],b:[0,1],col:'mirror'},
+           {k:'pt',p:M,name:'M'},{k:'circle',c:M,r:rMN,col:'gold'},
+           {k:'pt',p:Q,name:'Q'}]},
+    {say:'OQ itself &mdash; the golden section of the radius &mdash; is the side '
+        +'of the decagon. XIII.9: the sides of the hexagon and the decagon '
+        +'together are cut in extreme and mean ratio.',
+     draw:[{k:'seg',a:[0,0],b:Q,col:'seed',thick:1},
+           {k:'lbl',p:[Q[0]/2,0.09],t:'OQ = 1/&phi;'}]},
+    {say:'Step OQ round the circle ten times.',
+     draw:P.slice(0,9).map((p,i)=>({k:'circle',c:p,r:side,col:'gold'}))
+            .concat(P.map(p=>({k:'pt',p:p,hi:1})))},
+    {say:'Join them: the regular decagon, the face of the truncated dodecahedron.',
+     draw:[{k:'poly',pts:P}]},
+  ];
+  return {n:10, prop:'IV.11 + XIII.9', steps:steps, verts:P, start:[1,0],
+          note:'The decagon side is the radius divided by &phi;, exactly.'};
+}
+
+function CON_heptagon(){
+  const P=[]; for(let k=0;k<7;k++) P.push(ptOnCircle(k,7));
+  const steps=[
+    {say:'The given circle and a point A on it.',
+     draw:[{k:'circle',c:[0,0],r:1,col:'mirror'},{k:'pt',p:[1,0],name:'A'}]},
+    {say:'There is no second step. cos(2&pi;/7) is a root of '
+        +'8x&sup3; + 4x&sup2; &minus; 4x &minus; 1, which has no rational root, '
+        +'so it is irreducible and the degree is 3.',
+     draw:[]},
+    {say:'Ruler and compass can only reach degrees that are powers of two, '
+        +'because every step solves at worst a quadratic. Three is not one, '
+        +'so the heptagon cannot be constructed &mdash; Gauss and Wantzel.',
+     draw:[{k:'poly',pts:P,col:'dual',dash:1}]},
+    {say:'No uniform polyhedron has a heptagonal face, so nothing in this file '
+        +'is lost. The faces that do occur are 3, 4, 5, 6, 8 and 10 &mdash; '
+        +'every one constructible.',
+     draw:[{k:'poly',pts:P,col:'dual',dash:1}]},
+  ];
+  return {n:7, prop:'impossible', steps:steps, verts:P, start:[1,0], impossible:1,
+          note:'7 is prime but not a Fermat prime.'};
+}
+
+function v2len(p){ return Math.sqrt(p[0]*p[0]+p[1]*p[1]); }
+
+/* How far from the origin the construction actually reaches.  Compass arcs
+   swing much wider than the figure they produce — the square's are struck at
+   radius 2 from centres a unit out, so they reach 3 — and fitting the picture
+   to the unit circle instead pushed those arcs off the canvas and under the
+   readout panel.  Fit each drawing to the structure it actually contains. */
+function conExtent(C){
+  let e=1;
+  for(const s of C.steps) for(const d of (s.draw||[])){
+    if(d.k==='circle') e=Math.max(e, v2len(d.c)+d.r);
+    else if(d.k==='seg') e=Math.max(e, v2len(d.a), v2len(d.b));
+    else if(d.k==='pt')  e=Math.max(e, v2len(d.p));
+    else if(d.k==='lbl') e=Math.max(e, v2len(d.p));
+    else if(d.k==='poly') for(const p of d.pts) e=Math.max(e, v2len(p));
+  }
+  return e;
+}
+
+const CONSTRUCTIONS={3:CON_triangle, 4:CON_square, 5:CON_pentagon,
+                     6:CON_hexagon, 7:CON_heptagon, 8:CON_octagon,
+                     10:CON_decagon};
+const _conCache={};
+function construction(n){
+  if(!_conCache[n]){
+    if(!CONSTRUCTIONS[n]) throw new Error('construction: no construction for n='+n);
+    _conCache[n]=CONSTRUCTIONS[n]();
+  }
+  return _conCache[n];
+}
+
+/* which solids in the catalogue actually use an n-gon as a face */
+function solidsWithFace(n){
+  const out=[];
+  for(const c of CATALOGUE){
+    const S=buildSolid(c.name);
+    if(S.faceVec[n]) out.push(c.name);
+  }
+  return out;
+}
+/* the complete face census across every uniform solid in the file */
+function allFaceSizes(){
+  const s={};
+  for(const c of CATALOGUE){
+    const S=buildSolid(c.name);
+    for(const k in S.faceVec) s[+k]=1;
+  }
+  return Object.keys(s).map(Number).sort((a,b)=>a-b);
+}
+
+/* ================================================================== *
+ *  STATE, MODEL, READOUT, EQUATION BAR                                *
+ * ================================================================== */
+
+const VIEWS=['compass','five','mirrors','arch','duality','catalan'];
+const VLABEL={compass:'the compass', five:'the five', mirrors:'the mirrors',
+              arch:'the archimedeans', duality:'duality', catalan:'the catalans'};
+
+const PLATONIC=['tetrahedron','cube','octahedron','dodecahedron','icosahedron'];
+const ARCH=CATALOGUE.filter(c=>c.fam==='arch').map(c=>c.name);
+const CATALANS=CATALOGUE.filter(c=>c.fam==='arch').map(c=>c.dual);
+const NGONS=[3,4,5,6,7,8,10];
+
+const DEFAULTS={
+  view:'five',
+  /* the compass */
+  ngon:5, step:99,
+  /* the five */
+  plat:'dodecahedron', showSphere:true, showEuclid:true,
+  /* the mirrors */
+  group:'ico', wsub:0, snub:false, freeSeed:false, seedU:0.45, seedV:0.30,
+  showMirrors:true, showTriangle:true, showSeed:true, showOrbit:true,
+  /* the archimedeans */
+  arch:'truncated icosahedron',
+  /* duality */
+  dualPair:'cuboctahedron', morph:0.5, showMid:true,
+  /* the catalans */
+  cat:'rhombic triacontahedron',
+  /* shared */
+  faces:true, wire:true, labels:false, spin:false, zoom:1,
+};
+
+/* The default camera must not look down a symmetry axis: a view along the
+   5-fold axis of an icosahedron is a correct picture of almost nothing, and
+   the first choice here (0.62, 0.34) was 3.9 degrees off one.  There are 95
+   axes across the three groups, so the best any direction can manage is 18.7
+   degrees clear of the nearest; this one is 18.6.  The search has to be run
+   in the frame the file BUILDS — the Cholesky mirror frame — and not in the
+   textbook coordinate placement, which is a quite different orientation: a
+   camera tuned against the latter came out 7.3 degrees off an axis here.
+   selfTest asserts it, so the constant cannot drift back onto one.        */
+const CAM0={theta:1.250, phi:0.330, dist:3.35};
+
+function makeState(){
+  const S=Object.assign({},DEFAULTS);
+  S.cam=makeCamera(CAM0.theta,CAM0.phi,CAM0.dist);
+  S.t=0;
+  return S;
+}
+
+/* ---- which solid is on screen in each view ------------------------ */
+function currentSolidName(S){
+  if(S.view==='five')    return S.plat;
+  if(S.view==='arch')    return S.arch;
+  if(S.view==='duality') return S.dualPair;
+  if(S.view==='catalan') return CATALAN_OF[S.cat];
+  if(S.view==='mirrors') return null;      /* built from the live seed */
+  return null;
+}
+
+/* ---- the mirrors view builds straight from the seed ---------------- */
+function mirrorModel(S){
+  const G=GROUPS[S.group];
+  const N=schwarzMirrors(G.p,G.q,G.r);
+  const K=schwarzCorners(N);
+  let seed, snub=false, w=null;
+  if(S.freeSeed){
+    const u=clamp(S.seedU,0.001,0.998), v=clamp(S.seedV,0.001,0.998);
+    /* keep the seed inside the triangle: rescale if u+v runs past 1 */
+    let a=u, b=v*(1-u);
+    seed=v3.norm([a*K.A[0]+b*K.B[0]+(1-a-b)*K.C[0],
+                  a*K.A[1]+b*K.B[1]+(1-a-b)*K.C[1],
+                  a*K.A[2]+b*K.B[2]+(1-a-b)*K.C[2]]);
+  } else if(S.snub){
+    seed=snubSeed(N,G.p,G.q,G.r); snub=true;
+  } else {
+    w=WSUBSETS[clamp(S.wsub,0,6)];
+    seed=wythoffSeed(N,w);
+  }
+  const V=snub?orbitByRotation(N,seed):orbitByReflection(N,seed);
+  let F=null, A=null, err=null;
+  try{ F=facesOf(V); A=analyse(V,F); }
+  catch(e){ err=e.message; }
+  /* the seed's distance to each mirror IS the edge that mirror contributes */
+  const md=[0,1,2].map(i=>Math.abs(v3.dot(seed,N[i])));
+  const active=md.map(d=>d>1e-9);
+  const activeD=md.filter((d,i)=>active[i]);
+  const uniform=activeD.length>0 && (spanOf(activeD)<1e-9);
+  return {N:N, corners:K, seed:seed, V:V, F:F, A:A, err:err,
+          mirrorDist:md, active:active, uniform:uniform, snub:snub, w:w, G:G,
+          name:A?identify(A):null};
+}
+
+/* name a solid from its face census — a definition, not a lookup */
+function identify(A){
+  const key=Object.keys(A.faceVec).sort((a,b)=>a-b)
+                  .map(k=>k+'x'+A.faceVec[k]).join(' ');
+  for(const c of CATALOGUE){
+    const S=buildSolid(c.name);
+    const k2=Object.keys(S.faceVec).sort((a,b)=>a-b)
+                   .map(k=>k+'x'+S.faceVec[k]).join(' ');
+    if(k2===key && S.nV===A.nV) return c.name;
+  }
+  return null;
+}
+
+/* ---- the model ----------------------------------------------------- */
+function buildModel(S){
+  const M={view:S.view};
+  if(S.view==='compass'){
+    M.con=construction(S.ngon);
+    M.nsteps=M.con.steps.length;
+    /* round, not just clamp: the step indexes an array, and a slider set to
+       the midpoint of an odd range hands over a half-integer */
+    M.step=clamp(Math.round(S.step),0,M.nsteps-1);
+    M.constructible=constructibleNGon(S.ngon);
+    M.users=solidsWithFace(S.ngon);
+    return M;
+  }
+  if(S.view==='mirrors'){
+    M.mir=mirrorModel(S);
+    M.solid=M.mir.A;
+    return M;
+  }
+  const nm=currentSolidName(S);
+  M.solid=buildSolid(nm);
+  M.spec=M.solid.spec;
+  if(S.view==='duality' || S.view==='catalan'){
+    M.dual=buildDual(nm);
+  }
+  if(S.view==='five'){
+    /* the five solids compared, for the XIII.18 strip */
+    M.five=PLATONIC.map(n=>{ const s=buildSolid(n);
+      return {name:n, ad:s.edgeOverDiam, spec:s.spec}; });
+    M.five.sort((a,b)=>a.ad-b.ad);
+  }
+  return M;
+}
+
+/* ================================================================== *
+ *  READOUT                                                            *
+ * ================================================================== */
+function fmtFaceVec(fv){
+  return Object.keys(fv).map(Number).sort((a,b)=>a-b)
+          .map(k=>fv[k]+'&times;'+k).join(' + ');
+}
+function row(l,v,cls){
+  return '<tr><td>'+l+'</td><td class="v'+(cls?' '+cls:'')+'">'+v+'</td></tr>';
+}
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+
+function readoutHTML(S,M){
+  if(S.view==='compass'){
+    const C=M.con;
+    let s='<div class="rname">'+(C.impossible?'the heptagon':'the '+ngonName(S.ngon))
+        +'<small>Euclid '+C.prop+'</small></div><table>';
+    s+=hd('the construction');
+    s+=row('sides', C.n);
+    s+=row('step', (M.step+1)+' of '+M.nsteps);
+    s+=row('constructible', M.constructible?'<span class="good">yes</span>'
+                                          :'<span class="bad">no</span>');
+    s+=hd('why');
+    s+=row('n = 2<sup>k</sup> &times; Fermat primes', M.constructible?'satisfied':'fails');
+    if(!M.constructible) s+=row('degree of cos(2&pi;/n)','3 &mdash; not a power of 2');
+    s+=hd('used as a face by');
+    s+=row('uniform solids', M.users.length);
+    s+='</table>';
+    s+='<div class="note">'+C.note+'</div>';
+    if(M.users.length)
+      s+='<div class="note"><b>'+M.users.slice(0,4).join(', ')
+        +(M.users.length>4?', &hellip;':'')+'</b></div>';
+    else
+      s+='<div class="note">No uniform polyhedron has a face with this many '
+        +'sides, so nothing in this file needs it.</div>';
+    return s;
+  }
+
+  if(S.view==='mirrors'){
+    const R=M.mir;
+    let s='<div class="rname">'+(R.name||'not uniform')
+        +'<small>'+R.G.name+' &mdash; Schwarz ('+R.G.p+' '+R.G.q+' '+R.G.r+')</small></div><table>';
+    s+=hd('the seed');
+    for(let i=0;i<3;i++)
+      s+=row('distance to mirror '+(i+1),
+             R.active[i]?fmt(R.mirrorDist[i],6):'<span class="dim">on it</span>',
+             R.active[i]?'':'');
+    s+=row('active mirrors', R.active.filter(Boolean).length);
+    s+=row('all equal?', R.uniform?'<span class="good">yes &mdash; uniform</span>'
+                                  :'<span class="bad">no</span>');
+    if(R.A){
+      s+=hd('the orbit');
+      s+=row('V, E, F', R.A.nV+', '+R.A.nE+', '+R.A.nF);
+      s+=row('V &minus; E + F', R.A.chi, R.A.chi===2?'good':'bad');
+      s+=row('faces', fmtFaceVec(R.A.faceVec));
+      s+=row('vertex figure', R.A.vconf.join(' / '));
+      s+=row('faces regular?', R.A.regular?'<span class="good">yes</span>'
+                                          :'<span class="bad">no</span>');
+      s+=row('edge spread', R.A.edgeSpread.toExponential(1));
+    } else if(R.err){
+      s+=hd('the orbit');
+      s+=row('vertices', R.V.length);
+      s+=row('faces', '<span class="bad">not a polyhedron</span>');
+    }
+    s+='</table>';
+    s+='<div class="note">An edge is <b>twice</b> the seed&rsquo;s distance to a '
+      +'mirror it does not lie on. Equal distances therefore mean equal edges, '
+      +'which is the whole of the construction.</div>';
+    if(R.snub)
+      s+='<div class="note">The snub uses the rotation subgroup only, so the '
+        +'seed lies on <b>no</b> mirror and satisfies no ruler-and-compass '
+        +'condition.</div>';
+    return s;
+  }
+
+  const A=M.solid;
+  if(!A) return '<div class="rname">&mdash;</div>';
+  const isCat=(S.view==='catalan');
+  const D=M.dual;
+  const show=isCat?D:A;
+  let s='<div class="rname">'+show.name;
+  if(isCat) s+='<small>dual of the '+A.name+'</small>';
+  else if(A.spec) s+='<small>'+(A.spec.fam==='platonic'?'Platonic':'Archimedean')
+                    +' &mdash; '+A.group.name+' symmetry</small>';
+  s+='</div><table>';
+
+  s+=hd('counts');
+  s+=row('vertices', show.nV);
+  s+=row('edges', show.nE);
+  s+=row('faces', show.nF);
+  s+=row('V &minus; E + F', show.chi, show.chi===2?'good':'bad');
+  s+=row('faces', fmtFaceVec(show.faceVec));
+  if(!isCat) s+=row('vertex figure', show.vconf.join(' / '));
+  else s+=row('face shape', show.faceShape);
+
+  s+=hd('angles');
+  if(isCat){
+    s+=row('dihedral', fmt(show.dihMean*RAD,6)+'&deg;');
+    s+=row('all edges alike?', show.dihSpread<1e-9
+      ?'<span class="good">yes &mdash; face-transitive</span>':'<span class="bad">no</span>');
+  } else {
+    const dl=distinctDihedrals(show);
+    dl.forEach(d=>{ s+=row('dihedral '+d.lab, fmt(d.v*RAD,6)+'&deg;'); });
+  }
+  s+=row('&Sigma; defect / 4&pi;', fmt(show.defectSum/(2*TAU),12),
+         Math.abs(show.defectSum/(2*TAU)-1)<1e-9?'good':'bad');
+
+  s+=hd('at unit edge');
+  s+=row('circumradius R', fmt(show.R,6)+(show.Rspread>1e-9?' &plusmn;':''));
+  s+=row('midradius &rho;', fmt(show.rmid,6));
+  s+=row('inradius r', fmt(show.rin,6)+(show.rinSpread>1e-9?' &plusmn;':''));
+  s+=row('volume', fmt(show.vol,6));
+  s+=row('surface area', fmt(show.area,6));
+
+  if(S.view==='five' && A.spec.euclid){
+    s+=hd('Euclid '+A.spec.euclid);
+    s+=row('a / d', fmt(A.edgeOverDiam,12));
+    s+=row('d&sup2; / a&sup2;', fmt(1/(A.edgeOverDiam*A.edgeOverDiam),9));
+    s+=row('Euclid says', A.spec.euclidSays);
+  }
+  if(S.view==='duality'){
+    s+=hd('the dual');
+    s+=row('name', D.name);
+    s+=row('V, E, F', D.nV+', '+D.nE+', '+D.nF);
+    s+=row('face', D.faceShape);
+    s+=row('dihedral', fmt(D.dihMean*RAD,4)+'&deg;');
+  }
+  s+='</table>';
+
+  if(S.view==='five'){
+    s+='<div class="note">'+A.spec.euclid+' gives the edge of this solid '
+      +'inscribed in a sphere of diameter <b>d</b>. That ratio is exactly the '
+      +'seed&rsquo;s distance to its mirror.</div>';
+  } else if(isCat){
+    s+='<div class="note">A Catalan solid is <b>face-transitive</b>: one face '
+      +'shape repeated, and every dihedral angle the same number. Its vertices '
+      +'are <b>not</b> all alike, which is the exact mirror of its Archimedean '
+      +'parent.</div>';
+  } else if(S.view==='duality'){
+    s+='<div class="note">Each face plane becomes a vertex at '
+      +'(&rho;&sup2;/d)&thinsp;<b>n</b>. Both solids then touch the same '
+      +'midsphere along their edges, and corresponding edges cross at right '
+      +'angles.</div>';
+  } else if(A.spec && A.spec.w==='snub'){
+    s+='<div class="note">A snub: the orbit of the <b>rotation</b> subgroup. '
+      +'Its seed satisfies no mirror condition, and it is the reason two of '
+      +'the thirteen cannot be built with ruler and compass.</div>';
+  } else if(A.spec){
+    s+='<div class="note">Built from the '+A.group.name+' Schwarz triangle '
+      +'with mirrors <b>'+A.spec.w.map((x,i)=>x?(i+1):'').filter(Boolean).join(', ')
+      +'</b> active.</div>';
+  }
+  return s;
+}
+
+function distinctDihedrals(A){
+  const v=A.dih.slice().sort((a,b)=>a-b);
+  const grp=[];
+  for(const x of v){
+    if(!grp.length || Math.abs(x-grp[grp.length-1][0])>1e-9) grp.push([x]);
+    else grp[grp.length-1].push(x);
+  }
+  if(grp.length===1) return [{lab:'', v:grp[0][0]}];
+  return grp.map(g=>({lab:'('+g.length+' edges)', v:meanOf(g)}));
+}
+function ngonName(n){
+  return {3:'triangle',4:'square',5:'pentagon',6:'hexagon',7:'heptagon',
+          8:'octagon',10:'decagon'}[n]||(n+'-gon');
+}
+
+/* ================================================================== *
+ *  EQUATION BAR + TAG                                                 *
+ * ================================================================== */
+function eqbarHTML(S,M){
+  if(S.view==='compass'){
+    if(S.ngon===5||S.ngon===10)
+      return '<span class="lhs">OQ</span> = <span class="hl">(&radic;5 &minus; 1)/2</span>'
+        +' = 1/&phi;<span class="sm">the golden section of the radius &mdash; '
+        +'one compass circle gives the pentagon&rsquo;s side and the decagon&rsquo;s at once</span>';
+    if(S.ngon===7)
+      return '8<span class="lhs">x</span>&sup3; + 4x&sup2; &minus; 4x &minus; 1 = 0,'
+        +' <span class="hl2">x = cos(2&pi;/7)</span>'
+        +'<span class="sm">irreducible, so the degree is 3 &mdash; and ruler and '
+        +'compass reach only degrees that are powers of two</span>';
+    return '<span class="lhs">n</span> = 2<sup>k</sup> '
+      +'<span class="hl">p<sub>1</sub> p<sub>2</sub> &hellip;</span>, '
+      +'p<sub>i</sub> distinct Fermat primes'
+      +'<span class="sm">Gauss&ndash;Wantzel: exactly which regular polygons the '
+      +'compass can reach</span>';
+  }
+  if(S.view==='five'){
+    const A=M.solid;
+    return '<span class="lhs">'+(A.spec.euclidSays||'&mdash;')+'</span>'
+      +' &nbsp;&mdash;&nbsp; Euclid <span class="hl">'+A.spec.euclid+'</span>'
+      +'<span class="sm">a is the edge, d the diameter of the circumscribed '
+      +'sphere; here a/d = <b>'+fmt(A.edgeOverDiam,9)+'</b></span>';
+  }
+  if(S.view==='mirrors'){
+    return '<span class="lhs">p</span> = normalise('
+      +'<span class="hl">M<sup>&minus;1</sup> w</span>)'
+      +'<span class="sm">M holds the three mirror normals, w marks which of them '
+      +'are active &mdash; seven non-empty subsets, seven uniform solids</span>';
+  }
+  if(S.view==='arch'){
+    const A=M.solid;
+    return '<span class="lhs">edge</span> = 2 &times; '
+      +'<span class="hl">(distance from the seed to each active mirror)</span>'
+      +'<span class="sm">vertex figure '+A.vconf.join(' / ')
+      +' &mdash; the same arrangement of faces at every one of the '+A.nV
+      +' vertices</span>';
+  }
+  if(S.view==='duality'){
+    return '<span class="lhs">v</span> &middot; <span class="lhs">f</span> = '
+      +'<span class="hl">&rho;&sup2;</span>'
+      +'<span class="sm">polar reciprocation about the midsphere: face plane at '
+      +'distance d becomes a vertex at &rho;&sup2;/d along its normal</span>';
+  }
+  return '<span class="lhs">&Sigma;</span><sub>v</sub> &delta;<sub>v</sub> = '
+    +'<span class="hl">4&pi;</span>'
+    +'<span class="sm">Descartes: the angle left over at every vertex, added up '
+    +'over the whole solid, is the same for every convex polyhedron there is</span>';
+}
+
+function tagHTML(S,M){
+  if(S.view==='compass')
+    return 'ruler and compass &mdash; <b>Euclid, Book IV</b>';
+  if(S.view==='five')
+    return 'the five regular solids &mdash; <b>Euclid, Book XIII</b>';
+  if(S.view==='mirrors')
+    return 'Wythoff&rsquo;s construction &mdash; <b>one point, three mirrors</b>';
+  if(S.view==='arch')
+    return 'the thirteen Archimedean solids &mdash; <b>every vertex alike</b>';
+  if(S.view==='duality')
+    return 'polar reciprocation &mdash; <b>about the midsphere</b>';
+  return 'the thirteen Catalan solids &mdash; <b>every face alike</b>';
+}
+/* ================================================================== *
+ *  drawing helpers                                                    *
+ *                                                                     *
+ *  Text is wrapped on a MEASURED width, never on a character count —   *
+ *  a character budget overran the panel edge in wind_tunnel.html and   *
+ *  is on this project's Known-bad list.                                *
+ * ================================================================== */
+/* Canvas text is not HTML: fillText draws "&rsquo;" as seven characters on the
+   screen.  The readout and the info panel ARE HTML and use entities correctly,
+   and prose gets copied between the two, so rather than trusting nobody ever
+   pastes the wrong way, caption() decodes the handful this file uses. */
+/* EXTENDED for this sim.  Two defects in the shared version were found by the
+   UI-drive assertion that no entity may reach fillText:
+     (1) the table had no Greek, and plain() returns an unknown entity
+         UNCHANGED, so '&rho;' was drawn as six characters on the canvas;
+     (2) the regex was /&[a-z]+;/g \u2014 LOWERCASE ONLY \u2014 so '&Lambda;' and
+         '&Delta;' could never have matched even once they were in the table.
+   plain() now also strips tags, per the Known-bad list: canvas has no markup
+   parser and '<sub>' is five characters. */
+const ENTS={'&rsquo;':'\u2019','&lsquo;':'\u2018','&mdash;':'\u2014','&ndash;':'\u2013',
+            '&times;':'\u00d7','&deg;':'\u00b0','&nbsp;':' ','&minus;':'\u2212',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'\u2026',
+            '&alpha;':'\u03b1','&beta;':'\u03b2','&gamma;':'\u03b3','&delta;':'\u03b4',
+            '&epsilon;':'\u03b5','&eta;':'\u03b7','&kappa;':'\u03ba','&lambda;':'\u03bb',
+            '&mu;':'\u03bc','&nu;':'\u03bd','&pi;':'\u03c0','&rho;':'\u03c1',
+            '&sigma;':'\u03c3','&tau;':'\u03c4','&phi;':'\u03c6','&omega;':'\u03c9',
+            '&Gamma;':'\u0393','&Delta;':'\u0394','&Lambda;':'\u039b','&Pi;':'\u03a0',
+            '&Sigma;':'\u03a3','&Phi;':'\u03a6','&Omega;':'\u03a9',
+            '&plusmn;':'\u00b1','&ne;':'\u2260','&asymp;':'\u2248','&equiv;':'\u2261',
+            '&prop;':'\u221d','&radic;':'\u221a','&infin;':'\u221e','&middot;':'\u00b7',
+            '&rarr;':'\u2192','&larr;':'\u2190','&ell;':'\u2113','&sup2;':'\u00b2',
+            '&sup3;':'\u00b3','&frac12;':'\u00bd','&le;':'\u2264','&ge;':'\u2265'};
+function plain(s){
+  return String(s).replace(/&[a-zA-Z][a-zA-Z0-9]*;/g,
+                           m=>ENTS[m]!==undefined?ENTS[m]:m)
+                  .replace(/<\/?[a-zA-Z][^>]*>/g,'');
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+
+/* ================================================================== *
+ *  3-D RENDERING                                                      *
+ *                                                                     *
+ *  Painter's algorithm over a face list.  Backface culling is by the   *
+ *  OUTWARD normal, which for a convex solid centred on the origin is   *
+ *  known rather than inferred from a winding order.                    *
+ *                                                                     *
+ *  Faces are premixed against the page background and drawn OPAQUE     *
+ *  wherever possible: abutting canvas quads leave a sub-pixel gap that *
+ *  antialiases into a stripe, the fix is to expand each quad about its *
+ *  own centroid, and that fix composites twice (and so shows up as a   *
+ *  BRIGHTER stripe) under globalAlpha < 1.  The expansion is therefore *
+ *  applied only when alpha is 1.                                       *
+ * ================================================================== */
+
+const LIGHT=v3.norm([0.35,-0.55,0.75]);
+
+function faceListOf(A,col,alpha,scale){
+  const s=(scale===undefined?1:scale);
+  const out=[];
+  for(let i=0;i<A.F.length;i++){
+    const f=A.F[i];
+    const pl=facePlane(A.V,f);
+    out.push({
+      pts:f.map(k=>v3.mul(A.V[k],s)),
+      n:pl.n, c:v3.mul(pl.c,s), col:col, alpha:(alpha===undefined?1:alpha),
+      idx:i, nsides:f.length,
+    });
+  }
+  return out;
+}
+
+function paintFaces(rc,cam,B,list,opt){
+  opt=opt||{};
+  const vis=[];
+  for(const F of list){
+    /* outward normal against the direction to the eye */
+    const toEye=v3.sub(B.eye,F.c);
+    if(opt.cull!==false && v3.dot(F.n,toEye)<=0) continue;
+    const pp=F.pts.map(p=>project(cam,B,p));
+    if(pp.some(p=>p===null)) continue;
+    const d=v3.len(toEye);
+    vis.push({F:F, pp:pp, d:d});
+  }
+  vis.sort((a,b)=>b.d-a.d);              /* far first */
+  for(const V of vis){
+    const F=V.F;
+    const sh=clamp(0.36+0.64*Math.max(0,v3.dot(F.n,LIGHT)),0,1);
+    const base=shade(F.col,sh);
+    let pp=V.pp;
+    if(F.alpha>=1 && opt.expand!==false){
+      /* expand about the screen centroid to close antialiasing seams —
+         only safe while opaque */
+      let cx=0, cy=0;
+      for(const p of pp){ cx+=p.x; cy+=p.y; }
+      cx/=pp.length; cy/=pp.length;
+      pp=pp.map(p=>({x:cx+(p.x-cx)*1.006, y:cy+(p.y-cy)*1.006, z:p.z}));
+    }
+    rc.beginPath();
+    rc.moveTo(pp[0].x,pp[0].y);
+    for(let i=1;i<pp.length;i++) rc.lineTo(pp[i].x,pp[i].y);
+    rc.closePath();
+    if(F.alpha>=1){ rc.fillStyle=base; }
+    else { rc.fillStyle=rgba(toHex(base),F.alpha); }
+    rc.fill();
+    if(opt.edges!==false){
+      rc.strokeStyle=opt.edgeCol||rgba('#070b18',0.55);
+      rc.lineWidth=opt.edgeWidth||1;
+      rc.stroke();
+    }
+  }
+  return vis.length;
+}
+function toHex(c){
+  const t=toRgb(c);
+  return '#'+t.map(x=>('0'+x.toString(16)).slice(-2)).join('');
+}
+
+/* wireframe: every edge, no faces */
+function paintWire(rc,cam,B,A,col,scale,lw){
+  const s=(scale===undefined?1:scale);
+  rc.strokeStyle=col; rc.lineWidth=lw||1.4;
+  rc.beginPath();
+  let n=0;
+  for(const e of A.E){
+    const a=project(cam,B,v3.mul(A.V[e[0]],s));
+    const b=project(cam,B,v3.mul(A.V[e[1]],s));
+    if(!a||!b) continue;
+    rc.moveTo(a.x,a.y); rc.lineTo(b.x,b.y); n++;
+  }
+  rc.stroke();
+  return n;
+}
+
+/* a sphere, drawn as its silhouette plus three great circles */
+function paintSphere(rc,cam,B,r,col,alpha){
+  const sil=[];
+  /* the silhouette of a sphere seen from distance D is the circle of points
+     with p . eyeDir = r^2 / D — a real circle in space, so project it */
+  const D=v3.len(B.eye);
+  if(D<=r) return 0;
+  const ax=v3.mul(B.eye,1/D);
+  const cr=r*Math.sqrt(1-(r/D)*(r/D));    /* radius of the silhouette circle */
+  const cc=v3.mul(ax,r*r/D);              /* its centre                      */
+  let u=v3.norm(v3.cross(ax,[0,0,1]));
+  if(v3.len(v3.cross(ax,[0,0,1]))<1e-6) u=v3.norm(v3.cross(ax,[1,0,0]));
+  const w=v3.cross(ax,u);
+  rc.save();
+  rc.strokeStyle=rgba(col,alpha===undefined?0.5:alpha);
+  rc.lineWidth=1.2;
+  rc.beginPath();
+  let started=false;
+  for(let i=0;i<=96;i++){
+    const t=TAU*i/96;
+    const p=v3.add(cc, v3.add(v3.mul(u,cr*Math.cos(t)), v3.mul(w,cr*Math.sin(t))));
+    const q=project(cam,B,p);
+    if(!q){ started=false; continue; }
+    if(!started){ rc.moveTo(q.x,q.y); started=true; } else rc.lineTo(q.x,q.y);
+  }
+  rc.stroke();
+  rc.restore();
+  return 1;
+}
+
+/* a great circle with the given pole — used for the mirror planes */
+function paintGreatCircle(rc,cam,B,pole,col,alpha,lw,dash){
+  let u=v3.norm(v3.cross(pole,[0,0,1]));
+  if(v3.len(v3.cross(pole,[0,0,1]))<1e-6) u=v3.norm(v3.cross(pole,[1,0,0]));
+  const w=v3.cross(pole,u);
+  rc.save();
+  rc.strokeStyle=rgba(col,alpha===undefined?0.7:alpha);
+  rc.lineWidth=lw||1.3;
+  if(dash) rc.setLineDash(dash);
+  rc.beginPath();
+  let started=false, n=0;
+  for(let i=0;i<=160;i++){
+    const t=TAU*i/160;
+    const p=v3.add(v3.mul(u,Math.cos(t)), v3.mul(w,Math.sin(t)));
+    /* only the near hemisphere, so the circle reads as sitting on a ball */
+    if(v3.dot(p,v3.norm(B.eye))<0){ started=false; continue; }
+    const q=project(cam,B,p);
+    if(!q){ started=false; continue; }
+    if(!started){ rc.moveTo(q.x,q.y); started=true; } else { rc.lineTo(q.x,q.y); n++; }
+  }
+  rc.stroke();
+  rc.setLineDash([]);
+  rc.restore();
+  return n;
+}
+
+/* a filled spherical triangle (the fundamental domain) */
+function paintSphTriangle(rc,cam,B,A1,A2,A3,col,alpha){
+  const arc=(p,q,n)=>{
+    const out=[];
+    for(let i=0;i<=n;i++){
+      const t=i/n;
+      out.push(v3.norm([p[0]+(q[0]-p[0])*t, p[1]+(q[1]-p[1])*t, p[2]+(q[2]-p[2])*t]));
+    }
+    return out;
+  };
+  const pts=arc(A1,A2,14).concat(arc(A2,A3,14)).concat(arc(A3,A1,14));
+  const cen=v3.norm(v3.add(v3.add(A1,A2),A3));
+  if(v3.dot(cen,v3.norm(B.eye))<0) return 0;
+  const pp=pts.map(p=>project(cam,B,v3.mul(p,1.001)));
+  if(pp.some(p=>p===null)) return 0;
+  rc.save();
+  rc.fillStyle=rgba(col,alpha===undefined?0.16:alpha);
+  rc.beginPath();
+  rc.moveTo(pp[0].x,pp[0].y);
+  for(let i=1;i<pp.length;i++) rc.lineTo(pp[i].x,pp[i].y);
+  rc.closePath();
+  rc.fill();
+  rc.strokeStyle=rgba(col,0.85); rc.lineWidth=1.6; rc.stroke();
+  rc.restore();
+  return 1;
+}
+
+function paintPoint(rc,cam,B,p,col,r,label){
+  const q=project(cam,B,p);
+  if(!q) return 0;
+  rc.save();
+  rc.fillStyle=col;
+  rc.beginPath(); rc.arc(q.x,q.y,r||4,0,TAU); rc.fill();
+  rc.strokeStyle=rgba('#070b18',0.8); rc.lineWidth=1; rc.stroke();
+  if(label){
+    rc.fillStyle='#cfd4de';
+    rc.font='11px -apple-system, sans-serif';
+    rc.textAlign='left'; rc.textBaseline='bottom';
+    rc.fillText(plain(label), q.x+7, q.y-4);
+  }
+  rc.restore();
+  return 1;
+}
+
+/* Fit the camera distance so a solid of circumradius R fills `frac` of the
+   frame.  Derived from the camera, never from a hardcoded divisor: f is
+   proportional to the canvas height, so a divisor tuned at one size is wrong
+   at another.
+
+   The silhouette of a ball of radius R at distance D is not the ball's near
+   point; it is the circle where the tangent cone touches, and its projected
+   half-width is exactly f R / sqrt(D^2 - R^2).  Setting that equal to `want`
+   inverts in closed form.  The obvious f R / (D - R) is the near-point
+   approximation, and it framed every solid at 0.82 of the size it claimed. */
+function fitDist(cam,R,frac){
+  const f=(cam.H/2)/Math.tan(cam.fov/2);
+  const want=(frac||0.42)*Math.min(cam.W,cam.H);
+  return R*Math.sqrt(1+(f/want)*(f/want));
+}
+
+/* ================================================================== *
+ *  VIEW: the compass                                                  *
+ * ================================================================== */
+function drawCompass(rc,W,H,M,S){
+  const COL={mirror:'#5ac8e0', gold:'#d8b45a', face:'#b8ec4c',
+             seed:'#cd35c4', dual:'#e8843a'};
+  const C=M.con;
+  /* lay the stage out from the bottom up so the caption cannot collide */
+  const capW=Math.min(W-320, 560);
+  const say=C.steps[M.step].say;
+  const lines=wrapText(rc,plain(say),capW,'12.5px -apple-system, sans-serif');
+  const capH=lines.length*17+14;
+  const noteH=26;
+  const bot=H-capH-noteH-10;
+  /* fit the UNIT circle so that the widest compass arc still lands on the
+     stage: conExtent() reports how far the construction really reaches */
+  const ext=conExtent(C);
+  const half=Math.min((bot-56)/2, (W-330)/2);
+  const R=half/ext;
+  const cx=Math.max(half+24, (W-300)/2), cy=44+half;
+  const X=p=>cx+p[0]*R, Y=p=>cy-p[1]*R;
+
+  /* every step up to and including the current one, earlier ones dimmed */
+  for(let s=0;s<=M.step;s++){
+    const cur=(s===M.step);
+    const a=cur?1:0.28;
+    for(const d of (C.steps[s].draw||[])){
+      const col=COL[d.col||'gold']||COL.gold;
+      if(d.k==='circle'){
+        rc.save();
+        rc.strokeStyle=rgba(col,a*(d.col==='mirror'?0.9:0.62));
+        rc.lineWidth=d.col==='mirror'?1.5:1.1;
+        if(!cur) rc.setLineDash([3,3]);
+        rc.beginPath(); rc.arc(X(d.c),Y(d.c),d.r*R,0,TAU); rc.stroke();
+        rc.restore();
+      } else if(d.k==='seg'){
+        rc.save();
+        rc.strokeStyle=rgba(col,a*0.95);
+        rc.lineWidth=d.thick?2.2:1.4;
+        rc.beginPath(); rc.moveTo(X(d.a),Y(d.a)); rc.lineTo(X(d.b),Y(d.b)); rc.stroke();
+        rc.restore();
+      } else if(d.k==='pt'){
+        rc.save();
+        rc.fillStyle=rgba(d.hi?COL.face:COL.gold, a);
+        rc.beginPath(); rc.arc(X(d.p),Y(d.p),d.hi?4.2:3.2,0,TAU); rc.fill();
+        if(d.name && cur){
+          rc.fillStyle='#cfd4de';
+          rc.font='11.5px -apple-system, sans-serif';
+          rc.textAlign='left'; rc.textBaseline='bottom';
+          rc.fillText(plain(d.name), X(d.p)+6, Y(d.p)-5);
+        }
+        rc.restore();
+      } else if(d.k==='poly'){
+        rc.save();
+        const pc=COL[d.col||'face']||COL.face;
+        rc.strokeStyle=rgba(pc,d.dash?0.8:1);
+        rc.lineWidth=d.thin?1.2:2.4;
+        if(d.dash) rc.setLineDash([6,5]);
+        rc.beginPath();
+        rc.moveTo(X(d.pts[0]),Y(d.pts[0]));
+        for(let i=1;i<d.pts.length;i++) rc.lineTo(X(d.pts[i]),Y(d.pts[i]));
+        rc.closePath();
+        if(!d.dash && !d.thin){ rc.fillStyle=rgba(pc,0.10); rc.fill(); }
+        rc.stroke();
+        rc.setLineDash([]);
+        rc.restore();
+      } else if(d.k==='lbl' && cur){
+        rc.save();
+        rc.fillStyle='#aeb6c6';
+        rc.font='italic 12px Georgia, serif';
+        rc.textAlign='center'; rc.textBaseline='bottom';
+        rc.fillText(plain(d.t), X(d.p), Y(d.p));
+        rc.restore();
+      }
+    }
+  }
+  /* centre mark */
+  rc.save();
+  rc.fillStyle='#8b93a6';
+  rc.beginPath(); rc.arc(cx,cy,2.4,0,TAU); rc.fill();
+  rc.font='11px -apple-system, sans-serif';
+  rc.textAlign='right'; rc.textBaseline='top';
+  rc.fillText('O', cx-5, cy+3);
+  rc.restore();
+
+  /* step caption, laid out from the measured height */
+  rc.save();
+  rc.fillStyle='#cfd4de';
+  rc.font='12.5px -apple-system, sans-serif';
+  rc.textAlign='left'; rc.textBaseline='top';
+  let yy=H-capH-noteH;
+  rc.fillStyle='#9aa2b4';
+  rc.font='italic 12px Georgia, serif';
+  rc.fillText('step '+(M.step+1)+' of '+M.nsteps, 22, yy-19);
+  rc.fillStyle='#cfd4de';
+  rc.font='12.5px -apple-system, sans-serif';
+  for(const L of lines){ rc.fillText(L, 22, yy); yy+=17; }
+  rc.fillStyle='#767e92';
+  rc.font='11px -apple-system, sans-serif';
+  rc.fillText(plain(M.constructible
+      ? 'Every face of every solid in this file is a polygon the compass can reach.'
+      : 'Not constructible — and no uniform polyhedron asks for it.'), 22, yy+5);
+  rc.restore();
+  return {cx:cx, cy:cy, R:R};
+}
+
+/* ================================================================== *
+ *  VIEW: the five                                                     *
+ * ================================================================== */
+function drawFive(rc,W,H,M,S,cam,B){
+  const A=M.solid;
+  const R=A.R;
+  /* the solid, inside the sphere Euclid inscribes it in */
+  if(S.showSphere) paintSphere(rc,cam,B,R,'#39404f',0.55);
+  const list=faceListOf(A,'#b8ec4c',S.faces?1:0);
+  let nf=0;
+  if(S.faces) nf=paintFaces(rc,cam,B,list,{edgeCol:rgba('#070b18',0.6)});
+  if(S.wire||!S.faces) paintWire(rc,cam,B,A,rgba('#b8ec4c',S.faces?0.35:0.95),1,1.3);
+
+  /* one edge and one diameter, drawn and labelled — this is the content of
+     XIII.13-17 and the reason a/d is on the readout */
+  if(S.showEuclid){
+    const e=A.E[0];
+    const p=A.V[e[0]], q=A.V[e[1]];
+    const pa=project(cam,B,p), pb=project(cam,B,q);
+    if(pa&&pb){
+      rc.save();
+      rc.strokeStyle='#cd35c4'; rc.lineWidth=3;
+      rc.beginPath(); rc.moveTo(pa.x,pa.y); rc.lineTo(pb.x,pb.y); rc.stroke();
+      rc.fillStyle='#cd35c4';
+      rc.font='italic 13px Georgia, serif';
+      rc.textAlign='center'; rc.textBaseline='bottom';
+      rc.fillText('a', (pa.x+pb.x)/2, (pa.y+pb.y)/2-6);
+      rc.restore();
+    }
+    /* the diameter, drawn across the sphere perpendicular to the view so it
+       shows at true length rather than foreshortened to nothing */
+    const ax=v3.norm(v3.cross(B.fwd,[0,0,1]));
+    const d1=project(cam,B,v3.mul(ax,R)), d2=project(cam,B,v3.mul(ax,-R));
+    if(d1&&d2){
+      rc.save();
+      rc.strokeStyle=rgba('#e8843a',0.9); rc.lineWidth=1.8;
+      rc.setLineDash([7,5]);
+      rc.beginPath(); rc.moveTo(d1.x,d1.y); rc.lineTo(d2.x,d2.y); rc.stroke();
+      rc.setLineDash([]);
+      rc.fillStyle='#e8843a';
+      rc.font='italic 13px Georgia, serif';
+      rc.textAlign='center'; rc.textBaseline='top';
+      rc.fillText('d', (d1.x+d2.x)/2, (d1.y+d2.y)/2+5);
+      rc.restore();
+    }
+  }
+
+  /* the XIII.18 strip along the bottom: the five edges in order.  Euclid
+     ends Book XIII by setting them side by side and proving no sixth solid
+     can exist. */
+  const bh=52, by=H-bh-10;
+  const bw=Math.min(W-330, 520), bx=22;
+  rc.save();
+  rc.fillStyle='#8b93a6';
+  rc.font='italic 12px Georgia, serif';
+  rc.textAlign='left'; rc.textBaseline='bottom';
+  rc.fillText(plain('XIII.18 — the five edges in one sphere, least first'), bx, by-6);
+  const maxad=M.five[M.five.length-1].ad;
+  for(let i=0;i<M.five.length;i++){
+    const f=M.five[i];
+    const x=bx+i*(bw/5);
+    const w=(bw/5)-14;
+    const hgt=(bh-20)*f.ad/maxad;
+    const on=(f.name===A.name);
+    rc.fillStyle=on?'#b8ec4c':'#2a2f3d';
+    rc.fillRect(x, by+(bh-20)-hgt+8, w, hgt);
+    rc.fillStyle=on?'#cfd4de':'#6f7789';
+    rc.font='9.5px -apple-system, sans-serif';
+    rc.textAlign='left'; rc.textBaseline='top';
+    rc.fillText(f.name, x, by+bh-9);
+    rc.textBaseline='bottom';
+    rc.fillText(fmt(f.ad,4), x, by+(bh-20)-hgt+5);
+  }
+  rc.restore();
+  return nf;
+}
+
+/* ================================================================== *
+ *  VIEW: the mirrors                                                  *
+ * ================================================================== */
+
+/* barycentric coordinates of a seed against the triangle corners, so the
+   flat inset can show WHERE in the fundamental domain each solid lives */
+function baryOf(K,p){
+  const M=[[K.A[0],K.B[0],K.C[0]],
+           [K.A[1],K.B[1],K.C[1]],
+           [K.A[2],K.B[2],K.C[2]]];
+  const w=mulMV(inv3(M),p);
+  const s=w[0]+w[1]+w[2];
+  return [w[0]/s, w[1]/s, w[2]/s];
+}
+
+function drawMirrors(rc,W,H,M,S,cam,B){
+  const R=M.mir, K=R.corners, N=R.N;
+  /* the ball everything lives on */
+  paintSphere(rc,cam,B,1,'#39404f',0.5);
+  /* The mirrors, the triangle, the seed and the orbit are drawn AFTER the
+     solid, not before it.  The solid's vertices sit on this sphere, so an
+     opaque solid hides every one of them — geometrically correct and useless,
+     since the construction is the entire subject of this view.  Everything
+     structural therefore goes on top, and paintGreatCircle already restricts
+     itself to the near hemisphere so the arcs still read as lying on a ball. */
+  if(R.A){
+    if(S.faces) paintFaces(rc,cam,B,faceListOf(R.A,'#b8ec4c',1),
+                           {edgeCol:rgba('#070b18',0.6)});
+    if(S.wire||!S.faces)
+      paintWire(rc,cam,B,R.A,rgba('#b8ec4c',S.faces?0.35:0.95),1,1.3);
+  } else {
+    /* not a polyhedron — say so rather than draw nothing */
+    rc.save();
+    rc.fillStyle='#e8843a';
+    rc.font='italic 14px Georgia, serif';
+    rc.textAlign='center'; rc.textBaseline='middle';
+    rc.fillText(plain('this seed does not give a polyhedron'), (W-300)/2, H/2);
+    rc.restore();
+  }
+  if(S.showMirrors){
+    for(let i=0;i<3;i++)
+      paintGreatCircle(rc,cam,B,N[i],'#5ac8e0',R.active[i]?0.85:0.35,
+                       R.active[i]?1.8:1.1, R.active[i]?null:[4,4]);
+  }
+  if(S.showTriangle){
+    paintSphTriangle(rc,cam,B,K.A,K.B,K.C,'#5ac8e0',0.20);
+  }
+  if(S.showOrbit){
+    for(const p of R.V) paintPoint(rc,cam,B,p,rgba('#cd35c4',0.55),2.6);
+  }
+  if(S.showSeed){
+    paintPoint(rc,cam,B,R.seed,'#cd35c4',5.5,'seed');
+    /* the seed's perpendicular to each ACTIVE mirror: the edge it makes */
+    for(let i=0;i<3;i++){
+      if(!R.active[i]) continue;
+      const foot=v3.sub(R.seed, v3.mul(N[i], v3.dot(R.seed,N[i])));
+      const a=project(cam,B,R.seed), b=project(cam,B,foot);
+      if(a&&b){
+        rc.save();
+        rc.strokeStyle=rgba('#cd35c4',0.75); rc.lineWidth=1.4;
+        rc.setLineDash([3,3]);
+        rc.beginPath(); rc.moveTo(a.x,a.y); rc.lineTo(b.x,b.y); rc.stroke();
+        rc.setLineDash([]);
+        rc.restore();
+      }
+    }
+  }
+  /* say what the drawing is doing that the geometry does not: the mirrors and
+     the seed are painted over the solid rather than occluded by it */
+  {
+    const capW=Math.min(W-560,520);
+    const lines=wrapText(rc, plain(
+      'The mirrors, the triangle and the seed are drawn OVER the solid. Every '
+      + 'vertex of the orbit lies on this sphere, so an opaque solid would hide '
+      + 'the whole construction; the arcs shown are the near hemisphere only.'),
+      capW, '11px -apple-system, sans-serif');
+    rc.save();
+    rc.fillStyle='#6f7789';
+    rc.font='11px -apple-system, sans-serif';
+    rc.textAlign='left'; rc.textBaseline='top';
+    let yy=H-lines.length*15-14;
+    for(const L of lines){ rc.fillText(L,240,yy); yy+=15; }
+    rc.restore();
+  }
+  drawTriangleInset(rc,W,H,M,S);
+  return 1;
+}
+
+/* the flat map of the fundamental domain: where the seven solids live */
+function drawTriangleInset(rc,W,H,M,S){
+  const R=M.mir, K=R.corners, G=R.G;
+  const w=196, hh=190;
+  /* bottom LEFT: the readout panel owns the top right of the stage */
+  const x0=20, y0=H-hh-16;
+  rc.save();
+  rc.fillStyle=rgba('#0a0c12',0.82);
+  rc.strokeStyle='#2a2f3d'; rc.lineWidth=1;
+  rc.beginPath(); rc.rect(x0,y0,w,hh); rc.fill(); rc.stroke();
+  /* the triangle, drawn flat */
+  /* the apex sits at +44, not +30: its "p-fold" label is drawn ABOVE it with
+     a bottom baseline, and at +30 that label ran into the inset's own title.
+     Caught by tools/audit.py, which is the only thing that can see it. */
+  const PA=[x0+w/2, y0+44], PB=[x0+26, y0+hh-30], PC=[x0+w-26, y0+hh-30];
+  const at=b=>[b[0]*PA[0]+b[1]*PB[0]+b[2]*PC[0],
+               b[0]*PA[1]+b[1]*PB[1]+b[2]*PC[1]];
+  rc.strokeStyle='#5ac8e0'; rc.lineWidth=1.5;
+  rc.beginPath(); rc.moveTo(PA[0],PA[1]); rc.lineTo(PB[0],PB[1]);
+  rc.lineTo(PC[0],PC[1]); rc.closePath();
+  rc.fillStyle=rgba('#5ac8e0',0.07); rc.fill(); rc.stroke();
+  /* the seven subset seeds */
+  rc.font='9.5px -apple-system, sans-serif';
+  for(let i=0;i<WSUBSETS.length;i++){
+    const sp=wythoffSeed(N_of(R),WSUBSETS[i]);
+    const b=baryOf(K,sp), p=at(b);
+    const on=(!S.freeSeed && !S.snub && S.wsub===i);
+    rc.fillStyle=on?'#b8ec4c':rgba('#8b93a6',0.75);
+    rc.beginPath(); rc.arc(p[0],p[1],on?4.5:3,0,TAU); rc.fill();
+  }
+  /* the snub seed sits off every bisector — that is the whole point */
+  try{
+    const ss=snubSeed(N_of(R),G.p,G.q,G.r);
+    const b=baryOf(K,ss), p=at(b);
+    rc.fillStyle=S.snub?'#e8843a':rgba('#e8843a',0.6);
+    rc.beginPath(); rc.arc(p[0],p[1],S.snub?4.5:3,0,TAU); rc.fill();
+  }catch(e){}
+  /* the live seed */
+  const b=baryOf(K,R.seed), p=at(b);
+  rc.fillStyle='#cd35c4';
+  rc.beginPath(); rc.arc(p[0],p[1],4,0,TAU); rc.fill();
+  rc.strokeStyle='#070b18'; rc.lineWidth=1; rc.stroke();
+  /* corner labels */
+  rc.fillStyle='#8b93a6';
+  rc.font='10px -apple-system, sans-serif';
+  rc.textAlign='center'; rc.textBaseline='bottom';
+  rc.fillText(G.p+'-fold', PA[0], PA[1]-5);
+  rc.textBaseline='top';
+  rc.fillText(G.q+'-fold', PB[0], PB[1]+5);
+  rc.fillText('2-fold', PC[0], PC[1]+5);
+  rc.fillStyle='#aeb6c6';
+  rc.font='italic 11px Georgia, serif';
+  rc.textAlign='left'; rc.textBaseline='top';
+  rc.fillText(plain('the fundamental domain'), x0+9, y0+7);
+  rc.restore();
+}
+function N_of(R){ return R.N; }
+
+/* ================================================================== *
+ *  VIEW: the archimedeans / the catalans                              *
+ * ================================================================== */
+function drawGallery(rc,W,H,M,S,cam,B,which){
+  const cat=(which==='catalan');
+  const A=cat?M.dual:M.solid;
+  const col=cat?'#e8843a':'#b8ec4c';
+  let nf=0;
+  if(S.faces) nf=paintFaces(rc,cam,B,faceListOf(A,col,1),
+                            {edgeCol:rgba('#070b18',0.62)});
+  if(S.wire||!S.faces)
+    paintWire(rc,cam,B,A,rgba(col,S.faces?0.35:0.95),1,1.3);
+
+  /* the family strip: all thirteen, current one lit */
+  const key=cat?(a=>buildDual(CATALAN_OF[a]).dihMean*RAD)
+                :(a=>buildSolid(a).nV);
+  /* sort by the quantity the caption names, or the strip claims an ordering
+     it does not have */
+  const names=(cat?CATALANS:ARCH).slice().sort((a,b)=>key(a)-key(b));
+  const cur=cat?S.cat:S.arch;
+  const bw=Math.min(W-330, 560), bx=22, bh=46, by=H-bh-12;
+  const vals=names.map(key);
+  const vmax=Math.max.apply(null,vals), vmin=Math.min.apply(null,vals);
+  rc.save();
+  rc.fillStyle='#8b93a6';
+  rc.font='italic 11.5px Georgia, serif';
+  rc.textAlign='left'; rc.textBaseline='bottom';
+  rc.fillText(plain(cat?'the thirteen Catalan solids, by dihedral angle'
+                       :'the thirteen Archimedean solids, by vertex count'),
+              bx, by-5);
+  for(let i=0;i<names.length;i++){
+    const x=bx+i*(bw/13), ww=(bw/13)-4;
+    const t=(vals[i]-vmin)/((vmax-vmin)||1);
+    const hgt=6+(bh-16)*t;
+    const on=(names[i]===cur);
+    rc.fillStyle=on?col:'#2a2f3d';
+    rc.fillRect(x, by+bh-hgt-9, ww, hgt);
+    if(on){
+      rc.fillStyle='#cfd4de';
+      rc.font='10px -apple-system, sans-serif';
+      rc.textAlign='left'; rc.textBaseline='bottom';
+      rc.fillText(cat?fmt(vals[i],1)+'°':String(vals[i]),
+                  x, by+bh-hgt-11);
+    }
+  }
+  rc.fillStyle='#6f7789';
+  rc.font='10px -apple-system, sans-serif';
+  rc.textAlign='left'; rc.textBaseline='top';
+  rc.fillText(plain(cur), bx, by+bh-6);
+  rc.restore();
+  return nf;
+}
+
+/* ================================================================== *
+ *  VIEW: duality                                                      *
+ * ================================================================== */
+function drawDuality(rc,W,H,M,S,cam,B){
+  const A=M.solid, D=M.dual;
+  /* both are scaled to unit edge on their own; rescale the dual so the two
+     really do share the midsphere the reciprocation was taken about */
+  const s=A.rmid/D.rmid;
+  const t=clamp(S.morph,0,1);
+  if(S.showMid) paintSphere(rc,cam,B,A.rmid,'#39404f',0.7);
+
+  /* Merge both face lists and depth-sort them TOGETHER: two interpenetrating
+     convex solids painted one after the other would put the whole of one in
+     front of the whole of the other. */
+  /* Dip the face alpha in the middle.  With both solids at 0.58 the compound
+     composited to an even murk and the edges — which are what shows the
+     right-angle crossing — were lost in it.  The dip is 1 at either end, so
+     the single-solid cases stay solid. */
+  const dip=1-0.5*4*t*(1-t);
+  let list=[];
+  if(t<0.999) list=list.concat(faceListOf(A,'#b8ec4c',(1-t*0.85)*dip));
+  if(t>0.001) list=list.concat(faceListOf(D,'#e8843a',(0.15+t*0.85)*dip,s));
+  const nf=paintFaces(rc,cam,B,list,{edgeCol:rgba('#070b18',0.5)});
+  /* wireframes keep both readable where the alpha is low */
+  if(t>0.05) paintWire(rc,cam,B,D,rgba('#e8843a',0.30+0.6*t),s,1.3);
+  if(t<0.95) paintWire(rc,cam,B,A,rgba('#b8ec4c',0.30+0.6*(1-t)),1,1.3);
+
+  /* one primal edge and the dual edge that crosses it, at right angles */
+  const e=A.E[0];
+  const owner=[];
+  for(let k=0;k<A.F.length;k++) if(A.F[k].indexOf(e[0])>=0 && A.F[k].indexOf(e[1])>=0) owner.push(k);
+  if(owner.length===2){
+    const p1=project(cam,B,A.V[e[0]]), p2=project(cam,B,A.V[e[1]]);
+    const q1=project(cam,B,v3.mul(D.V[owner[0]],s)),
+          q2=project(cam,B,v3.mul(D.V[owner[1]],s));
+    rc.save();
+    if(p1&&p2){ rc.strokeStyle='#b8ec4c'; rc.lineWidth=3;
+      rc.beginPath(); rc.moveTo(p1.x,p1.y); rc.lineTo(p2.x,p2.y); rc.stroke(); }
+    if(q1&&q2){ rc.strokeStyle='#e8843a'; rc.lineWidth=3;
+      rc.beginPath(); rc.moveTo(q1.x,q1.y); rc.lineTo(q2.x,q2.y); rc.stroke(); }
+    rc.restore();
+  }
+  /* the caption states the two facts the picture is making */
+  rc.save();
+  const capW=Math.min(W-330,520);
+  const lines=wrapText(rc, plain(
+    'Every edge of the green solid and the orange edge that replaces it cross '
+    + 'at right angles, and both touch the grey midsphere at the same point. '
+    + 'That is what makes this the canonical dual rather than merely a solid '
+    + 'with the right counts.'), capW, '11.5px -apple-system, sans-serif');
+  rc.fillStyle='#8b93a6';
+  rc.font='11.5px -apple-system, sans-serif';
+  rc.textAlign='left'; rc.textBaseline='top';
+  let yy=H-lines.length*16-14;
+  for(const L of lines){ rc.fillText(L,22,yy); yy+=16; }
+  rc.restore();
+  return nf;
+}
+
+/* ================================================================== *
+ *  DISPATCH                                                           *
+ * ================================================================== */
+function drawView(rc,W,H,M,S){
+  rc.save();
+  rc.fillStyle='#070b18';
+  rc.fillRect(0,0,W,H);
+  rc.restore();
+  if(S.view==='compass'){ drawCompass(rc,W,H,M,S); return; }
+
+  const cam=S.cam;
+  cam.W=W; cam.H=H;
+  /* frame from the object actually on screen, and from the camera, never
+     from a divisor tuned at one canvas size */
+  let Rf=1.2;
+  if(S.view==='mirrors') Rf=1.25;
+  else if(S.view==='duality') Rf=Math.max(M.solid.R, M.dual.R*(M.solid.rmid/M.dual.rmid));
+  else if(S.view==='catalan') Rf=M.dual.R;
+  else if(M.solid) Rf=M.solid.R;
+  cam.dist=fitDist(cam,Rf,0.40)/clamp(S.zoom,0.4,3);
+  const B=camBasis(cam);
+
+  if(S.view==='five')     drawFive(rc,W,H,M,S,cam,B);
+  else if(S.view==='mirrors') drawMirrors(rc,W,H,M,S,cam,B);
+  else if(S.view==='arch')    drawGallery(rc,W,H,M,S,cam,B,'arch');
+  else if(S.view==='catalan') drawGallery(rc,W,H,M,S,cam,B,'catalan');
+  else if(S.view==='duality') drawDuality(rc,W,H,M,S,cam,B);
+}
+
+/* ================================================================== *
+ *  SCENE                                                             *
+ * ================================================================== */
+function makeScene(){
+  const S=makeState();
+  let cache=null, cacheKey='';
+  function model(){
+    const k=[S.view,S.ngon,S.step,S.plat,S.group,S.wsub,S.snub,S.freeSeed,
+             fmt(S.seedU,6),fmt(S.seedV,6),S.arch,S.dualPair,S.cat].join('|');
+    if(k!==cacheKey){ cache=buildModel(S); cacheKey=k; }
+    return cache;
+  }
+  return {
+    S:S,
+    model:model,
+    invalidate(){ cacheKey=''; },
+    reset(){
+      const D=makeState();
+      for(const k in D) if(k!=='cam') S[k]=D[k];
+      S.cam.theta=CAM0.theta; S.cam.phi=CAM0.phi; S.cam.dist=CAM0.dist;
+      cacheKey='';
+    },
+    resetCam(){ S.cam.theta=CAM0.theta; S.cam.phi=CAM0.phi; S.zoom=1; },
+    drag(dx,dy){
+      S.cam.theta-=dx*0.0075;
+      S.cam.phi=clamp(S.cam.phi+dy*0.0060,-1.45,1.45);
+    },
+    wheel(d){ S.zoom=clamp(S.zoom*(d>0?0.93:1.075),0.4,3); },
+    tick(dt){ if(S.spin){ S.cam.theta+=dt*0.28; return true; } return false; },
+  };
+}
+
+/* ================================================================== *
+ *  INFO — one paragraph per view, as prose                            *
+ * ================================================================== */
+const INFO={
+compass:
+  'Every face of every solid in this file is a regular polygon, and Euclid '
+ +'builds all of them in Book IV with nothing but a straight edge and a pair '
+ +'of compasses. Step through a construction and watch where each point comes '
+ +'from. The pentagon is the interesting one: it needs the golden section, '
+ +'which is a quadratic and therefore just within reach, and the same single '
+ +'circle hands you the decagon\'s side as well. The heptagon is here to show '
+ +'the boundary — it cannot be done, because cos(2&pi;/7) satisfies an '
+ +'irreducible cubic and compass work only ever solves quadratics. Nothing is '
+ +'lost by that: no uniform polyhedron has a seven-sided face.',
+five:
+  'Book XIII is the climax of the Elements, and its last five propositions '
+ +'inscribe each regular solid in a given sphere and compare its edge against '
+ +'the diameter. Those comparisons are drawn here: the magenta segment is the '
+ +'edge a, the dashed orange line the diameter d. The ratio is not typed into '
+ +'this file — it falls out of the construction, because an edge is twice the '
+ +'seed point\'s distance to its mirror while the diameter is twice the radius, '
+ +'so a/d IS that distance. Euclid closes the book by setting the five edges '
+ +'side by side, which is the strip along the bottom, and then proving that no '
+ +'sixth solid can exist.',
+mirrors:
+  'This is the whole construction in one picture. Three mirrors cut the sphere '
+ +'into 24, 48 or 120 identical triangles; pick a point in one of them and '
+ +'reflect it in the mirrors until the set closes, and the result is a uniform '
+ +'polyhedron. Reflecting the seed across a mirror moves it exactly twice its '
+ +'distance to that mirror, so that distance IS the edge length that mirror '
+ +'contributes. Equal distances therefore mean equal edges — and since the seed '
+ +'contributes nothing to a mirror it already lies on, there is one solid for '
+ +'each non-empty subset of the three. Seven subsets, seven solids, per group. '
+ +'The inset shows where each of them sits in the triangle.',
+arch:
+  'An Archimedean solid has regular faces and one kind of vertex: the same '
+ +'arrangement of polygons, in the same cyclic order, everywhere. Eleven of the '
+ +'thirteen come straight out of the mirror construction. The other two are the '
+ +'snubs, which use only the rotations — half the group — and whose seed sits on '
+ +'no mirror at all. That is not a curiosity but the reason they cannot be built '
+ +'with ruler and compass: the snub cube\'s coordinates are in the ratio '
+ +'1 : t : t&sup2; with t the tribonacci constant, a cubic irrational, and the '
+ +'compass reaches only degrees that are powers of two.',
+duality:
+  'Take each face plane, at distance d from the centre along its unit normal, '
+ +'and put a vertex at &rho;&sup2;/d along that same normal. Faces become '
+ +'vertices, vertices become faces, and the edge count is unchanged. Choosing '
+ +'&rho; to be the midradius — the radius of the sphere that touches every edge '
+ +'— makes the duality canonical rather than merely combinatorial: each edge and '
+ +'its replacement then cross at right angles, touching that sphere at the very '
+ +'same point. Slide the morph to see one become the other, with the compound of '
+ +'both in the middle.',
+catalan:
+  'The duals of the Archimedean solids are the thirteen Catalan solids, and they '
+ +'invert every property of their parents. An Archimedean solid has many face '
+ +'shapes and one kind of vertex; a Catalan has one face shape, repeated, and '
+ +'several kinds of vertex. Their faces are not regular — they are kites, '
+ +'rhombi, or isosceles and scalene triangles — but every dihedral angle in the '
+ +'solid is the same number, which is the sharpest single check that the '
+ +'reciprocation was done correctly, and it is asserted for all thirteen.',
+};
+
+/* ================================================================== *
+ *  BOOT                                                               *
+ * ================================================================== */
+function boot(){
+  const cv=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabs=document.getElementById('tabs');
+  const readout=document.getElementById('readout');
+  const eqbar=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hint=document.getElementById('hint');
+  const errbox=document.getElementById('errbox');
+  const SC=makeScene(), S=SC.S;
+  let dirty=true, last=0;
+
+  function fail(e){
+    errbox.style.display='block';
+    errbox.textContent=String(e&&e.stack||e);
+  }
+
+  /* ---- controls ---- */
+  /* Read the control through the closure, never through e.target: the
+     headless DOM stub fires handlers with a synthetic event that carries no
+     target, so an e.target.value here would throw under the harness and be
+     untestable in exactly the place testing matters. */
+  function slider(label,key,lo,hi,stp,fmtf,enabled){
+    const val=h('span',{class:'val'});
+    const inp=h('input',{type:'range',min:lo,max:hi,step:stp,value:S[key]});
+    inp.addEventListener('input',()=>{
+      S[key]=parseFloat(inp.value); SC.invalidate();
+      val.textContent=fmtf(S[key]); refresh(); });
+    if(enabled===false){ inp.disabled=true; inp.setAttribute('disabled','disabled'); }
+    val.textContent=fmtf(S[key]);
+    const row=h('div',{class:'sliderrow'},h('label',null,label),inp,val);
+    if(enabled===false) row.style.opacity='0.42';
+    return row;
+  }
+  /* `rebuild` is for the toggles that change which OTHER controls are live —
+     without it, switching the free seed off leaves its two sliders enabled
+     but ignored, and a live control that is ignored is worse than none. */
+  function checkbox(label,key,rebuild){
+    const inp=h('input',{type:'checkbox'});
+    inp.type='checkbox';
+    if(S[key]) inp.setAttribute('checked','checked');
+    inp.checked=!!S[key];
+    inp.addEventListener('change',()=>{
+      S[key]=!!inp.checked; SC.invalidate();
+      if(rebuild) syncPanel();
+      refresh(); });
+    return h('label',null,inp,document.createTextNode(label));
+  }
+  function chipRow(items,key,onpick){
+    const wrap=h('div',{class:'chips'});
+    items.forEach(it=>{
+      const v=(it.v!==undefined?it.v:it);
+      const lab=(it.l!==undefined?it.l:String(it));
+      const c=h('div',{class:'chip'+(S[key]===v?' on':'')},lab);
+      c.addEventListener('click',()=>{ S[key]=v; if(onpick) onpick(v);
+                                       SC.invalidate(); syncPanel(); refresh(); });
+      wrap.appendChild(c);
+    });
+    return wrap;
+  }
+  function grp(title){
+    const g=h('div',{class:'grp'});
+    if(title) g.appendChild(h('h3',null,title));
+    for(let i=1;i<arguments.length;i++) if(arguments[i]) g.appendChild(arguments[i]);
+    return g;
+  }
+
+  function syncPanel(){
+    panel.innerHTML='';
+    if(S.view==='compass'){
+      panel.appendChild(grp('polygon',
+        chipRow(NGONS.map(n=>({v:n,l:ngonName(n)})),'ngon',
+                ()=>{ S.step=99; })));
+      const M=buildModel(S);
+      panel.appendChild(grp('construction',
+        slider('step','step',0,M.nsteps-1,1,v=>((v|0)+1)+' / '+M.nsteps)));
+    } else if(S.view==='five'){
+      panel.appendChild(grp('solid', chipRow(PLATONIC,'plat')));
+      panel.appendChild(grp('show', h('div',{class:'checks'},
+        checkbox('circumscribed sphere','showSphere'),
+        checkbox('the edge and the diameter','showEuclid'),
+        checkbox('faces','faces'), checkbox('edges','wire'),
+        checkbox('turn','spin'))));
+    } else if(S.view==='mirrors'){
+      panel.appendChild(grp('symmetry group', chipRow(
+        [{v:'tet',l:'(3 3 2)'},{v:'oct',l:'(4 3 2)'},{v:'ico',l:'(5 3 2)'}],
+        'group', ()=>{ S.freeSeed=false; })));
+      const subs=WSUBSETS.map((w,i)=>({v:i,
+        l:w.map((x,j)=>x?(j+1):'').filter(Boolean).join('')}));
+      panel.appendChild(grp('active mirrors', chipRow(subs,'wsub',
+        ()=>{ S.snub=false; S.freeSeed=false; })));
+      panel.appendChild(grp('or', h('div',{class:'checks'},
+        checkbox('snub (rotations only)','snub',true),
+        checkbox('move the seed freely','freeSeed',true))));
+      panel.appendChild(grp('seed position',
+        slider('toward '+GROUPS[S.group].p+'-fold','seedU',0.01,0.98,0.005,
+               v=>fmt(v,3), S.freeSeed),
+        slider('toward '+GROUPS[S.group].q+'-fold','seedV',0.01,0.98,0.005,
+               v=>fmt(v,3), S.freeSeed)));
+      panel.appendChild(grp('show', h('div',{class:'checks'},
+        checkbox('mirrors','showMirrors'), checkbox('the triangle','showTriangle'),
+        checkbox('the seed','showSeed'), checkbox('the orbit','showOrbit'),
+        checkbox('faces','faces'), checkbox('turn','spin'))));
+    } else if(S.view==='arch'){
+      panel.appendChild(grp('solid', chipRow(ARCH,'arch')));
+      panel.appendChild(grp('show', h('div',{class:'checks'},
+        checkbox('faces','faces'), checkbox('edges','wire'),
+        checkbox('turn','spin'))));
+    } else if(S.view==='duality'){
+      panel.appendChild(grp('solid', chipRow(
+        CATALOGUE.map(c=>c.name),'dualPair')));
+      /* a literal arrow, not "&rarr;": this label goes through
+         createTextNode, which does not parse entities */
+      panel.appendChild(grp('morph',
+        slider('primal → dual','morph',0,1,0.01,v=>fmt(v,2))));
+      panel.appendChild(grp('show', h('div',{class:'checks'},
+        checkbox('the midsphere','showMid'),
+        checkbox('faces','faces'), checkbox('turn','spin'))));
+    } else {
+      panel.appendChild(grp('solid', chipRow(CATALANS,'cat')));
+      panel.appendChild(grp('show', h('div',{class:'checks'},
+        checkbox('faces','faces'), checkbox('edges','wire'),
+        checkbox('turn','spin'))));
+    }
+    panel.appendChild(grp(null, h('div',{class:'btnrow'},
+      h('button',{onclick:()=>{ SC.resetCam(); dirty=true; refresh(); }},'reset view'),
+      h('button',{onclick:()=>{ SC.reset(); syncPanel(); dirty=true; refresh(); }},'reset all'))));
+    panel.appendChild(h('div',{id:'info',html:INFO[S.view]}));
+    panel.appendChild(h('div',{class:'src',html:
+      'Constructed in-file from the Coxeter diagrams (3&nbsp;3&nbsp;2), '
+     +'(4&nbsp;3&nbsp;2), (5&nbsp;3&nbsp;2). No coordinate table is used. '
+     +'Reference values re-derived independently in '
+     +'build_polyhedra/ (numpy&nbsp;+&nbsp;scipy).'}));
+  }
+
+  function buildTabs(){
+    tabs.innerHTML='';
+    VIEWS.forEach(v=>{
+      const b=h('button',{class:S.view===v?'active':''},VLABEL[v]);
+      b.addEventListener('click',()=>{ S.view=v; SC.invalidate();
+        buildTabs(); syncPanel(); dirty=true; refresh(); });
+      tabs.appendChild(b);
+    });
+  }
+
+  function refresh(){
+    try{
+      const M=SC.model();
+      readout.innerHTML=readoutHTML(S,M);
+      eqbar.innerHTML=eqbarHTML(S,M);
+      tagEl.innerHTML=tagHTML(S,M);
+      hint.textContent=(S.view==='compass')
+        ? 'step through the construction with the slider'
+        : 'drag to turn · scroll to zoom';
+      errbox.style.display='none';
+    }catch(e){ fail(e); }
+    /* draw straight away rather than only marking dirty, so a tab click or a
+       slider move paints synchronously.  The frame loop's dirty flag is left
+       CLEAR here on purpose: it exists for the pointer and wheel handlers,
+       and a repaint test is only meaningful against a proven-quiet loop. */
+    dirty=false;
+    draw();
+  }
+
+  function resize(){
+    const r=cv.getBoundingClientRect();
+    const dpr=window.devicePixelRatio||1;
+    cv.width=Math.max(1,Math.round(r.width*dpr));
+    cv.height=Math.max(1,Math.round(r.height*dpr));
+    cv.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    dirty=true;
+  }
+
+  /* fetch the context per draw, as the sibling sims do — the headless harness
+     swaps its recorder between captures, and a context cached at boot would
+     keep writing into the one it happened to see first */
+  function draw(){
+    try{
+      const rc=cv.getContext('2d');
+      const r=cv.getBoundingClientRect();
+      drawView(rc,r.width,r.height,SC.model(),S);
+    }catch(e){ fail(e); }
+  }
+
+  function frame(ts){
+    const dt=last?Math.min((ts-last)/1000,0.05):0;
+    last=ts;
+    if(SC.tick(dt)) dirty=true;
+    if(dirty){ dirty=false; draw(); }
+    window.requestAnimationFrame(frame);
+  }
+
+  /* pointer + wheel MUST set dirty, or the camera moves and nothing repaints */
+  let dragging=false, px=0, py=0;
+  cv.addEventListener('pointerdown',e=>{ dragging=true; px=e.clientX; py=e.clientY;
+    cv.classList.add('dragging'); if(cv.setPointerCapture) cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove',e=>{
+    if(!dragging) return;
+    SC.drag(e.clientX-px, e.clientY-py);
+    px=e.clientX; py=e.clientY;
+    dirty=true;
+  });
+  cv.addEventListener('pointerup',e=>{ dragging=false; cv.classList.remove('dragging'); });
+  cv.addEventListener('wheel',e=>{ e.preventDefault(); SC.wheel(e.deltaY); dirty=true; },
+                      {passive:false});
+  window.addEventListener('keydown',e=>{
+    const i=VIEWS.indexOf(S.view);
+    if(e.key==='['||e.key==='ArrowLeft'){ S.view=VIEWS[(i+VIEWS.length-1)%VIEWS.length]; }
+    else if(e.key===']'||e.key==='ArrowRight'){ S.view=VIEWS[(i+1)%VIEWS.length]; }
+    else if(e.key==='r'||e.key==='R'){ SC.resetCam(); }
+    else return;
+    SC.invalidate(); buildTabs(); syncPanel(); dirty=true; refresh();
+  });
+  window.addEventListener('resize',resize);
+
+  buildTabs(); syncPanel(); resize(); refresh();
+  window.requestAnimationFrame(frame);
+  return {S:S, SC:SC, refresh:refresh, resize:resize, draw:draw,
+          syncPanel:syncPanel, buildTabs:buildTabs,
+          isDirty:()=>dirty, clearDirty:()=>{dirty=false;},
+          pump:()=>{ if(dirty){ dirty=false; draw(); return true; } return false; }};
+}
+
+/* ================================================================== *
+ *  SELF TEST                                                          *
+ *                                                                     *
+ *  Reference values marked (scipy) come from build_polyhedra/, which   *
+ *  rebuilds every solid by an independent route (a numerical search    *
+ *  over seed positions, with scipy's ConvexHull for the faces) and     *
+ *  are listed in build_polyhedra/refvals.txt.                          *
+ * ================================================================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(c,n)=>{ if(c){ pass++; } else { fail++; console.log('  FAIL  '+n); } };
+  const close=(a,b,tol,n)=>ok(isFinite(a)&&Math.abs(a-b)<=tol,
+    n+'   got '+a+' want '+b);
+  const rel=(a,b,r,n)=>ok(isFinite(a)&&Math.abs(a-b)<=r*Math.max(1e-300,Math.abs(b)),
+    n+'   got '+a+' want '+b);
+
+  /* ---------- 0. the shared helpers behave as this file assumes ---- */
+  close(DEG,Math.PI/180,0,'DEG converts degrees INTO radians');
+  close(90*DEG,Math.PI/2,1e-15,'90 DEG is pi/2');
+  close(Math.PI*RAD,180,1e-13,'RAD converts radians into degrees');
+  let threw=false; try{ toRgb('not a colour'); }catch(e){ threw=true; }
+  ok(threw,'toRgb throws rather than silently returning black');
+  ok(toRgb(mix('#5ac8e0','#b8ec4c',0.5)).length===3,'mix output is a legal mix input');
+  ok(plain('&Delta;&nu; &rsquo;').indexOf('&')<0,'plain decodes entities');
+  ok(plain('<sub>x</sub>y')==='xy','plain strips tags');
+  ok(plain('a<b>b</b>').indexOf('<')<0,'plain strips tags with attributes');
+  ok(plain('&Delta;').charCodeAt(0)===0x0394,'ENTS carries upper-case Greek');
+  ok(plain('&phi;').charCodeAt(0)===0x03c6,'ENTS carries lower-case Greek');
+
+  /* ---------- 1. the Schwarz triangles ----------------------------- */
+  const GORD={tet:24, oct:48, ico:120};
+  for(const k of ['tet','oct','ico']){
+    const G=GROUPS[k], N=schwarzMirrors(G.p,G.q,G.r);
+    close(v3.dot(N[0],N[0]),1,1e-15,k+': n1 is a unit vector');
+    close(v3.dot(N[1],N[1]),1,1e-15,k+': n2 is a unit vector');
+    close(v3.dot(N[2],N[2]),1,1e-15,k+': n3 is a unit vector');
+    close(v3.dot(N[0],N[1]),-Math.cos(PI/G.p),1e-15,k+': n1.n2 = -cos(pi/p)');
+    close(v3.dot(N[1],N[2]),-Math.cos(PI/G.q),1e-15,k+': n2.n3 = -cos(pi/q)');
+    close(v3.dot(N[0],N[2]),-Math.cos(PI/G.r),1e-15,k+': n1.n3 = -cos(pi/2) = 0');
+    /* the fundamental domain's area is 4 pi / |G| (scipy) */
+    const K=schwarzCorners(N);
+    const ang=(P,Q,R)=>{
+      const u=v3.norm(v3.cross(P,Q)), w=v3.norm(v3.cross(P,R));
+      return Math.acos(clamp(v3.dot(u,w),-1,1));
+    };
+    const area=ang(K.A,K.B,K.C)+ang(K.B,K.C,K.A)+ang(K.C,K.A,K.B)-PI;
+    close(area,4*PI/GORD[k],1e-14,k+': Girard area = 4 pi/|G| (scipy)');
+    /* the corners really are p-, q- and 2-fold */
+    close(ang(K.A,K.B,K.C),PI/G.p,1e-14,k+': angle at the p-fold corner');
+    close(ang(K.B,K.C,K.A),PI/G.q,1e-14,k+': angle at the q-fold corner');
+    close(ang(K.C,K.A,K.B),PI/G.r,1e-14,k+': angle at the 2-fold corner');
+  }
+  close(4*PI/24, 0.5235987755982988,1e-15,'tetrahedral fundamental area (scipy)');
+  close(4*PI/48, 0.2617993877991494,1e-15,'octahedral fundamental area (scipy)');
+  close(4*PI/120,0.1047197551196598,1e-15,'icosahedral fundamental area (scipy)');
+
+  /* ---------- 2. the seven-subset rule ----------------------------- */
+  for(const k of ['tet','oct','ico']){
+    const G=GROUPS[k], N=schwarzMirrors(G.p,G.q,G.r);
+    for(const w of WSUBSETS){
+      const seed=wythoffSeed(N,w);
+      close(v3.len(seed),1,1e-14,k+' w='+w.join('')+': seed is on the sphere');
+      /* the defining property: M p = t w */
+      const d=[0,1,2].map(i=>v3.dot(seed,N[i]));
+      const act=d.filter((x,i)=>w[i]===1);
+      const off=d.filter((x,i)=>w[i]===0);
+      ok(spanOf(act)<1e-14, k+' w='+w.join('')+': active mirrors equidistant');
+      ok(off.every(x=>Math.abs(x)<1e-14),
+         k+' w='+w.join('')+': the seed lies ON every inactive mirror');
+      const V=orbitByReflection(N,seed);
+      const F=facesOf(V), A=analyse(V,F);
+      ok(A.chi===2, k+' w='+w.join('')+': V-E+F = 2');
+      ok(A.regular, k+' w='+w.join('')+': every face is regular');
+      ok(A.edgeSpread<1e-13, k+' w='+w.join('')+': all edges equal');
+      close(A.defectSum,4*PI,1e-12,k+' w='+w.join('')+': Descartes total defect');
+      /* an edge really is twice the mirror distance */
+      close(A.edge, 2*Math.max.apply(null,act.map(Math.abs)),1e-13,
+            k+' w='+w.join('')+': edge = 2 x mirror distance');
+    }
+    /* the snub: no mirror condition, and Newton must actually converge */
+    const ss=snubSeed(N,G.p,G.q,G.r);
+    const K=schwarzCorners(N);
+    const aa=Math.acos(clamp(v3.dot(ss,K.A),-1,1));
+    const bb=Math.acos(clamp(v3.dot(ss,K.B),-1,1));
+    const cc=Math.acos(clamp(v3.dot(ss,K.C),-1,1));
+    const e1=2*Math.sin(PI/G.p)*Math.sin(aa), e2=2*Math.sin(PI/G.q)*Math.sin(bb),
+          e3=2*Math.sin(PI/G.r)*Math.sin(cc);
+    close(e1,e2,1e-12,k+' snub: p-fold and q-fold edges agree');
+    close(e2,e3,1e-12,k+' snub: q-fold and 2-fold edges agree');
+    const md=[0,1,2].map(i=>Math.abs(v3.dot(ss,N[i])));
+    ok(spanOf(md)>0.05, k+' snub: the seed is on NO bisector (spread '
+       +spanOf(md).toFixed(4)+')');
+    const SV=orbitByRotation(N,ss);
+    ok(SV.length===GORD[k]/2, k+' snub: orbit is the rotation subgroup ('
+       +SV.length+' of '+GORD[k]+')');
+    const SA=analyse(SV,facesOf(SV));
+    ok(SA.chi===2, k+' snub: V-E+F = 2');
+    ok(SA.regular, k+' snub: every face is regular');
+  }
+
+  /* ---------- 3. Euclid XIII: a/d, from the construction ----------- */
+  /* every value here is (scipy); see build_polyhedra/refvals.txt      */
+  const AD={
+    'tetrahedron':0.8164965809277261, 'cube':0.5773502691896258,
+    'octahedron':0.7071067811865476, 'dodecahedron':0.3568220897730897,
+    'icosahedron':0.5257311121191336,
+    'truncated tetrahedron':0.4264014327112207, 'cuboctahedron':0.5000000000000000,
+    'truncated cube':0.2810846377148200, 'truncated octahedron':0.3162277660168381,
+    'rhombicuboctahedron':0.3574067443365935,
+    'truncated cuboctahedron':0.2157394052722661, 'snub cube':0.3721031655781034,
+    'icosidodecahedron':0.3090169943749475,
+    'truncated dodecahedron':0.1683814058867144,
+    'truncated icosahedron':0.2017741061675988,
+    'rhombicosidodecahedron':0.2239189797945130,
+    'truncated icosidodecahedron':0.1314960875363021,
+    'snub dodecahedron':0.2319284403227213,
+  };
+  for(const nm in AD)
+    rel(buildSolid(nm).edgeOverDiam, AD[nm], 1e-12, 'a/d '+nm+' (scipy)');
+  /* the five closed forms Euclid states as propositions */
+  close(buildSolid('tetrahedron').edgeOverDiam, Math.sqrt(2/3),1e-14,
+        'XIII.13 a/d = sqrt(2/3)');
+  close(buildSolid('octahedron').edgeOverDiam, 1/Math.sqrt(2),1e-14,
+        'XIII.14 a/d = 1/sqrt(2)');
+  close(buildSolid('cube').edgeOverDiam, 1/Math.sqrt(3),1e-14,
+        'XIII.15 a/d = 1/sqrt(3)');
+  close(buildSolid('icosahedron').edgeOverDiam, 2/Math.sqrt(10+2*SQ5),1e-14,
+        'XIII.16 a/d = 2/sqrt(10+2 sqrt5)');
+  close(buildSolid('dodecahedron').edgeOverDiam, 1/(SQ3*PHI),1e-14,
+        'XIII.17 a/d = 1/(sqrt3 phi)');
+  /* stated the way Euclid states them: as ratios of squares */
+  const sq=n=>1/Math.pow(buildSolid(n).edgeOverDiam,2);
+  close(sq('tetrahedron'),1.5,1e-13,'XIII.13 d^2 = 3/2 a^2, in Euclid\'s words');
+  close(sq('octahedron'),2,1e-13,'XIII.14 d^2 = 2 a^2');
+  close(sq('cube'),3,1e-13,'XIII.15 d^2 = 3 a^2');
+  close(sq('icosahedron'),PHI+2,1e-13,'XIII.16 d^2/a^2 = phi + 2');
+  close(sq('dodecahedron'),3*PHI*PHI,1e-13,'XIII.17 d^2/a^2 = 3 phi^2');
+  /* XIII.18 orders the five edges and proves there is no sixth solid */
+  const ord=PLATONIC.slice().sort((a,b)=>buildSolid(a).edgeOverDiam
+                                          -buildSolid(b).edgeOverDiam);
+  ok(ord.join(',')==='dodecahedron,icosahedron,cube,octahedron,tetrahedron',
+     'XIII.18 orders the edges dodeca < icosa < cube < octa < tetra');
+
+  /* ---------- 4. the Platonic solids against their closed forms ---- */
+  const PLAT={
+    tetrahedron:{d:Math.acos(1/3), R:Math.sqrt(6)/4, rho:1/Math.sqrt(8),
+                 r:1/Math.sqrt(24), vol:Math.sqrt(2)/12, area:SQ3, V:4,E:6,F:4},
+    cube:{d:PI/2, R:SQ3/2, rho:1/Math.sqrt(2), r:0.5, vol:1, area:6, V:8,E:12,F:6},
+    octahedron:{d:Math.acos(-1/3), R:1/Math.sqrt(2), rho:0.5, r:1/Math.sqrt(6),
+                vol:Math.sqrt(2)/3, area:2*SQ3, V:6,E:12,F:8},
+    dodecahedron:{d:Math.acos(-1/SQ5), R:SQ3*PHI/2, rho:PHI*PHI/2,
+                  r:PHI*PHI/(2*Math.sqrt(3-PHI)), vol:(15+7*SQ5)/4,
+                  area:3*Math.sqrt(25+10*SQ5), V:20,E:30,F:12},
+    icosahedron:{d:Math.acos(-SQ5/3), R:Math.sqrt(10+2*SQ5)/4, rho:PHI/2,
+                 r:PHI*PHI/(2*SQ3), vol:5*(3+SQ5)/12, area:5*SQ3, V:12,E:30,F:20},
+  };
+  for(const nm in PLAT){
+    const A=buildSolid(nm), P=PLAT[nm];
+    ok(A.nV===P.V&&A.nE===P.E&&A.nF===P.F, nm+': V,E,F');
+    ok(A.dihSpread<1e-12, nm+': one dihedral angle only');
+    rel(A.dihMean,P.d,1e-12,nm+': dihedral angle');
+    rel(A.R,P.R,1e-12,nm+': circumradius');
+    rel(A.rmid,P.rho,1e-12,nm+': midradius');
+    rel(A.rin,P.r,1e-12,nm+': inradius');
+    rel(A.vol,P.vol,1e-12,nm+': volume');
+    rel(A.area,P.area,1e-12,nm+': surface area');
+    close(A.defectSum,4*PI,1e-12,nm+': Descartes total defect = 4 pi');
+    ok(A.vconf.length===1, nm+': one kind of vertex');
+    /* R^2 = rho^2 + (a/2)^2 for any solid with all vertices on a sphere */
+    close(A.R*A.R, A.rmid*A.rmid+0.25, 1e-12, nm+': R^2 = rho^2 + (a/2)^2');
+  }
+  /* the dihedrals against their own closed forms, pinned absolutely (scipy) */
+  rel(buildSolid('tetrahedron').dihMean, 1.2309594173407747,1e-13,'tetra dihedral (scipy)');
+  rel(buildSolid('cube').dihMean,        1.5707963267948966,1e-13,'cube dihedral (scipy)');
+  rel(buildSolid('octahedron').dihMean,  1.9106332362490184,1e-13,'octa dihedral (scipy)');
+  rel(buildSolid('dodecahedron').dihMean,2.0344439357957027,1e-13,'dodeca dihedral (scipy)');
+  rel(buildSolid('icosahedron').dihMean, 2.4118649973628270,1e-13,'icosa dihedral (scipy)');
+
+  /* ---------- 5. every uniform solid ------------------------------- */
+  const VEF={
+    'tetrahedron':[4,6,4], 'cube':[8,12,6], 'octahedron':[6,12,8],
+    'dodecahedron':[20,30,12], 'icosahedron':[12,30,20],
+    'truncated tetrahedron':[12,18,8], 'cuboctahedron':[12,24,14],
+    'truncated cube':[24,36,14], 'truncated octahedron':[24,36,14],
+    'rhombicuboctahedron':[24,48,26], 'truncated cuboctahedron':[48,72,26],
+    'snub cube':[24,60,38], 'icosidodecahedron':[30,60,32],
+    'truncated dodecahedron':[60,90,32], 'truncated icosahedron':[60,90,32],
+    'rhombicosidodecahedron':[60,120,62],
+    'truncated icosidodecahedron':[120,180,62], 'snub dodecahedron':[60,150,92],
+  };
+  const VCONF={
+    'truncated tetrahedron':'3.6.6', 'cuboctahedron':'3.4.3.4',
+    'truncated cube':'3.8.8', 'truncated octahedron':'4.6.6',
+    'rhombicuboctahedron':'3.4.4.4', 'truncated cuboctahedron':'4.6.8',
+    'snub cube':'3.3.3.3.4', 'icosidodecahedron':'3.5.3.5',
+    'truncated dodecahedron':'3.10.10', 'truncated icosahedron':'5.6.6',
+    'rhombicosidodecahedron':'3.4.5.4', 'truncated icosidodecahedron':'4.6.10',
+    'snub dodecahedron':'3.3.3.3.5',
+  };
+  for(const c of CATALOGUE){
+    const A=buildSolid(c.name), w=VEF[c.name];
+    ok(A.nV===w[0]&&A.nE===w[1]&&A.nF===w[2], c.name+': V,E,F = '+w.join(',')+' (scipy)');
+    ok(A.chi===2, c.name+': Euler characteristic');
+    ok(A.regular, c.name+': every face regular');
+    ok(A.edgeSpread<1e-12, c.name+': all edges equal');
+    ok(A.Rspread<1e-12, c.name+': all vertices on one sphere');
+    ok(A.rmidSpread<1e-12, c.name+': all edges tangent to one midsphere');
+    ok(A.vconf.length===1, c.name+': vertex-transitive (one vertex figure)');
+    close(A.defectSum,4*PI,1e-11,c.name+': Descartes total defect');
+    if(VCONF[c.name])
+      ok(A.vconf[0]===VCONF[c.name],
+         c.name+': vertex figure '+VCONF[c.name]+' (got '+A.vconf[0]+')');
+    close(A.R*A.R, A.rmid*A.rmid+0.25, 1e-11, c.name+': R^2 = rho^2 + (a/2)^2');
+  }
+  /* the face census across the whole file, and its constructibility */
+  ok(allFaceSizes().join(',')==='3,4,5,6,8,10',
+     'the only faces that occur are 3,4,5,6,8,10-gons');
+  ok(allFaceSizes().every(constructibleNGon),
+     'every face that occurs is constructible with ruler and compass');
+  ok(!constructibleNGon(7) && !constructibleNGon(9) && !constructibleNGon(11),
+     'the heptagon, enneagon and hendecagon are not constructible');
+  ok(constructibleNGon(17) && constructibleNGon(15) && constructibleNGon(257),
+     'Gauss-Wantzel admits 15, 17 and 257');
+  ok(!constructibleNGon(25), 'a repeated Fermat prime (25 = 5x5) is excluded');
+
+  /* ---------- 6. the Catalan solids -------------------------------- */
+  const CATDIH={
+    'triakis tetrahedron':129.5211963586422144, 'rhombic dodecahedron':119.9999999999999858,
+    'triakis octahedron':147.3501001262095258, 'tetrakis hexahedron':143.1301023541559232,
+    'deltoidal icositetrahedron':138.1179590555122729,
+    'disdyakis dodecahedron':155.0821796166184754,
+    'pentagonal icositetrahedron':136.3092328923242746,
+    'rhombic triacontahedron':144.0000000000000000,
+    'triakis icosahedron':160.6125522093703921, 'pentakis dodecahedron':156.7185537264587651,
+    'deltoidal hexecontahedron':154.1213631257763552,
+    'disdyakis triacontahedron':164.8878919076624641,
+    'pentagonal hexecontahedron':153.1787325584497239,
+  };
+  const CATVEF={
+    'triakis tetrahedron':[8,18,12], 'rhombic dodecahedron':[14,24,12],
+    'triakis octahedron':[14,36,24], 'tetrakis hexahedron':[14,36,24],
+    'deltoidal icositetrahedron':[26,48,24], 'disdyakis dodecahedron':[26,72,48],
+    'pentagonal icositetrahedron':[38,60,24], 'rhombic triacontahedron':[32,60,30],
+    'triakis icosahedron':[32,90,60], 'pentakis dodecahedron':[32,90,60],
+    'deltoidal hexecontahedron':[62,120,60], 'disdyakis triacontahedron':[62,180,120],
+    'pentagonal hexecontahedron':[92,150,60],
+  };
+  for(const c of CATALOGUE){
+    if(c.fam!=='arch') continue;
+    const D=buildDual(c.name), A=buildSolid(c.name);
+    const w=CATVEF[D.name];
+    ok(D.nV===w[0]&&D.nE===w[1]&&D.nF===w[2], D.name+': V,E,F (scipy)');
+    ok(D.chi===2, D.name+': Euler characteristic');
+    /* duality swaps the counts */
+    ok(D.nV===A.nF && D.nF===A.nV && D.nE===A.nE,
+       D.name+': duality swaps V and F and keeps E');
+    /* the defining property of a Catalan solid */
+    ok(D.dihSpread<1e-9, D.name+': face-transitive — one dihedral angle');
+    rel(D.dihMean*RAD, CATDIH[D.name], 1e-11, D.name+': dihedral (scipy)');
+    close(D.defectSum,4*PI,1e-10,D.name+': Descartes total defect');
+    ok(D.vconf.length>1, D.name+': NOT vertex-transitive, unlike its parent');
+    ok(!D.regular, D.name+': its faces are not regular polygons');
+  }
+  /* the two rhombic solids have famously round dihedral angles */
+  rel(buildDual('cuboctahedron').dihMean*RAD,120,1e-12,'rhombic dodecahedron: exactly 120 deg');
+  rel(buildDual('icosidodecahedron').dihMean*RAD,144,1e-12,'rhombic triacontahedron: exactly 144 deg');
+
+  /* ---------- 7. duality is an involution -------------------------- */
+  for(const c of CATALOGUE){
+    const A=buildSolid(c.name);
+    const D=dualOf(A.V,A.F,A.rmid);
+    const DD=dualOf(D.V,D.F,A.rmid);
+    let worst=0;
+    for(let i=0;i<A.V.length;i++) worst=Math.max(worst,v3.len(v3.sub(DD.V[i],A.V[i])));
+    ok(worst<1e-11, c.name+': dual of the dual returns the original ('
+       +worst.toExponential(1)+')');
+    /* every dual edge touches the SAME midsphere */
+    const DA=analyse(D.V,D.F);
+    ok(DA.rmidSpread<1e-11, c.name+': dual edges all tangent to one sphere');
+    rel(DA.rmid, A.rmid, 1e-11, c.name+': and it is the primal\'s midsphere');
+    /* corresponding edges cross at right angles */
+    let worstPerp=0;
+    for(const e of A.E){
+      const inc=[];
+      for(let k=0;k<A.F.length;k++)
+        if(A.F[k].indexOf(e[0])>=0 && A.F[k].indexOf(e[1])>=0) inc.push(k);
+      if(inc.length!==2) continue;
+      const u=v3.norm(v3.sub(A.V[e[1]],A.V[e[0]]));
+      const w2=v3.norm(v3.sub(D.V[inc[1]],D.V[inc[0]]));
+      worstPerp=Math.max(worstPerp,Math.abs(v3.dot(u,w2)));
+    }
+    ok(worstPerp<1e-11, c.name+': primal and dual edges are perpendicular ('
+       +worstPerp.toExponential(1)+')');
+  }
+
+  /* ---------- 8. the snubs are not constructible ------------------- */
+  const cubic=t=>t*t*t-t*t-t-1;
+  let lo=1, hi=2;
+  for(let i=0;i<200;i++){ const m=(lo+hi)/2; if(cubic(m)<0) lo=m; else hi=m; }
+  const tribo=(lo+hi)/2;
+  close(tribo,1.8392867552141612,1e-14,'tribonacci constant (scipy)');
+  ok(cubic(1)!==0 && cubic(-1)!==0,
+     'the tribonacci cubic has no rational root, so it is irreducible over Q');
+  {
+    /* the ratio comes out of the CONSTRUCTION, and matches the cubic */
+    const A=buildSolid('snub cube');
+    const c=A.V[0].map(Math.abs).sort((a,b)=>a-b);
+    rel(c[1]/c[0], tribo, 1e-11, 'snub cube coordinates are 1 : t : t^2 (t)');
+    rel(c[2]/c[0], tribo*tribo, 1e-11, 'snub cube coordinates are 1 : t : t^2 (t^2)');
+  }
+  /* cos(2 pi/7) is the same kind of obstruction one dimension down */
+  {
+    const c7=Math.cos(TAU/7);
+    close(8*c7*c7*c7+4*c7*c7-4*c7-1, 0, 1e-14,
+          'cos(2 pi/7) satisfies 8x^3+4x^2-4x-1 (scipy)');
+  }
+
+  /* ---------- 9. the plane constructions --------------------------- */
+  for(const n of NGONS){
+    const C=construction(n);
+    const a0=Math.atan2(C.verts[0][1],C.verts[0][0]);
+    let worst=0;
+    for(let k=0;k<C.verts.length;k++){
+      const t=[Math.cos(a0+TAU*k/n),Math.sin(a0+TAU*k/n)];
+      worst=Math.max(worst,Math.hypot(C.verts[k][0]-t[0],C.verts[k][1]-t[1]));
+    }
+    ok(worst<1e-15,'construction '+n+': vertices land exactly on the circle ('
+       +worst.toExponential(1)+')');
+    const rr=C.verts.map(p=>Math.hypot(p[0],p[1]));
+    ok(spanOf(rr)<1e-15,'construction '+n+': all vertices on the unit circle');
+    ok(C.steps.length>=3,'construction '+n+': has steps to walk through');
+  }
+  {
+    const P5=construction(5);
+    close(P5.side, 2*Math.sin(PI/5), 1e-15, 'IV.11: NQ is the pentagon side (scipy)');
+    close(P5.decagon, 1/PHI, 1e-15, 'IV.11: OQ is the decagon side = 1/phi (scipy)');
+    close(1/PHI,0.6180339887498948,1e-15,'1/phi (scipy)');
+    close(PHI,1.6180339887498949,1e-15,'phi (scipy)');
+    close(2*Math.sin(PI/5),1.1755705045849463,1e-15,'2 sin(pi/5) (scipy)');
+    /* the golden section really is a section: OQ^2 = OA x QA */
+    const OQ=1/PHI;
+    close(OQ*OQ, 1*(1-OQ)+0, 1e-15, 'golden section: 1/phi^2 = 1 - 1/phi');
+  }
+
+  /* ---------- 10. the model builds clean for every setting --------- */
+  const S=makeState();
+  let panels=0, bad=0;
+  for(const v of VIEWS){
+    S.view=v;
+    let picks=[null];
+    if(v==='compass') picks=NGONS.map(n=>({k:'ngon',x:n}));
+    else if(v==='five') picks=PLATONIC.map(n=>({k:'plat',x:n}));
+    else if(v==='arch') picks=ARCH.map(n=>({k:'arch',x:n}));
+    else if(v==='catalan') picks=CATALANS.map(n=>({k:'cat',x:n}));
+    else if(v==='duality') picks=CATALOGUE.map(c=>({k:'dualPair',x:c.name}));
+    else picks=[0,1,2,3,4,5,6].map(i=>({k:'wsub',x:i}));
+    for(const p of picks){
+      if(p) S[p.k]=p.x;
+      for(const st of (v==='compass'?[0,1,2]:[0])){
+        if(v==='compass') S.step=st;
+        let M;
+        try{ M=buildModel(S); }
+        catch(e){ ok(false,'buildModel '+v+' '+(p?p.x:'')+': '+e.message); bad++; continue; }
+        const html=readoutHTML(S,M)+eqbarHTML(S,M)+tagHTML(S,M);
+        panels++;
+        if(html.indexOf('NaN')>=0){ ok(false,'NaN in panel: '+v+' '+(p?p.x:'')); bad++; }
+        if(html.indexOf('undefined')>=0){ ok(false,'undefined in panel: '+v+' '+(p?p.x:'')); bad++; }
+        /* a non-finite-safe formatter renders NaN as an em dash, so the check
+           above can be vacuous; assert an EXPECTED number is present too */
+        if(v==='five'){
+          const A=buildSolid(S.plat);
+          ok(html.indexOf(fmt(A.edgeOverDiam,12))>=0,
+             'five/'+S.plat+': the readout really prints a/d');
+        }
+      }
+    }
+  }
+  ok(bad===0, 'all '+panels+' panel builds are clean');
+
+  /* the mirrors view over the whole seed square, including the corners */
+  {
+    const T=makeState();
+    T.view='mirrors'; T.freeSeed=true;
+    let nonfinite=0, built=0;
+    for(const g of ['tet','oct','ico'])
+      for(let i=0;i<=6;i++) for(let j=0;j<=6;j++){
+        T.group=g; T.seedU=0.02+0.96*i/6; T.seedV=0.02+0.96*j/6;
+        let M;
+        try{ M=buildModel(T); }catch(e){ nonfinite++; continue; }
+        built++;
+        const R=M.mir;
+        if(!R.seed.every(isFinite)) nonfinite++;
+        if(R.A && !isFinite(R.A.edge)) nonfinite++;
+        const html=readoutHTML(T,M);
+        if(html.indexOf('NaN')>=0||html.indexOf('undefined')>=0) nonfinite++;
+      }
+    ok(nonfinite===0, 'no seed position gives a non-finite result ('+built+' tried)');
+    ok(built>=140, 'the free-seed sweep really ran ('+built+')');
+  }
+
+  /* ---------- 11. the default camera is not down a symmetry axis --- */
+  {
+    const cam=makeCamera(CAM0.theta,CAM0.phi,CAM0.dist);
+    cam.W=900; cam.H=600;
+    const B=camBasis(cam);
+    const dir=v3.norm(B.eye);
+    /* The rotation axes of each group are exactly the vertex, face-centre and
+       edge-midpoint directions of ITS Platonic solid — the vertices of an
+       Archimedean solid are not axes at all (its vertex stabiliser is
+       trivial), so gathering directions off those would over-constrain. */
+    let worst=0, which='';
+    for(const nm of PLATONIC){
+      const A=buildSolid(nm);
+      const axes=A.V.map(v3.norm)
+        .concat(A.F.map(f=>facePlane(A.V,f).n))
+        .concat(A.E.map(e=>v3.norm(v3.add(A.V[e[0]],A.V[e[1]]))));
+      for(const ax of axes){
+        const c=Math.abs(v3.dot(dir,ax));
+        if(c>worst){ worst=c; which=nm; }
+      }
+    }
+    ok(worst<Math.cos(15*DEG),
+       'the default camera is >15 deg off every rotation axis (worst |cos| '
+       +worst.toFixed(4)+', on the '+which+')');
+  }
+
+  /* ---------- 12. the scene's own controls ------------------------- */
+  {
+    const SC=makeScene();
+    const th0=SC.S.cam.theta, ph0=SC.S.cam.phi;
+    SC.drag(40,0);
+    ok(SC.S.cam.theta!==th0 && SC.S.cam.phi===ph0,'drag in x moves theta only');
+    SC.drag(0,40);
+    ok(SC.S.cam.phi!==ph0,'drag in y moves phi');
+    SC.resetCam();
+    close(SC.S.cam.theta,CAM0.theta,1e-15,'resetCam restores theta');
+    close(SC.S.cam.phi,CAM0.phi,1e-15,'resetCam restores phi');
+    const z0=SC.S.zoom;
+    SC.wheel(-1);
+    ok(SC.S.zoom>z0,'wheel up zooms in');
+    SC.wheel(1); SC.wheel(1);
+    ok(SC.S.zoom<z0,'wheel down zooms out');
+    for(let i=0;i<200;i++) SC.wheel(-1);
+    ok(SC.S.zoom<=3.0000001,'zoom is clamped above');
+    for(let i=0;i<400;i++) SC.wheel(1);
+    ok(SC.S.zoom>=0.3999999,'zoom is clamped below');
+    /* reset must restore the camera too, not only the sliders */
+    SC.S.plat='cube'; SC.drag(60,30); SC.wheel(-1);
+    SC.reset();
+    ok(SC.S.plat===DEFAULTS.plat,'reset restores the controls');
+    close(SC.S.cam.theta,CAM0.theta,1e-15,'reset restores the camera as well');
+    ok(SC.S.zoom===1,'reset restores the zoom');
+    /* spin only advances while it is on */
+    SC.S.spin=false;
+    const t1=SC.S.cam.theta;
+    ok(SC.tick(0.1)===false && SC.S.cam.theta===t1,'no drift while spin is off');
+    SC.S.spin=true;
+    ok(SC.tick(0.1)===true && SC.S.cam.theta!==t1,'spin advances theta');
+  }
+
+  /* ---------- 13. fitDist follows the canvas, not a constant ------- */
+  {
+    const c1=makeCamera(0.6,0.3,3); c1.W=800; c1.H=600;
+    const c2=makeCamera(0.6,0.3,3); c2.W=400; c2.H=300;
+    const d1=fitDist(c1,1,0.4), d2=fitDist(c2,1,0.4);
+    close(d1,d2,1e-12,'fitDist is canvas-size independent for a fixed aspect');
+    const c3=makeCamera(0.6,0.3,3); c3.W=800; c3.H=300;
+    ok(fitDist(c3,1,0.4)>0 && isFinite(fitDist(c3,1,0.4)),'fitDist survives a wide canvas');
+    ok(fitDist(c1,2,0.4)>fitDist(c1,1,0.4),'a bigger solid is framed from further away');
+  }
+
+  /* ---------- 14. what the mutation sweep asked for ----------------
+     Every assertion below closes a mutant that survived the first
+     55-mutant sweep.  Each one is a number nothing else in the file
+     pinned, or a property that was true but never stated.            */
+
+  /* the unit-edge convention has to be pinned, or scaleToEdge is free.
+     This matters most for the CATALANS, whose edges are not all equal:
+     every other Catalan assertion here (angles, counts, defect) is
+     scale invariant, so normalising to the longest edge instead of the
+     mean changed every Catalan size and nothing noticed. */
+  for(const c of CATALOGUE){
+    const A=buildSolid(c.name);
+    close(meanOf(A.E.map(e=>v3.len(v3.sub(A.V[e[0]],A.V[e[1]])))),1,1e-12,
+          c.name+': mean edge is exactly 1 after scaling');
+    if(c.fam!=='arch') continue;
+    const D=buildDual(c.name);
+    close(meanOf(D.E.map(e=>v3.len(v3.sub(D.V[e[0]],D.V[e[1]])))),1,1e-12,
+          D.name+': mean edge is exactly 1 (its edges are NOT all equal)');
+    ok(D.edgeSpread>1e-6 || D.name.indexOf('rhombic')===0,
+       D.name+': a Catalan has unequal edges unless it is rhombic');
+  }
+  /* the face SHAPE is measured, so it deserves assertions of its own */
+  const SHAPE={
+    'rhombic dodecahedron':'rhombus', 'rhombic triacontahedron':'rhombus',
+    'deltoidal icositetrahedron':'kite', 'deltoidal hexecontahedron':'kite',
+    'triakis tetrahedron':'isosceles triangle',
+    'tetrakis hexahedron':'isosceles triangle',
+    'triakis octahedron':'isosceles triangle',
+    'triakis icosahedron':'isosceles triangle',
+    'pentakis dodecahedron':'isosceles triangle',
+    'disdyakis dodecahedron':'scalene triangle',
+    'disdyakis triacontahedron':'scalene triangle',
+    'pentagonal icositetrahedron':'irregular pentagon',
+    'pentagonal hexecontahedron':'irregular pentagon',
+  };
+  for(const c of CATALOGUE){
+    if(c.fam!=='arch') continue;
+    const D=buildDual(c.name);
+    ok(D.faceShape===SHAPE[D.name],
+       D.name+': face is a '+SHAPE[D.name]+' (got '+D.faceShape+')');
+  }
+  /* a rhombus is equilateral but NOT regular, so the shape test needs the
+     circumradius as well as the edges — the duals of the Platonic solids
+     are the control, since theirs really are regular */
+  ok(buildDual('cuboctahedron').faceShape==='rhombus',
+     'the rhombic dodecahedron\'s face is a rhombus, not a square');
+  ok(catalanFaceShape(buildSolid('cube'))==='square',
+     'and a cube\'s face IS a square — equilateral and equiangular');
+  ok(catalanFaceShape(buildSolid('dodecahedron'))==='regular pentagon',
+     'a dodecahedron\'s face is a REGULAR pentagon');
+
+  /* the projection: pin f absolutely, or the field of view is free because
+     fitDist silently compensates for it */
+  {
+    const cam=makeCamera(0,0,10); cam.W=800; cam.H=600; cam.fov=0.78;
+    const B=camBasis(cam);
+    close(B.f,(600/2)/Math.tan(0.78/2),1e-12,'camera f = (H/2)/tan(fov/2)');
+    close(B.f,729.8294922198,1e-9,'camera f at fov 0.78, H 600 (scipy)');
+    /* the eye is at +x looking back at the origin, so right = +y and up = +z;
+       a point one unit along +y at the origin's depth lands f/dist pixels to
+       the RIGHT of centre and stays on the centre line */
+    const q=project(cam,B,[0,1,0]);
+    ok(q!==null,'a point in front of the camera projects');
+    close(q.x,800/2+B.f*1/10,1e-9,'projection puts +y at +f/dist from centre');
+    close(q.y,600/2,1e-9,'and leaves it on the centre line');
+    ok(project(cam,B,[20,0,0])===null,'a point behind the camera does not project');
+  }
+  /* fitDist means "the solid spans this fraction of the frame" — assert the
+     framing it actually produces, not merely that it is monotone */
+  {
+    const cam=makeCamera(0.3,0.2,1); cam.W=900; cam.H=700;
+    for(const R of [0.5,1,2.5]) for(const frac of [0.3,0.42]){
+      cam.dist=fitDist(cam,R,frac);
+      const B=camBasis(cam);
+      /* the silhouette of a ball of radius R subtends asin(R/dist); at the
+         frame centre that is B.f * tan(asin(R/dist)) pixels */
+      const px=B.f*R/Math.sqrt(cam.dist*cam.dist-R*R);
+      rel(px, frac*Math.min(cam.W,cam.H), 1e-12,
+          'fitDist frames R='+R+' at exactly '+frac+' of the frame');
+    }
+    close(fitDist(makeCameraWH(800,600,0.78),1,0.42),3.0639317466,1e-8,
+          'fitDist absolute value at R=1, frac=0.42 (scipy)');
+  }
+  /* a slider hands over half-integers; the step indexes an array */
+  {
+    const T=makeState(); T.view='compass'; T.ngon=5;
+    for(const st of [0,0.5,2.5,4.9,99,-3]){
+      T.step=st;
+      let M=null, threw=false;
+      try{ M=buildModel(T); }catch(e){ threw=true; }
+      ok(!threw && M && M.con.steps[M.step]!==undefined,
+         'a step slider value of '+st+' indexes a real step');
+    }
+  }
+  /* the construction has to START where its own narrative says it does — a
+     rotation-invariant vertex check cannot see this, and the pentagon really
+     did begin 18 degrees away from N at one point */
+  for(const n of NGONS){
+    const C=construction(n);
+    ok(!!C.start,'construction '+n+' declares where it starts');
+    close(Math.hypot(C.verts[0][0]-C.start[0],C.verts[0][1]-C.start[1]),0,1e-15,
+          'construction '+n+': the polygon starts at the point the steps step from');
+  }
+  ok(Math.abs(construction(5).verts[0][1]-1)<1e-15,
+     'IV.11 steps NQ round the circle starting from N = (0,1)');
+  /* and the drawn compass opening must be the one the numbers use */
+  {
+    const C=construction(5);
+    let hit=null;
+    for(const s of C.steps) for(const d of (s.draw||[]))
+      if(d.k==='circle' && Math.abs(d.c[0]-0.5)<1e-12 && d.r>1) hit=d;
+    ok(!!hit,'IV.11 draws the circle centred M');
+    if(hit){
+      close(Math.hypot(0-hit.c[0],1-hit.c[1]),hit.r,1e-15,
+            'and that drawn circle really passes through N');
+      const Qx=hit.c[0]-hit.r;
+      close(Math.abs(Qx),1/PHI,1e-15,'and really cuts the diameter at Q = 1/phi');
+    }
+  }
+
+  /* ---- properties that were true but unstated (equivalent mutants) ---- */
+  {
+    /* the nearest-neighbour edge finder has a 1e-6 tolerance; report the
+       margin it actually has, so a future solid with a tighter gap is a
+       visible failure rather than a silent mis-mesh */
+    /* the margin is the shortest NON-edge distance over the edge length.  The
+       tetrahedron has no non-edge pair at all — every pair of its vertices is
+       an edge — so it is skipped rather than reported as a zero margin. */
+    let worstRatio=Infinity, which='none';
+    for(const c of CATALOGUE){
+      const A=buildSolid(c.name);
+      const isEdge={};
+      for(const e of A.E) isEdge[e[0]+','+e[1]]=1;
+      for(let i=0;i<A.V.length;i++) for(let j=i+1;j<A.V.length;j++){
+        if(isEdge[i+','+j]) continue;
+        const r=v3.len(v3.sub(A.V[i],A.V[j]))/A.edge;
+        if(r<worstRatio){ worstRatio=r; which=c.name; }
+      }
+    }
+    /* measured: 1.4142 on the truncated cuboctahedron.  Anything short of a
+       41% tolerance therefore provably cannot change the edge set, which is
+       why widening 1e-6 to 1e-1 is an equivalent mutant rather than a hole. */
+    close(worstRatio,Math.SQRT2,1e-9,
+          'the nearest non-edge pair is sqrt(2) edges away (worst case, scipy)');
+    ok(worstRatio>1.15,'so the 1+1e-6 neighbour tolerance has 41% of margin');
+    /* the coplanarity tolerance, likewise */
+    let worstGap=Infinity, which2='';
+    for(const c of CATALOGUE){
+      const A=buildSolid(c.name);
+      for(const f of A.F){
+        const pl=facePlane(A.V,f);
+        for(let j=0;j<A.V.length;j++){
+          if(f.indexOf(j)>=0) continue;
+          const g=Math.abs(v3.dot(pl.n,A.V[j])-pl.d);
+          if(g<worstGap){ worstGap=g; which2=c.name; }
+        }
+      }
+    }
+    /* measured: 0.236 on the snub dodecahedron — six orders of magnitude of
+       headroom over the 1e-7 the code uses, so widening it to 1e-2 is also
+       an equivalent mutant. */
+    ok(worstGap>0.2,'the nearest off-plane vertex is '+worstGap.toFixed(4)
+       +' away (on the '+which2+'), against a 1e-7 coplanarity tolerance');
+    /* the midradius clamp never binds on a convex solid centred on the
+       origin, and the raw face winding is already outward — both are
+       defensive, and saying so is better than leaving them untested */
+    let worstT=1, worstDot=1;
+    for(const c of CATALOGUE){
+      const A=buildSolid(c.name);
+      for(const e of A.E){
+        const a=A.V[e[0]], d=v3.sub(A.V[e[1]],a);
+        const t=-v3.dot(a,d)/v3.dot(d,d);
+        worstT=Math.min(worstT,Math.min(t,1-t));
+      }
+      for(const f of A.F){
+        const pts=f.map(i=>A.V[i]);
+        const raw=v3.norm(v3.cross(v3.sub(pts[1],pts[0]),v3.sub(pts[2],pts[0])));
+        worstDot=Math.min(worstDot,v3.dot(raw,centroidOf(pts))>0?1:0);
+      }
+    }
+    ok(worstT>0.1,'every edge foot is interior, so the midradius clamp never binds');
+    ok(worstDot===1,'every face winding is already outward before the guard fires');
+    /* a guard is invisible unless something is fed to it: feed chol3 a Gram
+       matrix whose halves disagree and require it to refuse */
+    let threwA=false;
+    try{ chol3([[1,-0.7,0],[-0.5,1,-0.5],[0,-0.5,1]]); }catch(e){ threwA=true; }
+    ok(threwA,'chol3 refuses a Gram matrix that is not symmetric');
+    let threwB=false;
+    try{ chol3([[1,2,0],[2,1,0],[0,0,1]]); }catch(e){ threwB=true; }
+    ok(threwB,'chol3 refuses a Gram matrix that is not positive definite');
+    let threwC=false;
+    try{ chol3([[1,-0.5,0],[-0.5,1,-0.5],[0,-0.5,1]]); }catch(e){ threwC=true; }
+    ok(!threwC,'and accepts a legitimate one');
+    /* two of the three mirror-pair rotations already generate the rotation
+       subgroup, which is why dropping the third changes nothing */
+    for(const k of ['tet','oct','ico']){
+      const G=GROUPS[k], N=schwarzMirrors(G.p,G.q,G.r);
+      const s=snubSeed(N,G.p,G.q,G.r);
+      ok(orbitByRotation(N,s).length===({tet:12,oct:24,ico:60})[k],
+         k+': the snub orbit is the whole rotation subgroup');
+    }
+    /* the Gauss-Wantzel loop needs no repeated-prime guard: dividing out one
+       copy leaves m > 1, and the final m===1 rejects it anyway */
+    ok(!constructibleNGon(9)&&!constructibleNGon(25)&&!constructibleNGon(45)
+       &&!constructibleNGon(49),
+       'squares of Fermat primes are rejected by the final m===1 alone');
+  }
+
+  console.log(pass+' passed, '+fail+' failed');
+  return fail;
+}
+
+/* a camera at a stated size, so the fitDist reference value is unambiguous */
+function makeCameraWH(W,H,fov){
+  const c=makeCamera(0,0,1); c.W=W; c.H=H; c.fov=fov; return c;
+}
+
+/* ================================================================== *
+ *  ENTRY                                                              *
+ * ================================================================== */
+if(typeof document==='undefined'){
+  /* A selfTest that logs its failures and returns cleanly makes EVERY mutant
+     look like a survivor, because tools/mutate.py reads the exit code. */
+  if(selfTest()>0) throw new Error('selfTest failed');
+} else {
+  window.__poly=boot();
+}
+
+</script>
+</body>
+</html>

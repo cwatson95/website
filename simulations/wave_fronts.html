@@ -1,0 +1,2399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wave Fronts &mdash; a wave, a packet, and the factor of two</title>
+<!--
+  ===================================================================
+  wave_fronts.html  —  waves, wave packets, and the factor of two
+  ===================================================================
+
+  A single wave has one speed: its crests — the wave FRONTS — move at the
+  phase velocity v_phi = omega/k.  A lump you can point at (a wave packet)
+  is a superposition, and it moves at the group velocity v_g = d omega/dk.
+  The two are equal only when omega is proportional to k.
+
+  The headline is quantum mechanics' factor of two.  For the de Broglie
+  wave of a free particle,
+
+      E = hbar omega,   p = hbar k,   E = p^2 / 2m
+      v_phi = omega/k = E/p = p/2m  =  HALF the classical particle speed
+      v_g   = domega/dk = dE/dp = p/m  =  exactly Newton's velocity.
+
+  So the quantum wavefronts crawl at v/2 while the packet — the thing a
+  detector sees — arrives with the classical particle.  Deep-water gravity
+  waves (omega = sqrt(g k)) are the classical mirror image, v_g = v_phi/2:
+  crests overtake their own group and die at the front, which is what
+  surfers watch.  On the dispersion diagram both factors of two are one
+  theorem of Apollonius (Conics I.33-35): the tangent to a parabola
+  bisects the subtangent, so tangent slope = 2 x chord slope.
+
+  WHAT IS EXACT
+  -------------
+  * The field is a finite superposition C(x,t) = sum a_j e^{i(k_j x - w_j t)}
+    over Nk = 96 (128) components — no PDE integrator, no time-stepping
+    error, and the field is EXACTLY periodic in x with L = 2 pi/dk
+    (asserted to 1e-12).  The discrete sum matches an independent
+    scipy.integrate.quad of the continuum packet to ~5e-13 and the matter
+    closed form (Gaussian integral) to the same level; sigma_x(t) =
+    sqrt(sigma_0^2 + sigma_k^2 t^2) with sigma_0 = 1/(2 sigma_k).
+  * The measured speeds are estimators, not formulas: a circular centroid
+    of |C|^2 for the group, a parabola-refined crest tracker for the
+    phase, both mirrored in build_wave_fronts/derive.py and pinned to its
+    printed values.  A finite packet's crest runs O(sigma_k^2) fast of
+    omega/k — the sim SAYS so (and asserts the rate: halving sigma_k
+    quarters the excess) instead of hiding it.
+  * Natural units hbar = m = 1 (matter), g = 1 (deep water), c = 2
+    (light/sound).  The one real-world anchor: a 100 eV electron has
+    v = 5.930970e6 m/s, lambda_dB = 1.226426 Angstrom, and de Broglie
+    fronts at 2.965485e6 m/s — CODATA 2022 via scipy.constants.
+
+  NOT MODELLED
+  ------------
+  Relativity (where v_phi = c^2/v exceeds c), potentials, more than one
+  space dimension, absorption.  For "deep water" only the dispersion
+  relation is used — no claim about how the water itself moves.
+
+  Scaffold and the fix-carrying 2-D plot layer are extracted verbatim from
+  cart_pendulum.html (2026-08-12, which consolidated the sbs_sims +
+  standard_candle + drum_head helper fixes); the drift fixes are asserted
+  here too.  No 3-D camera — the sim is entirely 2-D.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours for this sim: green = the thing being learned/computed,
+       orange = the analytic reference (true boundary, true pi), magenta =
+       the live/inspected object, cyan = structure (positive weights). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Wave Fronts</h1>
+  <span class="sub" id="sub">one wave has one speed; a packet has two &mdash; and the quantum front moves at half the particle</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+/* ================================================================== *
+ *  the physics — dispersion, superposition, and the shipped           *
+ *  estimators.  Every function mirrors build_wave_fronts/derive.py    *
+ *  and is pinned to its printed values in selfTest.                   *
+ * ================================================================== */
+
+/* natural units: hbar = m = 1 (matter), g = 1 (deep water), c = 2 (light) */
+const CLIGHT=2.0, GRAV=1.0;
+
+function omegaOf(med,k){
+  if(med==='matter') return k*k/2;
+  if(med==='water')  return Math.sqrt(GRAV*Math.abs(k));
+  return CLIGHT*k;                                   /* light / sound */
+}
+function vpOf(med,k){ return omegaOf(med,k)/k; }
+/* ONE implementation of the group velocity — a finite difference of the same
+   omegaOf the rest of the file uses (the drum lesson: a closed form written
+   out three times is three chances to disagree).  h=1e-6 puts the FD error
+   near 1e-9; derive.py prints 6.00000000084 for matter at k0=6. */
+function vgOf(med,k){ const h=1e-6; return (omegaOf(med,k+h)-omegaOf(med,k-h))/(2*h); }
+
+/* -------------------------------------------------- configurations */
+/* full grid: Nk components spanning k0 +- 10 sk; exactly periodic with
+   L = 2 pi/dk.  a_j = A(k_j) dk/sqrt(2 pi), A = (2 pi sk^2)^(-1/4) *
+   exp(-(k-k0)^2/(4 sk^2)); the packet is centred at xc by the phase
+   k_j (x - xc) in fieldAt. */
+function makeCfg(med,k0,sk,xc,Nk){
+  Nk=Nk||96;
+  const dk=20*sk/(Nk-1);
+  const k=new Float64Array(Nk), a=new Float64Array(Nk), om=new Float64Array(Nk);
+  const An=Math.pow(2*Math.PI*sk*sk,-0.25);
+  for(let j=0;j<Nk;j++){
+    k[j]=k0-10*sk+j*dk;
+    a[j]=An*Math.exp(-(k[j]-k0)*(k[j]-k0)/(4*sk*sk))*dk/Math.sqrt(2*Math.PI);
+    om[j]=omegaOf(med,k[j]);
+  }
+  return {med,k0,sk,xc,Nk,dk,k,a,om,L:2*Math.PI/dk};
+}
+/* the synthesis comb: N components at spacing delta = sk.  Its recurrence
+   L = 2 pi/sk is VISIBLE in the window — that is the lesson (a finite sum
+   repeats; more, finer components push the images away).  N=21 matches the
+   full packet's closed form to 4.1e-13 away from the images (derive.py). */
+function makeComb(med,k0,sk,xc,N){
+  const k=new Float64Array(N), a=new Float64Array(N), om=new Float64Array(N);
+  const An=Math.pow(2*Math.PI*sk*sk,-0.25);
+  for(let j=0;j<N;j++){
+    k[j]=k0+(j-(N-1)/2)*sk;
+    a[j]=An*Math.exp(-(k[j]-k0)*(k[j]-k0)/(4*sk*sk))*sk/Math.sqrt(2*Math.PI);
+    om[j]=omegaOf(med,k[j]);
+  }
+  return {med,k0,sk,xc,Nk:N,dk:sk,k,a,om,L:2*Math.PI/sk};
+}
+/* a single plane wave of unit amplitude (the wave view): |C| = 1 everywhere,
+   so none of the packet estimators apply to it — and the view says so. */
+function makeSingle(med,k0){
+  return {med,k0,sk:0,xc:0,Nk:1,dk:0,
+          k:Float64Array.of(k0),a:Float64Array.of(1),
+          om:Float64Array.of(omegaOf(med,k0)),L:2*Math.PI/k0};
+}
+
+/* -------------------------------------------------- the field */
+function fieldAt(cfg,x,t){                       /* -> [Re C, Im C] */
+  let re=0,im=0;
+  const X=x-cfg.xc;
+  for(let j=0;j<cfg.Nk;j++){
+    const ph=cfg.k[j]*X-cfg.om[j]*t;
+    re+=cfg.a[j]*Math.cos(ph);
+    im+=cfg.a[j]*Math.sin(ph);
+  }
+  return [re,im];
+}
+function fieldRow(cfg,xs,t,re,im){               /* batch: fills re[], im[] */
+  const n=xs.length;
+  for(let i=0;i<n;i++){ re[i]=0; im[i]=0; }
+  for(let j=0;j<cfg.Nk;j++){
+    const kj=cfg.k[j], aj=cfg.a[j], off=kj*cfg.xc+cfg.om[j]*t;
+    for(let i=0;i<n;i++){
+      const ph=kj*xs[i]-off;
+      re[i]+=aj*Math.cos(ph);
+      im[i]+=aj*Math.sin(ph);
+    }
+  }
+}
+
+/* -------------------------------------------------- estimators */
+/* All measures live on a fixed 1024-point grid over one exact period L,
+   so they are pure functions of t — no accumulated state to drift. */
+const NXG=1024;
+const _gr=new Float64Array(NXG), _gi=new Float64Array(NXG),
+      _gw=new Float64Array(NXG), _gx=new Float64Array(NXG);
+function gridW(cfg,t){
+  for(let i=0;i<NXG;i++) _gx[i]=i*cfg.L/NXG;
+  fieldRow(cfg,_gx,t,_gr,_gi);
+  for(let i=0;i<NXG;i++) _gw[i]=_gr[i]*_gr[i]+_gi[i]*_gi[i];
+  return _gw;
+}
+/* circular mean of |C|^2 — the packet lives on a ring of circumference L, and
+   once it has orbited the box a plain mean is nonsense (race cfg at t=20:
+   circular 4.6195, naive 27.60 — derive.py). */
+function centroidOf(cfg,t){
+  const w=gridW(cfg,t);
+  let zr=0,zi=0;
+  for(let i=0;i<NXG;i++){
+    const th=2*Math.PI*i/NXG;
+    zr+=w[i]*Math.cos(th); zi+=w[i]*Math.sin(th);
+  }
+  let xc=Math.atan2(zi,zr)*cfg.L/(2*Math.PI);
+  return ((xc%cfg.L)+cfg.L)%cfg.L;
+}
+function sigmaOf(cfg,t){
+  const w=gridW(cfg,t), xc=centroidOf(cfg,t);
+  let s=0,sw=0;
+  for(let i=0;i<NXG;i++){
+    let d=(_gx[i]-xc+cfg.L/2)%cfg.L;
+    d=((d+cfg.L)%cfg.L)-cfg.L/2;
+    s+=w[i]*d*d; sw+=w[i];
+  }
+  return Math.sqrt(s/sw);
+}
+function envMaxOf(cfg,t){
+  const w=gridW(cfg,t);
+  let m=0;
+  for(let i=0;i<NXG;i++) if(w[i]>m) m=w[i];
+  return Math.sqrt(m);
+}
+function gridNorm(cfg,t){                    /* sum |C|^2 dx — exactly conserved */
+  const w=gridW(cfg,t);
+  let s=0;
+  for(let i=0;i<NXG;i++) s+=w[i];
+  return s*cfg.L/NXG;
+}
+function vgMeas(cfg,t){
+  const Dt=0.317;
+  const A=centroidOf(cfg,t), B=centroidOf(cfg,t+Dt);
+  let d=(B-A+cfg.L/2)%cfg.L; d=((d+cfg.L)%cfg.L)-cfg.L/2;
+  return d/Dt;
+}
+/* parabola-refined argmax of Re C on a fine local grid (a raw grid argmax
+   staircases — Known-bad).  481 points across +-0.6 lambda. */
+function crestNear(cfg,t,x0){
+  const lam=2*Math.PI/cfg.k0, n=481;
+  const dx=1.2*lam/(n-1);
+  let best=-Infinity,bi=1;
+  const u=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    const x=x0-0.6*lam+i*dx;
+    const ph0=cfg.k[0]*(x-cfg.xc)-cfg.om[0]*t;
+    let re=cfg.a[0]*Math.cos(ph0);
+    for(let j=1;j<cfg.Nk;j++)
+      re+=cfg.a[j]*Math.cos(cfg.k[j]*(x-cfg.xc)-cfg.om[j]*t);
+    u[i]=re;
+    if(i>0&&i<n-1&&re>best){ best=re; bi=i; }
+  }
+  const den=u[bi-1]-2*u[bi]+u[bi+1];
+  const off=den!==0?0.5*(u[bi-1]-u[bi+1])/den:0;
+  return x0-0.6*lam+(bi+off)*dx;
+}
+function vcrestMeas(cfg,t){
+  const dt=0.0173;
+  const x1=crestNear(cfg,t,centroidOf(cfg,t));
+  const x2=crestNear(cfg,t+dt,x1);            /* the SAME crest, re-found */
+  return (x2-x1)/dt;
+}
+function localK(cfg,x,t){                     /* phase FD, wrapped */
+  const h=1e-4;
+  const A=fieldAt(cfg,x-h,t), B=fieldAt(cfg,x+h,t);
+  let d=Math.atan2(B[1],B[0])-Math.atan2(A[1],A[0]);
+  d=((d+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;
+  return d/(2*h);
+}
+
+/* -------------------------------------------------- closed forms (matter) */
+/* psi from the Gaussian integral, alpha = 1/(4 sk^2) + i t/2 — the
+   independent route the sum is asserted against (derive.py: agree ~5e-13). */
+function psiClosedM(cfg,x,t){
+  const sk=cfg.sk;
+  const ar=1/(4*sk*sk), ai=t/2, a2=ar*ar+ai*ai;
+  /* pi/alpha, then its principal sqrt */
+  const pr=Math.PI*ar/a2, pi2=-Math.PI*ai/a2;
+  const rm=Math.sqrt(Math.hypot(pr,pi2)), rt=Math.atan2(pi2,pr)/2;
+  const sr=rm*Math.cos(rt), si=rm*Math.sin(rt);
+  const pref=Math.pow(2*Math.PI*sk*sk,-0.25)/Math.sqrt(2*Math.PI);
+  /* exponent: -(X^2)/(4 alpha) + i(k0 (x-xc) - k0^2 t/2) */
+  const X=x-cfg.xc-cfg.k0*t;
+  const er=-X*X*ar/(4*a2), ei=X*X*ai/(4*a2)+cfg.k0*(x-cfg.xc)-cfg.k0*cfg.k0*t/2;
+  const m=Math.exp(er);
+  const cr=m*Math.cos(ei), ci=m*Math.sin(ei);
+  return [pref*(sr*cr-si*ci), pref*(sr*ci+si*cr)];
+}
+function sigma0Of(sk){ return 1/(2*sk); }
+function sigmaClosed(sk,t){ const s0=sigma0Of(sk); return Math.sqrt(s0*s0+sk*sk*t*t); }
+/* leading-order width for ANY medium: sigma(t) = sqrt(s0^2+(w'' sk t)^2).
+   For matter w'' = 1 this IS sigmaClosed (asserted); elsewhere it is the
+   Gaussian stationary-phase estimate, used only as a drawing guide for the
+   group cone and checked against the measured sigma to ~6%. */
+function d2omega(med,k){ const h2=1e-4;
+  return (omegaOf(med,k+h2)-2*omegaOf(med,k)+omegaOf(med,k-h2))/(h2*h2); }
+function sigmaApprox(med,k0,sk,t){
+  const s0=sigma0Of(sk), b=d2omega(med,k0)*sk*t;
+  return Math.sqrt(s0*s0+b*b);
+}
+
+/* -------------------------------------------------- the race constants */
+/* matter, k0=6, sk=0.25: start x=4, finish x=28, window [0,36].  The
+   particle (Newton) and the packet centroid arrive together at t = 4;
+   the carrier front x = 4 + (omega0/k0) t needs t = 8 — twice the time. */
+const RACE={x0:4, xf:28, win:36, tLoop:9.5};
+
+/* -------------------------------------------------- a real electron */
+/* CODATA 2022 via scipy.constants (derive.py [8], printed and pinned):   */
+const ELECTRON={v:5930969.58073, lam:1.22642596532e-10, vph:2965484.79037};
+/* ================================================================== *
+ *  state, presets, model                                              *
+ * ================================================================== */
+const TABS=[['wave','the wave'],['packet','the packet'],['speeds','the two speeds'],
+            ['race','the race'],['parab','the parabola'],['spread','the spreading']];
+const MEDLIST=[{id:'matter',name:'matter (de Broglie)'},
+               {id:'water',name:'deep water'},
+               {id:'light',name:'light · sound'}];
+const NLIST=[{id:1,name:'1'},{id:2,name:'2'},{id:3,name:'3'},{id:5,name:'5'},
+             {id:9,name:'9'},{id:21,name:'21'},{id:'fine',name:'96, fine'}];
+
+const DEFAULTS={view:'wave', med:'matter', N:21,
+                k0m:6.0, k0w:1.0, skm:0.60, skw:0.18, skS:1.00,
+                anim:true, speed:1.0, showEnv:true, cmpND:true,
+                t:0};
+const ST=Object.assign({},DEFAULTS);
+
+function k0Sel(st){ return st.med==='water'?st.k0w:st.k0m; }
+function skSel(st){ return st.med==='water'?st.skw:st.skm; }
+/* the packet view's carrier is fixed per medium so the synthesis pins hold */
+function k0Packet(med){ return med==='water'?1.0:6.0; }
+
+/* the two-speeds presets — one per medium, from derive.py */
+const SPEEDS_PRE={matter:[6.0,0.45,10.0], water:[1.0,0.18,10.0], light:[6.0,0.45,10.0]};
+
+/* wall-seconds -> natural time units, per view and medium (deep water moves
+   at v ~ 0.5, matter at ~6 — same wall pace either way; the readout prints t
+   in natural units, so this is presentation, not physics) */
+function rateFor(view,med){
+  if(view==='spread') return 0.5;
+  if(med==='water') return 4.0;
+  return 1.0;
+}
+
+/* -------------------------------------------------- config cache */
+let CFGC={key:'',cfg:null};
+function cfgKeyOf(st){
+  const v=st.view;
+  if(v==='wave')   return 'w|'+st.med+'|'+k0Sel(st);
+  if(v==='packet') return 'p|'+st.med+'|'+skSel(st)+'|'+st.N;
+  if(v==='speeds') return 's|'+st.med;
+  if(v==='race')   return 'r';
+  if(v==='parab')  return 'b|'+st.med+'|'+k0Sel(st);
+  return 'd|'+st.skS;
+}
+function cfgFor(st){
+  const key=cfgKeyOf(st);
+  if(CFGC.key===key) return CFGC.cfg;
+  const v=st.view;
+  let cfg;
+  if(v==='wave') cfg=makeSingle(st.med,k0Sel(st));
+  else if(v==='packet'){
+    const K=k0Packet(st.med), s=skSel(st);
+    cfg=st.N==='fine'?makeCfg(st.med,K,s,12.0):makeComb(st.med,K,s,12.0,st.N);
+  }
+  else if(v==='speeds'){ const P=SPEEDS_PRE[st.med]; cfg=makeCfg(st.med,P[0],P[1],P[2]); }
+  else if(v==='race') cfg=makeCfg('matter',6.0,0.25,RACE.x0);
+  else if(v==='parab'){
+    const K=k0Sel(st), lam=2*Math.PI/K;
+    cfg=makeComb(st.med,K,0.075*K,2.5*lam,21);
+  }
+  else cfg=makeCfg('matter',5.0,st.skS,6.0,128);
+  CFGC={key,cfg};
+  return cfg;
+}
+/* the drawn window (natural units) per view */
+function winFor(st,cfg){
+  const v=st.view;
+  if(v==='wave')   return 12*2*Math.PI/cfg.k0;
+  if(v==='packet') return 40*(st.med==='water'?1:1);
+  if(v==='speeds') return 40;
+  if(v==='race')   return RACE.win;
+  if(v==='parab')  return 10*2*Math.PI/cfg.k0;
+  return 30;
+}
+
+/* -------------------------------------------------- one-pass stats */
+let STATC={key:'',val:null};
+function statsOf(cfg,t,key){
+  const k=(key||'')+'|'+t.toFixed(4);
+  if(STATC.key===k) return STATC.val;
+  const w=gridW(cfg,t);
+  let zr=0,zi=0,sw=0,m=0;
+  for(let i=0;i<NXG;i++){
+    const th=2*Math.PI*i/NXG;
+    zr+=w[i]*Math.cos(th); zi+=w[i]*Math.sin(th);
+    sw+=w[i]; if(w[i]>m) m=w[i];
+  }
+  let xc=Math.atan2(zi,zr)*cfg.L/(2*Math.PI);
+  xc=((xc%cfg.L)+cfg.L)%cfg.L;
+  let s2=0;
+  for(let i=0;i<NXG;i++){
+    let d=(_gx[i]-xc+cfg.L/2)%cfg.L;
+    d=((d+cfg.L)%cfg.L)-cfg.L/2;
+    s2+=w[i]*d*d;
+  }
+  const val={xc, sig:Math.sqrt(s2/sw), emax:Math.sqrt(m), norm:sw*cfg.L/NXG};
+  STATC={key:k,val};
+  return val;
+}
+/* the t=0 envelope peak, cached per cfg: the amplitude AXIS stays pinned to
+   the start, so a spreading packet visibly sinks instead of the axis
+   breathing along with it */
+let EMAX0C={key:'',val:0};
+function emax0Of(cfg,key){
+  if(EMAX0C.key===key) return EMAX0C.val;
+  EMAX0C={key,val:envMaxOf(cfg,0)};
+  return EMAX0C.val;
+}
+/* measured speeds are pricier — refresh them on a 0.25-unit lattice */
+let MEASC={key:'',val:null};
+function measOf(cfg,t,key){
+  const tq=Math.round(t/0.25)*0.25;
+  const k=(key||'')+'|'+tq.toFixed(2);
+  if(MEASC.key===k) return MEASC.val;
+  const val={t:tq, vg:vgMeas(cfg,tq), vcr:cfg.Nk>1?vcrestMeas(cfg,tq):vpOf(cfg.med,cfg.k0)};
+  MEASC={key:k,val};
+  return val;
+}
+
+/* -------------------------------------------------- the model */
+function lazyC(obj,name,fn){
+  let has=false,v;
+  Object.defineProperty(obj,name,{get(){ if(!has){ v=fn(); has=true; } return v; },
+                                  configurable:true});
+}
+function buildModel(){
+  const st=ST, cfg=cfgFor(st), key=cfgKeyOf(st);
+  const M={view:st.view, med:cfg.med, t:st.t, cfg, key,
+           k0:cfg.k0, lam:2*Math.PI/cfg.k0, om0:omegaOf(cfg.med,cfg.k0)};
+  M.win=winFor(st,cfg);
+  M.vp=vpOf(cfg.med,cfg.k0);
+  M.vg=vgOf(cfg.med,cfg.k0);
+  M.T=2*Math.PI/M.om0;
+  lazyC(M,'stats',()=>statsOf(cfg,st.t,key));
+  lazyC(M,'meas',()=>measOf(cfg,st.t,key));
+  lazyC(M,'emax0',()=>emax0Of(cfg,key));
+  if(st.view==='race'){
+    const tP=(RACE.xf-RACE.x0)/M.vg, tF=(RACE.xf-RACE.x0)/M.vp;
+    M.race={tP,tF, xPart:RACE.x0+M.vg*st.t,
+            xFront:RACE.x0+M.vp*st.t,
+            partIn:st.t>=tP, frontIn:st.t>=tF};
+  }
+  if(st.view==='parab'){
+    /* tangent from the central difference ON THE PLOT'S OWN SPACING, so the
+       drawn line cannot disagree with the drawn curve (derive.py [6]) */
+    const dom=parabDomain(st.med), h=dom/240;
+    const k0=cfg.k0, w0=omegaOf(cfg.med,k0);
+    const slope=(omegaOf(cfg.med,k0+h)-omegaOf(cfg.med,k0-h))/(2*h);
+    M.parab={w0, chord:w0/k0, slope,
+             kInt:k0-w0/slope, wInt:w0-slope*k0, h};
+  }
+  if(st.view==='spread'){
+    lazyC(M,'spread',()=>{
+      const s=M.stats;
+      const front=s.xc+2*s.sig, rear=s.xc-2*s.sig;
+      return {sig:s.sig, sigCl:sigmaClosed(cfg.sk,st.t),
+              s0:sigma0Of(cfg.sk),
+              kFront:localK(cfg,front,st.t), kRear:localK(cfg,rear,st.t),
+              product:s.sig*cfg.sk};
+    });
+  }
+  return M;
+}
+function parabDomain(med){ return med==='water'?2.5:12.0; }
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function row(k,v,cls){ return '<tr><td>'+k+'</td><td class="v'+(cls?' '+cls:'')
+  +'">'+v+'</td></tr>'; }
+function medName(med){ return MEDLIST.filter(m=>m.id===med)[0].name; }
+
+function readoutHTML(M){
+  const st=ST, v=M.view;
+  let s='<div class="rname">wave fronts<small>'
+    +TABS.filter(tb=>tb[0]===v)[0][1]+' &middot; '+medName(M.med)
+    +' &middot; &#969;'+(M.med==='matter'?' = &#8463;k&#178;/2m'
+      :M.med==='water'?' = &#8730;(gk)':' = ck')+'</small></div>';
+  s+='<table>';
+  s+=hd('the wave');
+  s+=row('k&#8320; · &#955; = 2&#960;/k&#8320;',fmt(M.k0,2)+' · '+fmt(M.lam,2));
+  s+=row('&#969;&#8320; · T = 2&#960;/&#969;&#8320;',fmt(M.om0,2)+' · '+fmt(M.T,2));
+  s+=row('v<sub>&#966;</sub> = &#969;/k (fronts)',fmt(M.vp,3));
+  if(v==='wave'){
+    s+=row('v<sub>g</sub> = d&#969;/dk (unused here)',fmt(M.vg,3));
+    s+='</table><div class="note">One wave, one speed: every crest moves at '
+      +'&#969;/k. But the wave fills all space and always did — nothing about '
+      +'it can arrive, leave, or be pointed at. To ask &ldquo;how fast does '
+      +'the electron move&rdquo; you need a lump: <b>a packet</b>.</div>';
+    return s;
+  }
+  s+=hd('the packet');
+  if(v==='packet'){
+    const n=st.N==='fine'?96:st.N;
+    s+=row('components N',String(n)+(st.N==='fine'?' (fine grid)':''));
+    if(n>1){
+      s+=row('spacing &#948;k',fmt(M.cfg.dk,3));
+      s+=row('repeats every 2&#960;/&#948;k',fmt(M.cfg.L,1),M.cfg.L<M.win?'bad':'good');
+    }else s+=row('spacing &#948;k','&mdash; (one wave, no packet)');
+    if(n>=5) s+=row('&#963;<sub>x</sub>&#963;<sub>k</sub> (N&#8594;&#8734;: &#189;)',
+                    fmt(M.stats.sig*M.cfg.sk,3));
+  }else{
+    s+=row('&#963;<sub>k</sub> · &#963;<sub>x</sub>(t)',
+           fmt(M.cfg.sk,2)+' · '+fmt(M.stats.sig,2));
+  }
+  if(v==='race'){
+    const R=M.race;
+    s+=hd('the stopwatch');
+    s+=row('t',fmt(M.t,2));
+    s+=row('particle p/m &#8594; finish',R.partIn?fmt(R.tP,2)+' &#10003;':'&#8230;',
+           R.partIn?'good':'');
+    s+=row('packet (group) &#8594; finish',R.partIn?fmt(R.tP,2)+' &#10003;':'&#8230;',
+           R.partIn?'good':'');
+    s+=row('phase front &#8594; finish',R.frontIn?fmt(R.tF,2)+' &#10003;':'&#8230;',
+           R.frontIn?'good':'');
+    s+=row('front time / particle time',fmt(R.tF/R.tP,2),'good');
+    s+='</table><div class="note">The de Broglie fronts move at '
+      +'E/p = p/2m — <b>half</b> the particle. The packet, which is where the '
+      +'electron IS, arrives with Newton. Individual crests are born at the '
+      +'leading edge and die at the trailing edge on the way.</div>';
+    return s;
+  }
+  s+=hd('two speeds, measured');
+  const me=M.meas;
+  s+=row('crest speed (tracked)',fmt(me.vcr,3));
+  s+=row('&#969;/k (fronts, exact)',fmt(M.vp,3));
+  s+=row('group speed (centroid)',fmt(me.vg,3));
+  s+=row('d&#969;/dk (exact)',fmt(M.vg,3));
+  const ratio=me.vg/me.vcr, target=M.vg/M.vp;
+  s+=row('ratio v<sub>g</sub>/v<sub>crest</sub>',fmt(ratio,2)
+    +' (exact '+fmt(target,2)+')',Math.abs(ratio-target)<0.12?'good':'bad');
+  if(v==='parab'){
+    const P=M.parab;
+    s+=hd('the tangent construction');
+    s+=row('chord slope &#969;&#8320;/k&#8320;',fmt(P.chord,3));
+    s+=row('tangent slope (from the curve)',fmt(P.slope,3));
+    if(M.med==='matter') s+=row('tangent cuts k-axis at',fmt(P.kInt,3)
+      +' = k&#8320;/2','good');
+    else if(M.med==='water') s+=row('tangent cuts &#969;-axis at',fmt(P.wInt,3)
+      +' = &#969;&#8320;/2','good');
+    else s+=row('tangent = chord (through 0)',fmt(P.kInt,3));
+  }
+  if(v==='spread'){
+    const D=M.spread;
+    s+=hd('the spreading');
+    s+=row('&#963;<sub>x</sub> measured',fmt(D.sig,3));
+    s+=row('&#8730;(&#963;&#8320;&#178;+&#963;<sub>k</sub>&#178;t&#178;)',fmt(D.sigCl,3),'good');
+    s+=row('local k at rear / front',fmt(D.kRear,2)+' / '+fmt(D.kFront,2));
+    s+=row('&#963;<sub>x</sub>&#963;<sub>k</sub> (&#189; at t=0)',fmt(D.product,3));
+  }
+  s+='</table>';
+  s+='<div class="note">'+(
+    v==='packet'
+    ?'Sums of a few waves repeat; many close-spaced waves make ONE lump. '
+     +'Watch the envelope: with two components it already moves at '
+     +'&#916;&#969;/&#916;k, not at &#969;/k.'
+    :v==='speeds'
+    ?(M.med==='matter'
+      ?'The packet outruns its own crests two-to-one: each crest is born at '
+       +'the FRONT edge, slides back through the lump, and dies at the REAR.'
+      :M.med==='water'
+      ?'The crests outrun the packet two-to-one: born at the REAR, they climb '
+       +'through the group and die at the FRONT — what surfers watch.'
+      :'No dispersion: crests and packet travel together, and a crest lives '
+       +'forever. This is why the question never comes up for sound.')
+    :v==='parab'
+    ?'Apollonius (Conics I.33&ndash;35): a parabola&rsquo;s tangent bisects '
+     +'the axis segment under the point. Slope of tangent = 2 &times; slope '
+     +'of chord — that theorem IS the quantum factor of two.'
+    :'Each component runs at its own &#969;/k, so the packet sorts itself by '
+     +'momentum: long waves fall to the rear, short waves lead. The momentum '
+     +'spread never changes; the position spread grows.')+'</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const v=M.view;
+  if(v==='wave')
+    return '<span class="lhs">u(x,t) = A cos(kx &minus; &#969;t)</span>'
+      +' &nbsp;·&nbsp; <span class="hl2">v<sub>&#966;</sub> = &#969;/k</span>'
+      +'<span class="sm">a surface of constant phase — a wave front — moves at '
+      +'&#969;/k; for de Broglie waves that is E/p = p/2m, half the particle.</span>';
+  if(v==='packet')
+    return '<span class="lhs">cos(k&#8321;x&minus;&#969;&#8321;t) + '
+      +'cos(k&#8322;x&minus;&#969;&#8322;t) = 2 '
+      +'<span class="hl">cos(&#189;&#916;k·x &minus; &#189;&#916;&#969;·t)</span>'
+      +'<span class="hl2">cos(k&#772;x &minus; &#969;&#772;t)</span></span>'
+      +'<span class="sm">the slow factor is the envelope and it moves at '
+      +'&#916;&#969;/&#916;k — add more components and it becomes ONE packet '
+      +'moving at d&#969;/dk.</span>';
+  if(v==='speeds')
+    return '<span class="lhs">v<sub>&#966;</sub> = &#969;/k</span> &nbsp;·&nbsp; '
+      +'<span class="hl">v<sub>g</sub> = d&#969;/dk</span>'
+      +'<span class="sm">matter &#969;=&#8463;k&#178;/2m: v<sub>g</sub>=2v<sub>&#966;</sub>'
+      +' &nbsp;·&nbsp; deep water &#969;=&#8730;(gk): v<sub>g</sub>=&#189;v<sub>&#966;</sub>'
+      +' &nbsp;·&nbsp; light &#969;=ck: equal.</span>';
+  if(v==='race')
+    return '<span class="lhs">v<sub>&#966;</sub> = &#969;/k = E/p = '
+      +'<span class="hl2">v/2</span></span> &nbsp;·&nbsp; '
+      +'<span class="lhs">v<sub>g</sub> = dE/dp = p/m = '
+      +'<span class="hl">v</span></span>'
+      +'<span class="sm">E = p&#178;/2m makes the ratio exactly two — the packet '
+      +'arrives with Newton, the fronts take twice the time.</span>';
+  if(v==='parab')
+    return '<span class="lhs">&#969; = &#8463;k&#178;/2m</span>: chord '
+      +'<span class="hl2">&#969;&#8320;/k&#8320;</span>, tangent '
+      +'<span class="hl">d&#969;/dk = 2&#969;&#8320;/k&#8320;</span>'
+      +'<span class="sm">the tangent to a parabola meets the axis halfway to the '
+      +'foot of the point — Apollonius, two millennia before &#8463;.</span>';
+  return '<span class="lhs">&#963;<sub>x</sub>(t) = '
+    +'<span class="hl">&#8730;(&#963;&#8320;&#178; + &#963;<sub>k</sub>&#178;t&#178;)</span></span>'
+    +' &nbsp;·&nbsp; &#963;<sub>x</sub>&#963;<sub>k</sub> &#8805; &#189;'
+    +'<span class="sm">a free packet spreads because each momentum runs at its '
+    +'own speed; the momentum distribution itself never changes.</span>';
+}
+
+function tagHTML(M){
+  const t={wave:'the wave — fronts, and only fronts',
+    packet:'the packet — built before your eyes from N waves',
+    speeds:'the two speeds — crests against the group',
+    race:'the race — Newton, the packet, and the half-speed front',
+    parab:'the parabola — Apollonius explains the factor of two',
+    spread:'the spreading — the packet sorts itself by momentum'}[M.view];
+  return '<b>'+t+'</b>';
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥'};
+function plain(s){
+  return String(s).replace(/&[a-zA-Z][a-zA-Z0-9]*;/g,
+                           m=>ENTS[m]!==undefined?ENTS[m]:m)
+                  .replace(/<\/?[a-zA-Z][^>]*>/g,'');
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range (sbs_sims.html).
+   A canvas ctx.clip() would fix the browser but NOT the audit — the
+   display-list recorder treats clip() as a no-op, so the captured geometry
+   would still lie.  Crossings are interpolated so a clipped curve still meets
+   the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const inY=y=>y>=ylo&&y<=yhi;
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    let x0=xs[i], y0=ys[i], x1=xs[i+1], y1=ys[i+1];
+    if(!isFinite(x0)||!isFinite(y0)||!isFinite(x1)||!isFinite(y1)){
+      started=false; continue; }
+    const a=inY(y0), c=inY(y1);
+    if(!a&&!c){ started=false; continue; }
+    if(!a){
+      const yc=y0<ylo?ylo:yhi, t=(yc-y0)/(y1-y0);
+      x0=x0+(x1-x0)*t; y0=yc; started=false;
+    }
+    if(!c){
+      const yc=y1<ylo?ylo:yhi, t=(yc-y0)/(y1-y0);
+      x1=x0+(x1-x0)*t; y1=yc;
+    }
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(!c) started=false;
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed (an untrained dream can fill the panel): draw no
+     legend rather than a lying one — the caption names the colours */
+  return null;
+}
+
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+/* ---- this sim's role colours: cyan = the wave itself (structure),
+   green = the packet / envelope (the computed object), magenta = the live
+   marker (crest, front, current point), orange = the analytic reference
+   (Newton's particle, closed forms). ---- */
+const COL={wave:'#5ac8e0', env:'#b8ec4c', mark:'#cd35c4', ref:'#e8843a',
+           dim:'#8b93a6', gridtx:'#6f7789'};
+const RO_W=310;
+
+/* ================================================================== *
+ *  drawing helpers: the fronts band and the wave curve                *
+ * ================================================================== */
+const _dr=new Float64Array(1200), _di=new Float64Array(1200);
+function sampleRow(cfg,t,x0,win,n){
+  const xs=new Float64Array(n);
+  for(let i=0;i<n;i++) xs[i]=x0+win*(i+0.5)/n;
+  fieldRow(cfg,xs,t,_dr,_di);
+  return xs;
+}
+/* the FRONTS strip: brightness follows the positive half of the oscillation,
+   so crests read as bright bars — literal wave fronts seen edge-on.  A single
+   hue faded to the background (the neon(0)-flood lesson, Known-bad). */
+function bandPanel(ctx,b,cfg,t,x0,win,emax){
+  const cols=Math.max(40,Math.floor(b.w/2));
+  const xs=sampleRow(cfg,t,x0,win,cols);
+  const cw=b.w/cols;
+  for(let i=0;i<cols;i++){
+    const v=clamp(Math.max(0,_dr[i])/(emax||1),0,1);
+    ctx.fillStyle=shade(COL.wave,0.05+0.95*Math.pow(v,0.75));
+    ctx.fillRect(b.x+i*cw,b.y,cw+0.5,b.h);
+  }
+  frame(ctx,b,'#242a3a');
+  return xs;
+}
+/* the wave curve with optional envelope; y-range +-A, returns the box map */
+function curvePanel(ctx,b,cfg,t,x0,win,A,opt){
+  const o=opt||{};
+  const n=Math.min(700,Math.max(160,Math.floor(b.w)));
+  const xs=sampleRow(cfg,t,x0,win,n);
+  const u=new Float64Array(n), env=new Float64Array(n), envm=new Float64Array(n);
+  for(let i=0;i<n;i++){
+    u[i]=_dr[i];
+    env[i]=Math.hypot(_dr[i],_di[i]);
+    envm[i]=-env[i];
+  }
+  /* tick count follows the panel width and integer labels follow the span,
+     or a 150 px panel drowns in "10.00"s (Known-bad) */
+  axes(ctx,b,x0,x0+win,-A,A,{title:o.title||'',
+    xlab:o.xlab!==undefined?o.xlab:'x',
+    ylab:o.ylab||'', yticks:o.yticks||[-A*0.8,0,A*0.8],
+    xticks:ticksFor(x0,x0+win,b.w<260?3:(b.w<480?4:6)),
+    xfmt:v=>fmt(v,win>=20?0:1),
+    yfmt:v=>fmt(v,1)});
+  if(o.showEnv!==false){
+    polyline(ctx,b,xs,env,x0,x0+win,-A,A,COL.env,1.8);
+    polyline(ctx,b,xs,envm,x0,x0+win,-A,A,COL.env,1.8);
+  }
+  polyline(ctx,b,xs,u,x0,x0+win,-A,A,COL.wave,1.3);
+  return {xs,u,env,n};
+}
+function dotAt(ctx,b,x,y,x0,win,ylo,yhi,col,r){
+  const X=b.x+b.w*(x-x0)/win, Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  if(X<b.x-2||X>b.x1+2) return null;
+  ctx.beginPath(); ctx.arc(X,Y,r||4.5,0,TAU);
+  ctx.fillStyle=col; ctx.fill();
+  return [X,Y];
+}
+/* carrier crest positions inside [x0, x0+win]: k0(x-xc) - w0 t = 2 pi n */
+function carrierCrests(cfg,t,x0,win){
+  const w0=omegaOf(cfg.med,cfg.k0);
+  const base=cfg.xc+w0*t/cfg.k0, lam=2*Math.PI/cfg.k0;
+  const out=[];
+  const n0=Math.ceil((x0-base)/lam), n1=Math.floor((x0+win-base)/lam);
+  for(let n=n0;n<=n1;n++) out.push(base+n*lam);
+  return out;
+}
+
+/* ================================================================== *
+ *  view: the wave — one plane wave, fronts and nothing else           *
+ * ================================================================== */
+function drawWave(ctx,W,H,M){
+  const st=ST, cfg=M.cfg, x0=0, win=M.win;
+  const colX=56, colW=W-RO_W-96;
+  const capFull='The strip is the plan view: surfaces of constant phase — '
+    +'wave FRONTS — seen edge-on, every one moving at vφ = ω/k = '
+    +fmt(M.vp,2)+'. The curve below is the same field. One crest is marked; '
+    +'watch it cross the window at exactly the front speed. A single wave '
+    +'extends forever and carries nothing you could time — "how fast is the '
+    +'electron" is not yet even a question.';
+  const capShort='Fronts (constant phase) move at ω/k = '+fmt(M.vp,2)+'.';
+  const b1=box(colX,stageTop()+30,colW,86);
+  let fit=fitCaption(ctx,W,H,capFull,capShort,colW,240);
+  let h2=fit.capY-b1.y1-46-32;
+  if(h2<120){
+    fit=fitCaption(ctx,W,H,capShort,capShort,colW,150);
+    h2=Math.max(96,fit.capY-b1.y1-46-32);
+  }
+  const b2=box(colX,b1.y1+46,colW,h2);
+  const xs=bandPanel(ctx,b1,cfg,M.t,x0,win,1);
+  caption(ctx,b1.x,b1.y-18,'the fronts — plan view (plane fronts edge-on)',
+          colW,'#aeb6c6','italic 12.5px Georgia, serif');
+  /* front lines through the band */
+  const crs=carrierCrests(cfg,M.t,x0,win);
+  ctx.strokeStyle=rgba('#ffffff',0.5); ctx.lineWidth=1;
+  for(const xcr of crs){
+    const X=b1.x+b1.w*(xcr-x0)/win;
+    ctx.beginPath(); ctx.moveTo(X,b1.y); ctx.lineTo(X,b1.y1); ctx.stroke();
+  }
+  curvePanel(ctx,b2,cfg,M.t,x0,win,1.25,{title:'u = cos(kx − ωt)',
+    showEnv:false,yticks:[-1,0,1]});
+  /* the marked crest: the one nearest mid-window, riding at omega/k */
+  const midCr=crs.length?crs.reduce((p,c)=>
+    Math.abs(c-(x0+win/2))<Math.abs(p-(x0+win/2))?c:p):x0;
+  dotAt(ctx,b2,midCr,1.0,x0,win,-1.25,1.25,COL.mark,5);
+  /* the lambda ruler between two crests */
+  if(crs.length>=2){
+    const a=crs[0],c=crs[1];
+    const XA=b2.x+b2.w*(a-x0)/win, XB=b2.x+b2.w*(c-x0)/win, Y=b2.y+16;
+    ctx.strokeStyle=COL.dim; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(XA,Y); ctx.lineTo(XB,Y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(XA,Y-4); ctx.lineTo(XA,Y+4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(XB,Y-4); ctx.lineTo(XB,Y+4); ctx.stroke();
+    ctx.fillStyle=COL.dim; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('λ = '+fmt(M.lam,2),XB+6,Y+4);
+  }
+  caption(ctx,colX,fit.capY,fit.txt,fit.capW);
+}
+
+/* ================================================================== *
+ *  view: the packet — Fourier synthesis, N components                 *
+ * ================================================================== */
+function drawPacket(ctx,W,H,M){
+  const st=ST, cfg=M.cfg, x0=0, win=M.win;
+  const colX=56, colW=W-RO_W-96;
+  const nC=st.N==='fine'?96:st.N;
+  const recur=(cfg.L<win&&nC>1)?' The sum of '+nC+' waves repeats every 2π/δk = '
+      +fmt(cfg.L,1)+' — the dashed images are the SAME packet, not copies.':'';
+  const capCore='One wave fills space; a sum of waves can cancel almost '
+    +'everywhere and pile up in one place.'+recur
+    +' More, finer-spaced components push the repeats away and leave one '
+    +'lonely lump — that is a wave packet.';
+  const capShort='N waves make a packet; a finite sum repeats every 2π/δk.';
+  /* allocate top-down so the spectrum row can never ride up into the curve's
+     tick labels (the 820x560 collision the first sweep found); when there is
+     no room for the spectrum at all, drop it whole rather than overflow */
+  const b1=box(colX,stageTop()+30,colW,66);
+  let fit=fitCaption(ctx,W,H,
+    capCore+' The recipe A(k) is below left.',capShort,colW,300);
+  let avail=fit.capY-14-(b1.y1+44);
+  const hasSpec=avail>=190;
+  if(!hasSpec){
+    fit=fitCaption(ctx,W,H,capShort,capShort,colW,150);
+    avail=fit.capY-14-(b1.y1+44);
+  }
+  const b2H=hasSpec?Math.max(90,Math.round(avail*0.58)):Math.max(80,avail-28);
+  const specH=avail-b2H-40;
+  const specW=Math.min(400,colW*0.52);
+  const b2=box(colX,b1.y1+44,colW,b2H);
+  const bSpec=box(colX,b2.y1+40,specW,Math.max(48,specH-14));
+  const emax=Math.max(1e-9,M.emax0);
+  bandPanel(ctx,b1,cfg,M.t,x0,win,emax);
+  caption(ctx,b1.x,b1.y-18,'the fronts of the sum',colW,'#aeb6c6',
+          'italic 12.5px Georgia, serif');
+  const A=emax*1.22;
+  curvePanel(ctx,b2,cfg,M.t,x0,win,A,{title:'Σ aⱼ cos(kⱼx − ωⱼt)',
+    showEnv:st.showEnv,yticks:[-emax,0,emax],xlab:''});
+  /* recurrence markers: the images of the packet (meaningless for one wave) */
+  if(cfg.L<win&&nC>1){
+    ctx.setLineDash([5,5]); ctx.strokeStyle=rgba(COL.env,0.5); ctx.lineWidth=1;
+    for(let n2=1;n2<=Math.floor(win/cfg.L);n2++){
+      const X=b2.x+b2.w*((cfg.xc+n2*cfg.L-x0)/win);
+      if(X>b2.x&&X<b2.x1){ ctx.beginPath(); ctx.moveTo(X,b2.y);
+        ctx.lineTo(X,b2.y1); ctx.stroke(); }
+    }
+    ctx.setLineDash([]);
+  }
+  /* the group marker: centroid of |C|^2 (for N>=2) */
+  if(cfg.Nk>1){
+    const xc=M.stats.xc;
+    const xin=((xc-x0)%cfg.L+cfg.L)%cfg.L;
+    dotAt(ctx,b2,x0+xin,0,x0,win,-A,A,COL.env,4.5);
+  }
+  /* the recipe A(k): stems on their own axes (dropped whole when the canvas
+     cannot hold it — the caption still tells the story) */
+  if(hasSpec){
+    const klo=cfg.k0-11*cfg.sk, khi=cfg.k0+11*cfg.sk;
+    let amax=0; for(let j=0;j<cfg.Nk;j++) amax=Math.max(amax,cfg.a[j]);
+    axes(ctx,bSpec,klo,khi,0,1.15,{title:'the recipe A(k)',
+         yticks:[0,1],yfmt:v=>fmt(v,0),
+         xticks:ticksFor(klo,khi,bSpec.w<260?3:5),xfmt:v=>fmt(v,0)});
+    ctx.fillStyle=COL.gridtx; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign='right'; ctx.textBaseline='bottom';
+    ctx.fillText('k',bSpec.x1-5,bSpec.y1-4);
+    for(let j=0;j<cfg.Nk;j++){
+      const X=bSpec.x+bSpec.w*(cfg.k[j]-klo)/(khi-klo);
+      const Y=bSpec.y1-bSpec.h*(cfg.a[j]/amax/1.15);
+      ctx.strokeStyle=COL.wave; ctx.lineWidth=cfg.Nk>24?1:2;
+      ctx.beginPath(); ctx.moveTo(X,bSpec.y1); ctx.lineTo(X,Y); ctx.stroke();
+    }
+    ctx.fillStyle=COL.gridtx; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText('N = '+nC+', δk = '+fmt(cfg.dk,2),bSpec.x+6,bSpec.y+5);
+    /* note beside the spectrum */
+    const noteX=bSpec.x1+22, noteW=colX+colW-noteX;
+    if(noteW>170)
+      caption(ctx,noteX,bSpec.y+4,
+        (nC===1?'One component: a plane wave, one speed, nothing localised. '
+          +'Add a second and watch the envelope appear.'
+         :nC===2?'Two waves: the envelope (green) is the beat, and it moves at '
+          +'Δω/Δk = '+fmt(M.meas.vg,2)+' while the crests inside it move at '
+          +'ω/k = '+fmt(M.vp,2)+'.'
+         :'The envelope moves at the group speed '+fmt(M.meas.vg,2)
+          +'; the crests inside it at ω/k = '+fmt(M.vp,2)
+          +(M.med==='matter'?' — half.':'.')),
+        noteW,'#8b93a6');
+  }
+  caption(ctx,colX,fit.capY,fit.txt,fit.capW);
+}
+/* ================================================================== *
+ *  view: the two speeds — crests against the group, and the x–t fan   *
+ * ================================================================== */
+function drawSpeeds(ctx,W,H,M){
+  const st=ST, cfg=M.cfg, x0=0, win=M.win;
+  const colX=56, colW=W-RO_W-96;
+  const deathNote=M.med==='matter'
+    ?'crests are born at the FRONT edge and die at the REAR — the packet outruns them 2:1'
+    :M.med==='water'
+    ?'crests are born at the REAR and die at the FRONT — they outrun the packet 2:1'
+    :'no dispersion: crests and packet move together, and no crest ever dies';
+  const capShort='One crest (magenta) against the group (green) — '+deathNote+'.';
+  const b1=box(colX,stageTop()+30,colW,54);
+  const b2Top=b1.y1+40;
+  let fit=fitCaption(ctx,W,H,
+    'Magenta rides one crest (ω/k); green rides the envelope centre (dω/dk). '
+    +'In the x–t fan below, every crest is a thin line of slope 1/vφ and the '
+    +'group is the shaded cone of slope 1/v_g — '+deathNote+'. The box is '
+    +'periodic with L = '+fmt(cfg.L,1)+', so a packet that leaves re-enters.',
+    capShort,colW,330);
+  let avail=fit.capY-14-b2Top;
+  const hasFan=avail>=230;    /* no room for the fan: drop it whole (sparse
+                                 honesty), never stack it into the curve */
+  if(!hasFan){
+    fit=fitCaption(ctx,W,H,capShort,capShort,colW,150);
+    avail=fit.capY-14-b2Top;
+  }
+  const fanH=hasFan?Math.max(96,Math.min(164,Math.round(avail*0.40))):0;
+  const b2=box(colX,b2Top,colW,Math.max(80,avail-(hasFan?fanH+66:30)));
+  const b3=hasFan?box(colX,b2.y1+38,colW,fanH):null;
+  const emax=Math.max(1e-9,M.emax0);
+  bandPanel(ctx,b1,cfg,M.t,x0,win,emax);
+  caption(ctx,b1.x,b1.y-18,'the fronts',colW,'#aeb6c6',
+          'italic 12.5px Georgia, serif');
+  const A=emax*1.22;
+  curvePanel(ctx,b2,cfg,M.t,x0,win,A,{title:'the wave and its envelope',
+    showEnv:st.showEnv,yticks:[-emax,0,emax],xlab:hasFan?'':'x'});
+  /* the two riders (drawn only when their object is inside the window) */
+  const xcirc=M.stats.xc, xin=((xcirc-x0)%cfg.L+cfg.L)%cfg.L;
+  const sg=M.stats.sig;
+  if(xin<win) dotAt(ctx,b2,x0+xin,0,x0,win,-A,A,COL.env,5);
+  const crs=carrierCrests(cfg,M.t,x0,win);
+  let xcr=null;
+  if(crs.length&&xin<win){
+    xcr=crs.reduce((p,c)=>Math.abs(c-(x0+xin))<Math.abs(p-(x0+xin))?c:p);
+    const e=fieldAt(cfg,xcr,M.t);
+    dotAt(ctx,b2,xcr,Math.hypot(e[0],e[1]),x0,win,-A,A,COL.mark,5);
+  }
+  /* the x-t fan: crest lines (slope vp) inside the group cone (slope vg).
+     The time axis holds [0, Tspan] until t reaches it, then scrolls. */
+  if(hasFan){
+  const Tspan=0.9*win/Math.max(0.05,Math.abs(M.vg));
+  const tlo=M.t<Tspan?0:M.t-Tspan, thi=Math.max(M.t,Tspan);
+  axes(ctx,b3,x0,x0+win,tlo,thi,{title:'the fan — x against t',
+    xlab:'x',ylab:'t',yticks:sparseTicks(tlo,thi,b3.h),
+    xticks:ticksFor(x0,x0+win,b3.w<260?3:6),xfmt:v=>fmt(v,0),
+    yfmt:v=>fmt(v,0)});
+  const NT2=60, ts=new Float64Array(NT2), xcp=new Float64Array(NT2),
+        edA=new Float64Array(NT2), edB=new Float64Array(NT2);
+  for(let i=0;i<NT2;i++){
+    const tp=tlo+(thi-tlo)*i/(NT2-1);
+    ts[i]=tp;
+    if(tp<0||tp>M.t){ xcp[i]=NaN; edA[i]=NaN; edB[i]=NaN; continue; }
+    let xc2=(cfg.xc+M.vg*tp)%cfg.L; xc2=((xc2+cfg.L)%cfg.L);
+    const sig2=sigmaApprox(cfg.med,cfg.k0,cfg.sk,tp);
+    xcp[i]=xc2<win?xc2:NaN;
+    edA[i]=xc2-2.5*sig2>=x0&&xc2-2.5*sig2<win?xc2-2.5*sig2:NaN;
+    edB[i]=xc2+2.5*sig2<win?xc2+2.5*sig2:NaN;
+  }
+  polyline(ctx,b3,edA,ts,x0,x0+win,tlo,thi,rgba(COL.env,0.55),1,[4,4]);
+  polyline(ctx,b3,edB,ts,x0,x0+win,tlo,thi,rgba(COL.env,0.55),1,[4,4]);
+  /* crest world-lines: one per distinct crest phase on the ring, each of
+     slope 1/vp, drawn only inside the group cone */
+  const lam=M.lam, w0=M.om0;
+  const nAll=Math.ceil(cfg.L/lam);
+  const xw=new Float64Array(NT2);
+  for(let n=0;n<nAll;n++){
+    for(let i=0;i<NT2;i++){
+      const tp=ts[i];
+      if(tp<0||tp>M.t){ xw[i]=NaN; continue; }
+      const xl=cfg.xc+w0*tp/cfg.k0+n*lam;
+      let xc2=(cfg.xc+M.vg*tp)%cfg.L; xc2=((xc2+cfg.L)%cfg.L);
+      const sig2=sigmaApprox(cfg.med,cfg.k0,cfg.sk,tp);
+      /* compare on the ring: the crest pattern is periodic in L too */
+      let d=((xl-xc2)%cfg.L+1.5*cfg.L)%cfg.L-0.5*cfg.L;
+      const xdraw=xc2+d;
+      xw[i]=(Math.abs(d)<2.5*sig2&&xdraw>=x0&&xdraw<win)?xdraw:NaN;
+    }
+    polyline(ctx,b3,xw,ts,x0,x0+win,tlo,thi,rgba(COL.wave,0.75),1);
+  }
+  polyline(ctx,b3,xcp,ts,x0,x0+win,tlo,thi,COL.env,2);
+  legendAuto(ctx,b3,[[COL.env,'group centre — slope 1/v_g'],
+                     [COL.wave,'crests — slope 1/vφ']]);
+  }
+  caption(ctx,colX,fit.capY,fit.txt,fit.capW);
+}
+
+/* ================================================================== *
+ *  view: the race — Newton, the packet, and the half-speed front      *
+ * ================================================================== */
+function drawRace(ctx,W,H,M){
+  const st=ST, cfg=M.cfg, x0=0, win=RACE.win, R=M.race;
+  const colX=56, colW=W-RO_W-96;
+  const fit=fitCaption(ctx,W,H,
+    'Same start, same momentum. The classical particle does x = x0 + (p/m)t; '
+    +'the packet — where the electron actually is — keeps up with it exactly '
+    +'(Ehrenfest). The magenta line is a de Broglie front, a surface of '
+    +'constant phase: it moves at ω/k = E/p = v/2 and reaches the finish at '
+    +'t = '+fmt(R.tF,0)+', twice the particle&rsquo;s t = '+fmt(R.tP,0)
+    +'. The race restarts itself.',
+    'Particle and packet arrive together; the phase front takes twice as long.',
+    colW,300);
+  const X=x=>colX+colW*(x-x0)/win;
+  const tight=H<520;                 /* compact lanes on short canvases */
+  const lane1=box(colX,stageTop()+52,colW,tight?34:56);
+  const b1=box(colX,lane1.y1+(tight?26:42),colW,tight?34:50);
+  const b2=box(colX,b1.y1+8,colW,Math.max(70,fit.capY-b1.y1-8-38));
+  /* stopwatch */
+  ctx.font='italic 17px Georgia, serif'; ctx.fillStyle='#e9e9f0';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText('t = '+fmt(M.t,2),colX,stageTop()+2);
+  /* lane 1: the classical particle — its title INSIDE the lane, clear of
+     the start post's label above it (first sweep collision) */
+  frame(ctx,lane1,'#242a3a');
+  ctx.strokeStyle='#39404f'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(lane1.x,lane1.y+lane1.h/2);
+  ctx.lineTo(lane1.x1,lane1.y+lane1.h/2); ctx.stroke();
+  ctx.fillStyle=COL.ref;
+  ctx.beginPath();
+  ctx.arc(X(Math.min(R.xPart,RACE.xf)),lane1.y+lane1.h/2,8,0,TAU); ctx.fill();
+  ctx.fillStyle=COL.gridtx; ctx.font='10.5px -apple-system, sans-serif';
+  ctx.textBaseline='top'; ctx.textAlign='left';
+  ctx.fillText('the classical particle — x = x0 + (p/m) t',lane1.x+6,lane1.y+4);
+  /* lane 2: the quantum packet */
+  const emax=Math.max(1e-9,M.emax0);
+  bandPanel(ctx,b1,cfg,M.t,x0,win,emax);
+  ctx.fillStyle=COL.gridtx; ctx.textBaseline='bottom'; ctx.textAlign='left';
+  ctx.fillText('the de Broglie wave of the same particle',b1.x+4,b1.y-3);
+  const A=emax*1.22;
+  curvePanel(ctx,b2,cfg,M.t,x0,win,A,{showEnv:true,yticks:[-emax,0,emax],
+    xlab:'x'});
+  const xin=((M.stats.xc-x0)%cfg.L+cfg.L)%cfg.L;
+  if(xin<win) dotAt(ctx,b2,x0+xin,0,x0,win,-A,A,COL.env,5);
+  /* start & finish posts */
+  ctx.setLineDash([6,5]); ctx.strokeStyle=rgba('#ffffff',0.45); ctx.lineWidth=1;
+  for(const [xp,lab] of [[RACE.x0,'start'],[RACE.xf,'finish']]){
+    ctx.beginPath(); ctx.moveTo(X(xp),lane1.y-8); ctx.lineTo(X(xp),b2.y1);
+    ctx.stroke();
+    ctx.fillStyle='#aeb6c6'; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign=xp>win/2?'right':'left'; ctx.textBaseline='bottom';
+    ctx.fillText(lab,X(xp)+(xp>win/2?-5:5),lane1.y-10);
+  }
+  ctx.setLineDash([]);
+  /* the de Broglie front — its label INSIDE the curve panel so it cannot
+     collide with the band's title while the front is still left of it */
+  if(R.xFront<win-0.4){
+    const FX=X(R.xFront);
+    ctx.strokeStyle=COL.mark; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(FX,b1.y-4); ctx.lineTo(FX,b2.y1); ctx.stroke();
+    ctx.fillStyle=COL.mark; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign=R.xFront>win*0.72?'right':'left'; ctx.textBaseline='top';
+    ctx.fillText('phase front — v/2',FX+(R.xFront>win*0.72?-6:6),b2.y1-16);
+  }
+  /* arrival stamps */
+  ctx.font='11.5px -apple-system, sans-serif'; ctx.textAlign='right';
+  ctx.textBaseline='top';
+  ctx.textAlign='left';
+  if(R.partIn){
+    ctx.fillStyle=COL.ref;
+    ctx.fillText('arrived  t = '+fmt(R.tP,2),lane1.x+6,lane1.y1-16);
+    ctx.fillStyle=COL.env;
+    ctx.fillText('packet arrived  t = '+fmt(R.tP,2),b2.x+8,b2.y+6);
+  }
+  if(R.frontIn){
+    ctx.fillStyle=COL.mark;
+    ctx.fillText('front arrived  t = '+fmt(R.tF,2)+' = 2×',b2.x+8,b2.y+22);
+  }
+  caption(ctx,colX,fit.capY,fit.txt,fit.capW);
+}
+
+/* ================================================================== *
+ *  view: the parabola — Apollonius and the tangent construction       *
+ * ================================================================== */
+function drawParab(ctx,W,H,M){
+  const st=ST, cfg=M.cfg, P=M.parab;
+  const colX=56, colW=W-RO_W-96;
+  const thm=M.med==='matter'
+    ?'For a parabola the tangent at P meets the axis at HALF the foot of P '
+     +'(Apollonius, Conics I.33–35) — so the tangent&rsquo;s slope is exactly '
+     +'twice the chord&rsquo;s: v_g = 2 vφ, for every mass and every k.'
+    :M.med==='water'
+    ?'ω = √(gk) is the same parabola on its side (ω² = gk): the tangent now '
+     +'bisects the ω-axis intercept, so v_g = ½ vφ — the same theorem, '
+     +'transposed.'
+    :'ω = ck is a straight line through the origin: chord and tangent are the '
+     +'same line, v_g = vφ, and no crest ever slips through its packet.';
+  const fit=fitCaption(ctx,W,H,
+    'Phase speed is the slope of the CHORD from the origin; group speed is the '
+    +'slope of the TANGENT. '+thm+' Below, two runners move at exactly those '
+    +'two slopes over the real wave.',
+    thm,colW,300);
+  const stripH=54;
+  const bStrip=box(colX,fit.capY-stripH-14,colW,stripH);
+  const bP=box(colX+34,stageTop()+34,Math.min(colW-40,620),
+               Math.max(110,bStrip.y-stageTop()-34-64));
+  const dom=parabDomain(M.med);
+  const wmax=(M.med==='water'?Math.sqrt(GRAV*dom):omegaOf(M.med,dom))*1.05;
+  axes(ctx,bP,0,dom,0,wmax,{title:'the dispersion diagram',
+       ylab:'ω',yticks:sparseTicks(0,wmax,bP.h),
+       xticks:ticksFor(0,dom,bP.w<260?3:6),
+       xfmt:v=>fmt(v,M.med==='water'?1:0)});
+  ctx.fillStyle=COL.gridtx; ctx.font='10.5px -apple-system, sans-serif';
+  ctx.textAlign='right'; ctx.textBaseline='bottom';
+  ctx.fillText('k',bP.x1-6,bP.y1-6);
+  const NSAMP=241, kk=new Float64Array(NSAMP), ww=new Float64Array(NSAMP);
+  for(let i=0;i<NSAMP;i++){ kk[i]=dom*i/(NSAMP-1); ww[i]=omegaOf(M.med,Math.max(1e-9,kk[i])); }
+  polyline(ctx,bP,kk,ww,0,dom,0,wmax,COL.wave,1.8);
+  const k0=cfg.k0, w0=P.w0;
+  /* chord (v_phi) and tangent (v_g), the tangent from the plotted samples */
+  polyline(ctx,bP,Float64Array.of(0,k0),Float64Array.of(0,w0),
+           0,dom,0,wmax,COL.mark,1.6,[6,5]);
+  {
+    const kA=Math.max(0,k0-dom*0.5), kB=Math.min(dom,k0+dom*0.35);
+    polyline(ctx,bP,Float64Array.of(kA,kB),
+             Float64Array.of(w0+P.slope*(kA-k0),w0+P.slope*(kB-k0)),
+             0,dom,0,wmax,COL.env,1.8);
+  }
+  dotAt(ctx,bP,k0,w0,0,dom,0,wmax,COL.mark,5);
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* the bisection construction on the relevant axis */
+  if(M.med==='matter'){
+    const Xk=v=>bP.x+bP.w*v/dom;
+    ctx.setLineDash([3,4]); ctx.strokeStyle=COL.dim; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(Xk(k0),bP.y1); ctx.lineTo(Xk(k0),bP.y1-bP.h*w0/wmax);
+    ctx.stroke(); ctx.setLineDash([]);
+    for(const [kv,lab,cl] of [[P.kInt,'T',COL.env],[k0,'F',COL.dim]]){
+      ctx.strokeStyle=cl;
+      ctx.beginPath(); ctx.moveTo(Xk(kv),bP.y1-5); ctx.lineTo(Xk(kv),bP.y1+5);
+      ctx.stroke();
+      ctx.fillStyle=cl; ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText(lab,Xk(kv),bP.y1-8);          /* inside — the tick row and
+        the axis title live below the frame (first sweep collision) */
+    }
+    ctx.fillStyle=COL.env; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    const bisTxt=bP.w>320?'T = k0/2 — the tangent bisects OF':'T = k0/2';
+    ctx.fillText(bisTxt,Math.max(bP.x+8,
+                 Math.min(Xk(k0)+14,bP.x1-(bP.w>320?190:56))),bP.y1-24);
+  }else if(M.med==='water'){
+    const Yw=v=>bP.y1-bP.h*v/wmax;
+    for(const [wv,lab,cl] of [[P.wInt,'T',COL.env],[w0,'F',COL.dim]]){
+      ctx.strokeStyle=cl;
+      ctx.beginPath(); ctx.moveTo(bP.x-5,Yw(wv)); ctx.lineTo(bP.x+5,Yw(wv));
+      ctx.stroke();
+      ctx.fillStyle=cl; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(lab,bP.x+8,Yw(wv));
+    }
+    ctx.fillStyle=COL.env; ctx.textBaseline='bottom';
+    ctx.fillText('T = ω₀/2 — bisected on the ω-axis',bP.x+26,Yw(P.wInt)-6);
+  }else{
+    ctx.fillStyle=COL.gridtx; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('chord = tangent: the line already passes through 0',
+                 bP.x+12,bP.y+24);
+  }
+  /* the two runners over the real wave */
+  const win=M.win, loops=Math.max(0.05,win);
+  const xphi=(cfg.xc+M.vp*M.t)%loops, xg=(cfg.xc+M.vg*M.t)%loops;
+  bandPanel(ctx,bStrip,cfg,M.t,0,win,Math.max(1e-9,M.stats.emax));
+  caption(ctx,bStrip.x,bStrip.y-(colW>560?32:16),
+    colW>560?'two runners: chord speed vφ (magenta) and tangent speed v_g '
+      +'(green) — they lap in an exact 2:1 ratio'+(M.med==='light'?' (1:1 here)':'')
+    :'vφ vs v_g — 2:1',
+    colW,COL.gridtx);
+  for(const [xr,cl] of [[xphi,COL.mark],[xg,COL.env]]){
+    const XR=bStrip.x+bStrip.w*xr/win;
+    ctx.fillStyle=cl;
+    ctx.beginPath(); ctx.arc(XR,bStrip.y-9,4.5,0,TAU); ctx.fill();
+    ctx.strokeStyle=rgba(cl,0.5); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(XR,bStrip.y-4); ctx.lineTo(XR,bStrip.y1);
+    ctx.stroke();
+  }
+  caption(ctx,colX,fit.capY,fit.txt,fit.capW);
+}
+
+/* ================================================================== *
+ *  view: the spreading — the packet sorts itself by momentum          *
+ * ================================================================== */
+function drawSpread(ctx,W,H,M){
+  const st=ST, cfg=M.cfg, x0=0, win=M.win, D=M.spread;
+  const colX=56, colW=W-RO_W-96;
+  const fit=fitCaption(ctx,W,H,
+    'Each component runs at its own ω/k, so the fast (short) waves pull ahead '
+    +'and the slow (long) waves fall behind: read the local wavelength at the '
+    +'two ends. The dashed orange envelope is the CLOSED FORM (the Gaussian '
+    +'integral done exactly) — it lies on top of the drawn sum. The momentum '
+    +'recipe |A(k)|² never changes; only position spreads. Light, for '
+    +'contrast, keeps σ forever. (The box is periodic, L = '+fmt(cfg.L,1)
+    +': late-time ripples are the tails meeting their own images.)',
+    'Short waves lead, long waves trail; σ(t) = √(σ0²+σk²t²).',
+    colW,300);
+  const rowH=Math.min(170,Math.max(96,fit.capY-(stageTop()+34+96+44)-12));
+  const bs=box(colX,fit.capY-rowH-12,Math.floor(colW*0.52),rowH-30);
+  const bA=box(bs.x1+58,bs.y,colX+colW-bs.x1-58,rowH-30);
+  const b2=box(colX,stageTop()+34,colW,Math.max(96,bs.y-stageTop()-34-44));
+  const emax0=M.emax0;
+  const A=emax0*1.1;
+  const cp=curvePanel(ctx,b2,cfg,M.t,x0,win,A,{title:'the packet at t = '
+    +fmt(M.t,2),showEnv:true,yticks:[-emax0,0,emax0],xlab:''});
+  /* closed-form envelope overlay — the independent route, drawn dashed */
+  {
+    const n=cp.n, ec=new Float64Array(n);
+    for(let i=0;i<n;i++){
+      const ps=psiClosedM(cfg,cp.xs[i],M.t);
+      ec[i]=Math.hypot(ps[0],ps[1]);
+    }
+    polyline(ctx,b2,cp.xs,ec,x0,x0+win,-A,A,COL.ref,1.4,[5,4]);
+  }
+  /* local-wavelength rulers at the two ends — labels anchored OUTWARD so
+     they cannot meet in the middle when the packet is still narrow */
+  const s=M.stats;
+  for(const [lab,xq,kq,side] of [['rear',s.xc-2*s.sig,D.kRear,-1],
+                                 ['front',s.xc+2*s.sig,D.kFront,1]]){
+    if(xq<x0+1||xq>x0+win-2) continue;
+    const lamq=2*Math.PI/Math.abs(kq);
+    const XA=b2.x+b2.w*(xq-x0)/win, XB=b2.x+b2.w*(xq+lamq-x0)/win;
+    const Y=b2.y+14;
+    ctx.strokeStyle=COL.mark; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(XA,Y); ctx.lineTo(Math.min(XB,b2.x1-2),Y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(XA,Y-4); ctx.lineTo(XA,Y+4); ctx.stroke();
+    if(XB<b2.x1-2){ ctx.beginPath(); ctx.moveTo(XB,Y-4); ctx.lineTo(XB,Y+4);
+      ctx.stroke(); }
+    ctx.fillStyle=COL.mark; ctx.font='10px -apple-system, sans-serif';
+    ctx.textAlign=side<0?'right':'left'; ctx.textBaseline='top';
+    ctx.fillText('λ '+lab+' = '+fmt(lamq,2),side<0?XA-5:XA+2,Y+6);
+  }
+  /* sigma(t): closed curve, live dot, and the non-dispersive flat line */
+  const tmax=5;
+  const smax=sigmaClosed(cfg.sk,tmax)*1.12;
+  axes(ctx,bs,0,tmax,0,smax,{title:'σ(t) — measured against closed form',
+       xlab:'t',yticks:sparseTicks(0,smax,bs.h),
+       xticks:ticksFor(0,tmax,bs.w<200?3:5),xfmt:v=>fmt(v,0)});
+  const nts=100, tss=new Float64Array(nts), scl=new Float64Array(nts);
+  for(let i=0;i<nts;i++){ tss[i]=tmax*i/(nts-1); scl[i]=sigmaClosed(cfg.sk,tss[i]); }
+  polyline(ctx,bs,tss,scl,0,tmax,0,smax,COL.env,1.8);
+  if(st.cmpND)
+    polyline(ctx,bs,Float64Array.of(0,tmax),
+             Float64Array.of(D.s0,D.s0),0,tmax,0,smax,COL.ref,1.2,[5,4]);
+  dotAt(ctx,bs,Math.min(M.t,tmax),D.sig,0,tmax,0,smax,COL.mark,4.5);
+  if(st.cmpND){
+    ctx.fillStyle=COL.ref; ctx.font='10px -apple-system, sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('light: σ stays σ₀',bs.x+6,bs.y1-bs.h*(D.s0/smax)-3);
+  }
+  /* the momentum recipe — static on purpose */
+  if(bA.w>120){
+    const klo=cfg.k0-3.5*cfg.sk, khi=cfg.k0+3.5*cfg.sk;
+    const nA=80, ks=new Float64Array(nA), aa=new Float64Array(nA);
+    let am=0;
+    for(let i=0;i<nA;i++){
+      ks[i]=klo+(khi-klo)*i/(nA-1);
+      aa[i]=Math.exp(-(ks[i]-cfg.k0)*(ks[i]-cfg.k0)/(2*cfg.sk*cfg.sk));
+      if(aa[i]>am) am=aa[i];
+    }
+    axes(ctx,bA,klo,khi,0,1.1,{title:'|A(k)|² — never changes',
+      xlab:'k',yticks:[0,1],yfmt:v=>fmt(v,0),
+      xticks:ticksFor(klo,khi,bA.w<200?3:5),xfmt:v=>fmt(v,0)});
+    polyline(ctx,bA,ks,aa,klo,khi,0,1.1,COL.wave,1.6);
+  }
+  caption(ctx,colX,fit.capY,fit.txt,fit.capW);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[];
+  POLY_SEGS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='wave') drawWave(ctx,W,H,M);
+  else if(M.view==='packet') drawPacket(ctx,W,H,M);
+  else if(M.view==='speeds') drawSpeeds(ctx,W,H,M);
+  else if(M.view==='race') drawRace(ctx,W,H,M);
+  else if(M.view==='parab') drawParab(ctx,W,H,M);
+  else drawSpread(ctx,W,H,M);
+}
+
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){
+    const ctx=canvas.getContext('2d');
+    drawView(ctx,S.W,S.H,buildModel());
+  };
+  S.step=function(){
+    if(!ST.anim) return false;
+    ST.t+=0.016*ST.speed*rateFor(ST.view,ST.med);
+    if(ST.view==='race'&&ST.t>RACE.tLoop) ST.t=0;
+    if(ST.view==='spread'&&ST.t>5.0) ST.t=0;
+    return true;
+  };
+  S.pointer=function(){ return false; };   /* no view reads the pointer */
+  return S;
+}
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    st.view=k; st.t=0;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===k?'active':'');
+    syncChips(); syncPanel(); refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',
+      onclick:()=>setView(k)},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>
+          b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  const clockReset=()=>{ st.t=0; };
+
+  const gWave=h('div',{class:'grp'},h('h3',null,'the medium'));
+  const medChips=chipRow(MEDLIST,'med',clockReset);
+  gWave.appendChild(medChips);
+  trackChips(gWave,MEDLIST,'med');
+  gWave.appendChild(slider('k0m','carrier k₀',2,10,0.1,v=>fmt(v,1),clockReset));
+  gWave.appendChild(slider('k0w','carrier k₀',0.4,2,0.02,v=>fmt(v,2),clockReset));
+  const medTag=h('div',{class:'tag'}); gWave.appendChild(medTag);
+
+  const gPack=h('div',{class:'grp'},h('h3',null,'the recipe'));
+  const nChips=chipRow(NLIST,'N',clockReset);
+  gPack.appendChild(nChips);
+  trackChips(gPack,NLIST,'N');
+  gPack.appendChild(slider('skm','spread σₖ',0.2,1.0,0.02,v=>fmt(v,2),clockReset));
+  gPack.appendChild(slider('skw','spread σₖ',0.06,0.30,0.01,v=>fmt(v,2),clockReset));
+  gPack.appendChild(slider('skS','σₖ (packet width)',0.5,1.5,0.05,v=>fmt(v,2),clockReset));
+  const packTag=h('div',{class:'tag'}); gPack.appendChild(packTag);
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the run'));
+  const runChecks=h('div',{class:'checks'},
+    checkbox('anim','time runs'),
+    checkbox('showEnv','draw the envelope'),
+    checkbox('cmpND','compare light (no spread)'));
+  gRun.appendChild(runChecks);
+  gRun.appendChild(slider('speed','speed',0.1,4,0.1,v=>fmt(v,1)+'×'));
+  gRun.appendChild(slider('t','time t',0,5,0.05,v=>fmt(v,2),null));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ st.t=0; dirty=true; refresh(); }},'restart clock'),
+    h('button',{onclick:()=>{ const v=st.view;      /* reset parameters, keep
+        the view — the tab classes are not rebuilt here */
+      Object.assign(st,DEFAULTS); st.view=v; st.t=0;
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'natural units &#8463; = m = 1, g = 1, c = 2. '
+      +'No measured data: the field is an exact finite superposition, and '
+      +'every speed shown is an estimator pinned to '
+      +'build_wave_fronts/derive.py (scipy quad, CODATA constants for the '
+      +'electron numbers).'}));
+  [gWave,gPack,gRun,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++)
+          if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>
+            b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view, water=st.med==='water';
+    gWave.hidden=(v==='race'||v==='spread');
+    gPack.hidden=!(v==='packet'||v==='spread');
+    medChips.hidden=false;
+    rows.k0m.row.hidden=!((v==='wave'||v==='parab')&&!water);
+    rows.k0w.row.hidden=!((v==='wave'||v==='parab')&&water);
+    rows.skm.row.hidden=!(v==='packet'&&!water);
+    rows.skw.row.hidden=!(v==='packet'&&water);
+    rows.skS.row.hidden=(v!=='spread');
+    nChips.hidden=(v!=='packet');
+    rows.t.row.hidden=(v!=='spread');
+    rows.cb_showEnv.row.hidden=(v==='wave'||v==='parab');
+    rows.cb_cmpND.row.hidden=(v!=='spread');
+    for(const k in rows) rows[k].sync();
+    medTag.innerHTML=v==='parab'
+      ?'move k₀ &mdash; the bisection holds at <b>every</b> point of the parabola'
+      :'changing the medium or k₀ restarts the clock';
+    packTag.innerHTML=v==='spread'
+      ?'wider σ<sub>k</sub> = narrower packet = <b>faster</b> spreading'
+      :'δk stays σ<sub>k</sub>; more components push the repeats away';
+    runTag.innerHTML='space runs/pauses &nbsp; <b>r</b> restarts the clock '
+      +'&nbsp; 1&ndash;6 switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=st.view==='race'
+        ?'the race loops by itself · space pauses · r restarts'
+        :st.view==='spread'
+        ?'scrub the time slider, or let it run · space pauses'
+        :'space runs · r restarts the clock · 1–6 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.anim=!st.anim; syncPanel(); refresh(); }
+    else if(e.key==='r'){ st.t=0; dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{
+        S.draw();
+        if(advanced&&frameN%10===0){
+          roEl.innerHTML=readoutHTML(S.model());
+          if(st.view==='spread') rows.t.sync();
+        }
+      }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  wave:'A single travelling wave, seen twice: the strip shows its FRONTS '
+    +'(surfaces of constant phase, edge-on) and the curve shows the same '
+    +'field. Everything moves together at one speed, ω/k. For a de '
+    +'Broglie wave that speed is E/p = p/2m — <b>half</b> the classical '
+    +'particle velocity, which worried people in 1924. But watch what the '
+    +'wave does NOT have: a front edge, a lump, anything that could sit in '
+    +'a detector. The paradox needs the next tab.',
+  packet:'Adding waves builds a place. With two components the envelope is '
+    +'a beat pattern, and it already moves at Δω/Δk rather '
+    +'than ω/k — for the quantum parabola the two-wave beat speed '
+    +'is <b>exactly</b> dω/dk at the midpoint. A finite sum repeats '
+    +'(the images are the same packet coming round the periodic box '
+    +'2π/δk); making δk finer pushes the repeats away, and '
+    +'in the δk → 0 limit one lump remains: the particle.',
+  speeds:'Two riders on one wave: magenta on a crest (ω/k), green on '
+    +'the envelope centre (dω/dk). For matter the group outruns its own '
+    +'crests exactly two to one — crests surface at the leading edge, '
+    +'slip back through the lump, and vanish at the rear. Deep water is the '
+    +'mirror image (crests overtake the group and die at the front, as '
+    +'surfers know), and light is the degenerate case where nothing slips. '
+    +'The x–t fan below is the whole story in one picture: thin '
+    +'phase-lines threading a shaded group-cone of twice (half) their slope.',
+  race:'The direct answer to “how do the classical and quantum fronts '
+    +'differ”: by a stopwatch. Same momentum, same start. The classical '
+    +'particle runs x = x₀ + (p/m)t; the packet centroid tracks it '
+    +'exactly (Ehrenfest’s theorem, asserted to 10⁻⁶); and a '
+    +'surface of constant phase — the thing “wavefront” '
+    +'literally means — crawls at ω/k = E/p = v/2 and clocks in at '
+    +'twice the time. Individual crests never even finish: each is born at '
+    +'the leading edge and dies at the trailing edge about 2.7 time units '
+    +'later.',
+  parab:'Why exactly two, and not 1.9? Because E = p²/2m is a parabola. '
+    +'On the dispersion diagram the phase speed is the slope of the chord '
+    +'from the origin and the group speed is the slope of the tangent, and '
+    +'Apollonius proved (Conics I.33–35) that a parabola’s tangent '
+    +'meets the axis exactly halfway under the point — tangent slope = '
+    +'2 × chord slope, for every k₀ and every mass. Deep water’s '
+    +'ω² = gk is the same parabola lying on its side, which flips '
+    +'the theorem to v_g = ½ vφ. The factor of two is twenty-two '
+    +'centuries older than ħ.',
+  spread:'A free quantum packet cannot keep its shape: it is built from '
+    +'momenta p = ħk that each travel at their own ω/k, so the '
+    +'short waves pull ahead and the long waves lag — read the local '
+    +'wavelength at the two ends. The width grows as '
+    +'√(σ₀² + σₖ²t²): position '
+    +'uncertainty is momentum uncertainty, integrated. The dashed orange '
+    +'envelope is the closed form of the Gaussian integral riding exactly on '
+    +'the drawn 128-term sum — and the momentum recipe |A(k)|² '
+    +'never changes at all.',
+};
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (scipy) are lines of build_wave_fronts/refvals.txt, the printed    *
+ *  output of derive.py, read in full.                                 *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const T0=Date.now();
+  const ok=(c,n)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+n); } };
+  const close=(a,b,tol,n)=>ok(isFinite(a)&&Math.abs(a-b)<=tol,
+    n+'  ['+a+' vs '+b+']');
+  const rel=(a,b,r,n)=>ok(isFinite(a)&&Math.abs(a-b)<=r*Math.abs(b),
+    n+'  ['+a+' vs '+b+']');
+  const resetCaches=()=>{ CFGC={key:'',cfg:null}; STATC={key:'',val:null};
+    MEASC={key:'',val:null}; };
+
+  /* ---- 1. the extracted helper layer still carries its fixes ---- */
+  { let threw=false; try{ toRgb('nonsense'); }catch(e){ threw=true; }
+    ok(threw,'toRgb throws on unparseable colour instead of defaulting');
+    ok(toRgb('rgb(58,111,142)')[0]===58,'toRgb parses its own mix() output');
+    const two=mix('#070b18',mix('#5ac8e0','#b8ec4c',0.5),0.7);
+    ok(toRgb(two)[0]+toRgb(two)[1]+toRgb(two)[2]>60,
+       'a two-stage mix is not silently black');
+    ok(plain('&Delta;&frac12;&sup2;')==='Δ½²',
+       'plain() decodes uppercase Greek and numeric-suffix entities');
+    ok(plain('a <b>bold</b> move')==='a bold move','plain() strips tags');
+    ok(plain('&nosuch;')==='&nosuch;','plain() leaves unknown entities alone');
+    ok(ticksFor(5,1,5).length===1,
+       'raw ticksFor on an inverted range still collapses (fix lives in axes)');
+    ok(ticksFor(1,5,5).length>=4,'ticksFor gives a full set the right way round'); }
+  { /* axes() sorts its range and pushes labels through plain() */
+    const R=recCtxTest(400,300);
+    axes(R.c,box(40,20,320,240),5,1,10,2,{xlab:'x &ndash; axis',ylab:'y'});
+    const nums=R.texts.filter(t2=>/^[-\d.]+$/.test(t2.t));
+    ok(nums.length>=7,'axes() on doubly-inverted ranges still draws its ticks ('
+      +nums.length+')');
+    ok(R.texts.every(t2=>t2.t.indexOf('&')<0),
+       'axes() ran its labels through plain()'); }
+  { /* polyline clips in DATA space and records honest instrumentation */
+    POLY_SEGS=[];
+    const R=recCtxTest(400,300), b=box(50,50,300,200);
+    polyline(R.c,b,Float64Array.of(0,1),Float64Array.of(0,4),0,1,0,2,'#fff',2);
+    let maxY=-1e9,minY=1e9,endOnEdge=false;
+    for(let i=0;i<POLY_SEGS.length;i+=4){
+      minY=Math.min(minY,POLY_SEGS[i+1],POLY_SEGS[i+3]);
+      maxY=Math.max(maxY,POLY_SEGS[i+1],POLY_SEGS[i+3]);
+      if(Math.abs(POLY_SEGS[i+3]-b.y)<1e-6) endOnEdge=true;
+    }
+    ok(POLY_SEGS.length>0,'polyline records its segments (instrumentation alive)');
+    ok(minY>=b.y-0.5&&maxY<=b.y1+0.5,'polyline clipped the segment in data space');
+    ok(endOnEdge,'the clipped segment ends exactly on the frame edge'); }
+
+  /* ---- 2. dispersion relations and the closed ratios ---- */
+  close(omegaOf('matter',6),18,1e-12,'matter omega(6) = 18');
+  close(omegaOf('water',1),1,1e-12,'water omega(1) = 1');
+  close(omegaOf('light',6),12,1e-12,'light omega(6) = 12 (c = 2)');
+  close(vpOf('matter',6),3,1e-12,'matter v_phi = k/2');
+  rel(vgOf('matter',6),6,1e-7,'matter v_g = k (FD, scipy 6.00000000084)');
+  rel(vgOf('water',1),0.5,1e-7,'water v_g = v_phi/2');
+  rel(vgOf('light',6),2,1e-9,'light v_g = c');
+  rel(vgOf('matter',6)/vpOf('matter',6),2,1e-7,'THE ratio: matter v_g/v_phi = 2');
+  rel(vgOf('water',1)/vpOf('water',1),0.5,1e-7,'water v_g/v_phi = 1/2');
+  rel(vgOf('light',6)/vpOf('light',6),1,1e-9,'light v_g/v_phi = 1');
+  close(d2omega('matter',6),1,1e-5,'matter omega″ = 1 (hbar/m)');
+  rel(sigmaApprox('matter',6,0.25,3),sigmaClosed(0.25,3),1e-6,
+      'sigmaApprox reduces to the matter closed form');
+
+  /* ---- 3. spectra: the recipes match derive.py exactly (scipy) ---- */
+  const CP=makeCfg('matter',6.0,0.60,12.0), CR=makeCfg('matter',6.0,0.25,4.0),
+        CS=makeCfg('matter',5.0,1.00,6.0,128);
+  rel(CP.k[47],5.93684210526,1e-10,'packet k[47] (scipy)');
+  rel(CP.a[47],0.0409773701245,1e-9,'packet a[47] (scipy)');
+  rel(CP.a[20],9.43139429595e-06,1e-9,'packet a[20] (scipy)');
+  rel(CP.dk,0.126315789474,1e-10,'packet dk (scipy)');
+  rel(CP.L,49.7418836818,1e-10,'packet L = 2pi/dk (scipy)');
+  { let s=0; for(let j=0;j<CP.Nk;j++) s+=CP.a[j]*CP.a[j];
+    rel(s,0.0201037822853,1e-9,'packet sum|a|^2 (scipy)'); }
+  rel(CR.k[76],7.5,1e-10,'race k[76] (scipy)');
+  rel(CR.a[47],0.0264507786773,1e-9,'race a[47] (scipy)');
+  rel(CR.L,119.380520836,1e-10,'race L (scipy)');
+  rel(CS.k[20],-1.85039370079,1e-9,'spread k[20] is negative and harmless (scipy)');
+  rel(CS.a[76],0.0150614835794,1e-9,'spread a[76] (scipy)');
+  rel(CS.L,39.8982267006,1e-10,'spread L (scipy)');
+  close(sigma0Of(0.25),2,1e-12,'sigma_x(0) = 1/(2 sk) — the transform limit');
+
+  /* ---- 4. field parity against derive.py, incommensurate points (scipy) ---- */
+  function pin2(cfg,dx,t,ur,er,name){
+    const F=fieldAt(cfg,cfg.xc+dx,t);
+    close(F[0],ur,6e-10,name+' u');
+    close(Math.hypot(F[0],F[1]),er,6e-10,name+' |C|');
+  }
+  pin2(CP,1.7231,0.6181,0.18040952977,0.202287037597,'packet@(+1.7231,0.6181)');
+  pin2(CP,0.3313,1.4142,3.58531589069e-06,4.56296566251e-06,'packet@(+0.3313,1.4142)');
+  pin2(CR,1.7231,0.6181,0.241489470323,0.349079059933,'race@(+1.7231,0.6181)');
+  pin2(CR,0.3313,1.4142,-0.00519103491026,0.00788181022193,'race@(+0.3313,1.4142)');
+  pin2(CS,1.7231,0.6181,0.0713454407732,0.338123126474,'spread@(+1.7231,0.6181)');
+  { const c=makeCfg('matter',6.0,0.45,10.0);
+    pin2(c,1.7231,0.6181,0.209000710455,0.278436134558,'speeds@(+1.7231,0.6181)'); }
+  { const c=makeCfg('water',1.0,0.18,10.0);
+    pin2(c,1.7231,0.6181,0.158173221816,0.35546639874,'water@(+1.7231,0.6181)');
+    pin2(c,0.3313,1.4142,0.180750442175,0.376975531599,'water@(+0.3313,1.4142)'); }
+  { const c=makeCfg('light',6.0,0.45,10.0);
+    pin2(c,1.7231,0.6181,-0.557330199726,0.571119662087,'light@(+1.7231,0.6181)'); }
+
+  /* ---- 5. the sum IS the integral: closed form, translation, Parseval ---- */
+  { let worst=0;
+    for(const [dx,t] of [[0.7231,0],[2.1371,0.6181],[5.9241,1.2361],[-1.4142,0.3313]]){
+      const F=fieldAt(CP,CP.xc+dx,t), G=psiClosedM(CP,CP.xc+dx,t);
+      worst=Math.max(worst,Math.hypot(F[0]-G[0],F[1]-G[1]));
+    }
+    ok(worst<2e-12,'96-term sum matches the Gaussian-integral closed form ('
+      +worst.toExponential(1)+' — scipy quad agrees at 5.2e-13)'); }
+  { const c=makeCfg('light',6.0,0.45,10.0);
+    let worst=0;
+    for(const dx of [0.3141,1.7321,4.1231]){
+      const A=fieldAt(c,c.xc+dx,1.6181), B=fieldAt(c,c.xc+dx-CLIGHT*1.6181,0);
+      worst=Math.max(worst,Math.hypot(A[0]-B[0],A[1]-B[1]));
+    }
+    ok(worst<1e-12,'non-dispersive translation C(x,t) = C(x-ct,0) is exact ('
+      +worst.toExponential(1)+')'); }
+  { const F=fieldAt(CP,CP.xc+1.7231,CP.L/ (2*Math.PI) * 0 + 0.6181);
+    const G=fieldAt(CP,CP.xc+1.7231+CP.L,0.6181);
+    ok(Math.hypot(F[0]-G[0],F[1]-G[1])<1e-11,
+       'the field is EXACTLY periodic with L'); }
+  { const n0=gridNorm(CR,0), n1=gridNorm(CR,2.5);
+    rel(n1,n0,1e-13,'Parseval: the grid norm is exactly conserved in time');
+    let s=0; for(let j=0;j<CR.Nk;j++) s+=CR.a[j]*CR.a[j];
+    rel(n0,s*CR.L,1e-12,'and equals L sum|a|^2 (cross terms cancel exactly)'); }
+
+  /* ---- 6. the estimators: measured speeds match derive.py (scipy) ---- */
+  close(centroidOf(CR,1.234),11.404,1e-6,'race centroid(1.234) = 4+6t (scipy)');
+  close(centroidOf(CR,20.0),4.61947916359,1e-6,
+        'race centroid(t=20) after one orbit of the box (scipy)');
+  ok(Math.abs(centroidOf(CR,20.0)-27.6023005879)>5,
+     'and it is nowhere near the wrap-less naive mean 27.60 (scipy)');
+  close(vgMeas(CR,1.234),6,1e-6,'race v_g measured = 6 exactly (Ehrenfest, scipy)');
+  close(vcrestMeas(CR,1.234),3.02445521308,1e-6,'race crest speed (scipy)');
+  { const d1=vcrestMeas(CR,1.234)-3.0;
+    const CRH=makeCfg('matter',6.0,0.125,4.0);
+    const d2=vcrestMeas(CRH,1.234)-3.0;
+    rel(d1,0.0244552130806,1e-5,'crest excess over omega/k at sk=0.25 (scipy)');
+    rel(d2,0.00545925584404,1e-5,'crest excess at sk=0.125 (scipy)');
+    rel(d1/d2,4.47958728794,1e-5,'halving sk quarters the excess (ratio, scipy)');
+    ok(d1/d2>3&&d1/d2<6,'the excess is O(sk^2), not O(sk)'); }
+  rel(vgMeas(CR,1.234)/vcrestMeas(CR,1.234),1.98382835165,1e-6,
+      'race measured ratio v_g/v_crest (scipy)');
+  { const c=makeCfg('water',1.0,0.18,10.0);
+    close(vgMeas(c,3.137),0.506604699599,1e-6,'water v_g measured (scipy)');
+    /* the centroid of a FREE packet moves at the |A|^2-mean of v_g, which is
+       CONSTANT in time — so the difference quotient is Dt-independent down to
+       the circular estimator's own O((sigma/L)^2) drift, measured at 1.5e-7
+       here.  This is why the Dt=0.317 mutant survives the sweep: its whole
+       effect sits at that floor, far inside every 1e-6 parity pin.  A real
+       curvature in <x>(t) would separate the two Dt's by much more. */
+    { const B1=centroidOf(c,3.137), B2=centroidOf(c,3.137+0.777);
+      let dd=(B2-B1+c.L/2)%c.L; dd=((dd+c.L)%c.L)-c.L/2;
+      close(dd/0.777,vgMeas(c,3.137),5e-7,
+            'the v_g estimator is Dt-independent to the estimator floor');
+      const h3=1e-3;
+      const om3=(omegaOf('water',1+2*h3)-2*omegaOf('water',1+h3)
+                +2*omegaOf('water',1-h3)-omegaOf('water',1-2*h3))/(2*h3*h3*h3);
+      rel(vgMeas(c,3.137)-0.5,0.5*om3*0.18*0.18,0.15,
+          'and its excess over v_g(k0) is the convexity term (1/2) om‴ sk^2'); }
+    close(vcrestMeas(c,3.137),0.965279445149,1e-6,'water crest speed (scipy)');
+    rel(vgMeas(c,3.137)/vcrestMeas(c,3.137),0.524826983673,1e-6,
+        'water measured ratio ~ 1/2 (scipy)');
+    rel(sigmaApprox('water',1,0.18,20),sigmaOf(c,20),0.06,
+        'the fan cone guide tracks the measured water sigma to 6%'); }
+  { const c=makeCfg('light',6.0,0.45,10.0);
+    close(vgMeas(c,1.234),2,1e-6,'light v_g measured = c (scipy)');
+    close(vcrestMeas(c,1.234),1.99999942238,1e-6,'light crest speed = c (scipy)');
+  }
+  { close(vgMeas(CS,0.377),5,1e-6,'spread v_g measured = k0 (scipy)');
+    close(vcrestMeas(CS,0.377),2.87861863653,1e-6,
+          'spread crest speed (fat packet, chirped — scipy)'); }
+  /* Ehrenfest as the race will show it */
+  close(centroidOf(CR,4.0),28,1e-6,'centroid reaches the finish at t=4 with Newton');
+  ok(Math.abs((RACE.x0+6*1.234)-centroidOf(CR,1.234))<1e-6,
+     'x_particle(t) = centroid(t) — the packet rides with the particle');
+  /* the one-pass statsOf and the standalone estimators are the same measure
+     implemented twice — assert they agree (the drum lesson, both directions) */
+  { const stt=statsOf(CR,1.234,'xpin');
+    close(stt.xc,centroidOf(CR,1.234),1e-9,'statsOf.xc = centroidOf');
+    close(stt.sig,sigmaOf(CR,1.234),1e-9,'statsOf.sig = sigmaOf');
+    close(stt.emax,envMaxOf(CR,1.234),1e-9,'statsOf.emax = envMaxOf');
+    close(stt.norm,gridNorm(CR,1.234),1e-9,'statsOf.norm = gridNorm'); }
+
+  /* ---- 7. two waves already measure v_g (the beats) ---- */
+  { const c2=makeComb('matter',6.0,0.6,12.0,2);
+    const chord=(omegaOf('matter',6.3)-omegaOf('matter',5.7))/0.6;
+    close(chord,6,1e-12,'matter beat chord = 6 exactly (parabola midpoint)');
+    close(vgMeas(c2,0.4171),chord,1e-6,
+          'the beat envelope moves at Dw/Dk (scipy: 6.00000000005)'); }
+  { const c2=makeComb('water',1.0,0.18,10.0,2);
+    const chord=(omegaOf('water',1.09)-omegaOf('water',0.91))/0.18;
+    close(vgMeas(c2,0.4171),chord,1e-5,'water beat envelope at its chord speed'); }
+  { const pins=[[2,0.208198907834,0.303559856398],[3,0.207909892878,0.3073642789],
+                [5,0.173304502067,0.215508723184],[9,0.181057520605,0.203012764554],
+                [21,0.180409529585,0.202287037347]];
+    for(const [N,ur,er] of pins){
+      const cb=makeComb('matter',6.0,0.6,12.0,N);
+      const F=fieldAt(cb,cb.xc+1.7231,0.6181);
+      close(F[0],ur,6e-10,'comb N='+N+' u (scipy)');
+      close(Math.hypot(F[0],F[1]),er,6e-10,'comb N='+N+' |C| (scipy)');
+    }
+    const cb=makeComb('matter',6.0,0.6,12.0,21);
+    rel(cb.L,10.471975512,1e-10,'comb recurrence L = 2pi/sk (scipy)');
+    const A=fieldAt(cb,12+1.1231+cb.L,0.4), B=fieldAt(cb,12+1.1231,0.4);
+    ok(Math.hypot(A[0]-B[0],A[1]-B[1])<1e-12,'the comb repeats EXACTLY at L');
+    const G=psiClosedM(CP,12+1.1231,0.4);
+    ok(Math.hypot(B[0]-G[0],B[1]-G[1])<1e-9,
+       'comb N=21 already matches the closed form away from images (4.1e-13)'); }
+
+  /* ---- 8. the spreading law and the chirp (scipy section [5]) ---- */
+  { const tab=[[0,0.5,1e-9],[0.5,0.707106781187,1e-9],[1,1.11803398875,1e-9],
+               [2,2.06155281281,1e-9],[3.5,3.53553390593,2e-7],[5,5.02493781056,1e-3]];
+    for(const [t,sc,tol] of tab)
+      close(sigmaOf(CS,t),sc,Math.max(tol,1e-9),
+            'sigma measured tracks sqrt(s0^2+sk^2 t^2) at t='+t);
+    close(sigmaOf(CS,5.0),5.02427919324,1e-6,
+          'sigma(5) parity with derive.py including the stated wrap bias (scipy)');
+    close(2*Math.pow(sigma0Of(1.0),2),0.5,1e-12,'tau = 2 sigma0^2');
+    const xcn=centroidOf(CS,2.0), sg=sigmaOf(CS,2.0);
+    close(localK(CS,xcn-2*sg,2.0),3.05971499972,1e-5,'local k at the rear (scipy)');
+    close(localK(CS,xcn,2.0),5,1e-5,'local k at the centre = k0 (scipy)');
+    close(localK(CS,xcn+2*sg,2.0),6.94028500024,1e-5,'local k at the front (scipy)');
+    const slope=(localK(CS,xcn+2*sg,2.0)-localK(CS,xcn-2*sg,2.0))/(4*sg);
+    rel(slope,1.0*1.0*2.0/(sg*sg),1e-4,
+        'chirp slope = sk^2 t / sigma^2(t) (0.470588, scipy)');
+    ok(localK(CS,xcn+2*sg,2.0)>localK(CS,xcn-2*sg,2.0),
+       'short waves LEAD: the packet sorts itself by momentum'); }
+  { const c=makeCfg('light',6.0,0.45,10.0);
+    rel(sigmaOf(c,5.0),sigmaOf(c,0.0),1e-9,
+        'light does not spread: sigma(5) = sigma(0) = 1.11111111111 (scipy)');
+    rel(sigmaOf(c,0.0),1.11111111111,1e-9,'light sigma matches 1/(2 sk) (scipy)'); }
+
+  /* ---- 9. Apollonius on the plot's own samples (scipy section [6]) ---- */
+  function fdParab(med,k0){
+    const dom=parabDomain(med), h2=dom/240;
+    const w0=omegaOf(med,k0);
+    const slope=(omegaOf(med,k0+h2)-omegaOf(med,k0-h2))/(2*h2);
+    return {w0,slope,kInt:k0-w0/slope,wInt:w0-slope*k0};
+  }
+  { const P=fdParab('matter',6);
+    close(P.slope,6,1e-11,'matter: central FD on a parabola is EXACT');
+    close(P.kInt,3,1e-11,'matter: the tangent cuts the k-axis at k0/2 (scipy)');
+    close(P.w0/6,3,1e-12,'matter: the chord slope is half the tangent'); }
+  { const P=fdParab('water',1);
+    rel(P.slope,0.500006782006,1e-9,'water: tangent slope on the plot grid (scipy)');
+    rel(P.wInt,0.499993217994,1e-8,'water: the tangent bisects the omega axis (scipy)');
+    const dom=parabDomain('water'), h2=dom/240;
+    const e1=(omegaOf('water',1+h2)-omegaOf('water',1-h2))/(2*h2)-0.5;
+    const e2=(omegaOf('water',1+h2/2)-omegaOf('water',1-h2/2))/h2-0.5;
+    rel(e1/e2,4.00014243618,1e-5,'water: the FD error is O(h^2) (ratio 4, scipy)'); }
+  { const P=fdParab('light',6);
+    ok(Math.abs(P.kInt)<1e-9&&Math.abs(P.wInt)<1e-9,
+       'light: chord and tangent are one line through the origin'); }
+  /* the same numbers OFF THE BUILT MODEL (the drum lesson) */
+  { Object.assign(ST,DEFAULTS,{view:'parab',med:'matter'}); resetCaches();
+    const M=buildModel();
+    close(M.parab.slope,6,1e-11,'model parab: tangent slope off buildModel()');
+    close(M.parab.kInt,3,1e-11,'model parab: intercept off buildModel()');
+    close(M.vp,3,1e-12,'model parab: chord = v_phi off buildModel()');
+    Object.assign(ST,DEFAULTS,{view:'parab',med:'water'}); resetCaches();
+    const M2=buildModel();
+    rel(M2.parab.wInt,M2.parab.w0/2,1e-4,'model parab (water): w-intercept = w0/2'); }
+
+  /* ---- 10. the race (scipy section [7]) ---- */
+  { Object.assign(ST,DEFAULTS,{view:'race'}); resetCaches();
+    const M=buildModel();
+    close(M.race.tP,4,1e-9,'race: particle and packet finish at t = 4');
+    close(M.race.tF,8,1e-9,'race: the phase front finishes at t = 8');
+    close(M.race.tF/M.race.tP,2,1e-9,'race: the factor of two IS the stopwatch');
+    close(sigmaOf(M.cfg,0),2,1e-6,'race sigma at the start (scipy)');
+    close(sigmaOf(M.cfg,4),2.2360679775,1e-6,'race sigma at the finish (scipy)');
+    rel(sigmaOf(M.cfg,4)/sigmaOf(M.cfg,0),1.11803398875,1e-6,
+        'the packet survives the race (x1.118 spread, scipy)');
+    close(4*sigmaOf(M.cfg,0)/3.0,2.66666666667,1e-6,
+          'crest lifetime 4 sigma/(vg-vp) — crests die mid-race (scipy)');
+    ST.t=3.9; resetCaches();
+    ok(!buildModel().race.partIn,'at t=3.9 nobody has finished');
+    ST.t=4.1; resetCaches();
+    { const R=buildModel().race;
+      ok(R.partIn&&!R.frontIn,'at t=4.1 the particle+packet are in, the front is not'); }
+    ST.t=8.1; resetCaches();
+    ok(buildModel().race.frontIn,'at t=8.1 the front finally arrives');
+    close(buildModel().win,36,1e-9,'the race window is 36');
+    ok(buildModel().race.tF+1<=RACE.tLoop,
+       'the loop holds at least 1 unit past the front\'s arrival'); }
+  /* presets, windows, and presentation constants OFF THE MODEL */
+  { Object.assign(ST,DEFAULTS); resetCaches();
+    const M=buildModel();
+    rel(M.win,12*M.lam,1e-12,'wave window = 12 lambda');
+    Object.assign(ST,DEFAULTS,{view:'speeds'}); resetCaches();
+    close(buildModel().stats.xc,10,1e-6,'speeds preset starts at xc = 10');
+    Object.assign(ST,DEFAULTS,{view:'packet'}); resetCaches();
+    close(buildModel().cfg.sk,0.6,1e-12,'packet default sigma_k = 0.6 (matter)');
+    Object.assign(ST,DEFAULTS,{view:'packet',med:'water'}); resetCaches();
+    close(buildModel().k0,1,1e-12,'packet carrier k0 = 1 for water');
+    Object.assign(ST,DEFAULTS,{view:'race',t:1.234}); resetCaches();
+    const Mr=buildModel();
+    ok(Math.abs(Mr.meas.t-Mr.t)<=0.125+1e-9,
+       'measured speeds refresh on a 0.25-unit lattice, never staler');
+    close(Mr.meas.vg,6,1e-6,'model-level measured v_g on the race');
+    close(parabDomain('matter'),12,1e-9,'the parabola diagram spans k = 0..12');
+    close(rateFor('speeds','water'),4,1e-9,'deep water runs at 4x wall pace'); }
+
+  /* ---- 11. carrier crests: spacing, phase, speed ---- */
+  { const crs=carrierCrests(CR,1.234,0,36);
+    ok(crs.length>=33&&crs.length<=36,'~34.4 crests fit the race window (scipy)');
+    let worstGap=0,worstPh=0;
+    for(let i=1;i<crs.length;i++)
+      worstGap=Math.max(worstGap,Math.abs(crs[i]-crs[i-1]-2*Math.PI/6));
+    for(const x of crs){
+      const ph=6*(x-CR.xc)-18*1.234;
+      const m=Math.abs(((ph/(2*Math.PI))%1+1)%1);
+      worstPh=Math.max(worstPh,Math.min(m,1-m));
+    }
+    ok(worstGap<1e-9,'consecutive crests sit exactly one lambda apart');
+    ok(worstPh<1e-9,'every crest satisfies k0(x-xc) - w0 t = 2 pi n');
+    const crs2=carrierCrests(CR,1.234+0.01,0,36);
+    close(crs2[3]-crs[3],3*0.01,1e-9,'crests advance at exactly omega/k'); }
+
+  /* ---- 12. every view builds clean at slider corners ---- */
+  { let bad=0,badNote='';
+    const cases=[];
+    for(const [vk] of TABS)
+      for(const med of ['matter','water','light'])
+        cases.push({view:vk,med});
+    cases.push({view:'packet',N:1},{view:'packet',N:2},{view:'packet',N:'fine'},
+      {view:'packet',med:'water',N:2},{view:'wave',k0m:2},{view:'wave',k0m:10},
+      {view:'wave',med:'water',k0w:0.4},{view:'wave',med:'water',k0w:2},
+      {view:'packet',skm:0.2},{view:'packet',skm:1.0},
+      {view:'packet',med:'water',skw:0.06},{view:'packet',med:'water',skw:0.3},
+      {view:'spread',skS:0.5},{view:'spread',skS:1.5},
+      {view:'parab',k0m:2},{view:'parab',k0m:10},
+      {view:'parab',med:'water',k0w:0.4},{view:'parab',med:'water',k0w:2});
+    for(const so of cases){
+      for(const t of [0,2.5]){
+        Object.assign(ST,DEFAULTS,so,{t}); resetCaches();
+        let html='';
+        try{
+          const M=buildModel();
+          html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+          if(!isFinite(M.stats.emax)||!isFinite(M.stats.sig)) bad++;
+        }catch(e){ bad++; badNote=String(e); }
+        if(html.indexOf('NaN')>=0||html.indexOf('Infinity')>=0){ bad++;
+          badNote='NaN/Infinity at '+JSON.stringify(so); }
+      }
+    }
+    ok(bad===0,'model+readout clean over '+cases.length*2
+      +' state combinations '+badNote); }
+
+  /* ---- 13. defaults reach the regime each view exists to show ---- */
+  { Object.assign(ST,DEFAULTS,{view:'packet'}); resetCaches();
+    const M=buildModel();
+    ok(M.cfg.L<M.win,'packet default: the recurrence is VISIBLE (L='
+      +fmt(M.cfg.L,1)+' inside win='+fmt(M.win,0)+') — the lesson is on screen');
+    Object.assign(ST,DEFAULTS,{view:'packet',N:'fine'}); resetCaches();
+    const M2=buildModel();
+    ok(M2.cfg.L>M2.win,'fine grid pushes the recurrence off screen (L='
+      +fmt(M2.cfg.L,1)+')');
+    Object.assign(ST,DEFAULTS,{view:'spread'}); resetCaches();
+    const M3=buildModel();
+    rel(sigmaOf(M3.cfg,5)/sigmaOf(M3.cfg,0),10.0485583865,1e-4,
+        'spread default: sigma grows x10 across the slider range (scipy)'); }
+  /* the electron anchor (CODATA via scipy.constants, refvals [8]) */
+  close(ELECTRON.vph,ELECTRON.v/2,1e-3,'100 eV electron: v_phase = v/2 exactly');
+  rel(ELECTRON.v,5930969.58073,1e-9,'100 eV electron speed (CODATA)');
+  rel(ELECTRON.lam,1.22642596532e-10,1e-9,'100 eV de Broglie wavelength (CODATA)');
+  rel(2*Math.PI/ELECTRON.lam*1.05457181765e-34/9.1093837139e-31,ELECTRON.v,1e-9,
+      'hbar k / m recovers v — the anchor is self-consistent');
+
+  /* ---- 14. layout: every view x size, off-canvas / collisions / entities ---- */
+  { const sizes=[[1400,820],[1100,712],[820,560],[560,380]];
+    const states=[
+      {view:'wave'},{view:'wave',med:'water'},
+      {view:'packet',N:2},{view:'packet',N:21},{view:'packet',N:'fine'},
+      {view:'packet',med:'water',N:21},
+      {view:'speeds',t:3.7},{view:'speeds',med:'water',t:11.3},
+      {view:'speeds',med:'light',t:5.1},{view:'speeds'},
+      {view:'race',t:2.1},{view:'race',t:8.3},
+      {view:'parab'},{view:'parab',med:'water'},{view:'parab',med:'light'},
+      {view:'spread',t:0.3},{view:'spread',t:4.7},
+    ];
+    let badText=0,badOverlap=0,badEnt=0,note='';
+    for(const [W,H] of sizes){
+      for(const so of states){
+        Object.assign(ST,DEFAULTS,so); resetCaches();
+        const M=buildModel();
+        const R=recCtxTest(W,H);
+        let threw=null;
+        try{ drawView(R.c,W,H,M); }catch(e){ threw=e; }
+        ok(!threw,'drawView('+so.view+(so.med?'/'+so.med:'')+') at '+W+'x'+H
+          +' draws without throwing'+(threw?': '+threw:''));
+        if(threw) continue;
+        ok(R.ops.n>=25,'view '+so.view+' emits a real picture ('
+          +R.ops.n+' ops at '+W+'x'+H+')');
+        for(const tx of R.texts){
+          /* numeric entities (&#955;) are OUTSIDE plain()'s named table and
+             would reach the canvas raw — the sweep flags them too */
+          if(/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/.test(tx.t)){ badEnt++;
+            note='entity: "'+tx.t.slice(0,40)+'"'; }
+          if(tx.rot) continue;
+          const b2=textBoxTest(tx);
+          if(b2.x0<-2||b2.x1>W+2||b2.y0<-2||b2.y1>H+2){ badText++;
+            if(badText<=10) console.log('  off-canvas: "'+tx.t.slice(0,36)
+              +'" at '+fmt(b2.x0,0)+','+fmt(b2.y0,0)+' in '+so.view+'@'+W+'x'+H); }
+        }
+        const unrot=R.texts.filter(t2=>!t2.rot);
+        for(let i=0;i<unrot.length;i++) for(let j=i+1;j<unrot.length;j++){
+          const A2=textBoxTest(unrot[i]), B2=textBoxTest(unrot[j]);
+          const wo=Math.min(A2.x1,B2.x1)-Math.max(A2.x0,B2.x0);
+          const ho=Math.min(A2.y1,B2.y1)-Math.max(A2.y0,B2.y0);
+          if(wo>3&&ho>3){ badOverlap++;
+            if(badOverlap<=12) console.log('  overlap: "'+unrot[i].t.slice(0,26)
+              +'" vs "'+unrot[j].t.slice(0,26)+'" in '+so.view+'@'+W+'x'+H); }
+        }
+        for(const L2 of LEGEND_RECTS){
+          for(let s2=0;s2<POLY_SEGS.length;s2+=4){
+            const x0=POLY_SEGS[s2],y0=POLY_SEGS[s2+1],
+                  x1=POLY_SEGS[s2+2],y1=POLY_SEGS[s2+3];
+            if(Math.max(x0,x1)<L2.x||Math.min(x0,x1)>L2.x+L2.w||
+               Math.max(y0,y1)<L2.y||Math.min(y0,y1)>L2.y+L2.h) continue;
+            badOverlap++;
+            if(note==='') note='curve through legend in '+so.view;
+            break;
+          }
+        }
+      }
+    }
+    ok(badEnt===0,'no entity/tag reaches a canvas text op ('+badEnt+') '+note);
+    ok(badText===0,'no text leaves the canvas at any size ('+badText+')');
+    ok(badOverlap===0,'no text collisions, no curve through a legend ('
+      +badOverlap+')'); }
+
+  /* ---- leave the page exactly as a fresh boot expects it ---- */
+  Object.assign(ST,DEFAULTS); resetCaches();
+
+  console.log(pass+' passed, '+fail+' failed  ('
+    +((Date.now()-T0)/1000).toFixed(1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+/* the recording context + text-box helpers the layout sweep uses (the same
+   machinery as the siblings; rotate() tracked so axes() y-labels are exempt) */
+function recCtxTest(W,H){
+  const st2={font:'10px x',stack:[],tx:0,ty:0,rot:0};
+  const texts=[],ops={n:0};
+  const c={
+    canvas:{width:W,height:H},
+    save(){ st2.stack.push([st2.tx,st2.ty,st2.rot]); },
+    restore(){ const s=st2.stack.pop(); if(s){ st2.tx=s[0]; st2.ty=s[1]; st2.rot=s[2]; } },
+    translate(x,y){ st2.tx+=x; st2.ty+=y; },
+    rotate(a){ st2.rot+=a; },
+    setTransform(){}, scale(){}, setLineDash(){},
+    beginPath(){}, moveTo(){}, lineTo(){}, closePath(){}, arc(){}, rect(){},
+    fill(){ ops.n++; }, stroke(){ ops.n++; },
+    clip(){}, fillRect(){ ops.n++; }, strokeRect(){ ops.n++; }, clearRect(){},
+    fillText(t,x,y){ ops.n++;
+      const m=/(\d+(?:\.\d+)?)px/.exec(c.font||'10px x');
+      const px=m?parseFloat(m[1]):10;
+      texts.push({t:String(t),x:st2.tx+x,y:st2.ty+y,px,
+                  w:String(t).length*px*0.52,
+                  align:c.textAlign||'left',base:c.textBaseline||'alphabetic',
+                  rot:Math.abs(st2.rot)>1e-9}); },
+    strokeText(){}, measureText(t){
+      const m=/(\d+(?:\.\d+)?)px/.exec(c.font||'10px x');
+      return {width:String(t).length*(m?parseFloat(m[1]):10)*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  c.font='10px x'; c.textAlign='left'; c.textBaseline='alphabetic';
+  c.fillStyle='#000'; c.strokeStyle='#000'; c.lineWidth=1; c.globalAlpha=1;
+  c.lineJoin='miter'; c.lineCap='butt';
+  return {c,texts,ops};
+}
+function textBoxTest(tx){
+  let x0=tx.x;
+  if(tx.align==='center') x0-=tx.w/2;
+  else if(tx.align==='right'||tx.align==='end') x0-=tx.w;
+  let y0=tx.y;
+  if(tx.base==='middle') y0-=tx.px/2;
+  else if(tx.base==='alphabetic'||tx.base==='bottom') y0-=tx.px;
+  return {x0,y0,x1:x0+tx.w,y1:y0+tx.px};
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  /* mutate.py reads the EXIT CODE: a selfTest that logs failures and returns
+     cleanly makes every mutant look like a survivor (Known-bad). selfTest()
+     throws when fail > 0. */
+  selfTest();
+}
+</script>
+</body>
+</html>

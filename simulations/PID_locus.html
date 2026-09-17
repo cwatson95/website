@@ -1,0 +1,1791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PID controller — root locus &amp; response</title>
+<!--
+  A proportional-integral-derivative (PID) control loop, drawn from the exact
+  algebra: (1) the block diagram, (2) the Laplace-domain transfer functions,
+  (3) the root locus in the s-plane, and (4) the time-domain input/response.
+
+  Structure. Unity negative feedback around C(s) G(s):
+
+      r ─▶(Σ)─▶ e ─▶[ C(s) ]─▶ u ─▶[ G(s) ]─┬─▶ y
+           ▲−                                │
+           └─────────────── y ───────────────┘
+
+  Controller (ideal parallel PID):
+      C(s) = Kp + Ki/s + Kd s .
+  As a ratio of polynomials this is (Kd s^2 + Kp s + Ki)/s when Ki > 0.
+  When Ki = 0 the integrator is removed EXACTLY: C(s) = Kp + Kd s with no
+  pole at the origin (naively keeping (Kd s^2 + Kp s)/s would pin a spurious
+  closed-loop pole at s = 0 for pure P/PD control; the self-test asserts it
+  is gone). Write C = nc/dc, G = ng/dg (coefficient arrays, ascending powers).
+
+  Closed loop:
+      T(s) = Y/R = C G/(1 + C G) = nc ng / (dc dg + nc ng) ,
+  so the characteristic polynomial is  p(s) = dc(s) dg(s) + nc(s) ng(s),
+  and the closed-loop ZEROS are the open-loop zeros (feedback moves poles,
+  never zeros). DC gain T(0) is taken as the ratio of the lowest-order
+  nonvanishing coefficients (numT and denT share a0 identically when Ki > 0,
+  hence T(0) = 1 exactly: integral action kills the step error).
+
+  Control effort:
+      U/R = C/(1 + C G) = nc dg / p(s) ,
+  which is improper by exactly one degree whenever the derivative term is
+  active. Polynomial division  nc dg = q(s) p(s) + rem(s), deg q <= 1, gives
+      u(t) = q1 rdot(t) + q0 r(t) + [strictly proper filter rem/p driven by r],
+  exact between reference discontinuities; each jump dr in r additionally
+  carries an impulse  q1 dr delta(t) (the ideal-derivative "kick"), marked in
+  the plot with a delta arrow and its exact weight, not drawn to scale.
+
+  Root locus. Hold the PID *shape* (its zeros) at the slider values and sweep
+  a scalar loop gain k in  1 + k C(s) G(s) = 0, i.e. plot the roots of
+      p_k(s) = dc dg + k nc ng ,   k: 0 -> infinity;
+  k = 1 is the current gain set (chartreuse diamonds). Classic rules, all
+  computed and self-tested:
+    - branches start (k->0) at the open-loop poles (plant poles + the
+      controller pole at s = 0 when Ki > 0) and end (k->inf) at the open-loop
+      zeros, the remaining n-m walking to infinity along asymptotes from the
+      centroid  sigma_a = (sum poles - sum zeros)/(n-m)  (sums taken from
+      coefficient ratios, not root-finding) at angles (2q+1) 180/(n-m) deg;
+    - a real-axis point is on the locus iff an ODD number of real open-loop
+      poles+zeros (with multiplicity) lies to its right;
+    - breakaway/break-in points solve N'(s)D(s) - N(s)D'(s) = 0 with
+      k = -D/N finite and positive (N = nc ng, D = dc dg).
+  Branches are sampled on a log grid of k (k = 1 inserted exactly) with the
+  polynomial re-rooted at every k and roots matched between neighbouring k by
+  minimum total squared displacement (exact assignment, n <= 4). Clicking a
+  branch point rescales (Kp, Ki, Kd) by that k — the locus is invariant under
+  this rescale, so the diamonds slide along the drawn curves.
+
+  Roots are found by Durand-Kerner iteration on the monicized polynomial
+  (quadratics/linears in closed form), with a Cauchy-bound initial circle.
+
+  Time response. T(s) and rem(s)/p(s) are realized in controllable canonical
+  form: monic p = s^n + a_{n-1} s^{n-1} + ... + a_0, feedthrough D by one
+  division step (b - D a), states xdot_i = x_{i+1},
+  xdot_n = -sum a_i x_{i+1} + r, y = sum b_i x_{i+1} + D r. Integration is
+  fixed-step RK4 with the step chosen from the closed-loop pole speeds
+  (|lambda| h ~ 0.1) and the input period, and the grid is cut exactly at
+  every reference discontinuity (square-wave edges) so nothing is smeared;
+  r(t) is evaluated by closed form inside each smooth segment. Inputs: unit
+  step, square wave, sin(wt), unit ramp.
+
+  Readouts. Step: y_inf = T(0), overshoot (y_peak - y_inf)/y_inf, 10-90%
+  rise time, 2% settling time, e_ss = 1 - T(0). Sine: predicted |T(jw)| and
+  angle T(jw) vs the amplitude/phase measured by quadrature projection over
+  the last full period. Ramp: system type (integrators in L), velocity
+  constant Kv = lim s L(s), e_ss = 1/Kv, vs the simulated end error.
+  Stability badge = sign of max Re(pole) with a 1e-9 marginal band.
+
+  Rendering: 2d canvas on black, family style of radio_waves.html /
+  orbitals.html (cyan #58c4dd = y and the locus, chartreuse #b8ec4c = e and
+  the closed-loop poles, magenta #cd35c4 = u, warm yellow #f5d76b = r).
+  Single file, no dependencies, works over file://.
+
+  Headless self-test: extract the inline script (substring between the LAST
+  script open/close tags — use rindex) and run it with
+      osascript -l JavaScript pid_test.js
+  When `document` is undefined it runs the assertion suite instead of booting
+  the UI: polynomial algebra and division identities, closed-form vs
+  Durand-Kerner roots (incl. repeated and complex), characteristic
+  polynomials against hand-expanded cases, the Ki = 0 origin-pole removal,
+  exact pole-zero-cancellation invariance, locus start/end/asymptotes/
+  breakaways/real-axis rule against the textbook rules, k = 1 consistency,
+  RK4 vs closed-form first/second-order step responses, feedthrough jumps,
+  derivative-kick quotients, u(t) cross-checked against Kp e + Ki int(e) +
+  Kd de/dt, ramp/sine steady-state laws, metrics extraction vs independent
+  bisection on the analytic response, stability classification, and the
+  formula/SVG string builders.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4; --warn:#f5d76b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; flex:1; min-height:0;}
+  #main{display:flex; flex-direction:column; flex:1; min-width:0;}
+  #toprow{display:flex; height:296px; flex-shrink:0; border-bottom:1px solid var(--edge); min-width:0;}
+  #diagbox{flex:1.12; min-width:0; position:relative; background:var(--panel); border-right:1px solid var(--edge); padding:26px 8px 6px;}
+  #diagram{width:100%; height:100%;}
+  #diagram svg{width:100%; height:100%; display:block;}
+  #eqbox{flex:1; min-width:0; position:relative; background:#050508; overflow-y:auto; padding:28px 16px 12px;}
+  #botrow{display:flex; flex:1; min-height:0;}
+  #locusbox,#respbox{flex:1; min-width:0; position:relative; background:var(--bg);}
+  #locusbox{border-right:1px solid var(--edge);}
+  #cvLocus,#cvResp{position:absolute; inset:0; width:100%; height:100%; display:block; cursor:crosshair;}
+  .paneltag{position:absolute; left:10px; top:7px; font-size:10.5px; font-weight:600; letter-spacing:.12em;
+            text-transform:uppercase; color:#777; pointer-events:none; z-index:2;}
+  #badge{position:absolute; right:10px; top:6px; z-index:2; font:600 11px -apple-system,sans-serif;
+         letter-spacing:.08em; padding:3px 9px; border-radius:10px; border:1px solid var(--edge);
+         background:rgba(10,10,14,.8); pointer-events:none;}
+  #badge.ok{color:var(--neon-a); border-color:rgba(184,236,76,.5);}
+  #badge.marginal{color:var(--warn); border-color:rgba(245,215,107,.5);}
+  #badge.bad{color:#ff6b6b; border-color:rgba(255,107,107,.55);}
+  #eqs{font:italic 15px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  .eqline{margin:9px 0; white-space:nowrap; overflow-x:auto; padding-bottom:2px;}
+  .eqline .lbl{display:inline-block; width:86px; font:10.5px -apple-system,sans-serif; font-style:normal;
+               color:#777; letter-spacing:.1em; text-transform:uppercase;}
+  .eqline .lhs{color:#fff;}
+  .eqnote{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim); margin:2px 0 8px 86px;}
+  .fr{display:inline-flex; flex-direction:column; vertical-align:middle; text-align:center;
+      margin:0 3px; line-height:1.3; font-size:13.5px;}
+  .fr .n{border-bottom:1px solid #9a9aa4; padding:0 5px;}
+  .fr .d{padding:0 5px;}
+  #eqs sup{font-size:10.5px;}
+  .kp{color:#fff;} .kc{color:var(--accent);} .ke{color:var(--neon-a);} .ku{color:var(--neon-b);} .kr{color:var(--warn);}
+  #panel{width:280px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:15px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:64px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:52px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-wrap:wrap; gap:6px 14px; margin-top:2px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .ro{font:11.5px "SF Mono", Menlo, monospace; color:var(--dim); margin:3px 0;}
+  .ro b{color:var(--text); font-weight:600;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  .exdesc{font-size:11.5px; line-height:1.6; color:var(--dim); margin-top:9px;}
+  .exdesc b{color:var(--text); font-weight:600;}
+  .exdesc i{color:var(--accent); font-style:normal;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>PID controller</h1>
+  <span class="sub">C(s) = K<sub>p</sub> + K<sub>i</sub>/s + K<sub>d</sub>s &middot; unity feedback &middot; root locus of 1 + kC(s)G(s) &middot; exact RK4 response &middot; hover the locus, click a branch to jump the gains there</span>
+</header>
+<div id="wrap">
+  <div id="main">
+    <div id="toprow">
+      <div id="diagbox"><span class="paneltag">&#9312; block diagram</span><div id="diagram"></div></div>
+      <div id="eqbox"><span class="paneltag">&#9313; Laplace domain</span><div id="eqs"></div></div>
+    </div>
+    <div id="botrow">
+      <div id="locusbox"><span class="paneltag">&#9314; root locus &mdash; s-plane</span><div id="badge"></div><canvas id="cvLocus"></canvas></div>
+      <div id="respbox"><span class="paneltag">&#9315; input &amp; response</span><canvas id="cvResp"></canvas></div>
+    </div>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>examples</h3>
+      <div class="chips" id="exChips">
+        <button class="chip" id="ex_cruise"  title="first-order lag + PI — hold a set speed">cruise control</button>
+        <button class="chip" id="ex_ac"      title="first-order lag + PI — hold a room temperature">air conditioning</button>
+        <button class="chip" id="ex_oven"    title="second-order thermal + PID — reach a temperature without overshoot">oven</button>
+        <button class="chip" id="ex_invpend" title="open-loop-unstable plant + PID — balance an inverted pendulum">inverted pendulum</button>
+        <button class="chip" id="ex_dpend"   title="two unstable modes — no PID can stabilize it (needs full-state feedback)">double pendulum &#9888;</button>
+      </div>
+      <div id="exDesc" class="exdesc"></div>
+    </div>
+    <div class="grp">
+      <h3>gains</h3>
+      <div class="sliderrow"><label for="sKp">K<sub>p</sub></label>
+        <input type="range" id="sKp" min="0" max="20" step="0.05">
+        <span class="val" id="vKp"></span></div>
+      <div class="sliderrow"><label for="sKi">K<sub>i</sub></label>
+        <input type="range" id="sKi" min="0" max="10" step="0.05">
+        <span class="val" id="vKi"></span></div>
+      <div class="sliderrow"><label for="sKd">K<sub>d</sub></label>
+        <input type="range" id="sKd" min="0" max="5" step="0.05">
+        <span class="val" id="vKd"></span></div>
+      <div class="chips" style="margin-top:6px">
+        <button class="chip" id="bP"   title="Kp = 2, Ki = 0, Kd = 0">P</button>
+        <button class="chip" id="bPI"  title="Kp = 2, Ki = 1, Kd = 0">PI</button>
+        <button class="chip" id="bPD"  title="Kp = 2, Ki = 0, Kd = 1">PD</button>
+        <button class="chip" id="bPID" title="Kp = 2, Ki = 1, Kd = 1">PID</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>plant G(s)</h3>
+      <div class="chips">
+        <button class="chip" id="pl_first"    title="1/(s+1) — first-order lag (RC, thermal)">1&frasl;(s+1)</button>
+        <button class="chip" id="pl_second"   title="1/((s+1)(s+3)) — overdamped second order">2nd order</button>
+        <button class="chip" id="pl_motor"    title="1/(s(s+2)) — servo motor position: integrator + lag">motor</button>
+        <button class="chip" id="pl_third"    title="1/((s+1)(s+2)(s+5)) — third order: P alone can destabilize">3rd order</button>
+        <button class="chip" id="pl_unstable" title="1/((s-1)(s+3)) — open-loop unstable pole at s = +1 (inverted-pendulum-like); needs Kp > 3">unstable</button>
+        <button class="chip" id="pl_resonant" title="1/(s^2+0.4s+4) — lightly damped resonance, zeta = 0.1 at wn = 2">resonant</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>input r(t)</h3>
+      <div class="chips">
+        <button class="chip" id="in_step"   title="unit step">step</button>
+        <button class="chip" id="in_square" title="unit square wave, period 2pi/w">square</button>
+        <button class="chip" id="in_sine"   title="sin(w t)">sine</button>
+        <button class="chip" id="in_ramp"   title="unit ramp, slope 1">ramp</button>
+      </div>
+      <div class="sliderrow" id="rowW"><label for="sW">&omega;</label>
+        <input type="range" id="sW" min="0.2" max="10" step="0.05">
+        <span class="val" id="vW"></span></div>
+      <div class="sliderrow"><label for="sSpan">T window</label>
+        <input type="range" id="sSpan" min="2" max="60" step="1">
+        <span class="val" id="vSpan"></span></div>
+      <div class="checks">
+        <label><input type="checkbox" id="ckU" checked> u(t) control</label>
+        <label><input type="checkbox" id="ckE"> e(t) error</label>
+      </div>
+      <div class="btnrow"><button id="bReset" title="back to the defaults">reset all</button></div>
+    </div>
+    <div class="grp">
+      <h3>readouts</h3>
+      <div id="roMetrics"></div>
+    </div>
+    <div class="grp">
+      <h3>closed-loop poles &amp; zeros</h3>
+      <div id="roPoles"></div>
+    </div>
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info">
+        <b>Loop:</b> unity negative feedback; parallel PID with an <i>ideal</i>
+        derivative &mdash; its impulse kicks at reference jumps are marked with
+        &delta; arrows (exact weight, not to scale). Real controllers filter D;
+        this keeps the algebra identical to the locus.<br>
+        <b>Locus:</b> poles of 1 + kC(s)G(s), k: 0&rarr;&infin;, PID ratios frozen
+        at the sliders; &loz; = k&thinsp;=&thinsp;1 (the current gains). Click a
+        branch to rescale all three gains onto it.<br>
+        <b>K<sub>i</sub> = 0</b> removes the controller pole at s = 0 exactly
+        &mdash; P/PD add no phantom integrator.<br>
+        <b>Stability</b> = every closed-loop pole in Re&thinsp;s &lt; 0; the
+        feedback moves poles only &mdash; closed-loop zeros stay at the
+        open-loop zeros.
+      </div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* ======================= constants & format ====================== */
+const PI = Math.PI, TAU = 2*PI;
+const CLR = { r:'#f5d76b', y:'#58c4dd', u:'#cd35c4', e:'#b8ec4c',
+              dim:'#63636e', grid:'rgba(255,255,255,0.05)', axis:'rgba(255,255,255,0.22)' };
+
+function fmt(x,d){ return (+x).toFixed(d===undefined?2:d); }
+function fmtG(x,sig){
+  sig = sig||4;
+  if (!isFinite(x)) return x>0?'∞':(x<0?'−∞':'NaN');
+  if (x===0) return '0';
+  const a = Math.abs(x);
+  let s;
+  if (a>=1e5 || a<1e-3){
+    s = a.toExponential(sig-1).replace(/\.?0+e/,'e').replace('e+','e');
+  } else {
+    s = String(Number(a.toPrecision(sig)));   // Number() undoes toPrecision's exponential switch
+  }
+  return (x<0?'−':'')+s;
+}
+function niceStep(x){
+  const e = Math.pow(10, Math.floor(Math.log10(x))), m = x/e;
+  return (m<1.5?1:m<3.5?2:m<7.5?5:10)*e;
+}
+
+/* ==================== polynomials (ascending) ====================
+   p[i] multiplies s^i. All construction keeps structural zeros exact. */
+function pTrim(p){ const q=p.slice(); while (q.length>1 && q[q.length-1]===0) q.pop(); return q; }
+function pTrimRel(p,eps){
+  const q=p.slice(); let mx=0;
+  for (const c of q) mx=Math.max(mx,Math.abs(c));
+  if (mx===0) return [0];
+  const e=(eps||1e-12)*mx;
+  while (q.length>1 && Math.abs(q[q.length-1])<=e) q.pop();
+  return q;
+}
+function pAdd(a,b){
+  const n=Math.max(a.length,b.length), o=new Array(n);
+  for (let i=0;i<n;i++) o[i]=(a[i]||0)+(b[i]||0);
+  return o;
+}
+function pScale(a,c){ return a.map(v=>v*c); }
+function pMul(a,b){
+  const o=new Array(a.length+b.length-1).fill(0);
+  for (let i=0;i<a.length;i++){ if (a[i]===0) continue;
+    for (let j=0;j<b.length;j++) o[i+j]+=a[i]*b[j]; }
+  return o;
+}
+function pEval(p,x){ let h=0; for (let i=p.length-1;i>=0;i--) h=h*x+p[i]; return h; }
+function pEvalC(p,re,im){
+  let hr=0, hi=0;
+  for (let i=p.length-1;i>=0;i--){
+    const t=hr*re-hi*im+p[i]; hi=hr*im+hi*re; hr=t;
+  }
+  return [hr,hi];
+}
+function pDeriv(p){
+  if (p.length<2) return [0];
+  const o=new Array(p.length-1);
+  for (let i=1;i<p.length;i++) o[i-1]=i*p[i];
+  return o;
+}
+function allZero(p){ return p.every(c=>c===0); }
+function degree(p){ const q=pTrimRel(p); return allZero(q)?-1:q.length-1; }
+/* num = q*den + rem, deg rem < deg den. den's leading coeff must be nonzero. */
+function pDivmod(num,den){
+  const D=pTrimRel(den), r=pTrimRel(num).slice(), dn=D.length-1;
+  if (r.length-1<dn) return {q:[0], rem:pTrim(r)};
+  const q=new Array(r.length-dn).fill(0);
+  for (let i=r.length-1;i>=dn;i--){
+    const c=r[i]/D[dn]; q[i-dn]=c;
+    if (c!==0) for (let j=0;j<dn;j++) r[i-dn+j]-=c*D[j];
+    r[i]=0;
+  }
+  return {q:pTrim(q), rem:pTrim(r.slice(0,Math.max(1,dn)))};
+}
+/* sum of roots from coefficients: -a_{n-1}/a_n (0 for degree < 1) */
+function sumRoots(p){
+  const q=pTrimRel(p), n=q.length-1;
+  return n<1?0:-q[n-1]/q[n];
+}
+function leadingZeros(p){ let i=0; while (i<p.length && p[i]===0) i++; return i; }
+
+/* ========================= root finding ========================== */
+function quadRoots(p){
+  const c=p[0], b=p[1], a=p[2];
+  if (Math.abs(a)<1e-300) return [[-c/b,0]];
+  const disc=b*b-4*a*c;
+  if (disc>=0){
+    const sd=Math.sqrt(disc), q=-(b+(b>=0?sd:-sd))/2;
+    let r1,r2;
+    if (q!==0){ r1=q/a; r2=c/q; } else { r1=0; r2=-b/a; }
+    const out=[[r1,0],[r2,0]];
+    out.sort((A,B)=>A[0]-B[0]||A[1]-B[1]);
+    return out;
+  }
+  const re=-b/(2*a), im=Math.abs(Math.sqrt(-disc)/(2*a));
+  return [[re,-im],[re,im]];
+}
+function roots(pIn){
+  let p=pTrimRel(pIn,1e-12);
+  if (allZero(p)) return [];
+  const n=p.length-1;
+  if (n<=0) return [];
+  if (n===1) return [[-p[0]/p[1],0]];
+  if (n===2) return quadRoots(p);
+  const a=p.map(c=>c/p[n]);              // monic
+  let R=0; for (let i=0;i<n;i++) R=Math.max(R,Math.abs(a[i]));
+  R=1+R;                                  // Cauchy bound
+  const wr=new Array(n), wi=new Array(n);
+  for (let i=0;i<n;i++){
+    const th=TAU*i/n+0.5, rad=R*(0.65+0.3*i/Math.max(1,n-1));
+    wr[i]=rad*Math.cos(th); wi[i]=rad*Math.sin(th);
+  }
+  for (let it=0;it<400;it++){
+    let moved=0;
+    for (let i=0;i<n;i++){
+      let hr=1, hi=0;                      // p(w_i), monic Horner
+      for (let k=n-1;k>=0;k--){
+        const t=hr*wr[i]-hi*wi[i]+a[k]; hi=hr*wi[i]+hi*wr[i]; hr=t;
+      }
+      let dr=1, di=0;                      // prod (w_i - w_j)
+      for (let j=0;j<n;j++){
+        if (j===i) continue;
+        const xr=wr[i]-wr[j], xi=wi[i]-wi[j];
+        const t=dr*xr-di*xi; di=dr*xi+di*xr; dr=t;
+      }
+      const dd=dr*dr+di*di||1e-300;
+      const cr=(hr*dr+hi*di)/dd, ci=(hi*dr-hr*di)/dd;
+      wr[i]-=cr; wi[i]-=ci;
+      moved=Math.max(moved,Math.abs(cr)+Math.abs(ci));
+    }
+    if (moved<1e-13*(1+R)) break;
+  }
+  const out=[];
+  for (let i=0;i<n;i++){
+    let re=wr[i], im=wi[i];
+    if (Math.abs(im)<1e-8*(1+Math.abs(re))) im=0;
+    out.push([re,im]);
+  }
+  out.sort((A,B)=>A[0]-B[0]||A[1]-B[1]);
+  return out;
+}
+
+/* ============================ plants ============================= */
+const PLANTS={
+  first:    {ng:[1], dg:[1,1],       fT:'1/(s+1)',            fN:'1', fD:'s + 1'},
+  second:   {ng:[1], dg:[3,4,1],     fT:'1/((s+1)(s+3))',     fN:'1', fD:'(s + 1)(s + 3)'},
+  motor:    {ng:[1], dg:[0,2,1],     fT:'1/(s(s+2))',         fN:'1', fD:'s(s + 2)'},
+  third:    {ng:[1], dg:[10,17,8,1], fT:'1/((s+1)(s+2)(s+5))',fN:'1', fD:'(s + 1)(s + 2)(s + 5)'},
+  unstable: {ng:[1], dg:[-3,2,1],    fT:'1/((s-1)(s+3))',     fN:'1', fD:'(s − 1)(s + 3)'},
+  resonant: {ng:[1], dg:[4,0.4,1],   fT:'1/(s^2+0.4s+4)',     fN:'1', fD:'s<sup>2</sup> + 0.4s + 4'},
+  /* ---- real-world example plants (loaded by the SCENARIOS presets) ---- */
+  cruise:   {ng:[1], dg:[1,20],       fT:'1/(20s+1)',         fN:'1', fD:'20s + 1'},
+  room:     {ng:[1], dg:[1,40],       fT:'1/(40s+1)',         fN:'1', fD:'40s + 1'},
+  oven:     {ng:[1], dg:[1,6,5],      fT:'1/((5s+1)(s+1))',   fN:'1', fD:'(5s + 1)(s + 1)'},
+  invpend:  {ng:[1], dg:[-4,0,1],     fT:'1/(s^2-4)',         fN:'1', fD:'s<sup>2</sup> − 4'},
+  dpend:    {ng:[1], dg:[2,0,-4,0,1], fT:'1/(s^4-4s^2+2)',    fN:'1', fD:'s<sup>4</sup> − 4s<sup>2</sup> + 2'}
+};
+/* ===================== real-world example presets =====================
+   Each loads a plant + a sensible tuning + input. Every stable tuning is a
+   pole-placement design, re-checked for stability in the self-test. dpend is
+   the exception: it is provably UNSTABLE for ANY PID (the teaching point). */
+const EX_HINT='Real-world loops — each sets a plant, a tuning and an input. '+
+              'Change any control to explore from there.';
+const SCENARIOS={
+  cruise: {label:'cruise control', plant:'cruise', Kp:5, Ki:0.8, Kd:0,
+    input:'step', w:2, span:40, showU:true, showE:false,
+    desc:'<b>Cruise control.</b> Car speed vs. throttle is a first-order lag, '+
+      'G = 1/(20s+1) (mass ÷ drag, τ ≈ 20 s). <b>PI</b> holds the set speed with '+
+      'zero steady-state error — no derivative, which would only amplify '+
+      'speedometer noise. The step is a new set-speed command.'},
+  ac: {label:'air conditioning', plant:'room', Kp:7, Ki:0.5, Kd:0,
+    input:'step', w:2, span:60, showU:true, showE:false,
+    desc:'<b>Air conditioning.</b> Room temperature vs. cooling power is again a '+
+      'first-order lag, G = 1/(40s+1) — the <i>same math as cruise control</i>, '+
+      'just slower. <b>PI</b> tuned gently (ζ ≈ 0.9, no overshoot); still no '+
+      'derivative (thermostat noise). The step is a new setpoint.'},
+  oven: {label:'oven', plant:'oven', Kp:5, Ki:1.8, Kd:3.2,
+    input:'step', w:2, span:30, showU:true, showE:false,
+    desc:'<b>Oven / reflow.</b> A heating element warming the cavity is a sluggish '+
+      'second-order lag, G = 1/((5s+1)(s+1)). <b>PID</b>: integral removes the '+
+      'steady-state temperature offset, and the <b>derivative anticipates</b> the '+
+      'slow thermal rise so it settles without overshooting the target. The step '+
+      'is the target temperature.'},
+  invpend: {label:'inverted pendulum', plant:'invpend', Kp:10.5, Ki:4.5, Kd:4.1,
+    input:'step', w:2, span:12, showU:true, showE:false,
+    desc:'<b>Inverted pendulum</b> — a broom balanced on your hand. Open-loop '+
+      '<b>unstable</b>: G = 1/(s²−4) has a pole at s = +2, so it falls on its own. '+
+      'Feedback catches it, and the <b>derivative term is essential</b> (rate '+
+      'feedback, like your inner ear). Drop K<sub>d</sub> to 0 and the loop goes '+
+      'unstable.'},
+  dpend: {label:'double pendulum ⚠', plant:'dpend', Kp:6, Ki:2, Kd:4,
+    input:'step', w:2, span:12, showU:true, showE:false,
+    desc:'<b>Double pendulum, upright.</b> Two stacked links have two unstable '+
+      'modes — the linearized characteristic polynomial is s⁴−4s²+2 (equal links, '+
+      'g/ℓ = 1; poles at s = +0.77 and +1.85). Idealized as 1/(s⁴−4s²+2), it '+
+      'exposes the difficulty: a single PID only feeds the s², s¹, s⁰ '+
+      'coefficients, so the s³ term stays −4 for <i>every</i> gain — the loop is '+
+      'unstable no matter the tuning. This is why you need <b>full-state '+
+      'feedback</b> (LQR), not PID.'}
+};
+
+/* ===================== system construction ====================== */
+function ctrlPolys(st){
+  if (st.Ki!==0) return {nc:pTrim([st.Ki,st.Kp,st.Kd]), dc:[0,1], hasInt:true};
+  return {nc:pTrim([st.Kp,st.Kd]), dc:[1], hasInt:false};
+}
+function classifyPoles(poles){
+  let worst=-Infinity;
+  for (const p of poles) worst=Math.max(worst,p[0]/(1+Math.abs(p[0])+Math.abs(p[1])));
+  // normalized real part with relative tolerance
+  const tol=1e-9;
+  if (worst>tol) return 'unstable';
+  if (worst>-tol) return 'marginal';
+  return 'stable';
+}
+/* DC gain from lowest nonvanishing coefficients (exact structural zeros) */
+function dcGain(numT,denT){
+  const n=Math.max(numT.length,denT.length);
+  for (let i=0;i<n;i++){
+    const a=denT[i]||0, b=numT[i]||0;
+    if (a===0 && b===0) continue;
+    if (a===0) return Infinity;
+    return b/a;
+  }
+  return 0;
+}
+function polyStr(pIn,html){
+  const p=pTrimRel(pIn,1e-11);
+  if (allZero(p)) return '0';
+  let mx=0; for (const c of p) mx=Math.max(mx,Math.abs(c));
+  const parts=[];
+  for (let i=p.length-1;i>=0;i--){
+    const c=p[i];
+    if (Math.abs(c)<=1e-11*mx) continue;
+    const mag=Math.abs(c);
+    const coefStr=(i>0 && Math.abs(mag-1)<=1e-9)?'':fmtG(mag);
+    const pow=i===0?'':(i===1?'s':(html?('s<sup>'+i+'</sup>'):('s^'+i)));
+    const term=coefStr+(coefStr&&pow?'':'')+pow || coefStr;
+    if (parts.length===0) parts.push((c<0?(html?'−':'-'):'')+term);
+    else parts.push((c<0?(html?' − ':' - '):' + ')+term);
+  }
+  return parts.join('');
+}
+function buildSystem(st){
+  const P=PLANTS[st.plant], C=ctrlPolys(st);
+  const nc=C.nc, dc=C.dc, ng=P.ng, dg=P.dg;
+  const open=allZero(nc);
+  const ncng=pMul(nc,ng), dcdg=pMul(dc,dg);
+  const numT=ncng, denT=pAdd(dcdg,ncng);
+  const poles=roots(denT);
+  const stability=classifyPoles(poles);
+  const T0=open?0:dcGain(numT,denT);
+  const numU=pMul(nc,dg);
+  const dv=pDivmod(numU,denT);
+  const zerosT=open?[]:roots(ncng);
+  /* system type & velocity constant of L = ncng/dcdg */
+  const zn=open?0:leadingZeros(ncng), zd=leadingZeros(dcdg);
+  const type=open?0:(zd-zn);
+  let Kv=0;
+  if (!open){
+    if (type===1) Kv=ncng[zn]/dcdg[zd];
+    else if (type>=2) Kv=Infinity;
+  }
+  return {st:Object.assign({},st), P, nc, dc, ng, dg, hasInt:C.hasInt, open,
+          ncng, dcdg, numT, denT, poles, zerosT, stability, T0,
+          numU, q:dv.q, rem:dv.rem, type, Kv,
+          str:{ C:polyStr(nc,false)+(C.hasInt?' / s':''),
+                charEq:polyStr(denT,false),
+                numT:polyStr(numT,false), L:polyStr(dcdg,false) }};
+}
+
+/* ========================== root locus =========================== */
+const PERMS={1:[[0]],2:[[0,1],[1,0]],3:null,4:null,5:null};
+function permsOf(n){
+  if (PERMS[n]) return PERMS[n];
+  const out=[], idx=[...Array(n).keys()];
+  (function rec(cur,rest){
+    if (!rest.length){ out.push(cur.slice()); return; }
+    for (let i=0;i<rest.length;i++) rec(cur.concat(rest[i]), rest.slice(0,i).concat(rest.slice(i+1)));
+  })([],idx);
+  PERMS[n]=out;
+  return out;
+}
+function matchRoots(prev,cur){
+  const n=prev.length;
+  if (cur.length!==n || n>5){                 // greedy fallback
+    const used=new Array(cur.length).fill(false), out=[];
+    for (const p of prev){
+      let bi=-1, bd=Infinity;
+      for (let j=0;j<cur.length;j++){
+        if (used[j]) continue;
+        const d=(p[0]-cur[j][0])**2+(p[1]-cur[j][1])**2;
+        if (d<bd){ bd=d; bi=j; }
+      }
+      if (bi>=0){ used[bi]=true; out.push(cur[bi]); }
+      else out.push(p);
+    }
+    return out;
+  }
+  let best=null, bc=Infinity;
+  for (const pm of permsOf(n)){
+    let c=0;
+    for (let i=0;i<n;i++){
+      const q=cur[pm[i]];
+      c+=(prev[i][0]-q[0])**2+(prev[i][1]-q[1])**2;
+      if (c>=bc) break;
+    }
+    if (c<bc){ bc=c; best=pm; }
+  }
+  return best.map(j=>cur[j]);
+}
+function computeLocus(sys){
+  const N=sys.ncng, D=sys.dcdg;
+  const olPoles=roots(D);
+  if (sys.open) return {empty:true, olPoles, olZeros:[], branches:[], ks:[], asym:null, breakaways:[]};
+  const olZeros=roots(N);
+  const nD=degree(D), mN=degree(N), rel=nD-mN;
+  let asym=null;
+  if (rel>=1){
+    const centroid=(sumRoots(D)-sumRoots(N))/rel;
+    const angles=[];
+    for (let q=0;q<rel;q++) angles.push((2*q+1)*PI/rel);
+    asym={centroid,angles,rel};
+  }
+  /* breakaway / break-in: N'D - N D' = 0, k = -D/N finite positive */
+  const f=pAdd(pMul(pDeriv(N),D), pScale(pMul(N,pDeriv(D)),-1));
+  const breakaways=[];
+  for (const r of roots(f)){
+    if (r[1]!==0) continue;
+    const s=r[0], Nv=pEval(N,s), Dv=pEval(D,s);
+    if (Math.abs(Nv)<1e-12*(1+Math.abs(Dv))) continue;
+    const k=-Dv/Nv;
+    if (k>1e-9 && k<1e9) breakaways.push({s,k});
+  }
+  /* k grid: log spaced, k = 1 exact, breakaway ks inserted */
+  const ks=[];
+  const NK=560, lmin=Math.log(1e-4), lmax=Math.log(1e4);
+  for (let i=0;i<=NK;i++) ks.push(Math.exp(lmin+(lmax-lmin)*i/NK));
+  ks.push(1);
+  for (const b of breakaways){ ks.push(b.k*0.97, b.k, b.k*1.03); }
+  ks.sort((a,b)=>a-b);
+  const nb=olPoles.length;                      // branch count = deg p_k (constant)
+  const branches=[]; for (let i=0;i<nb;i++) branches.push([]);
+  let prev=olPoles.map(p=>p.slice());
+  for (let i=0;i<nb;i++) branches[i].push(prev[i].slice());   // k -> 0 anchor
+  let kOneIdx=-1, kOnePoles=null;
+  const kList=[0];
+  for (const k of ks){
+    const pk=pAdd(D, pScale(N,k));
+    const rts=roots(pk);
+    const m=matchRoots(prev,rts);
+    for (let i=0;i<nb;i++) branches[i].push(m[i].slice());
+    prev=m;
+    kList.push(k);
+    if (k===1){ kOneIdx=kList.length-1; kOnePoles=m.map(p=>p.slice()); }
+  }
+  return {empty:false, olPoles, olZeros, branches, ks:kList, kOneIdx, kOnePoles,
+          asym, breakaways, nD, mN};
+}
+
+/* ================= realization & RK4 simulation ================== */
+function realize(bIn,aIn){
+  let a=pTrimRel(aIn), b=pTrimRel(bIn);
+  const an=a[a.length-1];
+  a=a.map(c=>c/an); b=b.map(c=>c/an);
+  const n=a.length-1;
+  if (b.length-1>n) throw new Error('improper transfer function');
+  let D=0;
+  if (n===0){ return {n:0, a:[], bt:[], D:b[0]||0}; }
+  if (b.length-1===n){ D=b[n]; b=pAdd(b,pScale(a,-D)); }
+  const bt=new Array(n).fill(0);
+  for (let i=0;i<n;i++) bt[i]=b[i]||0;
+  return {n, a:a.slice(0,n), bt, D};
+}
+function deriv(R,x,r){
+  const n=R.n, xd=new Array(n);
+  for (let i=0;i<n-1;i++) xd[i]=x[i+1];
+  let s=r;
+  for (let i=0;i<n;i++) s-=R.a[i]*x[i];
+  xd[n-1]=s;
+  return xd;
+}
+function outEval(R,x,r){
+  let y=R.D*r;
+  for (let i=0;i<R.n;i++) y+=R.bt[i]*x[i];
+  return y;
+}
+function rk4(R,x,t,h,rf){
+  if (R.n===0) return x;
+  const ax=(v,c,k)=>v.map((vi,i)=>vi+c*k[i]);
+  const k1=deriv(R,x,rf(t));
+  const k2=deriv(R,ax(x,h/2,k1),rf(t+h/2));
+  const k3=deriv(R,ax(x,h/2,k2),rf(t+h/2));
+  const k4=deriv(R,ax(x,h,k3),rf(t+h));
+  return x.map((xi,i)=>xi+h/6*(k1[i]+2*k2[i]+2*k3[i]+k4[i]));
+}
+function makeInput(st){
+  const w=st.w, Tp=TAU/w;
+  switch(st.input){
+    case 'step':
+      return {piece:()=>({r:()=>1, rd:()=>0}), edges:[], disc:[{t:0,dr:1}], periodic:null};
+    case 'ramp':
+      return {piece:()=>({r:t=>t, rd:()=>1}), edges:[], disc:[], periodic:null};
+    case 'sine':
+      return {piece:()=>({r:t=>Math.sin(w*t), rd:t=>w*Math.cos(w*t)}), edges:[], disc:[], periodic:Tp};
+    case 'square':{
+      const piece=tm=>{
+        const m=Math.floor(2*tm/Tp), sg=(m%2===0)?1:-1;
+        return {r:()=>sg, rd:()=>0};
+      };
+      return {piece, edgeAt:m=>m*Tp/2, edges:'square', disc:'square', periodic:Tp};
+    }
+  }
+}
+function simulateAll(sys,st){
+  const inp=makeInput(st), span=st.span;
+  let rate=0.5;
+  for (const p of sys.poles) rate=Math.max(rate,Math.hypot(p[0],p[1]));
+  let dt=Math.min(span/1500, 0.1/Math.max(rate,1));
+  if (inp.periodic) dt=Math.min(dt,inp.periodic/64);
+  if (span/dt>3e5) return {skip:true, why:'closed-loop poles too fast for this window — shorten T'};
+  /* segment cuts at reference discontinuities */
+  const cuts=[0];
+  const disc=[];
+  if (st.input==='square'){
+    const Tp=TAU/st.w;
+    disc.push({t:0,dr:1});
+    for (let m=1;m*Tp/2<span;m++){
+      cuts.push(m*Tp/2);
+      disc.push({t:m*Tp/2, dr:(m%2===1)?-2:2});
+    }
+  } else {
+    for (const d of inp.disc) disc.push(d);
+  }
+  cuts.push(span);
+  const RY=realize(sys.numT,sys.denT);
+  const RU=realize(sys.rem,sys.denT);
+  const q0=sys.q[0]||0, q1=sys.q[1]||0;
+  let xY=new Array(RY.n).fill(0), xU=new Array(RU.n).fill(0);
+  const T=[], R=[], Y=[], U=[];
+  const push=(t,pc)=>{
+    const r=pc.r(t), rd=pc.rd(t);
+    T.push(t); R.push(r);
+    Y.push(outEval(RY,xY,r));
+    U.push(q0*r+q1*rd+outEval(RU,xU,r));
+  };
+  for (let sgi=0;sgi<cuts.length-1;sgi++){
+    const t0=cuts[sgi], t1=cuts[sgi+1];
+    const pc=inp.piece((t0+t1)/2);
+    push(t0,pc);
+    const m=Math.max(1,Math.ceil((t1-t0)/dt)), h=(t1-t0)/m;
+    for (let i=0;i<m;i++){
+      const t=t0+i*h;
+      xY=rk4(RY,xY,t,h,pc.r);
+      xU=rk4(RU,xU,t,h,pc.r);
+      push(t0+(i+1)*h,pc);   // segment end = left limit; next segment re-pushes it with the new r
+    }
+  }
+  const impulses=(q1!==0)?disc.map(d=>({t:d.t,w:q1*d.dr})):[];
+  return {skip:false, t:T, r:R, y:Y, u:U, dt, impulses, D:RY.D,
+          metrics:computeMetrics(sys,st,T,R,Y)};
+}
+function computeMetrics(sys,st,T,R,Y){
+  const M={input:st.input, stability:sys.stability, T0:sys.T0};
+  if (sys.stability==='unstable') return M;
+  const n=T.length;
+  if (st.input==='step' || st.input==='square'){
+    const T0=sys.T0;
+    if (!isFinite(T0) || T0===0 || st.input==='square'){ M.ess=isFinite(T0)?1-T0:NaN; return M; }
+    M.ess=1-T0;
+    const yn=Y.map(v=>v/T0);
+    let pk=-Infinity, pi=0;
+    for (let i=0;i<n;i++) if (yn[i]>pk){ pk=yn[i]; pi=i; }
+    M.peak=pk*T0; M.tPeak=T[pi];
+    M.os=Math.max(0,(pk-1))*100;
+    const cross=(lvl)=>{
+      for (let i=1;i<n;i++){
+        if (yn[i-1]<lvl && yn[i]>=lvl){
+          return T[i-1]+(T[i]-T[i-1])*(lvl-yn[i-1])/(yn[i]-yn[i-1]);
+        }
+      }
+      return NaN;
+    };
+    const t10=cross(0.1), t90=cross(0.9);
+    M.tRise=(isFinite(t10)&&isFinite(t90))?t90-t10:NaN;
+    let last=-1;
+    for (let i=0;i<n;i++) if (Math.abs(yn[i]-1)>0.02) last=i;
+    M.tSettle=(last<n-1)?(last<0?0:T[last+1]):NaN;   // NaN: not settled in window
+  } else if (st.input==='sine'){
+    const w=st.w, Tp=TAU/w;
+    const num=pEvalC(sys.numT,0,w), den=pEvalC(sys.denT,0,w);
+    const dd=den[0]*den[0]+den[1]*den[1];
+    const tr=(num[0]*den[0]+num[1]*den[1])/dd, ti=(num[1]*den[0]-num[0]*den[1])/dd;
+    M.mag=Math.hypot(tr,ti); M.phase=Math.atan2(ti,tr);
+    /* Steady-state amplitude/phase by projecting y onto sin/cos over an
+       INTEGER number of periods (so the 2w cross-term cancels), starting only
+       after the slowest transient has decayed below ~1e-3. */
+    const tb=T[n-1];
+    let rate=Infinity;
+    for (const p of sys.poles) rate=Math.min(rate,-p[0]);
+    const tStart=(rate>1e-6)?Math.min(0.5*tb,7/rate):0.5*tb;
+    const Mp=Math.floor((tb-tStart)/Tp);
+    if (Mp>=1){
+      const ta=tb-Mp*Tp;
+      const interpY=t=>{ let i=0,j=n-1;
+        while (j-i>1){ const m=(i+j)>>1; if (T[m]<t) i=m; else j=m; }
+        const f=(T[j]>T[i])?(t-T[i])/(T[j]-T[i]):0;
+        return Y[i]+f*(Y[j]-Y[i]); };
+      const nodes=[ta], yv=[interpY(ta)];
+      for (let i=0;i<n;i++) if (T[i]>ta+1e-9 && T[i]<tb-1e-9){ nodes.push(T[i]); yv.push(Y[i]); }
+      nodes.push(tb); yv.push(Y[n-1]);
+      let I=0,Q=0;
+      for (let i=0;i<nodes.length-1;i++){
+        const h=nodes[i+1]-nodes[i];
+        I+=h*(yv[i]*Math.sin(w*nodes[i])+yv[i+1]*Math.sin(w*nodes[i+1]))/2;
+        Q+=h*(yv[i]*Math.cos(w*nodes[i])+yv[i+1]*Math.cos(w*nodes[i+1]))/2;
+      }
+      const span=Mp*Tp;
+      M.magMeas=2*Math.hypot(I,Q)/span;
+      M.phaseMeas=Math.atan2(Q,I);
+      M.measPeriods=Mp;
+    }
+  } else if (st.input==='ramp'){
+    M.type=sys.type; M.Kv=sys.Kv;
+    M.essRamp=sys.type>=2?0:(sys.type===1?1/sys.Kv:Infinity);
+    M.essMeas=R[n-1]-Y[n-1];
+  }
+  return M;
+}
+
+/* ==================== string / SVG builders ====================== */
+function frac(nStr,dStr){
+  return '<span class="fr"><span class="n">'+nStr+'</span><span class="d">'+dStr+'</span></span>';
+}
+function eqHTML(st,sys){
+  const P=sys.P;
+  const lines=[];
+  const g=(x)=>'<span class="kp">'+fmtG(x)+'</span>';
+  let cForm='C(s) = '+g(st.Kp);
+  cForm+=' + '+frac(g(st.Ki),'s')+' + '+g(st.Kd)+' s';
+  let cRat=sys.hasInt?frac(polyStr(sys.nc,true),'s'):polyStr(sys.nc,true);
+  lines.push('<div class="eqline"><span class="lbl">controller</span><span class="lhs">'+cForm+'</span> = '+cRat+'</div>');
+  if (!sys.hasInt) lines.push('<div class="eqnote">K<sub>i</sub> = 0 ⇒ the controller pole at s = 0 is removed exactly</div>');
+  lines.push('<div class="eqline"><span class="lbl">plant</span><span class="lhs">G(s)</span> = '+frac(P.fN,P.fD)+'</div>');
+  lines.push('<div class="eqline"><span class="lbl">open loop</span><span class="lhs">L(s)</span> = C(s)G(s) = '+
+             frac(polyStr(sys.ncng,true),polyStr(sys.dcdg,true))+'</div>');
+  lines.push('<div class="eqline"><span class="lbl">closed loop</span><span class="lhs">T(s)</span> = '+
+             frac('Y(s)','R(s)')+' = '+frac('L','1 + L')+' = '+
+             frac(polyStr(sys.numT,true),polyStr(sys.denT,true))+'</div>');
+  let uLine='<div class="eqline"><span class="lbl">control</span><span class="lhs">'+frac('U(s)','R(s)')+'</span> = '+
+            frac('C','1 + L')+' = '+frac(polyStr(sys.numU,true),polyStr(sys.denT,true));
+  if (degree(sys.q)>=1 || (sys.q[0]||0)!==0){
+    uLine+=' = '+polyStr(sys.q,true)+' + '+frac(polyStr(sys.rem,true),polyStr(sys.denT,true));
+  }
+  uLine+='</div>';
+  lines.push(uLine);
+  if ((sys.q[1]||0)!==0)
+    lines.push('<div class="eqnote">improper by one degree: u(t) carries '+fmtG(sys.q[1])+' &delta;(t) kicks at reference jumps (ideal derivative)</div>');
+  lines.push('<div class="eqline"><span class="lbl">char. eq.</span>'+polyStr(sys.denT,true)+' = 0'+
+             (sys.open?'':(',&nbsp;&nbsp; T(0) = '+(isFinite(sys.T0)?fmtG(sys.T0):'∞')))+'</div>');
+  lines.push('<div class="eqnote">root locus sweeps '+polyStr(sys.dcdg,true)+' + k ['+polyStr(sys.ncng,true)+'] = 0, k: 0 → ∞; the sliders sit at k = 1</div>');
+  return lines.join('');
+}
+function diagramSVG(st,sys){
+  const on=(g)=>g!==0;
+  const dimIf=(g)=>on(g)?'':' opacity="0.22"';
+  const val=(g)=>fmt(g);
+  const wire=(pts,color,wd,arrow)=>{
+    let d='M '+pts[0][0]+' '+pts[0][1];
+    for (let i=1;i<pts.length;i++) d+=' L '+pts[i][0]+' '+pts[i][1];
+    return '<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="'+(wd||1.4)+'"'+
+           (arrow?' marker-end="url(#ah)"':'')+'/>';
+  };
+  const blk=(x,y,w,h,l1,l2,dim)=>'<g'+(dim||'')+'><rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+
+    '" rx="4" fill="#101014" stroke="#2f2f36"/><text x="'+(x+w/2)+'" y="'+(y+h/2-4)+
+    '" text-anchor="middle" fill="#e9e9f0" font-size="13" font-style="italic" font-family="Georgia,serif">'+l1+
+    '</text><text x="'+(x+w/2)+'" y="'+(y+h/2+14)+'" text-anchor="middle" fill="#9a9aa4" font-size="11" font-family="Menlo,monospace">'+l2+'</text></g>';
+  const sum=(cx,cy)=>'<circle cx="'+cx+'" cy="'+cy+'" r="15" fill="#101014" stroke="#2f2f36"/>'+
+    '<text x="'+cx+'" y="'+(cy+5)+'" text-anchor="middle" fill="#e9e9f0" font-size="14" font-family="Georgia,serif">Σ</text>';
+  const lab=(x,y,txt,c)=>'<text x="'+x+'" y="'+y+'" fill="'+c+'" font-size="13" font-style="italic" font-family="Georgia,serif">'+txt+'</text>';
+  const sgn=(x,y,ch)=>'<text x="'+x+'" y="'+y+'" fill="#9a9aa4" font-size="11" font-family="Menlo,monospace">'+ch+'</text>';
+  let s='<svg viewBox="0 0 680 300" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">';
+  s+='<defs><marker id="ah" markerWidth="9" markerHeight="7" refX="7" refY="3.1" orient="auto">'+
+     '<path d="M0,0 L8,3.1 L0,6.2 z" fill="#8b8b95"/></marker></defs>';
+  s+=wire([[10,150],[60,150]],CLR.r,1.6,true)+lab(12,138,'R(s)',CLR.r);
+  s+=sum(77,150)+sgn(58,143,'+')+sgn(86,182,'−');
+  s+=wire([[92,150],[146,150]],CLR.e,1.6)+lab(103,138,'E(s)',CLR.e);
+  s+='<circle cx="150" cy="150" r="2.6" fill="'+CLR.e+'"/>';
+  s+=wire([[150,150],[150,72],[176,72]],CLR.e,1.4,true);
+  s+=wire([[150,150],[176,150]],CLR.e,1.4,true);
+  s+=wire([[150,150],[150,228],[176,228]],CLR.e,1.4,true);
+  s+=blk(178,52,110,40,'K<tspan font-size="9" dy="3">p</tspan>',val(st.Kp),dimIf(st.Kp));
+  s+=blk(178,130,110,40,'K<tspan font-size="9" dy="3">i</tspan><tspan dy="-3"> ⁄ s</tspan>',val(st.Ki),dimIf(st.Ki));
+  s+=blk(178,208,110,40,'K<tspan font-size="9" dy="3">d</tspan><tspan dy="-3"> s</tspan>',val(st.Kd),dimIf(st.Kd));
+  s+=wire([[288,72],[340,72],[340,133]],CLR.dim,1.3,true);
+  s+=wire([[288,150],[323,150]],CLR.dim,1.3,true);
+  s+=wire([[288,228],[340,228],[340,167]],CLR.dim,1.3,true);
+  s+=sum(340,150)+sgn(330,126,'+')+sgn(311,144,'+')+sgn(330,182,'+');
+  s+=wire([[355,150],[398,150]],CLR.u,1.6,true)+lab(361,138,'U(s)',CLR.u);
+  s+=blk(400,122,180,56,'plant G(s)',sys.P.fT,'');
+  s+=wire([[580,150],[648,150]],CLR.y,1.6,true)+lab(616,138,'Y(s)',CLR.y);
+  s+='<circle cx="612" cy="150" r="2.6" fill="'+CLR.y+'"/>';
+  s+=wire([[612,150],[612,252],[77,252],[77,168]],CLR.y,1.3,true);
+  s+='<text x="345" y="272" text-anchor="middle" fill="#63636e" font-size="10" font-family="-apple-system,sans-serif">unity negative feedback</text>';
+  if (sys.open) s+='<text x="233" y="110" text-anchor="middle" fill="#f5d76b" font-size="11">C(s) = 0 — loop open</text>';
+  s+='</svg>';
+  return s;
+}
+function poleLineHTML(p){
+  const wn=Math.hypot(p[0],p[1]);
+  if (p[1]!==0){
+    const z=wn>0?-p[0]/wn:0;
+    return '<div class="ro"><b>'+fmtG(p[0])+' ± '+fmtG(Math.abs(p[1]))+'j</b>&nbsp; ζ = '+
+           fmtG(z,3)+', ω<sub>n</sub> = '+fmtG(wn,3)+'</div>';
+  }
+  const tau=p[0]!==0?-1/p[0]:Infinity;
+  return '<div class="ro"><b>'+fmtG(p[0])+'</b>&nbsp; τ = '+
+         (isFinite(tau)?(fmtG(tau,3)+' s'):'∞')+(p[0]>0?' (RHP!)':'')+'</div>';
+}
+function polesHTML(sys){
+  const out=['<div class="ro" style="color:#777">poles — roots of the characteristic eq.:</div>'];
+  const used=new Array(sys.poles.length).fill(false);
+  for (let i=0;i<sys.poles.length;i++){
+    if (used[i]) continue;
+    const p=sys.poles[i];
+    if (p[1]!==0){
+      for (let j=i+1;j<sys.poles.length;j++){
+        if (!used[j] && Math.abs(sys.poles[j][0]-p[0])<1e-9*(1+Math.abs(p[0])) && Math.abs(sys.poles[j][1]+p[1])<1e-9*(1+Math.abs(p[1]))){
+          used[j]=true; break;
+        }
+      }
+      used[i]=true;
+      out.push(poleLineHTML([p[0],Math.abs(p[1])]));
+    } else { used[i]=true; out.push(poleLineHTML(p)); }
+  }
+  if (sys.zerosT.length){
+    out.push('<div class="ro" style="color:#777">zeros (= open-loop zeros):</div>');
+    const uz=new Array(sys.zerosT.length).fill(false);
+    for (let i=0;i<sys.zerosT.length;i++){
+      if (uz[i]) continue;
+      const z=sys.zerosT[i];
+      if (z[1]!==0){
+        for (let j=i+1;j<sys.zerosT.length;j++){
+          if (!uz[j] && Math.abs(sys.zerosT[j][1]+z[1])<1e-9){ uz[j]=true; break; }
+        }
+        out.push('<div class="ro"><b>'+fmtG(z[0])+' ± '+fmtG(Math.abs(z[1]))+'j</b></div>');
+      } else out.push('<div class="ro"><b>'+fmtG(z[0])+'</b></div>');
+      uz[i]=true;
+    }
+  }
+  return out.join('');
+}
+function metricsHTML(sys,sim){
+  if (sim.skip) return '<div class="ro">'+sim.why+'</div>';
+  const M=sim.metrics, L=[];
+  const rline=(k,v)=>'<div class="ro">'+k+' = <b>'+v+'</b></div>';
+  if (sys.stability==='unstable'){
+    L.push('<div class="ro" style="color:#ff6b6b">closed loop unstable — step metrics n/a</div>');
+  }
+  if (M.input==='step' && sys.stability!=='unstable'){
+    L.push(rline('y∞ = T(0)', isFinite(M.T0)?fmtG(M.T0):'∞'));
+    if (isFinite(M.T0)&&M.T0!==0){
+      L.push(rline('overshoot', fmt(M.os,1)+' %'));
+      L.push(rline('t rise 10–90%', isFinite(M.tRise)?fmt(M.tRise,3)+' s':'—'));
+      L.push(rline('t settle 2%', isFinite(M.tSettle)?fmt(M.tSettle,2)+' s':'not in window'));
+      L.push(rline('eₛₛ (step)', fmtG(M.ess,3)));
+    }
+  } else if (M.input==='square'){
+    L.push('<div class="ro">square wave: each edge replays the step response (scaled ×±2)</div>');
+    if (isFinite(M.T0)) L.push(rline('plateau → ±T(0)', fmtG(M.T0)));
+  } else if (M.input==='sine' && sys.stability!=='unstable'){
+    L.push(rline('|T(jω)| predicted', fmt(M.mag,3)));
+    L.push(rline('∠T(jω)', fmt(M.phase*180/PI,1)+'°'));
+    if (M.magMeas!==undefined){
+      L.push(rline('measured amp', fmt(M.magMeas,3)));
+      L.push(rline('measured phase', fmt(M.phaseMeas*180/PI,1)+'°'));
+    } else L.push('<div class="ro">window too short to measure — raise T</div>');
+  } else if (M.input==='ramp' && sys.stability!=='unstable'){
+    L.push(rline('system type', M.type));
+    L.push(rline('Kᵥ = lim sL(s)', isFinite(M.Kv)?fmtG(M.Kv,3):'∞'));
+    L.push(rline('eₛₛ (ramp) predicted', isFinite(M.essRamp)?fmtG(M.essRamp,3):'∞ — needs integral action'));
+    L.push(rline('end error simulated', fmtG(M.essMeas,3)));
+  }
+  L.push('<div class="ro" style="color:#777">RK4 · dt = '+fmtG(sim.dt,3)+' s · '+sim.t.length+' pts</div>');
+  return L.join('');
+}
+
+/* ========================= canvas drawing ======================== */
+function fitCanvas(cv){
+  const w=cv.clientWidth, h=cv.clientHeight;
+  if (w<10||h<10) return null;
+  const dpr=(typeof window!=='undefined'&&window.devicePixelRatio)||1;
+  if (cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){
+    cv.width=Math.round(w*dpr); cv.height=Math.round(h*dpr);
+  }
+  const ctx=cv.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {ctx,W:w,H:h};
+}
+function drawLocus(cv,sys,loc,hover){
+  const f=fitCanvas(cv); if (!f) return null;
+  const {ctx,W,H}=f;
+  ctx.clearRect(0,0,W,H);
+  /* view: equal scale, fitted to poles/zeros/current poles */
+  const pts=[];
+  for (const p of loc.olPoles) pts.push(p);
+  for (const z of loc.olZeros) pts.push(z);
+  if (loc.kOnePoles) for (const p of loc.kOnePoles) pts.push(p);
+  for (const b of (loc.breakaways||[])) pts.push([b.s,0]);
+  let x0=-0.6,x1=0.4,ym=0.8;
+  for (const p of pts){
+    x0=Math.min(x0,p[0]); x1=Math.max(x1,p[0]); ym=Math.max(ym,Math.abs(p[1]));
+  }
+  const dx=x1-x0;
+  x0-=0.16*dx+0.3; x1+=0.16*dx+0.3; ym=ym*1.3+0.2;
+  const sc=Math.min((W-20)/(x1-x0), (H-20)/(2*ym));
+  const cx=(x0+x1)/2, cy=0;
+  const X=s=>W/2+(s-cx)*sc, Yp=v=>H/2-(v-cy)*sc;
+  const view={cx,cy,sc,W,H};
+  /* RHP tint */
+  const xz=X(0);
+  if (xz<W){ ctx.fillStyle='rgba(255,80,80,0.05)'; ctx.fillRect(Math.max(0,xz),0,W-Math.max(0,xz),H); }
+  /* grid */
+  const step=niceStep((x1-x0)/7);
+  ctx.font='10px -apple-system,sans-serif';
+  ctx.strokeStyle=CLR.grid; ctx.fillStyle='#5c5c66'; ctx.lineWidth=1;
+  const gx0=Math.ceil((cx-(W/2)/sc)/step)*step;
+  for (let gx=gx0; X(gx)<W; gx+=step){
+    ctx.beginPath(); ctx.moveTo(X(gx),0); ctx.lineTo(X(gx),H); ctx.stroke();
+    if (Math.abs(gx)>1e-12) ctx.fillText(fmtG(gx,3),X(gx)+2,H-6);
+  }
+  const gy0=Math.ceil((cy-(H/2)/sc)/step)*step;
+  for (let gy=gy0; Yp(gy)>0; gy+=step){
+    ctx.beginPath(); ctx.moveTo(0,Yp(gy)); ctx.lineTo(W,Yp(gy)); ctx.stroke();
+    if (Math.abs(gy)>1e-12) ctx.fillText(fmtG(gy,3)+'j',4,Yp(gy)-3);
+  }
+  /* zeta rays + wn arcs */
+  ctx.strokeStyle='rgba(255,255,255,0.055)';
+  for (const z of [0.2,0.4,0.6,0.8]){
+    const dxr=-z, dyr=Math.sqrt(1-z*z), Lr=(W+H)/sc;
+    for (const sgn of [1,-1]){
+      ctx.beginPath(); ctx.moveTo(X(0),Yp(0));
+      ctx.lineTo(X(dxr*Lr),Yp(sgn*dyr*Lr)); ctx.stroke();
+    }
+    ctx.fillStyle='rgba(255,255,255,0.25)';
+    const rr=Math.min((X(0)-6)/(z*sc||1e-9), (Yp(0)-14)/(dyr*sc));
+    if (rr>0.35*Math.min(X(0),Yp(0))/sc){
+      ctx.fillText('ζ='+z, X(-z*rr*0.92)-14, Yp(dyr*rr*0.92));
+    }
+    ctx.fillStyle='#5c5c66';
+  }
+  ctx.strokeStyle='rgba(255,255,255,0.045)';
+  for (let rr=step; rr*sc<Math.hypot(W,H); rr+=step){
+    ctx.beginPath(); ctx.arc(X(0),Yp(0),rr*sc,0,TAU); ctx.stroke();
+  }
+  /* axes */
+  ctx.strokeStyle=CLR.axis;
+  ctx.beginPath(); ctx.moveTo(0,Yp(0)); ctx.lineTo(W,Yp(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(X(0),0); ctx.lineTo(X(0),H); ctx.stroke();
+  ctx.fillStyle='#8b8b95';
+  ctx.fillText('σ',W-12,Yp(0)-4); ctx.fillText('jω',X(0)+4,10);
+  if (loc.empty){
+    ctx.fillStyle='#9a9aa4'; ctx.font='12px -apple-system,sans-serif';
+    ctx.fillText('C(s) = 0 — open loop; raise a gain to draw the locus',W/2-150,H/2-30);
+  }
+  /* asymptotes */
+  if (!loc.empty && loc.asym){
+    ctx.strokeStyle='rgba(245,215,107,0.35)'; ctx.setLineDash([5,5]);
+    const Lr=(W+H)/sc;
+    for (const a of loc.asym.angles){
+      ctx.beginPath(); ctx.moveTo(X(loc.asym.centroid),Yp(0));
+      ctx.lineTo(X(loc.asym.centroid+Lr*Math.cos(a)),Yp(Lr*Math.sin(a)));
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle='rgba(245,215,107,0.6)';
+    ctx.fillText('σa='+fmtG(loc.asym.centroid,3),X(loc.asym.centroid)+3,Yp(0)+14);
+  }
+  /* branches */
+  if (!loc.empty){
+    for (const pass of [[ 'rgba(88,196,221,0.22)',4.5],[CLR.y,1.8]]){
+      ctx.strokeStyle=pass[0]; ctx.lineWidth=pass[1];
+      for (const br of loc.branches){
+        ctx.beginPath(); let pen=false;
+        for (const p of br){
+          const px=X(p[0]), py=Yp(p[1]);
+          if (px<-2000||px>W+2000||py<-2000||py>H+2000){ pen=false; continue; }
+          if (!pen){ ctx.moveTo(px,py); pen=true; } else ctx.lineTo(px,py);
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.lineWidth=1;
+  }
+  /* multiplicity-aware markers */
+  const clusters=(arr)=>{
+    const out=[];
+    for (const p of arr){
+      let hit=null;
+      for (const c of out){
+        if (Math.abs(c.p[0]-p[0])<1e-6*(1+Math.abs(p[0])) && Math.abs(c.p[1]-p[1])<1e-6*(1+Math.abs(p[1]))){ hit=c; break; }
+      }
+      if (hit) hit.m++; else out.push({p:[p[0],p[1]],m:1});
+    }
+    return out;
+  };
+  ctx.strokeStyle='#e9e9f0'; ctx.fillStyle='#e9e9f0'; ctx.lineWidth=1.7;
+  ctx.font='9px -apple-system,sans-serif';
+  for (const c of clusters(loc.olPoles)){
+    const px=X(c.p[0]), py=Yp(c.p[1]);
+    ctx.beginPath(); ctx.moveTo(px-5,py-5); ctx.lineTo(px+5,py+5);
+    ctx.moveTo(px-5,py+5); ctx.lineTo(px+5,py-5); ctx.stroke();
+    if (c.m>1) ctx.fillText('×'+c.m,px+6,py-6);
+  }
+  for (const c of clusters(loc.olZeros)){
+    const px=X(c.p[0]), py=Yp(c.p[1]);
+    ctx.beginPath(); ctx.arc(px,py,5,0,TAU); ctx.stroke();
+    if (c.m>1) ctx.fillText('×'+c.m,px+6,py-6);
+  }
+  if (loc.breakaways) for (const b of loc.breakaways){
+    ctx.fillStyle=CLR.r;
+    ctx.fillRect(X(b.s)-2.5,Yp(0)-2.5,5,5);
+  }
+  if (loc.kOnePoles){
+    for (const p of loc.kOnePoles){
+      const px=X(p[0]), py=Yp(p[1]);
+      ctx.fillStyle='rgba(184,236,76,0.25)';
+      ctx.beginPath(); ctx.arc(px,py,8,0,TAU); ctx.fill();
+      ctx.fillStyle=CLR.e;
+      ctx.beginPath();
+      ctx.moveTo(px,py-5.5); ctx.lineTo(px+5.5,py); ctx.lineTo(px,py+5.5); ctx.lineTo(px-5.5,py);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+  /* legend */
+  ctx.font='10.5px -apple-system,sans-serif';
+  ctx.fillStyle='#8b8b95';
+  ctx.fillText('× open-loop pole    ○ open-loop zero',10,H-22);
+  ctx.fillStyle=CLR.e;
+  ctx.fillText('◆ closed-loop poles at the current gains (k = 1)',10,H-9);
+  /* hover */
+  if (hover && !loc.empty){
+    const sre=cx+(hover.x-W/2)/sc, sim=-(hover.y-H/2)/sc;
+    ctx.strokeStyle='rgba(255,255,255,0.14)';
+    ctx.beginPath(); ctx.moveTo(hover.x,0); ctx.lineTo(hover.x,H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0,hover.y); ctx.lineTo(W,hover.y); ctx.stroke();
+    let best=null, bd=14*14;
+    for (let bi=0;bi<loc.branches.length;bi++){
+      const br=loc.branches[bi];
+      for (let i=1;i<br.length;i++){
+        const d=(X(br[i][0])-hover.x)**2+(Yp(br[i][1])-hover.y)**2;
+        if (d<bd){ bd=d; best={bi,i}; }
+      }
+    }
+    ctx.fillStyle='#e9e9f0'; ctx.font='11px Menlo,monospace';
+    ctx.fillText('s = '+fmtG(sre,3)+(sim>=0?' + ':' − ')+fmtG(Math.abs(sim),3)+'j',10,16);
+    if (best){
+      const p=loc.branches[best.bi][best.i], k=loc.ks[best.i];
+      ctx.strokeStyle=CLR.r; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(X(p[0]),Yp(p[1]),7,0,TAU); ctx.stroke();
+      ctx.fillStyle=CLR.r;
+      ctx.fillText('k = '+fmtG(k,3)+'  click → Kp '+fmtG(sys.st.Kp*k,3)+
+                   '  Ki '+fmtG(sys.st.Ki*k,3)+'  Kd '+fmtG(sys.st.Kd*k,3),10,31);
+      view.pick={k, s:p};
+    }
+  }
+  return view;
+}
+function drawResp(cv,sys,st,sim,hover){
+  const f=fitCanvas(cv); if (!f) return null;
+  const {ctx,W,H}=f;
+  ctx.clearRect(0,0,W,H);
+  const ML=46, MR=st.showU?46:14, MT=24, MB=24;
+  if (sim.skip){
+    ctx.fillStyle='#9a9aa4'; ctx.font='12px -apple-system,sans-serif';
+    ctx.fillText(sim.why,ML,H/2);
+    return null;
+  }
+  const n=sim.t.length, span=st.span;
+  const Xp=t=>ML+(W-ML-MR)*t/span;
+  /* left-axis bounds from r, y, (e); clamp blowups */
+  let rmax=1; for (const v of sim.r) rmax=Math.max(rmax,Math.abs(v));
+  const yCap=8*Math.max(1,Math.abs(isFinite(sys.T0)?sys.T0:1),rmax);
+  const cl=v=>Math.max(-yCap,Math.min(yCap,v));
+  let lo=0, hi=1e-9;
+  const scanSeries=(arr)=>{ for (const v of arr){ const c=cl(v); lo=Math.min(lo,c); hi=Math.max(hi,c); } };
+  scanSeries(sim.r); scanSeries(sim.y);
+  if (st.showE) for (let i=0;i<n;i++){ const c=cl(sim.r[i]-sim.y[i]); lo=Math.min(lo,c); hi=Math.max(hi,c); }
+  if (isFinite(sys.T0)){ lo=Math.min(lo,cl(sys.T0)); hi=Math.max(hi,cl(sys.T0)); }
+  const pad=(hi-lo)*0.1+1e-6; lo-=pad; hi+=pad;
+  const Yl=v=>MT+(H-MT-MB)*(hi-cl(v))/(hi-lo);
+  /* right axis for u */
+  let ulo=0, uhi=1e-9;
+  if (st.showU) for (const v of sim.u){ const c=Math.max(-yCap*40,Math.min(yCap*40,v)); ulo=Math.min(ulo,c); uhi=Math.max(uhi,c); }
+  const updd=(uhi-ulo)*0.12+1e-6; ulo-=updd; uhi+=updd;
+  const Yu=v=>MT+(H-MT-MB)*(uhi-Math.max(ulo,Math.min(uhi,v)))/(uhi-ulo);
+  /* grid + axes */
+  ctx.font='10px -apple-system,sans-serif';
+  const ts=niceStep(span/6);
+  ctx.strokeStyle=CLR.grid; ctx.fillStyle='#5c5c66';
+  for (let t=0;t<=span+1e-9;t+=ts){
+    ctx.beginPath(); ctx.moveTo(Xp(t),MT); ctx.lineTo(Xp(t),H-MB); ctx.stroke();
+    ctx.fillText(fmtG(t,3),Xp(t)-6,H-9);
+  }
+  const vs=niceStep((hi-lo)/5);
+  for (let v=Math.ceil(lo/vs)*vs; v<=hi; v+=vs){
+    ctx.beginPath(); ctx.moveTo(ML,Yl(v)); ctx.lineTo(W-MR,Yl(v)); ctx.stroke();
+    ctx.fillText(fmtG(v,3),6,Yl(v)+3);
+  }
+  if (st.showU){
+    ctx.fillStyle='rgba(205,53,196,0.75)';
+    const us=niceStep((uhi-ulo)/5);
+    for (let v=Math.ceil(ulo/us)*us; v<=uhi; v+=us) ctx.fillText(fmtG(v,3),W-MR+4,Yu(v)+3);
+  }
+  ctx.strokeStyle=CLR.axis;
+  ctx.strokeRect(ML,MT,W-ML-MR,H-MT-MB);
+  if (lo<0&&hi>0){ ctx.beginPath(); ctx.moveTo(ML,Yl(0)); ctx.lineTo(W-MR,Yl(0)); ctx.stroke(); }
+  ctx.fillStyle='#8b8b95'; ctx.fillText('t [s]',W-MR-26,H-MB-6);
+  /* step target + 2% band */
+  if (st.input==='step' && isFinite(sys.T0) && sys.T0!==0 && sys.stability==='stable'){
+    ctx.fillStyle='rgba(88,196,221,0.06)';
+    const yb1=Yl(sys.T0*1.02), yb2=Yl(sys.T0*0.98);
+    ctx.fillRect(ML,Math.min(yb1,yb2),W-ML-MR,Math.abs(yb2-yb1));
+    ctx.strokeStyle='rgba(88,196,221,0.4)'; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(ML,Yl(sys.T0)); ctx.lineTo(W-MR,Yl(sys.T0)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  /* decimated envelope-preserving index list */
+  const idxList=(()=>{
+    if (n<=2600) return [...Array(n).keys()];
+    const out=[], bw=Math.ceil(n/1300);
+    for (let b=0;b<n;b+=bw){
+      let iMin=b, iMax=b;
+      for (let i=b;i<Math.min(n,b+bw);i++){
+        if (sim.y[i]<sim.y[iMin]) iMin=i;
+        if (sim.y[i]>sim.y[iMax]) iMax=i;
+      }
+      out.push(Math.min(iMin,iMax));
+      if (iMax!==iMin) out.push(Math.max(iMin,iMax));
+    }
+    return out;
+  })();
+  const trace=(arr,color,wd,Ymap,dash)=>{
+    ctx.strokeStyle=color; ctx.lineWidth=wd;
+    if (dash) ctx.setLineDash(dash);
+    ctx.beginPath();
+    let pen=false;
+    for (const i of idxList){
+      const px=Xp(sim.t[i]), py=Ymap(arr[i]);
+      if (!isFinite(py)){ pen=false; continue; }
+      if (!pen){ ctx.moveTo(px,py); pen=true; } else ctx.lineTo(px,py);
+    }
+    ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth=1;
+  };
+  trace(sim.r,CLR.r,1.4,Yl,[5,4]);
+  if (st.showE){
+    const e=sim.r.map((v,i)=>v-sim.y[i]);
+    trace(e,CLR.e,1.4,Yl);
+  }
+  if (st.showU){
+    trace(sim.u,CLR.u,1.5,Yu);
+    for (const im of sim.impulses){
+      if (im.t>span) continue;
+      const px=Xp(im.t), dir=im.w>=0?-1:1, y0=Yu(0);
+      ctx.strokeStyle=CLR.u; ctx.lineWidth=1.5; ctx.setLineDash([2,3]);
+      ctx.beginPath(); ctx.moveTo(px,y0); ctx.lineTo(px,y0+dir*26); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(px,y0+dir*30); ctx.lineTo(px-3.5,y0+dir*22); ctx.lineTo(px+3.5,y0+dir*22);
+      ctx.closePath(); ctx.fillStyle=CLR.u; ctx.fill();
+      ctx.font='9.5px Menlo,monospace';
+      ctx.fillText(fmtG(im.w,3)+'δ',px+5,y0+dir*26+3);
+      ctx.lineWidth=1;
+    }
+  }
+  trace(sim.y,CLR.y,2.2,Yl);
+  /* metrics annotations */
+  const M=sim.metrics;
+  if (st.input==='step' && M.tPeak!==undefined && sys.stability==='stable' && isFinite(sys.T0) && sys.T0!==0){
+    ctx.fillStyle=CLR.y;
+    ctx.beginPath(); ctx.arc(Xp(M.tPeak),Yl(M.peak),3,0,TAU); ctx.fill();
+    if (isFinite(M.tSettle)){
+      ctx.strokeStyle='rgba(88,196,221,0.5)';
+      ctx.beginPath(); ctx.moveTo(Xp(M.tSettle),Yl(sys.T0)-14); ctx.lineTo(Xp(M.tSettle),Yl(sys.T0)+14); ctx.stroke();
+    }
+  }
+  if (sys.stability==='unstable'){
+    ctx.fillStyle='#ff6b6b'; ctx.font='11px -apple-system,sans-serif';
+    ctx.fillText('closed loop UNSTABLE — response diverges',ML+8,MT+14);
+  }
+  /* legend */
+  ctx.font='11px -apple-system,sans-serif';
+  let lx=ML+8;
+  const leg=(txt,c)=>{ ctx.fillStyle=c; ctx.fillText(txt,lx,H-MB-8); lx+=ctx.measureText?ctx.measureText(txt).width+16:60; };
+  leg('r(t)',CLR.r); leg('y(t)',CLR.y);
+  if (st.showE) leg('e(t)',CLR.e);
+  if (st.showU) leg('u(t) → right scale',CLR.u);
+  /* hover */
+  if (hover && hover.x>=ML && hover.x<=W-MR){
+    const tt=(hover.x-ML)/(W-ML-MR)*span;
+    let i=0, j=n-1;
+    while (j-i>1){ const m=(i+j)>>1; if (sim.t[m]<tt) i=m; else j=m; }
+    ctx.strokeStyle='rgba(255,255,255,0.18)';
+    ctx.beginPath(); ctx.moveTo(hover.x,MT); ctx.lineTo(hover.x,H-MB); ctx.stroke();
+    ctx.fillStyle='#e9e9f0'; ctx.font='11px Menlo,monospace';
+    let s='t='+fmt(sim.t[i],2)+'  r='+fmtG(sim.r[i],3)+'  y='+fmtG(sim.y[i],3);
+    if (st.showU) s+='  u='+fmtG(sim.u[i],3);
+    ctx.fillText(s,ML+8,MT-8);
+  }
+  return {Xp};
+}
+
+/* ============================== UI =============================== */
+const DEFAULTS={plant:'motor', Kp:2, Ki:1, Kd:1, input:'step', w:2, span:16, showU:true, showE:false};
+function boot(){
+  const E=id=>document.getElementById(id);
+  const els={
+    sKp:E('sKp'), sKi:E('sKi'), sKd:E('sKd'), vKp:E('vKp'), vKi:E('vKi'), vKd:E('vKd'),
+    sW:E('sW'), vW:E('vW'), sSpan:E('sSpan'), vSpan:E('vSpan'), rowW:E('rowW'),
+    ckU:E('ckU'), ckE:E('ckE'), bReset:E('bReset'),
+    diagram:E('diagram'), eqs:E('eqs'), badge:E('badge'),
+    roMetrics:E('roMetrics'), roPoles:E('roPoles'),
+    cvLocus:E('cvLocus'), cvResp:E('cvResp'),
+    presets:{bP:E('bP'), bPI:E('bPI'), bPD:E('bPD'), bPID:E('bPID')},
+    plants:{}, inputs:{}
+  };
+  for (const k of Object.keys(PLANTS)){ const el=E('pl_'+k); if (el) els.plants[k]=el; }
+  for (const k of ['step','square','sine','ramp']) els.inputs[k]=E('in_'+k);
+  els.examples={}; els.exDesc=E('exDesc');
+  for (const k of Object.keys(SCENARIOS)){ const el=E('ex_'+k); if (el) els.examples[k]=el; }
+  const state=Object.assign({},DEFAULTS);
+  let SYS=null, LOC=null, SIM=null, lview=null, hovL=null, hovR=null;
+  function syncControls(){
+    els.sKp.value=state.Kp; els.sKi.value=state.Ki; els.sKd.value=state.Kd;
+    els.vKp.textContent=fmt(state.Kp); els.vKi.textContent=fmt(state.Ki); els.vKd.textContent=fmt(state.Kd);
+    els.sW.value=state.w; els.vW.textContent=fmt(state.w,2)+' rad/s';
+    els.sSpan.value=state.span; els.vSpan.textContent=fmt(state.span,0)+' s';
+    els.rowW.hidden=!(state.input==='sine'||state.input==='square');
+    els.ckU.checked=state.showU; els.ckE.checked=state.showE;
+    for (const k of Object.keys(els.plants)) els.plants[k].classList.toggle('on',state.plant===k);
+    for (const k of Object.keys(els.inputs)) els.inputs[k].classList.toggle('on',state.input===k);
+    let sc=null;
+    for (const k of Object.keys(SCENARIOS)){
+      const S=SCENARIOS[k];
+      if (state.plant===S.plant && state.input===S.input && +state.span===+S.span
+          && Math.abs(state.Kp-S.Kp)<1e-9 && Math.abs(state.Ki-S.Ki)<1e-9
+          && Math.abs(state.Kd-S.Kd)<1e-9){ sc=k; break; }
+    }
+    for (const k of Object.keys(els.examples)) els.examples[k].classList.toggle('on',sc===k);
+    if (els.exDesc) els.exDesc.innerHTML = sc ? SCENARIOS[sc].desc : EX_HINT;
+  }
+  function draw(){
+    lview=drawLocus(els.cvLocus,SYS,LOC,hovL);
+    drawResp(els.cvResp,SYS,state,SIM,hovR);
+  }
+  function recompute(){
+    SYS=buildSystem(state);
+    LOC=computeLocus(SYS);
+    SIM=simulateAll(SYS,state);
+    els.diagram.innerHTML=diagramSVG(state,SYS);
+    els.eqs.innerHTML=eqHTML(state,SYS);
+    els.roMetrics.innerHTML=metricsHTML(SYS,SIM);
+    els.roPoles.innerHTML=polesHTML(SYS);
+    els.badge.textContent=SYS.stability.toUpperCase();
+    els.badge.className=SYS.stability==='stable'?'ok':(SYS.stability==='marginal'?'marginal':'bad');
+    syncControls();
+    draw();
+  }
+  const num=v=>parseFloat(v)||0;
+  els.sKp.addEventListener('input',()=>{ state.Kp=num(els.sKp.value); recompute(); });
+  els.sKi.addEventListener('input',()=>{ state.Ki=num(els.sKi.value); recompute(); });
+  els.sKd.addEventListener('input',()=>{ state.Kd=num(els.sKd.value); recompute(); });
+  els.sW.addEventListener('input',()=>{ state.w=Math.max(0.05,num(els.sW.value)); recompute(); });
+  els.sSpan.addEventListener('input',()=>{ state.span=Math.max(1,num(els.sSpan.value)); recompute(); });
+  els.ckU.addEventListener('input',()=>{ state.showU=!!els.ckU.checked; draw(); });
+  els.ckE.addEventListener('input',()=>{ state.showE=!!els.ckE.checked; draw(); });
+  for (const k of Object.keys(els.plants))
+    els.plants[k].addEventListener('click',()=>{ state.plant=k; recompute(); });
+  for (const k of Object.keys(els.inputs))
+    els.inputs[k].addEventListener('click',()=>{ state.input=k; recompute(); });
+  function applyScenario(k){
+    const S=SCENARIOS[k];
+    state.plant=S.plant; state.Kp=S.Kp; state.Ki=S.Ki; state.Kd=S.Kd;
+    state.input=S.input; state.w=S.w; state.span=S.span;
+    state.showU=S.showU; state.showE=S.showE;
+    recompute();
+  }
+  for (const k of Object.keys(els.examples))
+    els.examples[k].addEventListener('click',()=>applyScenario(k));
+  const PRE={bP:[2,0,0], bPI:[2,1,0], bPD:[2,0,1], bPID:[2,1,1]};
+  for (const k of Object.keys(PRE))
+    els.presets[k].addEventListener('click',()=>{
+      state.Kp=PRE[k][0]; state.Ki=PRE[k][1]; state.Kd=PRE[k][2]; recompute();
+    });
+  els.bReset.addEventListener('click',()=>{ Object.assign(state,DEFAULTS); recompute(); });
+  els.cvLocus.addEventListener('mousemove',ev=>{
+    const rc=els.cvLocus.getBoundingClientRect();
+    hovL={x:ev.clientX-rc.left, y:ev.clientY-rc.top};
+    draw();
+  });
+  els.cvLocus.addEventListener('mouseleave',()=>{ hovL=null; draw(); });
+  els.cvLocus.addEventListener('click',()=>{
+    if (lview && lview.pick){
+      const k=lview.pick.k;
+      const nKp=state.Kp*k, nKi=state.Ki*k, nKd=state.Kd*k;
+      if (Math.max(nKp,nKi,nKd)<=1000){ state.Kp=nKp; state.Ki=nKi; state.Kd=nKd; recompute(); }
+    }
+  });
+  els.cvResp.addEventListener('mousemove',ev=>{
+    const rc=els.cvResp.getBoundingClientRect();
+    hovR={x:ev.clientX-rc.left, y:ev.clientY-rc.top};
+    draw();
+  });
+  els.cvResp.addEventListener('mouseleave',()=>{ hovR=null; draw(); });
+  window.addEventListener('resize',draw);
+  recompute();
+  if (typeof window!=='undefined' && window.__pidHook)
+    window.__pidHook({state, els, recompute, draw,
+                      getSys:()=>SYS, getLocus:()=>LOC, getSim:()=>SIM, view:()=>lview});
+}
+
+/* =========================== self-test ===========================
+   Runs headless (no DOM). Every math claim in the header comment is
+   recomputed and checked here. */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+  const vecApprox=(A,B,tol)=>A.length===B.length &&
+    A.every((v,i)=>Math.abs(v-B[i])<=(tol===undefined?1e-9:tol));
+  const rootsApprox=(R,expect,tol)=>{
+    if (R.length!==expect.length) return false;
+    const E=expect.map(e=>e.slice());
+    for (const r of R){
+      let bi=-1, bd=Infinity;
+      for (let j=0;j<E.length;j++){
+        if (!E[j]) continue;
+        const d=Math.hypot(r[0]-E[j][0],r[1]-E[j][1]);
+        if (d<bd){ bd=d; bi=j; }
+      }
+      if (bi<0 || bd>tol) return false;
+      E[bi]=null;
+    }
+    return true;
+  };
+
+  /* --- A. polynomial toolkit --- */
+  ok(vecApprox(pMul([1,1],[1,1]),[1,2,1]) && vecApprox(pMul([1,2,1],[1,1]),[1,3,3,1]),
+     'A1 pMul: (s+1)^2 and (s+1)^3');
+  ok(vecApprox(pAdd([1,2],[3,0,1]),[4,2,1]) && pEval([4,2,1],2)===4+4+4,
+     'A2 pAdd / pEval');
+  { const z=pEvalC([1,0,1],0,1);   // s^2+1 at s=j -> 0
+    ok(approx(z[0],0,1e-12)&&approx(z[1],0,1e-12),'A3 pEvalC: j is a root of s^2+1'); }
+  ok(vecApprox(pDeriv([0,2,1]),[2,2]) && vecApprox(pDeriv([5]),[0]),
+     'A4 pDeriv');
+  { const dv=pDivmod([5,2,0,1],[1,0,1]);  // s^3+2s+5 = s*(s^2+1) + (s+5)
+    ok(vecApprox(dv.q,[0,1])&&vecApprox(dv.rem,[5,1]),'A5 pDivmod quotient/remainder');
+    const chk=pAdd(pMul(dv.q,[1,0,1]),dv.rem);
+    ok(vecApprox(chk,[5,2,0,1]),'A5b divmod identity q*den + rem = num'); }
+  ok(approx(sumRoots([6,11,6,1]),-6) && sumRoots([7])===0,
+     'A6 sum of roots from coefficients');
+  ok(polyStr([1,2,3,1],false)==='s^3 + 3s^2 + 2s + 1' &&
+     polyStr([-3,2,1],false)==='s^2 + 2s - 3' &&
+     polyStr([0],false)==='0' && polyStr([0,-1],false)==='-s',
+     'A7 polyStr plain forms');
+  ok(fmtG(0.5)==='0.5' && fmtG(-3)==='−3' && fmtG(12345.6)==='12350' &&
+     fmtG(1e6)==='1e6' && fmtG(0)==='0','A8 fmtG');
+
+  /* --- B. root finding --- */
+  ok(rootsApprox(roots([6,-5,1]),[[2,0],[3,0]],1e-12),'B1 quadratic real roots');
+  ok(rootsApprox(roots([5,2,1]),[[-1,-2],[-1,2]],1e-12),'B2 quadratic complex pair');
+  ok(rootsApprox(roots([-4,0,1]),[[-2,0],[2,0]],1e-12),'B3 quadratic b = 0');
+  ok(rootsApprox(roots([6,11,6,1]),[[-1,0],[-2,0],[-3,0]],1e-9),'B4 cubic (s+1)(s+2)(s+3)');
+  ok(rootsApprox(roots([10,18,15,6,1]),[[-1,-1],[-1,1],[-2,-1],[-2,1]],1e-7),
+     'B5 quartic with two complex pairs');
+  ok(rootsApprox(roots([2,5,4,1]),[[-1,0],[-1,0],[-2,0]],2e-4),'B6 repeated root (s+1)^2(s+2)');
+  ok(rootsApprox(roots([6,11,6,1,0,0]),[[-1,0],[-2,0],[-3,0]],1e-9),
+     'B7 leading-zero (highest-power) coefficients stripped');
+  { let worst=0;
+    for (const r of roots([10,18,15,6,1]))
+      worst=Math.max(worst,Math.hypot(...pEvalC([10,18,15,6,1],r[0],r[1])));
+    ok(worst<1e-8,'B8 residuals |p(root)| tiny'); }
+
+  /* --- C. system construction --- */
+  { const sys=buildSystem({plant:'second',Kp:10,Ki:0,Kd:0});
+    ok(vecApprox(sys.denT,[13,4,1]) && rootsApprox(sys.poles,[[-2,-3],[-2,3]],1e-9),
+       'C1 P = 10 on 1/((s+1)(s+3)): poles -2 ± 3j'); }
+  { const sys=buildSystem({plant:'first',Kp:2,Ki:0,Kd:0});
+    ok(vecApprox(sys.denT,[3,1]) && sys.poles.length===1 &&
+       !sys.poles.some(p=>Math.abs(p[0])<1e-9&&p[1]===0) && approx(sys.T0,2/3,1e-15),
+       'C2 Ki = 0 removes the origin pole exactly (P on 1/(s+1): single pole at -3, T(0)=2/3)'); }
+  { const sys=buildSystem({plant:'motor',Kp:2,Ki:1,Kd:1});
+    ok(sys.denT.length===4 && sys.denT[0]===1 && sys.denT[1]===2 && sys.denT[2]===3 && sys.denT[3]===1,
+       'C3 PID(2,1,1) on motor: char poly exactly s^3+3s^2+2s+1');
+    ok(sys.T0===1,'C4 Ki > 0 forces T(0) = 1 exactly (a0 = b0 identically)');
+    ok(sys.str.charEq==='s^3 + 3s^2 + 2s + 1','C5 char-eq string'); }
+  { const sys=buildSystem({plant:'first',Kp:2,Ki:1,Kd:1});   // nc = (s+1)^2, plant pole -1
+    let worst=0;
+    for (const k of [0.3,1,7]){
+      const pk=pAdd(sys.dcdg,pScale(sys.ncng,k));
+      worst=Math.max(worst,Math.abs(pEval(pk,-1)));
+    }
+    ok(worst<1e-12,'C6 exact pole-zero cancellation stays a root of p_k for every k'); }
+  { const sys=buildSystem({plant:'first',Kp:2,Ki:1,Kd:1});
+    ok(vecApprox(sys.denT,[1,3,2]) && vecApprox(sys.numU,[1,3,3,1]) &&
+       vecApprox(sys.q,[0.75,0.5],1e-12) && vecApprox(sys.rem,[0.25,0.25],1e-12),
+       'C7 U/R division: (s+1)^3/(2s^2+3s+1) = 0.5s + 0.75 + (0.25s+0.25)/(2s^2+3s+1)'); }
+  { const sys=buildSystem({plant:'motor',Kp:2,Ki:1,Kd:1});
+    ok(vecApprox(sys.q,[1,1],1e-12) && vecApprox(sys.rem,[-1,-1],1e-12),
+       'C8 U/R division on the motor: q = s + 1, rem = -(s+1)'); }
+  { const s0=buildSystem({plant:'motor',Kp:0,Ki:0,Kd:0});
+    ok(s0.open && s0.T0===0 && rootsApprox(s0.poles,[[0,0],[-2,0]],1e-9) && s0.stability==='marginal',
+       'C9 all gains 0: open loop, poles = plant poles, motor is marginal'); }
+
+  /* --- D. realization, RK4, responses --- */
+  { const R=realize([1,2,1],[1,3,2]);   // T from C7: D = Kd/(1+Kd) = 1/2
+    ok(R.n===2 && approx(R.D,0.5,1e-12) && vecApprox(R.a,[0.5,1.5],1e-12) &&
+       vecApprox(R.bt,[0.25,0.25],1e-12),
+       'D1 controllable-canonical realization with feedthrough'); }
+  { const sys=buildSystem({plant:'first',Kp:4,Ki:0,Kd:0});
+    const sim=simulateAll(sys,{plant:'first',Kp:4,Ki:0,Kd:0,input:'step',w:2,span:2});
+    let worst=0;
+    for (let i=0;i<sim.t.length;i++){
+      const ex=0.8*(1-Math.exp(-5*sim.t[i]));
+      worst=Math.max(worst,Math.abs(sim.y[i]-ex));
+    }
+    ok(worst<1e-7,'D2 step of T = 4/(s+5) matches 0.8(1-e^{-5t}) to 1e-7');
+    let worstU=0;    // P control: u = Kp e exactly
+    for (let i=0;i<sim.t.length;i++)
+      worstU=Math.max(worstU,Math.abs(sim.u[i]-4*(sim.r[i]-sim.y[i])));
+    ok(worstU<1e-9,'D3 P control: u = Kp(r - y) identically'); }
+  { const R=realize([4],[4,2,1]);       // zeta = 0.5, wn = 2
+    let x=new Array(2).fill(0), worst=0;
+    const h=0.004, wd=Math.sqrt(3);
+    for (let i=0;i<2000;i++){
+      x=rk4(R,x,i*h,h,()=>1);
+      const t=(i+1)*h;
+      const ex=1-Math.exp(-t)*(Math.cos(wd*t)+Math.sin(wd*t)/wd);
+      worst=Math.max(worst,Math.abs(outEval(R,x,1)-ex));
+    }
+    ok(worst<1e-7,'D4 underdamped 2nd order (zeta 0.5, wn 2) matches closed form'); }
+  { const sys=buildSystem({plant:'first',Kp:2,Ki:1,Kd:1});
+    const st={plant:'first',Kp:2,Ki:1,Kd:1,input:'step',w:2,span:8};
+    const sim=simulateAll(sys,st);
+    ok(approx(sim.y[0],0.5,1e-12),'D5 biproper T: y(0+) = D = Kd/(1+Kd) = 0.5');
+    ok(sim.impulses.length===1 && approx(sim.impulses[0].w,0.5,1e-12),
+       'D6 step carries one delta kick of weight q1*dr = 0.5'); }
+  { const st={plant:'motor',Kp:2,Ki:1,Kd:1,input:'step',w:2,span:30};
+    const sys=buildSystem(st);
+    const sim=simulateAll(sys,st);
+    /* cross-check u(t) = Kp e + Ki INT e + Kd de/dt on the interior */
+    let ie=0, worst=0;
+    for (let i=1;i<sim.t.length-1;i++){
+      const h=sim.t[i]-sim.t[i-1];
+      ie+=h*((sim.r[i-1]-sim.y[i-1])+(sim.r[i]-sim.y[i]))/2;
+      if (sim.t[i]>0.5 && sim.t[i]<25){
+        const ed=((sim.r[i+1]-sim.y[i+1])-(sim.r[i-1]-sim.y[i-1]))/(sim.t[i+1]-sim.t[i-1]);
+        const uref=2*(sim.r[i]-sim.y[i])+1*ie+1*ed;
+        worst=Math.max(worst,Math.abs(sim.u[i]-uref));
+      }
+    }
+    ok(worst<2e-3,'D7 u(t) from nc dg/p agrees with Kp e + Ki INT e + Kd de/dt');
+    const M=sim.metrics;
+    ok(M.os>0 && isFinite(M.tRise) && isFinite(M.tSettle) && approx(M.ess,0,1e-12),
+       'D8 step metrics exist and e_ss = 0 with integral action');
+    ok(Math.abs(sim.y[sim.y.length-1]-1)<1e-4,'D9 step response settles to T(0) = 1'); }
+  { const st={plant:'motor',Kp:2,Ki:1,Kd:1,input:'sine',w:2,span:40};
+    const sys=buildSystem(st);
+    const sim=simulateAll(sys,st);
+    const M=sim.metrics;
+    ok(approx(M.mag,5/Math.sqrt(137),1e-9),'D10 |T(2j)| = 5/sqrt(137) exactly');
+    const dphi=Math.atan2(Math.sin(M.phase-M.phaseMeas),Math.cos(M.phase-M.phaseMeas));
+    ok(M.measPeriods>=1 && Math.abs(M.magMeas-M.mag)/M.mag<1e-3 && Math.abs(dphi)<2e-3,
+       'D11 measured sine amplitude/phase match T(jw) to <0.1% (integer-period quadrature projection)'); }
+  { const st={plant:'first',Kp:2,Ki:1,Kd:0,input:'ramp',w:2,span:30};
+    const sys=buildSystem(st);
+    const sim=simulateAll(sys,st);
+    ok(sys.type===1 && approx(sys.Kv,1,1e-12),'D12 PI on 1/(s+1): type 1, Kv = Ki = 1');
+    ok(Math.abs(sim.metrics.essMeas-1)<1e-3,'D13 simulated ramp end error -> 1/Kv = 1'); }
+  { const stU={plant:'unstable',Kp:1,Ki:0,Kd:0};
+    const sysU=buildSystem(stU);
+    ok(sysU.stability==='unstable','D14 P = 1 cannot stabilize 1/((s-1)(s+3))');
+    const stS={plant:'unstable',Kp:8,Ki:4,Kd:1};
+    const sysS=buildSystem(stS);
+    ok(vecApprox(sysS.denT,[4,5,3,1]) && sysS.stability==='stable',
+       'D15 PID(8,4,1) stabilizes it: s^3+3s^2+5s+4 Hurwitz'); }
+  { const st={plant:'motor',Kp:2,Ki:1,Kd:1,input:'square',w:2,span:12};
+    const sim=simulateAll(buildSystem(st),st);
+    const Tp=TAU/2;
+    let allOn=true;
+    for (let m=1;m*Tp/2<12;m++){
+      const te=m*Tp/2;
+      let found=false;
+      for (const t of sim.t) if (Math.abs(t-te)<1e-9){ found=true; break; }
+      allOn=allOn&&found;
+    }
+    ok(allOn,'D16 square-wave edges land exactly on the RK4 grid');
+    ok(sim.impulses.length>=2 && approx(sim.impulses[1].w,-2*1,1e-12),
+       'D17 interior edges carry q1*dr = -2 impulses (q1 = 1 on the motor)'); }
+
+  /* --- E. root locus --- */
+  const stM={plant:'motor',Kp:2,Ki:1,Kd:1};
+  const sysM=buildSystem(stM), locM=computeLocus(sysM);
+  ok(rootsApprox(locM.olPoles,[[0,0],[0,0],[-2,0]],1e-6) &&
+     rootsApprox(locM.olZeros,[[-1,0],[-1,0]],2e-4),
+     'E1 open-loop poles {0,0,-2} (plant + integrator) and double zero at -1');
+  ok(locM.kOneIdx>0 && rootsApprox(locM.kOnePoles,sysM.poles,1e-9),
+     'E2 the k = 1 locus sample IS the current pole set');
+  { const first=locM.branches.map(b=>b[0]);
+    ok(rootsApprox(first,locM.olPoles,1e-9),'E3 branches start on the open-loop poles (k -> 0)');
+    const last=locM.branches.map(b=>b[b.length-1]);
+    const far=last.filter(p=>p[0]<-5000&&Math.abs(p[1])<1);
+    const near=last.filter(p=>Math.hypot(p[0]+1,p[1])<0.05);
+    ok(far.length===1 && near.length===2,
+       'E4 k -> inf: two branches land on the double zero, one walks out along 180°'); }
+  ok(locM.asym && locM.asym.rel===1 && approx(locM.asym.angles[0],PI,1e-12),
+     'E5 n - m = 1: single asymptote at 180°');
+  { /* real-axis rule, with multiplicity: {p 0,0,-2; z -1,-1} */
+    const onLocus=s=>{
+      const k=-pEval(sysM.dcdg,s)/pEval(sysM.ncng,s);
+      return k>0;
+    };
+    ok(!onLocus(-0.5) && !onLocus(-1.5) && onLocus(-3) && !onLocus(1),
+       'E6 real-axis rule (odd count to the right, counting multiplicity)'); }
+  ok(locM.breakaways.length===0,'E7 motor+PID: no finite-k interior breakaway (departures at k=0/k=∞)');
+  { const stP={plant:'motor',Kp:2,Ki:0,Kd:0};
+    const sysP=buildSystem(stP), locP=computeLocus(sysP);
+    ok(locP.breakaways.length===1 && approx(locP.breakaways[0].s,-1,1e-9) &&
+       approx(locP.breakaways[0].k,0.5,1e-9),
+       'E8 P on the motor: breakaway at s = -1 with k = 0.5 (i.e. Kp_eff = 1)');
+    ok(locP.asym && locP.asym.rel===2 && approx(locP.asym.centroid,-1,1e-12) &&
+       approx(locP.asym.angles[0],PI/2,1e-12) && approx(locP.asym.angles[1],3*PI/2,1e-12),
+       'E9 P on the motor: centroid -1, asymptotes at 90°/270°'); }
+  { const stT={plant:'third',Kp:2,Ki:1,Kd:0};
+    const sysT=buildSystem(stT), locT=computeLocus(sysT);
+    ok(locT.asym && locT.asym.rel===3 && approx(locT.asym.centroid,-2.5,1e-12),
+       'E10 PI on the 3rd-order plant: centroid (Σp-Σz)/3 = -2.5, angles 60/180/300');
+    ok(approx(locT.asym.angles[0],PI/3,1e-12) && approx(locT.asym.angles[1],PI,1e-12) &&
+       approx(locT.asym.angles[2],5*PI/3,1e-12),'E11 asymptote angles'); }
+  { /* locus rescale invariance: p_k with gains g == p_1 with gains k*g */
+    const g1=buildSystem({plant:'motor',Kp:2,Ki:1,Kd:1});
+    const g2=buildSystem({plant:'motor',Kp:5,Ki:2.5,Kd:2.5});
+    const pk=pAdd(g1.dcdg,pScale(g1.ncng,2.5));
+    ok(vecApprox(pk,g2.denT,1e-12),'E12 clicking the locus rescales gains without moving the curve'); }
+  { let maxRel=0;
+    for (const br of locM.branches)
+      for (let i=2;i<br.length;i++){
+        const d=Math.hypot(br[i][0]-br[i-1][0],br[i][1]-br[i-1][1]);
+        maxRel=Math.max(maxRel,d/(1+Math.hypot(br[i][0],br[i][1])));
+      }
+    ok(maxRel<0.1,'E13 branch matching is continuous (no swaps/jumps along k)'); }
+  { const z=[-3,4];
+    const wn=Math.hypot(z[0],z[1]), zeta=-z[0]/wn;
+    ok(approx(wn,5)&&approx(zeta,0.6),'E14 pole -3+4j reads zeta 0.6, wn 5'); }
+
+  /* --- F. metrics vs independent bisection + strings --- */
+  { /* zeta = 0.5, wn = 2: dense analytic array, metrics() must agree with
+       bisection on the closed form */
+    const wd=Math.sqrt(3), yf=t=>1-Math.exp(-t)*(Math.cos(wd*t)+Math.sin(wd*t)/wd);
+    const T=[], Y=[], R=[];
+    for (let i=0;i<=8000;i++){ const t=i*8/8000; T.push(t); Y.push(yf(t)); R.push(1); }
+    const sysF={T0:1, stability:'stable'};
+    const M=computeMetrics(sysF,{input:'step',w:1},T,R,Y);
+    ok(approx(M.os,100*Math.exp(-PI/wd),0.05),'F1 overshoot = e^{-pi zeta/sqrt(1-zeta^2)} = 16.30%');
+    ok(approx(M.tPeak,PI/wd,2e-3),'F2 peak at t = pi/wd');
+    const bis=(lvl)=>{ let a=0,b=PI/wd;
+      for (let i=0;i<60;i++){ const m=(a+b)/2; if (yf(m)<lvl) a=m; else b=m; }
+      return (a+b)/2; };
+    ok(approx(M.tRise,bis(0.9)-bis(0.1),3e-3),'F3 10-90% rise time matches bisection');
+    let lastOut=0;
+    for (let i=0;i<T.length;i++) if (Math.abs(Y[i]-1)>0.02) lastOut=i;
+    ok(approx(M.tSettle,T[lastOut+1],2e-3),'F4 2% settling time matches direct scan'); }
+  { const st={plant:'motor',Kp:2,Ki:1,Kd:1};
+    const sys=buildSystem(st);
+    const eq=eqHTML(st,sys);
+    ok(eq.indexOf('C(s)')>=0 && eq.indexOf('G(s)')>=0 && eq.indexOf('T(s)')>=0 &&
+       eq.indexOf('s<sup>3</sup> + 3s<sup>2</sup> + 2s + 1')>=0,
+       'F5 equation panel carries C, G, T and the live characteristic polynomial');
+    const dg=diagramSVG(st,sys);
+    ok(dg.indexOf('2.00')>=0 && dg.indexOf('1/(s(s+2))')>=0 &&
+       dg.indexOf('R(s)')>=0 && dg.indexOf('U(s)')>=0 && dg.indexOf('Y(s)')>=0 &&
+       dg.indexOf('unity negative feedback')>=0,
+       'F6 diagram SVG carries live gains, the plant formula and signal labels');
+    const stPD={plant:'motor',Kp:2,Ki:0,Kd:1};
+    const sysPD=buildSystem(stPD);
+    ok(diagramSVG(stPD,sysPD).indexOf('opacity="0.22"')>=0 &&
+       eqHTML(stPD,sysPD).indexOf('removed exactly')>=0,
+       'F7 Ki = 0 dims the integrator block and annotates the removed pole');
+    const mh=metricsHTML(sys,simulateAll(sys,Object.assign({input:'step',w:2,span:12},st)));
+    ok(mh.indexOf('overshoot')>=0 && mh.indexOf('RK4')>=0,'F8 metrics panel strings'); }
+  { const sysO=buildSystem({plant:'motor',Kp:0,Ki:0,Kd:0});
+    const locO=computeLocus(sysO);
+    const simO=simulateAll(sysO,{plant:'motor',Kp:0,Ki:0,Kd:0,input:'step',w:2,span:12});
+    ok(locO.empty && simO.y.every(v=>v===0) && simO.u.every(v=>v===0),
+       'F9 open loop: empty locus, y = u = 0'); }
+
+  /* ---------------- real-world example presets ---------------- */
+  { const eq=(a,b)=>a.length===b.length && a.every((v,i)=>Math.abs(v-(b[i]||0))<1e-12);
+    ok(eq(PLANTS.cruise.dg,[1,20])  && eq(PLANTS.cruise.ng,[1]),'S1 cruise plant  G = 1/(20s+1)');
+    ok(eq(PLANTS.room.dg,[1,40])    && eq(PLANTS.room.ng,[1]),  'S1 AC plant      G = 1/(40s+1)');
+    ok(eq(PLANTS.oven.dg,[1,6,5]),                              'S1 oven plant    G = 1/((5s+1)(s+1))');
+    ok(eq(PLANTS.invpend.dg,[-4,0,1]),                          'S1 inverted pend G = 1/(s^2-4)');
+    ok(eq(PLANTS.dpend.dg,[2,0,-4,0,1]),                        'S1 double pend   G = 1/(s^4-4s^2+2)'); }
+  { /* double-pendulum poles = the exact inverted normal modes  s^2 = 2 +/- sqrt2 */
+    const zs=roots(PLANTS.dpend.dg), pr=zs.map(z=>z[0]).sort((a,b)=>a-b);
+    const w=[-Math.sqrt(2+Math.SQRT2),-Math.sqrt(2-Math.SQRT2),Math.sqrt(2-Math.SQRT2),Math.sqrt(2+Math.SQRT2)];
+    ok(zs.length===4 && zs.every(z=>Math.abs(z[1])<1e-9) && pr.every((v,i)=>Math.abs(v-w[i])<1e-9),
+       'S2 double pendulum: 4 real poles +/-1.848, +/-0.765 (two unstable modes)'); }
+  { /* every tuned closed loop has the stability the description claims */
+    const want={cruise:'stable',ac:'stable',oven:'stable',invpend:'stable',dpend:'unstable'};
+    for (const k of Object.keys(SCENARIOS)){ const S=SCENARIOS[k];
+      ok(buildSystem({plant:S.plant,Kp:S.Kp,Ki:S.Ki,Kd:S.Kd}).stability===want[k],
+         'S3 '+k+' closed loop is '+want[k]); } }
+  { /* characteristic polynomials match the hand computation */
+    const eq=(a,b)=>a.length===b.length && a.every((v,i)=>Math.abs(v-(b[i]||0))<1e-9);
+    ok(eq(buildSystem({plant:'cruise',Kp:5,Ki:0.8,Kd:0}).denT,[0.8,6,20]),
+       'S4 cruise char. poly 20s^2 + 6s + 0.8  (zeta = 0.75)');
+    ok(eq(buildSystem({plant:'oven',Kp:5,Ki:1.8,Kd:3.2}).denT,[1.8,6,9.2,5]),
+       'S4 oven char. poly 5s^3 + 9.2s^2 + 6s + 1.8  = 5(s+1)(s^2+0.84s+0.36)');
+    ok(eq(buildSystem({plant:'invpend',Kp:10.5,Ki:4.5,Kd:4.1}).denT,[4.5,6.5,4.1,1]),
+       'S4 inverted-pendulum char. poly s^3 + 4.1s^2 + 6.5s + 4.5'); }
+  { /* inverted pendulum genuinely needs the derivative: drop Kd and it dies */
+    const withD=buildSystem({plant:'invpend',Kp:10.5,Ki:4.5,Kd:4.1}).stability;
+    const noD  =buildSystem({plant:'invpend',Kp:10.5,Ki:4.5,Kd:0}).stability;
+    const pureP=buildSystem({plant:'invpend',Kp:10.5,Ki:0,Kd:0}).stability;
+    ok(withD==='stable' && noD!=='stable' && pureP!=='stable',
+       'S5 inverted pendulum needs D: stable with Kd, not stable at Kd=0 or pure-P'); }
+  { /* THE theorem: no PID-family controller stabilizes 1/(s^4-4s^2+2).
+       PID (Ki!=0): char poly = s^5 + 0*s^4 - 4*s^3 + Kd*s^2 + (2+Kp)*s + Ki
+         -> the s^4 (=0) and s^3 (=-4) coefficients are fixed for every gain.
+       PD  (Ki=0):  char poly = s^4 + 0*s^3 - 4*s^2 + Kd*s + (2+Kp)
+         -> the s^3 (=0) and s^2 (=-4) coefficients are fixed for every gain.
+       Either way a high-order coefficient is <= 0, so it is never Hurwitz. */
+    let pidFixed=true, pdFixed=true, allUnstable=true;
+    const pid=[[6,2,4],[20,10,5],[1,0.3,0.7],[13.7,9.9,4.9],[0.01,0.02,0.03]];   // Ki != 0
+    for (const t of pid){ const d=buildSystem({plant:'dpend',Kp:t[0],Ki:t[1],Kd:t[2]}).denT;
+      if (!(d.length===6 && Math.abs(d[5]-1)<1e-12 && Math.abs(d[4])<1e-12 && Math.abs(d[3]+4)<1e-12)) pidFixed=false; }
+    const pd=[[6,0,4],[20,0,5],[10.5,0,0]];                                        // Ki = 0 (PD / pure P)
+    for (const t of pd){ const d=buildSystem({plant:'dpend',Kp:t[0],Ki:t[1],Kd:t[2]}).denT;
+      if (!(d.length===5 && Math.abs(d[4]-1)<1e-12 && Math.abs(d[3])<1e-12 && Math.abs(d[2]+4)<1e-12)) pdFixed=false; }
+    for (const t of pid.concat(pd,[[0,0,0]]))
+      if (classifyPoles(roots(buildSystem({plant:'dpend',Kp:t[0],Ki:t[1],Kd:t[2]}).denT))!=='unstable') allUnstable=false;
+    ok(pidFixed,   'S6 double pendulum (PID): s^4 coeff = 0 and s^3 coeff = -4 for every gain');
+    ok(pdFixed,    'S6 double pendulum (PD):  s^3 coeff = 0 and s^2 coeff = -4 for every gain');
+    ok(allUnstable,'S6 double pendulum: unstable for every PID/PD gain tried (needs full-state feedback)'); }
+  { /* preset integrity: gains fit the sliders, span fits the window, plant exists */
+    let good=true;
+    for (const k of Object.keys(SCENARIOS)){ const S=SCENARIOS[k];
+      if (!PLANTS[S.plant]) good=false;
+      if (!(S.Kp>=0&&S.Kp<=20 && S.Ki>=0&&S.Ki<=10 && S.Kd>=0&&S.Kd<=5)) good=false;
+      if (!(S.span>=2 && S.span<=60)) good=false;
+      if (['step','square','sine','ramp'].indexOf(S.input)<0) good=false; }
+    ok(good,'S7 every preset: plant exists, gains within sliders, span within window'); }
+  { /* end-to-end: the stable presets settle at the setpoint; dpend diverges */
+    for (const k of Object.keys(SCENARIOS)){ const S=SCENARIOS[k];
+      const stt={plant:S.plant,Kp:S.Kp,Ki:S.Ki,Kd:S.Kd,input:S.input,w:S.w,span:S.span};
+      const sim=simulateAll(buildSystem(stt),stt), yl=sim.y[sim.y.length-1];
+      if (k==='dpend') ok(isFinite(sim.y[0]) && Math.abs(yl)>2,
+        'S8 double pendulum response diverges from the setpoint (unstable, as proven)');
+      else ok(sim.y.every(v=>isFinite(v)) && Math.abs(yl-1)<0.05,
+        'S8 '+k+' settles at the setpoint (|y(T) - 1| < 5%)'); } }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

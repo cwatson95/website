@@ -1,0 +1,1913 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SBS state surface &mdash; the gas laws of the Brillouin frequency</title>
+<!--
+  sbs_state_surface.html - the Brillouin-frequency state surface nu_B(P,T)
+  drawn the way the steam tables draw P-v-T, with the SBS gas laws as the
+  slopes of paths ON the sheet.  One closed form carries everything:
+
+      nu_B = (q v0 / 2pi) F(y),   F = sqrt((1+g y^2)/(2(1+y^2))),
+      y = P/(eta q v0)            (the inverse acoustic Knudsen number)
+
+  and every path law is a derivative of it:
+      I    isothermal   dln nu/dln P |_T      = L(y)
+      II   isochoric    dln nu/dln T |_n      = 1/2 + (1/2 - s) L(y)
+      III  isobaric     dln nu/dln T |_P      = 1/2 - (s + 1/2) L(y)
+      IV   cyclic       II - III = I          exact (the Maxwell relation)
+      V    optical      dln nu/dln q |_{P,T}  = 1 - L(y)
+      VI   sum rule     V + I = 1             exact (P and q only enter via y)
+  with L(y) = (g-1)y^2/((1+y^2)(1+g y^2)) the local pressure exponent and
+  s = dln eta/dln T the measured viscosity slope -- the same input that fixes
+  the velocity-dependence law beta = K(1-s) of the companion note.
+
+  WHAT IS EXACT: the law and all six path exponents (finite-difference
+  checked in selfTest); the identities IV and VI (machine precision); the
+  rigid-sphere null (s = 1/2 makes the isochore exactly sqrt(T) at every
+  collisionality); the closed-form map inversion P(nu,T) used for the
+  iso-nu_B contours; the quartiles of the crossover weight w = y^2/(1+y^2).
+
+  WHAT IS MEASURED (verbatim from the companion pipeline,
+  working_draft/data_collective_nuB_vs_theory.csv): the adopted Kr and N2
+  shifts of Mironov et al., APL Photonics 10, 126123 (2025), 266 nm
+  backscatter, 300 K; the four 90.0-degree O2 shifts fitted from the spectra
+  released with Gu & Ubachs, J. Chem. Phys. 141, 104320 (2014) -- two sealed
+  fills heated isochorically, the only temperature-resolved Brillouin data
+  in existence.  The 1-bar O2 spectrum (taken at 91.5 degrees, fit
+  model-dependent) belongs to a neighbouring sheet and is drawn nowhere.
+
+  WHAT IS MODELLED: eta(T) -- Sutherland for O2 (eta0 = 19.19 uPa s at
+  273 K, S = 139 K, the companion's tab:O2 recipe), a power law
+  eta300 (T/300)^s for Kr (25.39 uPa s, s = 0.87) and N2 (17.84 uPa s,
+  s = 0.77), the slopes from the beta-gaslaw note's Table (Lemmon-Jacobsen
+  cross-checked +-0.02).  Ideal-gas gamma (5/3, 7/5).  Real-gas corrections
+  (<0.5% below 6 atm) are not modelled and the linewidth is not treated.
+
+  Physics: working_draft/SKELETON.tex (the closed form), second_beta_gaslaw
+  .tex (law II and the pair test), surface_laws.py (laws I-VI pinned by
+  finite differences).  Every number asserted in selfTest is printed by
+  build_surface/derive.py (read in full) and labelled (py).
+  Sibling: sbs_gaslaw_manifold.html draws the OLD programme's (yhat, s, w)
+  shift-width manifold; this file is the frequency-only surface with the
+  temperature axis, and shares its scaffold (blocks named in extract.py).
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --plate:#39404f; --beam:#5ac8e0; --envelope:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head><body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>SBS state surface</h1>
+  <span class="sub" id="sub">the Brillouin frequency as a steam table &mdash; six gas laws, one sheet</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+/* Canvas text is not HTML: fillText draws "&rsquo;" as seven characters on the
+   screen.  The readout and the info panel ARE HTML and use entities correctly,
+   and prose gets copied between the two, so rather than trusting nobody ever
+   pastes the wrong way, caption() decodes the handful this file uses. */
+const ENTS={'&rsquo;':'\u2019','&lsquo;':'\u2018','&mdash;':'\u2014','&ndash;':'\u2013',
+            '&times;':'\u00d7','&deg;':'\u00b0','&nbsp;':' ','&minus;':'\u2212',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'\u2026'};
+function plain(s){                    /* strips tags, decodes numeric + named
+  entities (widened regex -- the narrow /&[a-z]+;/ let &#955; and &Lambda;
+  reach the canvas verbatim; Known-bad).  Numeric decoding lives INSIDE the
+  wide match on purpose: with a separate numeric pass, narrowing the regex
+  is an equivalent mutant and the sweep cannot see it.  Unknown named
+  entities pass through unchanged so the layout audit can still see them. */
+  return String(s).replace(/<[^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      const d=/^&#(\d+);$/.exec(m);
+      return d?String.fromCharCode(+d[1]):m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* sort each range for tick GENERATION: ticksFor collapses an inverted
+     range to a single tick (Known-bad, standard_candle) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),6),
+        yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(plain(o.xfmt?o.xfmt(t):fmt(t,2)),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(plain(o.yfmt?o.yfmt(t):fmt(t,2)),b.x-6,Y);
+  }
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-6); }
+  ctx.restore();
+}
+function clipSeg2(x1,y1,x2,y2,xlo,xhi,ylo,yhi){ /* Liang-Barsky in DATA space */
+  let t0=0,t1=1; const dx=x2-x1, dy=y2-y1;
+  const P=[-dx,dx,-dy,dy], Q=[x1-xlo,xhi-x1,y1-ylo,yhi-y1];
+  for(let k=0;k<4;k++){
+    if(P[k]===0){ if(Q[k]<0) return null; continue; }
+    const r=Q[k]/P[k];
+    if(P[k]<0){ if(r>t1) return null; if(r>t0) t0=r; }
+    else      { if(r<t0) return null; if(r<t1) t1=r; }
+  }
+  return [x1+t0*dx,y1+t0*dy,x1+t1*dx,y1+t1*dy];
+}
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  /* every segment is clipped to the box in DATA space: the old endpoint test
+     silently dropped segments that CROSS the box (Known-bad, pupil_plane),
+     and a ctx.clip() would not show in the display-list audit. */
+  ctx.save(); ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const X=v=>b.x+b.w*(v-xlo)/(xhi-xlo||1), Y=v=>b.y1-b.h*(v-ylo)/(yhi-ylo||1);
+  const yl=Math.min(ylo,yhi), yh2=Math.max(ylo,yhi);
+  let lastIn=false;
+  for(let i=0;i<n-1;i++){
+    if(!isFinite(xs[i])||!isFinite(ys[i])||!isFinite(xs[i+1])||!isFinite(ys[i+1])){
+      lastIn=false; continue; }
+    const s=clipSeg2(xs[i],ys[i],xs[i+1],ys[i+1],Math.min(xlo,xhi),Math.max(xlo,xhi),yl,yh2);
+    if(!s){ lastIn=false; continue; }
+    const cont=lastIn && s[0]===xs[i] && s[1]===ys[i];
+    if(!cont) ctx.moveTo(X(s[0]),Y(s[1]));
+    ctx.lineTo(X(s[2]),Y(s[3]));
+    lastIn=(s[2]===xs[i+1] && s[3]===ys[i+1]);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function fmtP(p){ return p<1?p.toFixed(2):p.toFixed(p<3?2:1); }
+const CMUT='#6f7789', CDIM='#39404f';/* ==== GENERATED by build_surface/derive.py -- do not edit by hand ====
+ * Data rows are VERBATIM from data_collective_nuB_vs_theory.csv (the
+ * adopted Kr/N2 values and the Gu O2 fits of the companion manuscript);
+ * y and all derived quantities are computed in code from them. */
+const DATA_KR=[
+  {P:1,nu:1.5,err:0.3},
+  {P:2,nu:1.45,err:0.17},
+  {P:3,nu:1.48,err:0.08},
+  {P:4,nu:1.55,err:0.08},
+  {P:5,nu:1.64,err:0.08},
+  {P:6,nu:1.6,err:0.1}];
+const DATA_N2=[
+  {P:1,nu:2.18,err:0.12},
+  {P:2,nu:2.82,err:0.20},
+  {P:3,nu:2.41,err:0.19},
+  {P:4,nu:2.5,err:0.3},
+  {P:5,nu:2.4,err:0.2},
+  {P:6,nu:2.71,err:0.07}];
+const DATA_O2=[
+  {P:1.00,T:295.5,th:91.5,nu:1.05,err:0.03},
+  {P:2.00,T:295.8,th:90.0,nu:1.047,err:0.013},
+  {P:2.27,T:335.7,th:90.0,nu:1.170,err:0.013},
+  {P:3.00,T:297.6,th:90.0,nu:1.100,err:0.013},
+  {P:3.42,T:339.1,th:90.0,nu:1.167,err:0.013}];
+const PAIRS=[  // same-fill isochoric pairs (Gu), indices into DATA_O2
+  {lab:'A', i1:1, i2:2, meas:0.8778234026, sig:0.1316801830, pred:0.4752308779},
+  {lab:'B', i1:3, i2:4, meas:0.4529188285, sig:0.1244074887, pred:0.4816692363}];
+const PINS={
+  f078:729.8294922198, projX:426.0524374023, projY:231.1509407501, projZ:3.1731566913,
+  q_O2:2.2049046839e+07, v0_O2:394.8442990218, eta300_O2:2.0746535430e-05, nuref_O2:1.3855934558, PK_O2:1.8061810186, s300_O2:0.8166287016,
+  q_Kr:4.7224241317e+07, v0_Kr:243.9921708556, eta300_Kr:2.5390000000e-05, nuref_Kr:1.8338381876, PK_Kr:2.8872671454, s300_Kr:0.8700000000,
+  q_N2:4.7224241317e+07, v0_N2:421.9974304287, eta300_N2:1.7840000000e-05, nuref_N2:3.1717206346, PK_N2:3.5087549120, s300_N2:0.7700000000,
+  y_Kr_3p0_300:1.0390448299, nu_Kr_3p0_300:1.5044708236, L_Kr_3p0_300:0.1236335302, nn_Kr_3p0_300:0.4542555938, nP_Kr_3p0_300:0.3306220636,
+  y_N2_2p0_300:0.5700027646, nu_N2_2p0_300:2.3501691631, L_N2_2p0_300:0.0674228741, nn_N2_2p0_300:0.4817958240, nP_N2_2p0_300:0.4143729499,
+  y_O2_2p0_300:1.1073087245, nu_O2_2p0_300:1.0823233085, L_O2_2p0_300:0.0811004007, nn_O2_2p0_300:0.4743212854, nP_O2_2p0_300:0.3932208848,
+  y_O2_3p3_380:1.3462658201, nu_O2_3p3_380:1.2366686707, L_O2_3p3_380:0.0728710372, nn_O2_3p3_380:0.4804834794, nP_O2_3p3_380:0.4076124423,
+  guNu:[1.0763357268,1.1430446625,1.1105797632,1.1826546042],
+  lever_Kr2_nu532:0.7775729413, lever_Kr2_excess:8.7499449220,
+  inv_Kr_1p50_300:2.9289064972, inv_Kr_1p50_360:1.6930787535, inv_O2_1p10_300:2.4682211089,
+  Lmax_mono:0.1270166538, yLmax_mono:0.8801117368, Lmax_dia:0.0839202169, yLmax_dia:0.9193227152,
+  eta_O2_335p7:2.2710986564e-05, s_O2_335p7:0.7928165157,
+  maeKr:2.9437206670, maeN2:5.5487503945, maeO2:1.8522489327,
+};
+/* ================================================================== *
+ *  physics — the closed-form law and its six path exponents.          *
+ *  ONE definition each: a formula written out twice is how a wrong    *
+ *  group velocity survived a mutation sweep (Known-bad, drum_head).   *
+ * ================================================================== */
+const KB=1.380649e-23, AMU=1.66053906660e-27;
+const GASP={
+  O2:{name:'oxygen',   sym:'O₂', g:7/5, m:31.9988, lam:403.00e-9, th:90.0,
+      unit:1e5,      unitName:'bar', suth:{eta0:1.919e-5, T0:273.0, S:139.0},
+      dataLab:'Gu & Ubachs 2014 · 403 nm, 90°'},
+  Kr:{name:'krypton',  sym:'Kr',     g:5/3, m:83.798,  lam:266.1e-9,  th:180.0,
+      unit:101325.0, unitName:'atm', pow:{eta300:25.39e-6, s:0.87},
+      dataLab:'Mironov 2025 (adopted) · 266 nm backscatter'},
+  N2:{name:'nitrogen', sym:'N₂', g:7/5, m:28.0134, lam:266.1e-9,  th:180.0,
+      unit:101325.0, unitName:'atm', pow:{eta300:17.84e-6, s:0.77},
+      dataLab:'Mironov 2025 (adopted) · 266 nm backscatter'},
+};
+const GAS_IDS=['O2','Kr','N2'];
+function etaOf(id,T){ const G=GASP[id];
+  if(G.suth) return G.suth.eta0*Math.pow(T/G.suth.T0,1.5)*(G.suth.T0+G.suth.S)/(T+G.suth.S);
+  return G.pow.eta300*Math.pow(T/300.0,G.pow.s);
+}
+function sSlope(id,T){ const G=GASP[id];
+  if(G.suth) return 1.5 - T/(T+G.suth.S);
+  return G.pow.s;
+}
+function qOf(id,th){ const G=GASP[id];
+  return 4*PI/G.lam*Math.sin(((th===undefined?G.th:th)/2)*DEG); }
+function v0Of(id,T){ return Math.sqrt(2*KB*T/(GASP[id].m*AMU)); }
+function Fof(y,g){ return Math.sqrt((1+g*y*y)/(2*(1+y*y))); }
+function Lof(y,g){ return (g-1)*y*y/((1+y*y)*(1+g*y*y)); }
+function wOf(y){ return y*y/(1+y*y); }
+/* the state: P in the gas's native unit (bar for O2, atm for Kr/N2) */
+function yOf(id,P,T,th){ return P*GASP[id].unit/(etaOf(id,T)*qOf(id,th)*v0Of(id,T)); }
+function nuOf(id,P,T,th){
+  return qOf(id,th)*v0Of(id,T)*Fof(yOf(id,P,T,th),GASP[id].g)/(2*PI)/1e9; }
+function PKof(id,T){ return etaOf(id,T)*qOf(id)*v0Of(id,T)/GASP[id].unit; }
+/* the six path laws — II/III/V share the ONE L definition */
+function nIso(y,g){ return Lof(y,g); }                       // I
+function nIchor(y,g,s){ return 0.5+(0.5-s)*Lof(y,g); }       // II
+function nIbar(y,g,s){ return 0.5-(s+0.5)*Lof(y,g); }        // III
+function nOpt(y,g){ return 1-Lof(y,g); }                     // V
+/* the closed-form map inversion — null outside the two corners, never
+   clamped (a clamped inversion would draw states that are not states) */
+function PinvOf(id,nuGHz,T){
+  const G=GASP[id];
+  const x=nuGHz*1e9*2*PI/(qOf(id)*v0Of(id,T));
+  const num=2*x*x-1, den=G.g-2*x*x;
+  if(!(num>0)||!(den>0)) return null;
+  return Math.sqrt(num/den)*etaOf(id,T)*qOf(id)*v0Of(id,T)/G.unit;
+}
+/* the wavelength lever: doubling lambda halves q and doubles y exactly */
+function nuLever(id,P,T,fac){    // fac multiplies lambda (fac = 2 -> 532 from 266)
+  const g=GASP[id].g, y=yOf(id,P,T);
+  return (1/fac)*qOf(id)*v0Of(id,T)*Fof(fac*y,g)/(2*PI)/1e9;
+}
+/* ================================================================== *
+ *  state + model.  View-specific geometry hides behind lazy getters   *
+ *  with caches — an eager build made a 650-combination sweep take 90 s *
+ *  in down_conversion.html and the mutation loop got skipped.          *
+ * ================================================================== */
+const PLO=0.3, PHIP=6.0, TLO=250, THI=400;
+const DEFAULTS={view:'dome', gas:'O2', P0:2.00, T0:300, Tiso:296, Piso:2.0,
+                sFam:0.62, showIso:true, showIchor:true, showIbar:true,
+                showKn:true, showData:true, orbit:false};
+const NPMESH=25, NTMESH=17;
+/* the four 90.0-degree Gu rows are the usable temperature data; the 1-bar
+   row (91.5 degrees, model-dependent fit) is REFUSED at the source, not at
+   the call sites — both facts are asserted (Known-bad: refusal must be a
+   property of the model, or "happens not to draw" and "refuses to draw"
+   look identical). */
+function guRows(){ return DATA_O2.filter(r=>r.th===90.0); }
+function guRefused(){ return DATA_O2.filter(r=>r.th!==90.0); }
+
+function buildModel(st){
+  const id=st.gas, G=GASP[id], g=G.g;
+  const s0=sSlope(id,st.T0);
+  const y0=yOf(id,st.P0,st.T0), nu0=nuOf(id,st.P0,st.T0);
+  const L0=Lof(y0,g);
+  const probe={y:y0, nu:nu0, w:wOf(y0), L:L0,
+               nn:nIchor(y0,g,s0), nP:nIbar(y0,g,s0), nq:nOpt(y0,g),
+               PK:PKof(id,st.T0), s:s0};
+  probe.idIV=(probe.nn-probe.nP)-probe.L;      // must be 0 exactly
+  probe.idVI=(probe.nq+probe.L)-1;             // must be 0 exactly
+  /* live MAE of the law over this gas's own measured rows (300 K rows for
+     Kr/N2; the Gu rows at their own T for O2) */
+  const rows=id==='O2'?guRows():(id==='Kr'?DATA_KR:DATA_N2);
+  let mae=0;
+  for(const r of rows){
+    const nm=id==='O2'?nuOf(id,r.P,r.T):nuOf(id,r.P,300);
+    mae+=Math.abs(100*(nm/r.nu-1));
+  }
+  mae/=rows.length;
+  const M={st, id, G, g, probe, mae, rows,
+    unit:G.unitName,
+    _c:{},
+    mesh(){ if(this._c.mesh) return this._c.mesh;
+      const rowsM=[]; let zlo=1/0, zhi=-1/0;
+      for(let i=0;i<NTMESH;i++){
+        const T=TLO+(THI-TLO)*i/(NTMESH-1), row=[];
+        for(let j=0;j<NPMESH;j++){
+          const P=PLO+(PHIP-PLO)*j/(NPMESH-1);
+          const y=yOf(id,P,T), nu=nuOf(id,P,T);
+          if(nu<zlo) zlo=nu; if(nu>zhi) zhi=nu;
+          row.push({P,T,nu,w:wOf(y)});
+        }
+        rowsM.push(row);
+      }
+      const pad=0.06*(zhi-zlo);
+      return this._c.mesh={rows:rowsM, zlo:zlo-pad, zhi:zhi+pad};
+    },
+    /* paths on the sheet, each an array of {P,T,nu} in native units */
+    pathIso(){ if(this._c.iso) return this._c.iso;
+      const a=[]; for(let k=0;k<=60;k++){ const P=PLO+(PHIP-PLO)*k/60;
+        a.push({P,T:st.Tiso,nu:nuOf(id,P,st.Tiso)}); }
+      return this._c.iso=a; },
+    pathIbar(){ if(this._c.ibar) return this._c.ibar;
+      const a=[]; for(let k=0;k<=50;k++){ const T=TLO+(THI-TLO)*k/50;
+        a.push({P:st.Piso,T,nu:nuOf(id,st.Piso,T)}); }
+      return this._c.ibar=a; },
+    pathIchor(P1,T1){ const n=P1*G.unit/(KB*T1), a=[];
+      for(let k=0;k<=50;k++){ const T=TLO+(THI-TLO)*k/50;
+        const P=n*KB*T/G.unit;
+        if(P<PLO||P>PHIP) continue;
+        a.push({P,T,nu:nuOf(id,P,T)}); }
+      return a; },
+    pathIchorProbe(){ if(this._c.ich) return this._c.ich;
+      return this._c.ich=this.pathIchor(st.P0,st.T0); },
+    pathKn(){ if(this._c.kn) return this._c.kn;
+      const a=[]; for(let k=0;k<=50;k++){ const T=TLO+(THI-TLO)*k/50;
+        const P=PKof(id,T);
+        if(P<PLO||P>PHIP) continue;
+        a.push({P,T,nu:nuOf(id,P,T)}); }
+      return this._c.kn=a; },
+    guFills(){ if(this._c.gf) return this._c.gf;
+      if(id!=='O2') return this._c.gf=[];
+      return this._c.gf=[this.pathIchor(2.00,295.8),this.pathIchor(3.00,297.6)]; },
+    /* iso-nu_B contours for the map — closed-form inversion, nulls kept
+       (polyline breaks on non-finite; a clamped contour would be a lie) */
+    contours(){ if(this._c.con) return this._c.con;
+      const m=this.mesh();
+      const lv=ticksFor(m.zlo,m.zhi,7).filter(v=>v>m.zlo&&v<m.zhi);
+      const out=[];
+      for(const nu of lv){
+        const Ts=[], Ps=[];
+        for(let k=0;k<=60;k++){ const T=TLO+(THI-TLO)*k/60;
+          const P=PinvOf(id,nu,T);
+          Ts.push(T); Ps.push(P===null?NaN:P); }
+        out.push({nu,Ts,Ps});
+      }
+      return this._c.con=out; },
+    /* the six-law curves over y (log grid), at the probe's s */
+    laws(){ if(this._c.laws) return this._c.laws;
+      const ys=[], I=[], II=[], III=[], V=[];
+      for(let k=0;k<=120;k++){
+        const y=Math.pow(10,-1.4+2.7*k/120);
+        ys.push(y); I.push(nIso(y,g)); II.push(nIchor(y,g,s0));
+        III.push(nIbar(y,g,s0)); V.push(nOpt(y,g));
+      }
+      return this._c.laws={ys,I,II,III,V}; },
+    /* the pair curves: model nu along each sealed fill, native T range */
+    pairCurves(){ if(this._c.pc) return this._c.pc;
+      const out=[];
+      for(const pr of PAIRS){
+        const r1=DATA_O2[pr.i1];
+        const n=r1.P*1e5/(KB*r1.T), Ts=[], nus=[];
+        for(let k=0;k<=40;k++){ const T=285+(350-285)*k/40;
+          Ts.push(T); nus.push(nuOf('O2',n*KB*T/1e5,T)); }
+        out.push({pr,Ts,nus});
+      }
+      return this._c.pc=out; },
+    /* the wavelength lever at 300 K */
+    lever(){ if(this._c.lv) return this._c.lv;
+      const Ps=[], base=[], twol=[], ghost=[], exc=[];
+      for(let k=0;k<=60;k++){
+        const P=PLO+(PHIP-PLO)*k/60;
+        const nb=nuOf(id,P,300), n2=nuLever(id,P,300,2);
+        Ps.push(P); base.push(nb); twol.push(n2); ghost.push(nb/2);
+        exc.push(100*(n2/(nb/2)-1));
+      }
+      const pts=id==='Kr'?DATA_KR:(id==='N2'?DATA_N2:[]);
+      return this._c.lv={Ps,base,twol,ghost,exc,pts}; },
+    /* the null family: n_T|_n over y for s in [1/2, 1], current gamma */
+    nullFam(){ if(this._c.nf) return this._c.nf;
+      const ys=[]; for(let k=0;k<=100;k++) ys.push(Math.pow(10,-1.4+2.7*k/100));
+      const fam=[];
+      for(let si=0;si<=10;si++){
+        const s=0.5+0.05*si;
+        fam.push({s,ns:ys.map(y=>nIchor(y,g,s))});
+      }
+      return this._c.nf={ys,fam,
+        hi:{s:st.sFam,ns:ys.map(y=>nIchor(y,g,st.sFam))},
+        gas:{s:s0,ns:ys.map(y=>nIchor(y,g,s0))}}; },
+  };
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / equation bar / tag                                       *
+ * ================================================================== */
+function readout(M){
+  const st=M.st, G=M.G, u=M.unit;
+  const row=(l,v,cls)=>'<tr><td>'+l+'</td><td class="v'+(cls?' '+cls:'')+'">'+v+'</td></tr>';
+  const hd=t=>'<tr><td class="hd" colspan="2">'+t+'</td></tr>';
+  let hTml='<div class="rname">state surface<small>'+G.name+' &middot; '
+    +(G.lam*1e9).toFixed(G.lam===403.00e-9?2:1)+'&nbsp;nm &middot; &theta; = '
+    +G.th.toFixed(0)+'&deg;</small></div><table>';
+  hTml+=hd('the probe');
+  hTml+=row('P&#8320;, T&#8320;', fmt(st.P0,2)+'&nbsp;'+u+' &middot; '+fmt(st.T0,0)+'&nbsp;K');
+  hTml+=row('y = P/&eta;qv&#8320;', fmt(M.probe.y,3));
+  hTml+=row('&nu;_B (law)', fmt(M.probe.nu,3)+'&nbsp;GHz');
+  hTml+=row('w = y&sup2;/(1+y&sup2;)', fmt(M.probe.w,3));
+  hTml+=row('P_K(T&#8320;)', fmt(M.probe.PK,2)+'&nbsp;'+u);
+  hTml+=row('s = dln&eta;/dlnT', fmt(M.probe.s,3));
+  hTml+=hd('the six laws at the probe');
+  hTml+=row('I&nbsp;&nbsp; isothermal L(y)', fmt(M.probe.L,4));
+  hTml+=row('II&nbsp; isochoric', fmt(M.probe.nn,4));
+  hTml+=row('III isobaric', fmt(M.probe.nP,4));
+  hTml+=row('V&nbsp;&nbsp; optical 1&minus;L', fmt(M.probe.nq,4));
+  hTml+=row('IV&nbsp; II&minus;III&minus;I', M.probe.idIV.toExponential(1),
+            Math.abs(M.probe.idIV)<1e-12?'good':'bad');
+  hTml+=row('VI&nbsp; V+I&minus;1', M.probe.idVI.toExponential(1),
+            Math.abs(M.probe.idVI)<1e-12?'good':'bad');
+  hTml+=hd('the data &middot; '+G.dataLab);
+  if(M.id==='O2'){
+    for(const pr of PAIRS)
+      hTml+=row('pair '+pr.lab+' n_T meas / law',
+        fmt(pr.meas,2)+'&nbsp;&plusmn;&nbsp;'+fmt(pr.sig,2)+' / '+fmt(pr.pred,3),
+        Math.abs(pr.meas-pr.pred)<pr.sig?'good':'bad');
+    hTml+=row('excluded (91.5&deg; fit)', guRefused().length+' row');
+  }
+  hTml+=row('law MAE over '+M.rows.length+' rows', fmt(M.mae,1)+'%');
+  hTml+='</table>';
+  hTml+='<div class="note">The sheet is <b>not a fit</b>: its inputs are the mass, '
+    +'the temperature, the tabulated viscosity, &gamma; and the optics. '
+    +'IV and VI are identities of the surface &mdash; the readout recomputes '
+    +'them live.</div>';
+  return hTml;
+}
+function eqbar(M){
+  const v=M.st.view;
+  if(v==='dome') return '<span class="lhs">&nu;_B</span> = (qv&#8320;/2&pi;)&nbsp;'
+    +'&radic;[(1+<span class="hl">&gamma;y&sup2;</span>)/(2(1+y&sup2;))]'
+    +', &nbsp; y = P/<span class="hl2">&eta;qv&#8320;</span>'
+    +'<span class="sm">one closed form makes the whole sheet — the paths carry the gas laws as their slopes</span>';
+  if(v==='map') return '<span class="lhs">P(&nu;,T)</span> = &eta;qv&#8320;&nbsp;'
+    +'&radic;[(2x&sup2;&minus;1)/(<span class="hl">&gamma;&minus;2x&sup2;</span>)], &nbsp; x = 2&pi;&nu;/qv&#8320;'
+    +'<span class="sm">the inversion is exact between the two corners — each contour is one Brillouin frequency</span>';
+  if(v==='laws') return '<span class="lhs">II</span> &minus; III = I &nbsp;&middot;&nbsp; '
+    +'<span class="lhs">V</span> + I = 1'
+    +'<span class="sm">the four exponents are one function L(y) worn four ways — the identities close the set</span>';
+  if(v==='pairs') return '<span class="lhs">n_T</span>|&#8345; = &frac12; + (&frac12; &minus; '
+    +'<span class="hl">s</span>)&nbsp;L(y)'
+    +'<span class="sm">measured along Gu&rsquo;s two sealed fills — pair B lands on the law, pair A flags its own suspect fit</span>';
+  if(v==='lever') return '(&part;ln&nu;/&part;ln<span class="hl">q</span>) + '
+    +'(&part;ln&nu;/&part;ln<span class="hl2">P</span>) = 1'
+    +'<span class="sm">halving q doubles y — the 2&lambda; shift rides ABOVE &nu;/2 by up to 8.7% (Kr, 2 atm)</span>';
+  return '<span class="lhs">s = &frac12;</span> &nbsp;&rArr;&nbsp; &nu;_B &prop; &radic;T at every y'
+    +'<span class="sm">the rigid sphere is temperature-blind; the Maxwell molecule (s = 1) pulls hardest — softness is readable</span>';
+}
+function tagOf(M){
+  const nm={dome:'the dome — &nu;_B(P,T)', map:'the map — the P&ndash;T plane',
+            laws:'the six laws — exponents of one surface',
+            pairs:'the pairs — Gu&rsquo;s isochoric test',
+            lever:'the lever — the optical axis', 'null':'the null — softness from &radic;T'}[M.st.view];
+  return '<b>'+nm+'</b> &middot; '+M.G.name;
+}
+function path3(ctx,cam,B,pts,col,lw,dash){
+  ctx.save(); ctx.beginPath();
+  let started=false;
+  for(const p of pts){
+    const q=p&&project(cam,B,p);
+    if(!q){ started=false; continue; }
+    if(!started){ ctx.moveTo(q.x,q.y); started=true; } else ctx.lineTo(q.x,q.y);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.5;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+}
+/* ------------------------------------------------------------------ *
+ *  clipping to the cube.  Two rules from this project's history:      *
+ *  a reference curve drawn from axis limits must be CLIPPED to the    *
+ *  box (not drawn past it), and a surface must be clipped rather than *
+ *  have its out-of-box quads DROPPED — dropping them leaves a         *
+ *  staircase where steam_carnot_cycle.html wants a clean edge.        *
+ * ------------------------------------------------------------------ */
+function clipSeg3(a,b){                 /* Liang-Barsky against [-1,1]^3 */
+  let t0=0,t1=1;
+  const d=[b[0]-a[0],b[1]-a[1],b[2]-a[2]];
+  for(let k=0;k<3;k++)
+    for(const sg of [-1,1]){
+      const p=sg*d[k], q=1-sg*a[k];     /* sg*(a+t d) <= 1 */
+      if(p===0){ if(q<0) return null; continue; }
+      const r=q/p;
+      if(p<0){ if(r>t1) return null; if(r>t0) t0=r; }
+      else   { if(r<t0) return null; if(r<t1) t1=r; }
+    }
+  return [[a[0]+t0*d[0],a[1]+t0*d[1],a[2]+t0*d[2]],
+          [a[0]+t1*d[0],a[1]+t1*d[1],a[2]+t1*d[2]]];
+}
+function path3c(ctx,cam,B,pts,col,lw,dash){   /* the clipped path3 */
+  for(let i=0;i<pts.length-1;i++){
+    if(!pts[i]||!pts[i+1]) continue;
+    const s=clipSeg3(pts[i],pts[i+1]);
+    if(s) path3(ctx,cam,B,s,col,lw,dash);
+  }
+}
+function clipPoly3(poly){                     /* Sutherland-Hodgman, 6 planes */
+  let P=poly;
+  for(let k=0;k<3;k++)
+    for(const sg of [-1,1]){
+      if(!P.length) return P;
+      const Q=[], dist=p=>1-sg*p[k];
+      for(let i=0;i<P.length;i++){
+        const a=P[i], b=P[(i+1)%P.length];
+        const da=dist(a), db=dist(b);
+        if(da>=0) Q.push(a);
+        if((da>=0)!==(db>=0)){
+          const t=da/(da-db);
+          Q.push([a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]);
+        }
+      }
+      P=Q;
+    }
+  return P;
+}/* ================================================================== *
+ *  the dome — nu_B(P,T) as a steam surface.  Painter's algorithm,     *
+ *  opaque centroid-expanded quads (seam guard), out-of-box CLIPPED     *
+ *  with clipPoly3 rather than dropped (staircase guard), paths drawn   *
+ *  AFTER the sheet and lifted off it.                                  *
+ * ================================================================== */
+const CAP_BOT=92;
+const HOME_FOV=0.78, HOME_DIST=3.7;
+/* every 2-D legend records its TEXT box here (keys excluded — the legend's
+   own key strokes would trip the crossing test; Known-bad, legendAuto);
+   selfTest asserts no data-weight polyline enters one.  Legends are drawn
+   OUTSIDE the plot box (a corner picked by looking is wrong at the next
+   slider setting — Known-bad, adiabatic_expansion, four times over). */
+const LAST_LEGENDS=[];
+const BOT2D=132;                 /* bottom reserve of every 2-D view:
+                                    ticks+xlab, the legend row, the caption */
+function legendRow(ctx,x,y,maxW,entries){
+  ctx.font='10.5px -apple-system,sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  let cx=x, cy=y; const rowH=15;
+  for(const e of entries){
+    const wTxt=ctx.measureText(plain(e[0])).width;
+    const wAll=24+wTxt+18;
+    if(cx+wAll>x+maxW&&cx>x){ cx=x; cy+=rowH; }
+    ctx.strokeStyle=e[1]; ctx.lineWidth=1.5;
+    if(e[2]) ctx.setLineDash(e[2]);
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+18,cy); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle='#8b93a6'; ctx.fillText(plain(e[0]),cx+24,cy);
+    LAST_LEGENDS.push({x:cx+22,y:cy-7,w:wTxt+4,h:14});
+    cx+=wAll+8;
+  }
+  return cy-y+rowH;
+}
+const CAM_HOME={theta:-125*DEG, phi:26*DEG};
+const COLIso='#5ac8e0', COLIchor='#cd35c4', COLIbar='#b8ec4c',
+      COLKn='#e8843a', COLData='#f2f4f8';
+function sheetFill(w,lam){ return shade(mix('#2b5a80','#3f8a52',clamp(w,0,1)),
+                                        0.42+0.44*lam); }
+function mapCellAlpha(w){ return 0.10+0.16*clamp(w,0,1); }   // monotone in w (asserted)
+function nrm(v,lo,hi){ return -1+2*(v-lo)/(hi-lo||1); }
+function toBox(M,p){ const m=M.mesh();
+  return [nrm(p.P,PLO,PHIP), nrm(p.T,TLO,THI), nrm(p.nu,m.zlo,m.zhi)]; }
+
+function drawDome(ctx,W,H,M,S){
+  const st=M.st, cam=S.cam;
+  cam.W=W-250; cam.H=H-2*CAP_BOT;
+  const B=camBasis(cam), m=M.mesh();
+  // ---- the box, far edges first ----
+  const C1=[-1,1], edges=[];
+  for(const a of C1)for(const b of C1){
+    edges.push([[a,b,-1],[a,b,1]]); edges.push([[a,-1,b],[a,1,b]]);
+    edges.push([[-1,a,b],[1,a,b]]);
+  }
+  edges.sort((e,f)=>{
+    const me=v3.mul(v3.add(e[0],e[1]),0.5), mf=v3.mul(v3.add(f[0],f[1]),0.5);
+    return v3.len(v3.sub(mf,B.eye))-v3.len(v3.sub(me,B.eye));
+  });
+  for(const e of edges) path3(ctx,cam,B,e,'#1c2130',1);
+  // ---- label registry: names first, then ticks, then annotations ----
+  const ctr=project(cam,B,[0,0,0]);
+  const placed=[];
+  function place(x,y,txtS,fs){
+    const hw=0.28*fs*plain(txtS).length+3, hh=0.62*fs;
+    /* a label that would leave the canvas is DROPPED, not drawn off it */
+    if(x-hw<2||x+hw>W-2||y-hh<2||y+hh>H-CAP_BOT) return false;
+    for(const p of placed)
+      if(Math.abs(p.x-x)<=hw+p.hw&&Math.abs(p.y-y)<=hh+p.hh) return false;
+    placed.push({x,y,hw,hh});
+    return true;
+  }
+  function screenLab(p3,txtS,px,fnt,col){
+    const q=project(cam,B,p3);
+    if(!q||!ctr) return false;
+    let ux=q.x-ctr.x, uy=q.y-ctr.y;
+    const Ln=Math.sqrt(ux*ux+uy*uy)||1;
+    const X=q.x+px*ux/Ln, Y=q.y+px*uy/Ln;
+    const f=fnt||'10px -apple-system,sans-serif';
+    const mfs=/(\d+(?:\.\d+)?)px/.exec(f);
+    if(!place(X,Y,txtS,mfs?parseFloat(mfs[1]):10)) return false;
+    ctx.fillStyle=col||CMUT; ctx.font=f;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(plain(txtS),X,Y);
+    return true;
+  }
+  function axisSpan(a,b){
+    const p=project(cam,B,a), q=project(cam,B,b);
+    if(!p||!q) return 0;
+    return Math.hypot(p.x-q.x,p.y-q.y);
+  }
+  // ---- the sheet ----
+  const quads=[], rowsM=m.rows;
+  for(let i=0;i<rowsM.length-1;i++)
+    for(let j=0;j<rowsM[i].length-1;j++){
+      const vs=[rowsM[i][j],rowsM[i][j+1],rowsM[i+1][j+1],rowsM[i+1][j]];
+      const q=vs.map(p=>toBox(M,p));
+      const n=v3.norm(v3.cross(v3.sub(q[1],q[0]),v3.sub(q[3],q[0])));
+      const poly=clipPoly3(q);
+      if(poly.length<3) continue;
+      let c=[0,0,0];
+      for(const p of poly){ c[0]+=p[0]/poly.length; c[1]+=p[1]/poly.length;
+                            c[2]+=p[2]/poly.length; }
+      quads.push({poly,c,n,w:vs[0].w,d:v3.len(v3.sub(c,B.eye))});
+    }
+  quads.sort((a,b)=>b.d-a.d);
+  const Ld=v3.norm([0.42,0.3,0.85]);
+  for(const Q of quads){
+    const pts=[]; let ok2=true;
+    for(const p of Q.poly){ const s2=project(cam,B,p);
+      if(!s2){ ok2=false; break; } pts.push(s2); }
+    if(!ok2||pts.length<3) continue;
+    let cx=0, cy=0;
+    for(const p of pts){ cx+=p.x/pts.length; cy+=p.y/pts.length; }
+    ctx.fillStyle=sheetFill(Q.w,Math.abs(v3.dot(Q.n,Ld)));
+    ctx.beginPath();
+    for(let k2=0;k2<pts.length;k2++){
+      const X=cx+(pts[k2].x-cx)*1.035, Y=cy+(pts[k2].y-cy)*1.035;
+      if(k2===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+    }
+    ctx.closePath(); ctx.fill();
+  }
+  /* ticks and axis names are painted AFTER the sheet: at some orbits the
+     sheet's projection covers the near vertical edge, and a tick behind the
+     sheet is a tick the reader does not have */
+  /* ticks live on the NEAR edges of the box, chosen from the camera — a
+     fixed edge loses its labels the moment the user orbits past it */
+  const F='italic 12.5px Georgia, serif';
+  const sx=B.eye[0]>=0?1:-1, sy=B.eye[1]>=0?1:-1;
+  screenLab([0,sy,-1],'P ('+M.unit+')',34,F,'#8b93a6');
+  screenLab([sx,0,-1],'T (K)',40,F,'#8b93a6');
+  screenLab([sx,sy,0.15],'ν_B (GHz)',44,F,'#8b93a6');
+  const MINSPAN=45;
+  if(axisSpan([-1,sy,-1],[1,sy,-1])>=MINSPAN)
+    for(const pv of ticksFor(PLO,PHIP,5)){
+      const x=nrm(pv,PLO,PHIP); if(x<-1||x>1) continue;
+      path3(ctx,cam,B,[[x,sy,-1],[x,sy*1.05,-1]],'#39404f',1);
+      screenLab([x,sy*1.05,-1],fmt(pv,1),13);
+    }
+  if(axisSpan([sx,-1,-1],[sx,1,-1])>=MINSPAN)
+    for(const tv of ticksFor(TLO,THI,4)){
+      const y=nrm(tv,TLO,THI); if(y<-1||y>1) continue;
+      path3(ctx,cam,B,[[sx,y,-1],[sx*1.05,y,-1]],'#39404f',1);
+      screenLab([sx*1.05,y,-1],fmt(tv,0),15);
+    }
+  if(axisSpan([sx,sy,-1],[sx,sy,1])>=MINSPAN)
+    for(const zv of ticksFor(m.zlo,m.zhi,4)){
+      const z=nrm(zv,m.zlo,m.zhi); if(z<-1||z>1) continue;
+      path3(ctx,cam,B,[[sx,sy,z],[sx*1.04,sy*1.04,z]],'#39404f',1);
+      screenLab([sx*1.04,sy*1.04,z],fmt(zv,2),15);
+    }
+  // ---- paths, lifted 0.02 box units off the sheet ----
+  const lift=p=>{ const b=toBox(M,p); return [b[0],b[1],b[2]+0.02]; };
+  if(st.showKn)    path3c(ctx,cam,B,M.pathKn().map(lift),COLKn,1.8,[6,4]);
+  if(st.showIso)   path3c(ctx,cam,B,M.pathIso().map(lift),COLIso,2.0);
+  if(st.showIchor){
+    path3c(ctx,cam,B,M.pathIchorProbe().map(lift),COLIchor,2.0);
+    for(const f2 of M.guFills()) path3c(ctx,cam,B,f2.map(lift),COLIchor,1.4,[2,3]);
+  }
+  if(st.showIbar)  path3c(ctx,cam,B,M.pathIbar().map(lift),COLIbar,2.0);
+  // ---- the measured points (O2 only), z error bars ----
+  let drawnData=0;
+  if(st.showData&&M.id==='O2'){
+    for(const r of guRows()){
+      const lo=toBox(M,{P:r.P,T:r.T,nu:r.nu-r.err}),
+            hi=toBox(M,{P:r.P,T:r.T,nu:r.nu+r.err}),
+            md=toBox(M,{P:r.P,T:r.T,nu:r.nu});
+      path3c(ctx,cam,B,[lo,hi],COLData,1.2);
+      const q2=project(cam,B,md);
+      if(q2){ ctx.fillStyle=COLData; ctx.beginPath();
+        ctx.arc(q2.x,q2.y,3.0,0,TAU); ctx.fill();
+        ctx.strokeStyle='#070b18'; ctx.lineWidth=1; ctx.stroke(); drawnData++; }
+    }
+  }
+  // ---- the probe ----
+  {
+    const pb={P:st.P0,T:st.T0,nu:M.probe.nu};
+    const b3=toBox(M,pb);
+    path3c(ctx,cam,B,[[b3[0],b3[1],-1],b3],'rgba(242,244,248,0.35)',1.0,[2,3]);
+    const q2=project(cam,B,[b3[0],b3[1],b3[2]+0.02]);
+    if(q2){ ctx.strokeStyle='#fff'; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.arc(q2.x,q2.y,4.6,0,TAU); ctx.stroke();
+      screenLab([b3[0],b3[1],b3[2]+0.14],'probe',12,'10px -apple-system,sans-serif','#fff'); }
+  }
+  // ---- captions (narrow stages get the short forms — a wrapped block has
+  //      no fixed height, and the bottom reserve is only CAP_BOT tall) ----
+  ctx.textAlign='left';
+  const narrow=W<860, capW=narrow?W-32:W-330;
+  let cy0=H-CAP_BOT+8;
+  cy0+=caption(ctx,16,cy0, narrow
+    ?'ν_B(P,T) for '+M.G.name+' — colour = crossover weight w; orange dashes: the Knudsen line y = 1.'
+    :'The Brillouin-frequency state surface of '+M.G.name+' at '
+     +(M.G.lam*1e9).toFixed(M.id==='O2'?2:1)+' nm. Colour is the crossover weight '
+     +'w = y²/(1+y²) (blue kinetic → green hydrodynamic); the orange dashed curve is '
+     +'the Knudsen line y = 1, the midline of the crossover. Paths: isotherm (cyan, slope L), '
+     +'isochores (magenta, ½+(½−s)L — dotted: Gu’s two sealed fills), isobar (green, ½−(s+½)L).',
+    capW,'#767e92');
+  caption(ctx,16,Math.min(cy0+3,H-30), narrow
+    ?(M.id==='O2'?'points: Gu & Ubachs 90.0° fills (±0.013 GHz); the 91.5° 1-bar fit is excluded.'
+                 :'no temperature-resolved data for this gas — choose O₂ to see Gu’s fills.')
+    :(M.id==='O2'
+      ?'Points: the four 90.0° shifts of Gu & Ubachs 2014 with ±0.013 GHz bars, lying on the dotted fills. '
+       +'The 1-bar spectrum (91.5°, model-dependent fit) belongs to a neighbouring sheet and is not drawn.'
+      :'No temperature-resolved data exist for this gas — the only isochoric Brillouin set is Gu’s O₂ '
+       +'cell (choose O₂ to see it). The adopted 300 K rows appear in “the lever”.'),
+    capW,'#5d6478','10px "SF Mono", Menlo, monospace');
+  return drawnData;
+}
+
+/* ================================================================== *
+ *  the map — the P–T plane: iso-nu_B contours (closed-form inversion), *
+ *  the Knudsen line, the paths, the measured points                    *
+ * ================================================================== */
+function drawMap(ctx,W,H,M,S){
+  const st=M.st, m=M.mesh();
+  const mR=W>860?316:16;
+  const b=box(64,54,Math.max(120,W-64-mR),H-54-BOT2D);
+  // background: the crossover-weight field, faded toward the page
+  const NCX=36, NCY=24;
+  for(let i=0;i<NCX;i++)for(let j=0;j<NCY;j++){
+    const P=PLO+(PHIP-PLO)*(i+0.5)/NCX, T=TLO+(THI-TLO)*(j+0.5)/NCY;
+    const w=wOf(yOf(M.id,P,T));
+    ctx.fillStyle=rgba(mix('#5ac8e0','#b8ec4c',w),mapCellAlpha(w));
+    ctx.fillRect(b.x+b.w*i/NCX, b.y1-b.h*(j+1)/NCY, b.w/NCX+0.7, b.h/NCY+0.7);
+  }
+  axes(ctx,b,PLO,PHIP,TLO,THI,{xlab:'P ('+M.unit+')',ylab:'T (K)',
+    title:'the P–T plane — every contour is one Brillouin frequency',
+    xfmt:v=>fmt(v,1), yfmt:v=>fmt(v,0)});
+  const placed=[];
+  function lab(x,y,txtS,col,fs){
+    fs=fs||10;
+    const hw=0.28*fs*plain(txtS).length+3, hh=0.62*fs;
+    for(const p of placed)
+      if(Math.abs(p.x-x)<=hw+p.hw&&Math.abs(p.y-y)<=hh+p.hh) return false;
+    if(x-hw<b.x||x+hw>b.x1||y-hh<b.y||y+hh>b.y1) return false;
+    placed.push({x,y,hw,hh});
+    ctx.fillStyle=col; ctx.font=fs+'px -apple-system,sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(plain(txtS),x,y);
+    return true;
+  }
+  const X=v=>b.x+b.w*(v-PLO)/(PHIP-PLO), Y=v=>b.y1-b.h*(v-TLO)/(THI-TLO);
+  for(const c of M.contours()){
+    polyline(ctx,b,c.Ps,c.Ts,PLO,PHIP,TLO,THI,'#9aa3b5',1.1);
+    /* label at the highest-T in-range point; if that collides, walk down the
+       contour until a spot is free (the first draft's `else break` tried only
+       one point, and two of seven contours got labels) */
+    for(let k=c.Ts.length-1;k>=0;k--)
+      if(isFinite(c.Ps[k])&&c.Ps[k]>PLO&&c.Ps[k]<PHIP)
+        if(lab(X(c.Ps[k])-4,Y(c.Ts[k])-9,fmt(c.nu,2),'#aeb6c6')) break;
+  }
+  const kn=M.pathKn();
+  polyline(ctx,b,kn.map(p=>p.P),kn.map(p=>p.T),PLO,PHIP,TLO,THI,COLKn,1.8,[6,4]);
+  if(st.showIso){ const c=M.pathIso();
+    polyline(ctx,b,c.map(p=>p.P),c.map(p=>p.T),PLO,PHIP,TLO,THI,COLIso,1.8); }
+  if(st.showIbar){ const c=M.pathIbar();
+    polyline(ctx,b,c.map(p=>p.P),c.map(p=>p.T),PLO,PHIP,TLO,THI,COLIbar,1.8); }
+  if(st.showIchor){
+    const c=M.pathIchorProbe();
+    polyline(ctx,b,c.map(p=>p.P),c.map(p=>p.T),PLO,PHIP,TLO,THI,COLIchor,1.8);
+    for(const f2 of M.guFills())
+      polyline(ctx,b,f2.map(p=>p.P),f2.map(p=>p.T),PLO,PHIP,TLO,THI,COLIchor,1.2,[2,3]);
+  }
+  let drawnData=0;
+  if(st.showData&&M.id==='O2')
+    for(const r of guRows()){
+      ctx.fillStyle=COLData; ctx.beginPath();
+      ctx.arc(X(r.P),Y(r.T),3.0,0,TAU); ctx.fill(); drawnData++;
+      lab(X(r.P)+2,Y(r.T)-11,fmt(r.nu,3),'#e6e9f0');
+    }
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1.6;
+  ctx.beginPath(); ctx.arc(X(st.P0),Y(st.T0),4.6,0,TAU); ctx.stroke();
+  lab(X(st.P0),Y(st.T0)-14,'probe','#fff');
+  const narrow=W<860, capW=narrow?W-32:W-330;
+  const legH=legendRow(ctx,16,b.y1+42,capW,
+    [['iso-ν_B contour','#9aa3b5'],['Knudsen y = 1',COLKn,[6,4]],
+     ['isotherm',COLIso],['isochore',COLIchor],['isobar',COLIbar]]);
+  caption(ctx,16,b.y1+46+legH, narrow
+    ?'iso-ν_B contours from the exact inversion P(ν,T); shading = crossover weight w.'
+    :'The steam-table chart of the law: iso-ν_B contours from the exact inversion '
+     +'P(ν,T) — no contour marching, no fit. A contour that leaves the frame ran past '
+     +'a corner of the crossover; the background shading is the crossover weight w.',
+    capW,'#767e92');
+  return drawnData;
+}
+/* ================================================================== *
+ *  the six laws — the four exponents of one surface                    *
+ * ================================================================== */
+const LOGLO=-1.4, LOGHI=1.3;
+const LOGTICKS=[-1,Math.log10(0.3),0,Math.log10(3),1];
+const LOGFMT=v=>{ const y=Math.pow(10,v);
+  return y<0.5?fmt(y,1):fmt(y,0).replace(/^3$/,'3').replace(/^10$/,'10'); };
+function drawLaws(ctx,W,H,M,S){
+  const st=M.st, s0=M.probe.s, g=M.g;
+  const mR=W>860?316:16;
+  const b=box(64,54,Math.max(120,W-64-mR),H-54-BOT2D);
+  axes(ctx,b,LOGLO,LOGHI,0,1.02,{xticks:LOGTICKS,xfmt:LOGFMT,
+    xlab:'y = P/ηqv₀ (log)',ylab:'exponent',
+    title:'the six laws of the surface — s = '+fmt(s0,3)+' ('+M.G.name+')'});
+  const lw=M.laws(), lx=lw.ys.map(Math.log10);
+  polyline(ctx,b,[LOGLO,LOGHI],[0.5,0.5],LOGLO,LOGHI,0,1.02,'#39404f',1,[3,4]);
+  polyline(ctx,b,lx,lw.I,  LOGLO,LOGHI,0,1.02,COLIso,2.0);
+  polyline(ctx,b,lx,lw.II, LOGLO,LOGHI,0,1.02,COLIchor,2.0);
+  polyline(ctx,b,lx,lw.III,LOGLO,LOGHI,0,1.02,COLIbar,2.0);
+  polyline(ctx,b,lx,lw.V,  LOGLO,LOGHI,0,1.02,COLKn,2.0);
+  const lgx=Math.log10(M.probe.y);
+  polyline(ctx,b,[lgx,lgx],[0,1.02],LOGLO,LOGHI,0,1.02,'rgba(242,244,248,0.35)',1,[2,3]);
+  for(const [v,c] of [[M.probe.L,COLIso],[M.probe.nn,COLIchor],
+                      [M.probe.nP,COLIbar],[M.probe.nq,COLKn]]){
+    const X=b.x+b.w*(lgx-LOGLO)/(LOGHI-LOGLO), Y=b.y1-b.h*v/1.02;
+    if(X>b.x&&X<b.x1){ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(X,Y,3.2,0,TAU); ctx.fill(); }
+  }
+  const narrow=W<860, capW=narrow?W-32:W-330;
+  const legH=legendRow(ctx,16,b.y1+42,capW,
+    [['I isothermal L(y)',COLIso],['II isochoric ½+(½−s)L',COLIchor],
+     ['III isobaric ½−(s+½)L',COLIbar],['V optical 1−L',COLKn]]);
+  caption(ctx,16,b.y1+46+legH, narrow
+    ?'four exponents, one L(y); II − III = I and V + I = 1 exactly. Dashed line: the probe.'
+    :'Four exponents, one function: L(y) vanishes at both corners and peaks at y = γ^(−1/4) '
+     +'(max 0.127 monatomic, 0.084 diatomic). The identities close the set — II − III = I at '
+     +'every y (the Maxwell relation of the surface) and V + I = 1 (P and q enter only through '
+     +'y ∝ P/q). The dashed white line is the probe.',
+    capW,'#767e92');
+}
+
+/* ================================================================== *
+ *  the pairs — Gu's isochoric test of law II                          *
+ * ================================================================== */
+function drawPairs(ctx,W,H,M,S){
+  const mR=W>860?316:16;
+  const wAll=Math.max(120,W-64-mR);
+  const narrow=wAll<520;                     /* two-column collapse guard */
+  const GUT=46;                              /* y-tick gutter (Known-bad) */
+  const wL=narrow?wAll:Math.round(0.60*wAll)-GUT;
+  const bL=box(64,54,wL,H-54-BOT2D);
+  axes(ctx,bL,285,350,1.02,1.21,{xlab:'T (K)',ylab:'ν_B (GHz)',
+    title:'the two sealed fills — ν_B along each isochore',
+    xfmt:v=>fmt(v,0),yfmt:v=>fmt(v,2)});
+  for(const pc of M.pairCurves())
+    polyline(ctx,bL,pc.Ts,pc.nus,285,350,1.02,1.21,COLIchor,1.8);
+  const X=v=>bL.x+bL.w*(v-285)/(350-285), Y=v=>bL.y1-bL.h*(v-1.02)/(1.21-1.02);
+  for(const r of guRows()){
+    ctx.strokeStyle=COLData; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.moveTo(X(r.T),Y(r.nu-r.err)); ctx.lineTo(X(r.T),Y(r.nu+r.err)); ctx.stroke();
+    ctx.fillStyle=COLData; ctx.beginPath(); ctx.arc(X(r.T),Y(r.nu),3.0,0,TAU); ctx.fill();
+  }
+  ctx.fillStyle='#8b93a6'; ctx.font='10.5px -apple-system,sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(plain('fill A · 2.00→2.27 bar'),X(288),Y(1.078));
+  ctx.fillText(plain('fill B · 3.00→3.42 bar'),X(288),Y(1.117));
+  if(!narrow){
+    const bR=box(bL.x1+GUT+24,54,wAll-wL-GUT-24,H-54-BOT2D);
+    axes(ctx,bR,-0.5,1.5,0,1.05,{xticks:[0,1],xfmt:v=>v===0?'pair A':'pair B',
+      ylab:'n_T = dlnν/dlnT |ₙ',title:'exponent: measured vs the law',
+      yfmt:v=>fmt(v,2)});
+    polyline(ctx,bR,[-0.5,1.5],[0.5,0.5],-0.5,1.5,0,1.05,'#39404f',1,[3,4]);
+    PAIRS.forEach((pr,i)=>{
+      const Xc=bR.x+bR.w*(i+0.5)/2;
+      const Yv=v=>bR.y1-bR.h*v/1.05;
+      ctx.strokeStyle=COLIbar; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(Xc-16,Yv(pr.pred)); ctx.lineTo(Xc+16,Yv(pr.pred)); ctx.stroke();
+      ctx.strokeStyle=COLData; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(Xc,Yv(pr.meas-pr.sig)); ctx.lineTo(Xc,Yv(pr.meas+pr.sig)); ctx.stroke();
+      ctx.fillStyle=COLData; ctx.beginPath(); ctx.arc(Xc,Yv(pr.meas),3.4,0,TAU); ctx.fill();
+      ctx.fillStyle='#8b93a6'; ctx.font='10px -apple-system,sans-serif'; ctx.textAlign='center';
+      ctx.fillText(plain((pr.meas-pr.pred>0?'+':'−')
+        +fmt(Math.abs(pr.meas-pr.pred)/pr.sig,1)+'σ'),Xc,Yv(pr.meas+pr.sig)-10);
+    });
+  }
+  const capW=W<860?W-32:W-330;
+  caption(ctx,16,bL.y1+42, W<860
+    ?'Gu’s two sealed O₂ fills, heated: pair B measures 0.45 ± 0.12 vs the law’s 0.482; '
+     +'pair A (+3.1σ) rests on the documented duplicate 2-bar fit.'
+    :'The only temperature-resolved Brillouin data in existence: Gu & Ubachs heated two sealed O₂ '
+     +'fills isochorically (P₂/P₁ = T₂/T₁ to 5·10⁻⁴). Sutherland s ≈ 0.81 predicts the exponent '
+     +'0.475 (A) and 0.482 (B); pair B measures 0.45 ± 0.12 — on the law — while pair A is +3.1σ '
+     +'high, mutually inconsistent with B at 2.3σ, and rests on the documented duplicate 2-bar fit: '
+     +'one suspect datum, not a temperature anomaly. Green tick: the law; white: measured.',
+    capW,'#767e92');
+}
+
+/* ================================================================== *
+ *  the lever — the optical axis: halving q doubles y                  *
+ * ================================================================== */
+function drawLever(ctx,W,H,M,S){
+  const mR=W>860?316:16;
+  const wAll=Math.max(120,W-64-mR);
+  const avail=H-54-BOT2D-46;
+  const hTop=Math.max(100,Math.round(avail*0.64));
+  const bT=box(64,54,wAll,hTop);
+  const lv=M.lever();
+  /* the axis covers the curves AND the data bars (an axis fitted to what
+     survived hides a truncated curve — Known-bad, adiabatic_expansion) */
+  const zlo=Math.min.apply(null,lv.ghost)*0.94,
+        zhi=Math.max.apply(null,lv.base.concat(lv.pts.map(r=>r.nu+r.err)))*1.04;
+  axes(ctx,bT,PLO,PHIP,zlo,zhi,{ylab:'ν_B (GHz)',
+    title:'ν_B(P) at λ and 2λ — the 2λ shift rides above ν/2',
+    xfmt:v=>fmt(v,1),yfmt:v=>fmt(v,2)});
+  polyline(ctx,bT,lv.Ps,lv.base, PLO,PHIP,zlo,zhi,COLIso,2.0);
+  polyline(ctx,bT,lv.Ps,lv.twol, PLO,PHIP,zlo,zhi,COLIbar,2.0);
+  polyline(ctx,bT,lv.Ps,lv.ghost,PLO,PHIP,zlo,zhi,COLKn,1.4,[6,4]);
+  let drawnData=0;
+  if(M.st.showData)
+    for(const r of lv.pts){
+      const X=bT.x+bT.w*(r.P-PLO)/(PHIP-PLO),
+            Y=v=>bT.y1-bT.h*(v-zlo)/(zhi-zlo);
+      ctx.strokeStyle=COLData; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(X,Y(r.nu-r.err)); ctx.lineTo(X,Y(r.nu+r.err)); ctx.stroke();
+      ctx.fillStyle=COLData; ctx.beginPath(); ctx.arc(X,Y(r.nu),3.0,0,TAU); ctx.fill();
+      drawnData++;
+    }
+  const bB=box(64,bT.y1+46,wAll,avail-hTop);
+  axes(ctx,bB,PLO,PHIP,0,10,{xlab:'P ('+M.unit+')',ylab:'excess (%)',
+    xfmt:v=>fmt(v,1),yfmt:v=>fmt(v,0)});
+  polyline(ctx,bB,lv.Ps,lv.exc,PLO,PHIP,0,10,COLIbar,2.0);
+  const narrow=W<860, capW=narrow?W-32:W-330;
+  const legH=legendRow(ctx,16,bB.y1+42,capW,
+    [['λ = '+(M.G.lam*1e9).toFixed(M.id==='O2'?0:1)+' nm (the law)',COLIso],
+     ['2λ (the law)',COLIbar],['linear-q ghost: ν(λ)/2',COLKn,[6,4]]]);
+  caption(ctx,16,bB.y1+46+legH, narrow
+    ?(M.id==='O2'?'no second-wavelength O₂ data exist — the curves stand alone.'
+                 :'2λ rides above ν/2 by the strip’s excess — up to 8.7% at Kr 2 atm.')
+    :(M.id==='O2'
+      ?'No second-wavelength O₂ measurement exists, so the curves stand alone here. The sum rule '
+       +'(∂lnν/∂lnq) + (∂lnν/∂lnP) = 1 is exact at every point: measure both exponents at one state '
+       +'and they must sum to one, calibration-free.'
+      :'Points: the adopted '+M.G.name+' shifts (300 K). Doubling λ halves q and doubles y exactly, '
+       +'so the 2λ curve sits ABOVE the linear-q ghost by the strip below — up to 8.7% (63 MHz) at '
+       +'Kr 2 atm. A same-cell 266/532 nm scan is the calibration-free shape test of the crossover.'),
+    capW,'#767e92');
+  return drawnData;
+}
+
+/* ================================================================== *
+ *  the null — softness read from sqrt(T)                              *
+ * ================================================================== */
+function drawNull(ctx,W,H,M,S){
+  const mR=W>860?316:16;
+  const b=box(64,54,Math.max(120,W-64-mR),H-54-BOT2D);
+  axes(ctx,b,LOGLO,LOGHI,0.33,0.56,{xticks:LOGTICKS,xfmt:LOGFMT,
+    xlab:'y = P/ηqv₀ (log)',ylab:'n_T |ₙ',
+    title:'the isochoric exponent family — γ = '+fmt(M.g,3),
+    yfmt:v=>fmt(v,2)});
+  const nf=M.nullFam(), lx=nf.ys.map(Math.log10);
+  for(const f2 of nf.fam)
+    polyline(ctx,b,lx,f2.ns,LOGLO,LOGHI,0.33,0.56,
+             f2.s===0.5?'#f2f4f8':rgba(mix('#5ac8e0','#e8843a',(f2.s-0.5)/0.5),0.45),
+             f2.s===0.5?2.2:1.0);
+  polyline(ctx,b,lx,nf.hi.ns, LOGLO,LOGHI,0.33,0.56,COLIchor,2.0);
+  polyline(ctx,b,lx,nf.gas.ns,LOGLO,LOGHI,0.33,0.56,COLIbar,2.2);
+  /* labels are ANCHORED to each curve's own dip — a label placed at a
+     hand-picked height floats in empty space for the next gamma */
+  ctx.font='10.5px -apple-system,sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  const yAt=v=>b.y1-b.h*(v-0.33)/(0.56-0.33);
+  const Lmax=(Math.sqrt(M.g)-1)/(Math.sqrt(M.g)+1);
+  const dip=s=>0.5+(0.5-s)*Lmax;
+  ctx.fillStyle='#f2f4f8';
+  ctx.fillText(plain('rigid sphere s = ½ — exactly √T at every y'),b.x+12,yAt(0.5)-11);
+  ctx.fillStyle=COLKn;
+  ctx.fillText(plain('Maxwell s = 1 — the maximal pull ½ − L/2'),b.x+12,yAt(dip(1))-2);
+  ctx.textAlign='right';
+  {  /* the two right-side labels take an above-both / below-both slot pair,
+        ordered by their own dips — a fixed above/below stagger collides
+        whenever the dips land within a label height of each other */
+    const yG=yAt(dip(M.probe.s)), yS=yAt(dip(M.st.sFam));
+    const above=Math.min(yG,yS)-13, below=Math.max(yG,yS)+13;
+    ctx.fillStyle=COLIbar;
+    ctx.fillText(plain(M.G.name+' · s(T₀) = '+fmt(M.probe.s,3)),b.x1-12,yG<=yS?above:below);
+    ctx.fillStyle=COLIchor;
+    ctx.fillText(plain('slider member s = '+fmt(M.st.sFam,2)),b.x1-12,yG<=yS?below:above);
+  }
+  ctx.textAlign='left';
+  const capW=W<860?W-32:W-330;
+  caption(ctx,16,b.y1+42, W<860
+    ?'n_T = ½ + (½−s)L(y): the rigid sphere (s = ½) is exactly √T at every y.'
+    :'Law II drawn for every softness: n_T = ½ + (½ − s)L(y). The rigid sphere (η ∝ √T) makes the '
+     +'crossover temperature-blind — the flat white line — so any measured departure from √T at fixed '
+     +'density reads s − ½ with no potential model. The sibling of β = K(1−s): each law vanishes at '
+     +'one textbook reference molecule, and both are read from the same measured viscosity slope.',
+    capW,'#767e92');
+}
+
+/* ================================================================== *
+ *  dispatch + scene                                                   *
+ * ================================================================== */
+function drawView(ctx,W,H,M,S){
+  ctx.clearRect(0,0,W,H);
+  LAST_LEGENDS.length=0;
+  const v=M.st.view;
+  if(v==='dome') return drawDome(ctx,W,H,M,S);
+  if(v==='map') return drawMap(ctx,W,H,M,S);
+  if(v==='laws') return drawLaws(ctx,W,H,M,S);
+  if(v==='pairs') return drawPairs(ctx,W,H,M,S);
+  if(v==='lever') return drawLever(ctx,W,H,M,S);
+  return drawNull(ctx,W,H,M,S);
+}
+function makeScene(canvas){
+  const st=Object.assign({},DEFAULTS);
+  const cam=makeCamera(CAM_HOME.theta,CAM_HOME.phi,HOME_DIST,[0,0,0]);
+  /* home picked from three rendered trials: -125 deg spreads the sheet and
+     separates the paths; -52 (the manifold's) piles them on the ascent */
+  let M=buildModel(st);
+  const S={
+    st, cam, W:900, H:640,
+    model:()=>M,
+    rebuild(){ M=buildModel(st); },
+    readout:()=>readout(M), eqbar:()=>eqbar(M), tag:()=>tagOf(M),
+    draw(){ const ctx=canvas.getContext('2d'); return drawView(ctx,S.W,S.H,M,S); },
+    is3D:()=>st.view==='dome',
+    orbit(dx,dy){
+      if(!S.is3D()) return false;
+      cam.theta-=dx*0.007; cam.phi=clamp(cam.phi+dy*0.006,-1.35,1.45);
+      return true;
+    },
+    zoom(dy){
+      if(!S.is3D()) return false;
+      cam.dist=clamp(cam.dist*Math.exp(dy*0.0012),HOME_DIST*0.45,HOME_DIST*2.6);
+      return true;
+    },
+    resetView(){ cam.theta=CAM_HOME.theta; cam.phi=CAM_HOME.phi;
+      cam.dist=HOME_DIST; cam.fov=HOME_FOV; },
+    step(dt){
+      if(!st.orbit||st.view!=='dome') return false;
+      cam.theta-=dt*0.12;
+      return true;
+    },
+  };
+  return S;
+}
+/* ================================================================== *
+ *  boot — tabs, controls, the frame loop                              *
+ * ================================================================== */
+const TABS=[['dome','the dome'],['map','the map'],['laws','the six laws'],
+            ['pairs','the pairs'],['lever','the lever'],['null','the null']];
+function boot(){
+  const canvas=document.getElementById('scene');
+  const tabsEl=document.getElementById('tabs');
+  const panel=document.getElementById('panel');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const subEl=document.getElementById('sub');
+  const S=makeScene(canvas), st=S.st;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>{
+      st.view=k; [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===k?'active':'');
+      S.rebuild(); syncPanel(); dirty=true; refresh(); }},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step,value:st[key]});
+    const val=h('span',{class:'val'});
+    const row=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); S.rebuild(); syncPanel();
+      dirty=true; refresh(); });
+    rows[key]={row,sync}; sync(); return row;
+  }
+  const checks={};
+  function checkbox(key,lab){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      S.rebuild(); syncPanel(); dirty=true; refresh(); });
+    const el=h('label',null,inp,lab);
+    checks[key]={el,inp};
+    return el;
+  }
+
+  const GCHIPS=GAS_IDS.map(id=>({id,name:GASP[id].sym}));
+  const gGas=h('div',{class:'grp'},h('h3',null,'the gas'));
+  const chipsEl=h('div',{class:'chips'});
+  GCHIPS.forEach(o=>{
+    chipsEl.appendChild(h('button',{class:'chip'+(st.gas===o.id?' on':''),onclick:()=>{
+      st.gas=o.id;
+      [].forEach.call(chipsEl.children,(b,i)=>
+        b.className='chip'+(GCHIPS[i].id===st.gas?' on':''));
+      S.rebuild(); syncPanel(); dirty=true; refresh(); }},o.name));
+  });
+  gGas.appendChild(chipsEl);
+  gGas.appendChild(h('div',{class:'src'},
+    'O&#8322;: 403.00 nm, 90.0&deg;, Sutherland &eta; (19.19 &mu;Pa s at 273 K, '
+    +'S = 139 K). Kr / N&#8322;: 266.1 nm backscatter, &eta;(300 K) = 25.39 / '
+    +'17.84 &mu;Pa s with the measured slopes s = 0.87 / 0.77 '
+    +'(beta-gaslaw note). Ideal-gas &gamma;.'));
+
+  const gProbe=h('div',{class:'grp'},h('h3',null,'the probe'));
+  gProbe.appendChild(slider('P0','P&#8320;',PLO,PHIP,0.05,v=>fmt(v,2)));
+  gProbe.appendChild(slider('T0','T&#8320; (K)',TLO,THI,1,v=>fmt(v,0)));
+  gProbe.appendChild(h('div',{class:'src'},
+    'The readout evaluates all six laws at the probe and recomputes the two '
+    +'identities live.'));
+
+  const gPaths=h('div',{class:'grp'},h('h3',null,'the paths'));
+  gPaths.appendChild(slider('Tiso','isotherm T (K)',TLO,THI,1,v=>fmt(v,0)));
+  gPaths.appendChild(slider('Piso','isobar P',PLO,PHIP,0.05,v=>fmt(v,2)));
+  const pchecks=h('div',{class:'checks'},
+    checkbox('showIso','I &middot; the isotherm'),
+    checkbox('showIchor','II &middot; the isochores'),
+    checkbox('showIbar','III &middot; the isobar'),
+    checkbox('showKn','the Knudsen line y = 1'),
+    checkbox('showData','the measured points'));
+  gPaths.appendChild(pchecks);
+
+  const gFam=h('div',{class:'grp'},h('h3',null,'the family'));
+  gFam.appendChild(slider('sFam','member s',0.5,1.0,0.01,v=>fmt(v,2)));
+  gFam.appendChild(h('div',{class:'src'},
+    'Slides one member of the softness family in &ldquo;the null&rdquo;: '
+    +'s = &frac12; is the rigid sphere, s = 1 the Maxwell molecule.'));
+
+  const gDisp=h('div',{class:'grp'},h('h3',null,'display'));
+  const dchecks=h('div',{class:'checks'},checkbox('orbit','auto-orbit the dome'));
+  gDisp.appendChild(dchecks);
+  gDisp.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ S.resetView(); dirty=true; refresh(); }},'reset view'),
+    h('button',{onclick:()=>{ Object.assign(st,DEFAULTS); S.rebuild();
+      S.resetView(); syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+                h('div',{id:'info'}));
+  [gGas,gProbe,gPaths,gFam,gDisp,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    [].forEach.call(chipsEl.children,(b,i)=>
+      b.className='chip'+(GCHIPS[i].id===st.gas?' on':''));
+  }
+  function syncPanel(){
+    /* a control that is live but ignored is worse than no control */
+    const v=st.view;
+    rows.Tiso.row.hidden=!(v==='dome'||v==='map');
+    rows.Piso.row.hidden=!(v==='dome'||v==='map');
+    rows.sFam.row.hidden=(v!=='null');
+    pchecks.hidden=!(v==='dome'||v==='map'||v==='lever');
+    checks.showIso.el.hidden=(v==='lever');
+    checks.showIchor.el.hidden=(v==='lever');
+    checks.showIbar.el.hidden=(v==='lever');
+    checks.showKn.el.hidden=(v==='lever');
+    dchecks.hidden=(v!=='dome');
+    for(const k in rows) rows[k].sync();
+    for(const k in checks) checks[k].inp.checked=st[k];
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=S.readout(); eqEl.innerHTML=S.eqbar(); tagEl.innerHTML=S.tag();
+      hintEl.textContent=S.is3D()
+        ?'drag to orbit · scroll to zoom · 1–6 switch views · space auto-orbits · r resets'
+        :'1–6 switch views · r resets';
+      subEl.innerHTML='IV residual <b>'+M.probe.idIV.toExponential(1)
+        +'</b> · VI residual <b>'+M.probe.idVI.toExponential(1)
+        +'</b> · law MAE over the '+M.rows.length+' shown rows <b>'
+        +fmt(M.mae,1)+'%</b>';
+      infoEl.innerHTML=INFO[st.view]||INFO.dome;
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  let down=false,lx=0,ly=0,dirty=false;
+  canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId);
+    down=true; lx=e.clientX; ly=e.clientY; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove',e=>{ if(!down) return;
+    if(S.orbit(e.clientX-lx,e.clientY-ly)) dirty=true;
+    lx=e.clientX; ly=e.clientY; });
+  const up=()=>{ down=false; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault();
+    if(S.zoom(e.deltaY)) dirty=true; },{passive:false});
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault();
+      if(st.view==='dome'){ st.orbit=!st.orbit; syncPanel(); dirty=true; refresh(); } }
+    else if(e.key==='r'){ S.resetView(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<='6'){ st.view=TABS[+e.key-1][0];
+      [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+      S.rebuild(); syncPanel(); dirty=true; refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let last=0;
+  function frameLoop(tm){
+    const dt=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    if(S.step(dt)) dirty=true;
+    if(dirty){
+      dirty=false;
+      try{ S.draw(); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+}
+
+const INFO={
+  dome:'The Brillouin frequency of a dilute gas, drawn the way the steam tables '
+    +'draw P&ndash;v&ndash;T: one sheet over the (P, T) plane, from one closed '
+    +'form with <b>nothing fitted</b>. The gas laws of the companion papers are '
+    +'the slopes of the drawn paths &mdash; the isotherm carries the crossover '
+    +'exponent L(y), the isochores carry &frac12;+(&frac12;&minus;s)L, the '
+    +'isobar &frac12;&minus;(s+&frac12;)L &mdash; and the orange dashed curve '
+    +'is the Knudsen line y = 1, this surface&rsquo;s analogue of the '
+    +'saturation line: kinetic on one side, hydrodynamic on the other. For '
+    +'O&#8322; the four usable points of the only temperature-resolved '
+    +'Brillouin data set ride their own two isochores.',
+  map:'The same surface seen from above, as a chart: every grey contour is one '
+    +'Brillouin frequency, drawn from the <b>exact closed-form inversion</b> '
+    +'P(&nu;, T) &mdash; between the free-streaming corner and the adiabatic '
+    +'corner the law can be read backwards, so a measured shift is a gauge for '
+    +'pressure at known temperature or the reverse. The background shading is '
+    +'the crossover weight w = y&sup2;/(1+y&sup2;); the orange dashed line is '
+    +'y = 1, where w = &frac12; exactly.',
+  laws:'The whole path-law structure in one panel. Four exponents, one '
+    +'function: the isothermal slope IS L(y); the two temperature laws are '
+    +'&frac12; plus a multiple of it; the optical exponent is its complement. '
+    +'Two exact identities close the set &mdash; II &minus; III = I (the '
+    +'Maxwell relation of the surface) and V + I = 1 (pressure and wavelength '
+    +'enter only through y &prop; P/q). The readout recomputes both at the '
+    +'probe on every frame.',
+  pairs:'The first test of the isochoric law. Gu &amp; Ubachs sealed O&#8322; '
+    +'at room temperature and heated the cell, so each fill walks up its own '
+    +'isochore &mdash; the recorded pressures track the temperatures to '
+    +'5&times;10&#8315;&#8308;. Pair B measures the exponent at 0.45 &plusmn; '
+    +'0.12 against the predicted 0.482: on the law. Pair A is +3.1&sigma; '
+    +'high, disagrees with B at 2.3&sigma;, and rests on the documented '
+    +'duplicate 2-bar fit &mdash; one suspect datum, not a temperature '
+    +'anomaly. Absorbing it into the law would need P_K &prop; T&#8315;&#8309;, '
+    +'which no transport channel provides.',
+  lever:'The axis the classical gas laws do not have. Because P and q enter '
+    +'the surface only through y &prop; P/q, the pressure exponent and the '
+    +'wavelength exponent are complementary &mdash; they sum to one at every '
+    +'point, for every gas, with nothing to calibrate. Doubling the '
+    +'wavelength halves q and doubles y <i>exactly</i>, so the 2&lambda; '
+    +'curve rides above the linear-q ghost by up to 8.7% (Kr, 2 atm, 63 MHz): '
+    +'a same-cell 266/532 nm scan is the cleanest shape test of the '
+    +'crossover that exists on paper.',
+  'null':'Law II for every softness of the pair potential. The rigid sphere '
+    +'(&eta; &prop; &radic;T, s = &frac12;) makes the isochoric response '
+    +'exactly &radic;T at <i>every</i> collisionality &mdash; the crossover '
+    +'holds still as the gas heats &mdash; so any measured departure from '
+    +'&radic;T at fixed density reads the softness s &minus; &frac12; with no '
+    +'potential model and no solve. This is the exact sibling of the '
+    +'velocity-space law &beta; = K(1&minus;s): each vanishes at one textbook '
+    +'reference molecule, and both are read from the same measured viscosity '
+    +'slope.',
+};
+/* ================================================================== *
+ *  selfTest — headless physics + inline layout sweep.  Reference       *
+ *  values marked (py) are printed by build_surface/derive.py and were  *
+ *  read in full.  The suite THROWS on failure so the mutation runner   *
+ *  can see red (Known-bad: a suite that logs and returns cleanly makes *
+ *  every mutant look like a survivor).                                 *
+ * ================================================================== */
+function recCtx(W,H){
+  const ops=[], stk=[{tx:false}];
+  const cur=()=>stk[stk.length-1];
+  return {ops, canvasW:W, canvasH:H,
+    font:'10px x', fillStyle:'', strokeStyle:'', lineWidth:1, globalAlpha:1,
+    textAlign:'left', textBaseline:'alphabetic',
+    save(){ stk.push({tx:cur().tx}); }, restore(){ if(stk.length>1) stk.pop(); },
+    translate(){ cur().tx=true; }, rotate(){ cur().tx=true; }, scale(){ cur().tx=true; },
+    setTransform(){}, clearRect(){},
+    beginPath(){ this._p=[]; },
+    moveTo(x,y){ if(this._p) this._p.push([x,y,1]); },
+    lineTo(x,y){ if(this._p) this._p.push([x,y,0]); },
+    closePath(){},
+    arc(x,y,r){ ops.push({t:'arc',x,y,r,tx:cur().tx}); },
+    fillRect(x,y,w,hh){ ops.push({t:'rect',x,y,w,h:hh}); },
+    strokeRect(){ ops.push({t:'srect'}); },
+    fill(){ ops.push({t:'fill'}); },
+    stroke(){ ops.push({t:'stroke',lw:this.lineWidth,
+      seg:this._p?this._p.slice():[],tx:cur().tx}); },
+    setLineDash(){},
+    fillText(s,x,y){ ops.push({t:'text',s:String(s),x,y,font:this.font,
+      align:this.textAlign,base:this.textBaseline,tx:cur().tx}); },
+    measureText(s){ const m=/(\d+(?:\.\d+)?)px/.exec(this.font);
+      return {width:(m?parseFloat(m[1]):10)*0.56*String(s).length}; },
+  };
+}
+function textBox(op){
+  const m=/(\d+(?:\.\d+)?)px/.exec(op.font), fs=m?parseFloat(m[1]):10;
+  const w=0.56*fs*op.s.length, h2=fs;
+  let x0=op.x;
+  if(op.align==='center') x0-=w/2; else if(op.align==='right') x0-=w;
+  let y0=op.y;
+  if(op.base==='middle') y0-=h2/2;
+  else if(op.base==='alphabetic') y0-=h2*0.8;
+  else if(op.base==='bottom') y0-=h2;        // axes() titles use 'bottom'
+  return {x:x0,y:y0,w,h:h2};
+}
+function selfTest(){
+  let pass=0, failN=0;
+  const ok=(c,n)=>{ if(c) pass++; else { failN++; console.log('FAIL — '+n); } };
+  const close=(a,b,tol,n)=>ok(isFinite(a)&&Math.abs(a-b)<=tol,n+' ('+a+' vs '+b+')');
+  const rel=(a,b,t,n)=>ok(isFinite(a)&&Math.abs(a/b-1)<=t,n+' ('+a+' vs '+b+')');
+
+  // ---- carried 2-D-layer fixes (the shared layer has drifted; each fix
+  //      is asserted here so it cannot rot again) --------------------------
+  ok(plain('a<b>bold</b>c')==='aboldc','plain strips tags, keeps their text');
+  ok(plain('&#955;')==='λ','plain decodes numeric entities');
+  ok(plain('x&rsquo;y')==='x’y','plain decodes named entities');
+  ok(plain('&zzqx;')==='&zzqx;','plain passes unknown entities through (audit can see them)');
+  {
+    const s=clipSeg2(-1,0.5,2,0.5,0,1,0,1);
+    ok(s&&s[0]===0&&s[2]===1,'clipSeg2 keeps a segment whose BOTH endpoints are outside');
+    ok(clipSeg2(-2,-2,-1,-1,0,1,0,1)===null,'clipSeg2 rejects a fully-outside segment');
+    const t2=clipSeg2(0.2,0.2,0.8,0.9,0,1,0,1);
+    ok(!!t2,'clipSeg2 keeps an inside segment');
+    close(t2[0],0.2,1e-12,'clipSeg2 inside: start x untouched');
+    close(t2[3],0.9,1e-12,'clipSeg2 inside: end y untouched (t1·dy is floating point)');
+  }
+  ok(ticksFor(250,400,4).length>=3,'ticksFor gives a full set on a sorted range');
+  ok(ticksFor(400,250,4).length===1,'and still collapses on an inverted one (axes must sort)');
+  {
+    let threw=false; try{ toRgb('nonsense'); }catch(e){ threw=true; }
+    ok(threw,'toRgb throws on garbage instead of defaulting');
+    const two=mix(mix('#5ac8e0','#b8ec4c',0.5),'#070b18',0.3);
+    const c=toRgb(two);
+    ok(c[0]+c[1]+c[2]>60,'a two-stage mix does not silently turn black');
+  }
+  { // brightness must be monotone where it encodes a magnitude
+    const lum=c=>{ const r=toRgb(c); return 0.2126*r[0]+0.7152*r[1]+0.0722*r[2]; };
+    ok(lum(sheetFill(0.5,0.9))>lum(sheetFill(0.5,0.2)),'sheetFill brightens with illumination');
+    ok(mapCellAlpha(0.9)>mapCellAlpha(0.1),'map field alpha is monotone in w');
+  }
+  { // 3-D clip machinery (carried verbatim from sbs_gaslaw_manifold)
+    const s=clipSeg3([-2,0,0],[2,0,0]);
+    ok(s&&s[0][0]===-1&&s[1][0]===1,'clipSeg3 clips a through-going segment to the cube');
+    const p=clipPoly3([[0,0,0],[3,0,0],[3,3,0],[0,3,0]]);
+    ok(p.length>=3&&p.every(v=>v[0]<=1+1e-12&&v[1]<=1+1e-12),
+       'clipPoly3 clips an out-of-box quad instead of keeping it');
+  }
+
+  // ---- camera (py) ------------------------------------------------------
+  {
+    const cam=makeCamera(-52*DEG,26*DEG,3.7,[0,0,0]); cam.W=800; cam.H=600;
+    const B=camBasis(cam);
+    rel(B.f,PINS.f078,1e-9,'camera f at fov 0.78, H 600 (py)');
+    const q=project(cam,B,[0.3,-0.2,0.5]);
+    rel(q.x,PINS.projX,1e-9,'projection sample x (py)');
+    rel(q.y,PINS.projY,1e-9,'projection sample y (py)');
+    rel(q.z,PINS.projZ,1e-9,'projection sample z (py)');
+    const dz=Math.abs(Math.sin(26*DEG));
+    ok(dz>0.2&&dz<0.9,'the default camera is neither edge-on nor top-down to the sheet');
+  }
+
+  // ---- the law against the derivation (py) ------------------------------
+  for(const id of GAS_IDS){
+    rel(qOf(id),PINS['q_'+id],1e-9,id+' q (py)');
+    rel(v0Of(id,300),PINS['v0_'+id],1e-9,id+' v0(300) (py)');
+    rel(etaOf(id,300),PINS['eta300_'+id],1e-9,id+' eta(300) (py)');
+    rel(qOf(id)*v0Of(id,300)/(2*PI)/1e9,PINS['nuref_'+id],1e-9,id+' nuref (py)');
+    rel(PKof(id,300),PINS['PK_'+id],1e-9,id+' P_K(300) (py)');
+    rel(sSlope(id,300),PINS['s300_'+id],1e-9,id+' s(300) (py)');
+  }
+  rel(etaOf('O2',335.7),PINS.eta_O2_335p7,1e-9,'Sutherland eta at 335.7 K (py)');
+  rel(sSlope('O2',335.7),PINS.s_O2_335p7,1e-9,'Sutherland slope at 335.7 K (py)');
+  const SAM=[['Kr',3,300,'Kr_3p0_300'],['N2',2,300,'N2_2p0_300'],
+             ['O2',2,300,'O2_2p0_300'],['O2',3.3,380,'O2_3p3_380']];
+  for(const [id,P,T,tag] of SAM){
+    const g=GASP[id].g, y=yOf(id,P,T), s=sSlope(id,T);
+    rel(y,PINS['y_'+tag],1e-9,tag+' y (py)');
+    rel(nuOf(id,P,T),PINS['nu_'+tag],1e-9,tag+' nu (py)');
+    rel(Lof(y,g),PINS['L_'+tag],1e-9,tag+' L (py)');
+    rel(nIchor(y,g,s),PINS['nn_'+tag],1e-9,tag+' n_n (py)');
+    rel(nIbar(y,g,s),PINS['nP_'+tag],1e-9,tag+' n_P (py)');
+  }
+  { // the four Gu states on the sheet (py) — also the pipeline CF values
+    const gs=[[2.00,295.8],[2.27,335.7],[3.00,297.6],[3.42,339.1]];
+    gs.forEach(([P,T],i)=>rel(nuOf('O2',P,T),PINS.guNu[i],1e-9,'Gu state '+i+' (py)'));
+  }
+
+  // ---- the six laws: identities and finite differences ------------------
+  for(const id of GAS_IDS){
+    const g=GASP[id].g;
+    for(const y of [0.07,0.3,1,3.3,12]){
+      const s=0.81;
+      close((nIchor(y,g,s)-nIbar(y,g,s))-Lof(y,g),0,1e-15,
+        'IV: II - III = I exactly ('+id+', y='+y+')');
+      close((nOpt(y,g)+Lof(y,g))-1,0,1e-15,
+        'VI: V + I = 1 exactly ('+id+', y='+y+')');
+    }
+  }
+  { // FD of I, II, III against the model at two states per gas
+    const e=1e-5;
+    for(const [id,P,T] of [['Kr',3,300],['O2',2,300],['N2',4.5,350]]){
+      const g=GASP[id].g, y=yOf(id,P,T), s=sSlope(id,T);
+      const dI=(Math.log(nuOf(id,P*(1+e),T))-Math.log(nuOf(id,P*(1-e),T)))/(2*e);
+      close(dI,Lof(y,g),2e-5,'FD law I '+id);
+      const dII=(Math.log(nuOf(id,P*(1+e),T*(1+e)))-Math.log(nuOf(id,P*(1-e),T*(1-e))))
+        /Math.log((1+e)/(1-e));
+      close(dII,nIchor(y,g,s),2e-5,'FD law II (isochore P ∝ T) '+id);
+      const dIII=(Math.log(nuOf(id,P,T*(1+e)))-Math.log(nuOf(id,P,T*(1-e))))
+        /Math.log((1+e)/(1-e));
+      close(dIII,nIbar(y,g,s),2e-5,'FD law III '+id);
+    }
+  }
+  { // FD of V: q enters only through theta here; done where dq/dtheta != 0
+    const th0=90, d=0.01;
+    const num=Math.log(nuOf('O2',2,300,th0+d))-Math.log(nuOf('O2',2,300,th0-d));
+    const den=Math.log(qOf('O2',th0+d))-Math.log(qOf('O2',th0-d));
+    close(num/den,nOpt(yOf('O2',2,300),7/5),2e-5,'FD law V (optical) O2 at 90 deg');
+    const numK=Math.log(nuOf('Kr',3,300,120+d))-Math.log(nuOf('Kr',3,300,120-d));
+    const denK=Math.log(qOf('Kr',120+d))-Math.log(qOf('Kr',120-d));
+    close(numK/denK,nOpt(yOf('Kr',3,300,120),5/3),2e-5,'FD law V Kr at 120 deg');
+  }
+  { // the rigid-sphere null, exercised on a REAL model path (a synthetic
+    // hard-sphere gas), not just on the formula
+    GASP.HS={name:'hs',sym:'HS',g:5/3,m:83.798,lam:266.1e-9,th:180,
+             unit:101325,unitName:'atm',pow:{eta300:25.39e-6,s:0.5},dataLab:''};
+    const e=1e-5;
+    for(const P of [0.7,3,5.6]){
+      const dII=(Math.log(nuOf('HS',P*(1+e),300*(1+e)))-Math.log(nuOf('HS',P*(1-e),300*(1-e))))
+        /Math.log((1+e)/(1-e));
+      close(dII,0.5,2e-6,'hard-sphere null: isochore FD is exactly 1/2 at P='+P);
+    }
+    delete GASP.HS;
+  }
+  { // the inversion: exact round trip, and REFUSAL outside the corners
+    for(const [id,nu,T] of [['Kr',1.50,300],['Kr',1.50,360],['O2',1.10,300]]){
+      const P=PinvOf(id,nu,T);
+      rel(P,PINS['inv_'+id+'_'+nu.toFixed(2).replace('.','p')+'_'+T],1e-9,
+          'inversion '+id+' '+nu+' GHz at '+T+' K (py)');
+      rel(nuOf(id,P,T),nu,1e-12,'inversion round trip '+id);
+    }
+    ok(PinvOf('Kr',1.20,300)===null,'inversion refuses below the kinetic corner');
+    ok(PinvOf('Kr',1.70,300)===null,'inversion refuses above the adiabatic corner');
+  }
+  { // the lever (py) + the sum-rule identity on the lever itself
+    rel(nuLever('Kr',2,300,2),PINS.lever_Kr2_nu532,1e-9,'lever Kr 2 atm nu(532) (py)');
+    const nb=nuOf('Kr',2,300);
+    rel(100*(nuLever('Kr',2,300,2)/(nb/2)-1),PINS.lever_Kr2_excess,1e-9,
+        'lever Kr 2 atm excess (py)');
+    const y=yOf('Kr',2,300);
+    rel(nuLever('Kr',2,300,2)/(nb/2),Fof(2*y,5/3)/Fof(y,5/3),1e-12,
+        'the lever excess IS F(2y)/F(y) — the identity behind the sum rule');
+  }
+  { // structural constants (py)
+    rel((Math.sqrt(5/3)-1)/(Math.sqrt(5/3)+1),PINS.Lmax_mono,1e-9,'L_max mono (py)');
+    rel(Math.pow(5/3,-0.25),PINS.yLmax_mono,1e-9,'argmax L mono (py)');
+    rel((Math.sqrt(7/5)-1)/(Math.sqrt(7/5)+1),PINS.Lmax_dia,1e-9,'L_max dia (py)');
+    close(wOf(1/Math.sqrt(3)),0.25,1e-15,'w quartile at y = 1/sqrt3');
+    close(wOf(1),0.5,1e-15,'w midpoint at y = 1');
+    close(wOf(Math.sqrt(3)),0.75,1e-15,'w quartile at y = sqrt3');
+    // L really peaks where the closed form says (numeric maximum)
+    let best=0,bY=0;
+    for(let k=0;k<4000;k++){ const y=0.2+k*0.0005;
+      const v=Lof(y,5/3); if(v>best){ best=v; bY=y; } }
+    close(bY,PINS.yLmax_mono,1e-3,'numeric argmax of L agrees');
+    close(best,PINS.Lmax_mono,1e-7,'numeric max of L agrees');
+  }
+
+  // ---- the data (verbatim rows; assert off the BUILT arrays) ------------
+  ok(DATA_KR.length===6&&DATA_N2.length===6&&DATA_O2.length===5,'row counts');
+  ok(DATA_KR[2].P===3&&DATA_KR[2].nu===1.48&&DATA_KR[2].err===0.08,
+     'Kr 3 atm row is the adopted 1.48 ± 0.08');
+  ok(DATA_N2[1].nu===2.82&&DATA_N2[1].err===0.20,'N2 2 atm row is the adopted 2.82 ± 0.20');
+  ok(guRows().length===4,'four usable 90.0-degree Gu rows');
+  ok(guRefused().length===1&&guRefused()[0].th===91.5,
+     'and exactly one REFUSED row, the 91.5-degree 1-bar fit (refusal at the source)');
+  { // the pairs — meas from the rows through the same formula, pinned (py)
+    for(const pr of PAIRS){
+      const r1=DATA_O2[pr.i1], r2=DATA_O2[pr.i2];
+      const lnT=Math.log(r2.T/r1.T);
+      rel(Math.log(r2.nu/r1.nu)/lnT,pr.meas,1e-9,'pair '+pr.lab+' measured exponent (py)');
+      rel(Math.hypot(r1.err/r1.nu,r2.err/r2.nu)/lnT,pr.sig,1e-9,'pair '+pr.lab+' sigma (py)');
+      rel(Math.log(nuOf('O2',r2.P,r2.T)/nuOf('O2',r1.P,r1.T))/lnT,pr.pred,1e-9,
+          'pair '+pr.lab+' predicted exponent (py)');
+      ok(Math.abs(r2.P/r1.P-r2.T/r1.T)<6e-4,'pair '+pr.lab+' really is an isochore');
+    }
+    ok(Math.abs(PAIRS[1].meas-PAIRS[1].pred)<PAIRS[1].sig,'pair B lands on the law');
+    ok(Math.abs(PAIRS[0].meas-PAIRS[0].pred)>3*PAIRS[0].sig,'pair A is >3 sigma off (the suspect fit)');
+  }
+  { // live MAEs (py) — asserted off buildModel, not a re-typed loop
+    const m1=buildModel(Object.assign({},DEFAULTS,{gas:'Kr'}));
+    const m2=buildModel(Object.assign({},DEFAULTS,{gas:'N2'}));
+    const m3=buildModel(Object.assign({},DEFAULTS,{gas:'O2'}));
+    rel(m1.mae,PINS.maeKr,1e-9,'live Kr MAE (py)');
+    rel(m2.mae,PINS.maeN2,1e-9,'live N2 MAE (py)');
+    rel(m3.mae,PINS.maeO2,1e-9,'live O2 MAE (py)');
+  }
+
+  // ---- model sweeps: every view x gas x toggle corners builds clean -----
+  {
+    const sizes=[[1400,900],[1100,700],[820,560],[560,380]];
+    let badStr=0, badMesh=0, badLever=0;
+    for(const gas of GAS_IDS)
+      for(const view of TABS.map(t2=>t2[0]))
+        for(const flags of [{},{showIso:false,showIchor:false,showIbar:false,
+                             showKn:false,showData:false}])
+          for(const pc of [{P0:PLO,T0:TLO},{P0:PHIP,T0:THI},{P0:2,T0:300}]){
+            const st=Object.assign({},DEFAULTS,{gas,view},flags,pc);
+            const M=buildModel(st);
+            const ro=readout(M)+eqbar(M)+tagOf(M);
+            if(/NaN|undefined|Infinity/.test(ro)) badStr++;
+            const m=M.mesh();
+            if(!(m.zhi>m.zlo)) badMesh++;
+            for(const row of m.rows) for(const p of row)
+              if(!isFinite(p.nu)) badMesh++;
+            if(view==='lever'){
+              const lv=M.lever();
+              const want=gas==='O2'?0:6;
+              if(lv.pts.length!==want) badLever++;
+              if(lv.exc.some(x=>!isFinite(x)||x<0||x>12)) badLever++;
+            }
+          }
+    ok(badStr===0,'no NaN/undefined/Infinity in any readout/eqbar/tag ('+badStr+')');
+    ok(badMesh===0,'every mesh is finite and ordered');
+    ok(badLever===0,'the lever draws 6 points for Kr/N2 and REFUSES data for O2 (both ways)');
+    // expected unique numbers actually appear (fmt renders NaN as an em dash,
+    // so containment on '—' would be vacuous — Known-bad, sbs_parent_law)
+    const M=buildModel(Object.assign({},DEFAULTS,{gas:'Kr',P0:3,T0:300}));
+    ok(readout(M).indexOf(fmt(PINS.nu_Kr_3p0_300,3))>=0,
+       'readout carries the Kr probe frequency 1.504');
+    ok(readout(M).indexOf(fmt(PINS.PK_Kr,2))>=0,'readout carries P_K(Kr) 2.89');
+    ok(eqbar(buildModel(Object.assign({},DEFAULTS,{view:'lever'}))).indexOf('8.7%')>=0,
+       'the lever eqbar quotes the 8.7% discriminator');
+
+    // ---- inline layout sweep (crude twin of tools/audit.py; the real one
+    //      still runs — a check that lives only in a separate program is
+    //      not part of the suite) ---------------------------------------
+    let entHits=0, offCanvas=0, overlaps=0, legendHits=0;
+    const floors={dome:60,map:60,laws:40,pairs:40,lever:40,'null':30};
+    let floorFails=0;
+    for(const [W,H] of sizes)
+      for(const gas of GAS_IDS)
+        for(const view of TABS.map(t2=>t2[0])){
+          const st=Object.assign({},DEFAULTS,{gas,view});
+          const M=buildModel(st);
+          const S={st,cam:makeCamera(CAM_HOME.theta,CAM_HOME.phi,HOME_DIST,[0,0,0]),W,H};
+          const rc=recCtx(W,H);
+          drawView(rc,W,H,M,S);
+          if(rc.ops.length<floors[view]) floorFails++;
+          const boxes=[];
+          for(const op of rc.ops){
+            if(op.t!=='text') continue;
+            if(/&#?[a-zA-Z0-9]+;|<[a-z]/.test(op.s)) entHits++;
+            if(op.tx) continue;                     // rotated labels: gutters + PNG pass
+            const b2=textBox(op); b2.s=op.s;
+            if(b2.x<-1||b2.y<-1||b2.x+b2.w>W+1||b2.y+b2.h>H+1){
+              offCanvas++;
+              if(offCanvas<=6) console.log('  off-canvas '+view+' '+gas+' '+W+'x'+H
+                +': "'+op.s+'" at '+Math.round(b2.x)+','+Math.round(b2.y));
+            }
+            boxes.push(b2);
+          }
+          for(let i2=0;i2<boxes.length;i2++)
+            for(let j2=i2+1;j2<boxes.length;j2++){
+              const a=boxes[i2], b2=boxes[j2];
+              const ox=Math.min(a.x+a.w,b2.x+b2.w)-Math.max(a.x,b2.x);
+              const oy=Math.min(a.y+a.h,b2.y+b2.h)-Math.max(a.y,b2.y);
+              if(ox>3&&oy>3){
+                overlaps++;
+                if(overlaps<=6) console.log('  overlap '+view+' '+gas+' '+W+'x'+H
+                  +': "'+a.s+'" ~ "'+b2.s+'"');
+              }
+            }
+          for(const op of rc.ops){
+            if(op.t!=='stroke'||op.lw<1.8||op.tx) continue;
+            for(const lg of LAST_LEGENDS)
+              for(const p of op.seg)
+                if(p[0]>lg.x&&p[0]<lg.x+lg.w&&p[1]>lg.y&&p[1]<lg.y+lg.h) legendHits++;
+          }
+        }
+    ok(entHits===0,'no entity or tag text reaches the canvas ('+entHits+')');
+    ok(offCanvas===0,'no unrotated text is drawn off-canvas ('+offCanvas+')');
+    ok(overlaps===0,'no two text boxes overlap by more than 3 px ('+overlaps+')');
+    ok(legendHits===0,'no data-weight line runs through a legend text box ('+legendHits+')');
+    ok(floorFails===0,'every view clears its own op floor ('+floorFails+')');
+  }
+  { // the drawn paths really are what their labels claim (a path computed
+    // only inside a draw call could drift and no physics assert would see it)
+    const M=buildModel(Object.assign({},DEFAULTS,{gas:'O2',P0:2.2,T0:310}));
+    const ic=M.pathIchorProbe();
+    ok(ic.length>10,'the probe isochore has points');
+    let worst=0;
+    for(const p of ic) worst=Math.max(worst,Math.abs(p.P/p.T-2.2/310));
+    close(worst,0,1e-12,'every probe-isochore point keeps P/T constant');
+    ok(ic.some(p=>Math.abs(p.P-2.2)<0.08&&Math.abs(p.T-310)<4),
+       'and the isochore passes through the probe');
+    let worstK=0;
+    for(const p of M.pathKn()) worstK=Math.max(worstK,Math.abs(yOf('O2',p.P,p.T)-1));
+    close(worstK,0,1e-9,'every Knudsen-line point sits at y = 1 exactly');
+    let worstC=0, nC=0;
+    for(const c of M.contours())
+      for(let k=0;k<c.Ts.length;k++)
+        if(isFinite(c.Ps[k])){ nC++;
+          worstC=Math.max(worstC,Math.abs(nuOf('O2',c.Ps[k],c.Ts[k])-c.nu)); }
+    ok(nC>50,'the contours carry points');
+    close(worstC,0,1e-9,'every contour point returns its own frequency');
+  }
+  ok(TABS.length===6&&TABS[0][0]==='dome','six views registered, the dome first');
+
+  console.log(pass+' passed, '+failN+' failed');
+  if(failN>0) throw new Error(failN+' self-test failure(s)');
+  return failN;
+}
+
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+
+</script>
+</body>
+</html>

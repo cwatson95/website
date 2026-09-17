@@ -1,0 +1,2013 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cycloids &mdash; the curves a rolling wheel draws</title>
+<!--
+  ===================================================================
+  cycloids.html — the curves a rolling wheel draws: the cycloid and
+  the trochoids, epi- and hypocycloids, their evolutes, their areas,
+  the caustic in a coffee cup, and the spirograph
+  ===================================================================
+
+  Six views.  THE WHEEL: a circle rolls on a line; the point at distance
+  d from its centre traces a trochoid — curtate (d < r), the cycloid
+  (d = r, with cusps where the point is momentarily at rest), prolate
+  (d > r, with loops).  The velocity is perpendicular to the line from
+  the contact point, the instantaneous centre; for d = r the tangent
+  passes through the top of the wheel and the normal through the bottom.
+  THE FAMILY: the circle rolls outside or inside a fixed circle,
+  k = R/r = p/q — cardioid, nephroid, deltoid, astroid — with p cusps,
+  closing after q orbits; the k = 2 hypocycloid is a straight line (the
+  Tusi couple) and the (R, r) and (R, R-r) hypocycloids are one curve
+  (double generation).  THE EVOLUTE: the normals of a cycloid envelope a
+  congruent cycloid shifted by (pi r, -2r); the radius of curvature is
+  4r sin(th/2), twice the normal chord; the arc to the vertex is twice
+  the chord to the top of the wheel, which is Wren's 8r.  THE AREA:
+  Roberval's companion curve splits the arch into a half-rectangle and
+  two half-discs, Cavalieri slice by slice, so the area is 3 pi r^2 —
+  and for a trochoid 2 pi r^2 + pi d^2.  THE CAUSTIC: the bright curve
+  in a coffee cup — parallel light reflected by a circle envelopes a
+  nephroid (cusp at R/2), a point source on the rim a cardioid (cusp at
+  R/3); any other source gives an envelope computed numerically and
+  labelled as such.  THE SPIROGRAPH: a wheel of n teeth inside (or
+  outside) a ring of N, the pen at a fraction of the wheel radius — a
+  trochoid with N/gcd lobes that closes after n/gcd orbits.
+
+  WHAT IS EXACT HERE (this sim contains no measured data)
+  --------------------------------------------------------
+  * Every length is a Gauss-Legendre quadrature pinned to scipy quad
+    values printed by build_cycloid/derive.py and, where a closed form
+    exists, to it: 8r; 4(r+d)E(m) with E the complete elliptic integral
+    of the second kind (evaluated by the arithmetic-geometric mean);
+    8r(R +- r)/R per arch.
+  * Every area is Green's theorem (1/2) closed-int (x dy - y dx), pinned
+    to 2 pi r^2 + pi d^2 and pi r^2 (k +- 1)(k +- 2).
+  * Curvature, the evolute, closure, cusp counts, the double-generation
+    identity hypo(R, R-r, (R-r)t/r) = (x, -y), the Tusi line and both
+    caustic closed forms are asserted against derive.py's independent
+    routes (numerical envelope, kd-tree set distance, gcd arithmetic).
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  Nothing physical beyond geometric optics in the caustic view (specular
+  reflection of rays off the inside of a circle; intensity is not
+  modelled, the envelope is).  Animation advances a fixed 1/60 s per
+  frame so the headless suites are deterministic.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the traced curve (the thing computed),
+       orange = the analytic reference (closed forms, the exact caustic),
+       magenta = the live marker (the tracing point, the pen, the hovered slice),
+       cyan = structure (the wheels, the rays, the normals). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Cycloids</h1>
+  <span class="sub" id="sub">a point on a rolling wheel: the cycloid and its trochoids, the cardioid, nephroid, deltoid and astroid, the evolute, the 3&pi;r&sup2; area, the caustic in a coffee cup, and the spirograph</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the geometry — trochoids on a line, epi- and hypocycloids, the     *
+ *  evolute, lengths and areas by quadrature, the caustic of a circle, *
+ *  the spirograph.  Nothing here touches a canvas.  y is UP in every  *
+ *  world coordinate (the wheel rolls on y = 0); the views flip.       *
+ * ================================================================== */
+const DEG=PI/180;                 /* multiply DEGREES by this to get radians (asserted: 90 DEG = pi/2) */
+const FRAME_DT=1/60;              /* the frame loop advances a fixed 1/60 s: headless runs are deterministic */
+
+/* Gauss-Legendre 8-point nodes and weights on [-1, 1] — numpy leggauss(8),
+   emitted by build_brach/derive.py (never typed from memory) */
+const GL8X=[-0.96028985649753618,-0.79666647741362673,-0.52553240991632899,-0.18343464249564984,
+             0.18343464249564984,0.52553240991632899,0.79666647741362673,0.96028985649753618];
+const GL8W=[0.10122853629037652,0.22238103445337445,0.31370664587788716,0.36268378337836182,
+            0.36268378337836182,0.31370664587788716,0.22238103445337445,0.10122853629037652];
+/* composite 8-point Gauss-Legendre of f on [t0, t1] */
+function glQuad(f,t0,t1,npan){
+  npan=npan||32; let tot=0;
+  for(let i=0;i<npan;i++){
+    const a0=t0+(t1-t0)*i/npan, b0=t0+(t1-t0)*(i+1)/npan, hw=0.5*(b0-a0), mid=0.5*(a0+b0);
+    for(let j=0;j<8;j++) tot+=GL8W[j]*hw*f(hw*GL8X[j]+mid);
+  }
+  return tot;
+}
+/* a gcd that is not >= 1 would send every closure loop to infinity (a
+   mutant did: the suite hung instead of failing), so the result is guarded */
+function gcd(a,b){ a=Math.abs(a); b=Math.abs(b); while(b){ const t=a%b; a=b; b=t; }
+  if(!(a>=1)) throw new Error('gcd of positive integers must be at least 1'); return a; }
+
+/* ---- the wheel on a line: x = r th - d sin th, y = r - d cos th ----------
+   d < r curtate, d = r the cycloid (cusps, the point at rest there), d > r
+   prolate (loops, the point moving backwards). */
+function trochoid(r,d,th){ return [r*th-d*Math.sin(th),r-d*Math.cos(th)]; }
+function trochoidD(r,d,th){ return [r-d*Math.cos(th),d*Math.sin(th)]; }
+function trochoidSpeed(r,d,th){ return Math.sqrt(r*r+d*d-2*r*d*Math.cos(th)); }
+function wheelCentre(r,th){ return [r*th,r]; }
+function wheelContact(r,th){ return [r*th,0]; }
+function wheelTop(r,th){ return [r*th,2*r]; }
+/* one arch: length by quadrature of the speed; the closed form 4(r+d)E(m),
+   m = 4rd/(r+d)^2, with E the complete elliptic integral of the second kind */
+function trochoidArchLength(r,d,npan){ return glQuad(th=>trochoidSpeed(r,d,th),0,TAU,npan||32); }
+function ellipE(m){ return glQuad(ph=>Math.sqrt(Math.max(0,1-m*Math.sin(ph)*Math.sin(ph))),0,PI/2,32); }
+function trochoidArchLengthClosed(r,d){ return 4*(r+d)*ellipE(4*r*d/((r+d)*(r+d))); }
+/* the signed area int y dx over one turn: (r - d cos th)^2 integrated */
+function trochoidArchArea(r,d,npan){ return glQuad(th=>{ const y=r-d*Math.cos(th); return y*y; },0,TAU,npan||32); }
+function trochoidArchAreaClosed(r,d){ return 2*PI*r*r+PI*d*d; }
+/* Roberval's companion curve x = r th, y = r - d cos th, and the gap to the
+   trochoid, which is the half-chord of a circle of radius d at that height */
+function companion(r,d,th){ return [r*th,r-d*Math.cos(th)]; }
+function companionGap(d,th){ return d*Math.sin(th); }
+/* the signed area swept up to parameter th (the partial arch) */
+function trochoidAreaTo(r,d,th){ return glQuad(t=>{ const y=r-d*Math.cos(t); return y*y; },0,th,32); }
+
+/* ---- the cycloid's curvature and evolute (d = r) ------------------------
+   rho = 4r sin(th/2) (twice the normal chord to the contact point), the
+   centre of curvature E = r(th + sin th, cos th - 1) = the cycloid shifted
+   by (pi r, -2r); arc from the cusp 4r(1 - cos th/2), arc to the vertex
+   4r|cos th/2| = twice the chord to the top of the wheel (Wren). */
+function cycloidRho(r,th){ return 4*r*Math.sin(th/2); }
+function cycloidEvolute(r,th){ return [r*(th+Math.sin(th)),r*(Math.cos(th)-1)]; }
+function cycloidArcFromCusp(r,th){ return 4*r*(1-Math.cos(th/2)); }
+function cycloidArcToVertex(r,th){ return 4*r*Math.abs(Math.cos(th/2)); }
+function cycloidChordToTop(r,th){ const P=trochoid(r,r,th), T=wheelTop(r,th); return Math.hypot(T[0]-P[0],T[1]-P[1]); }
+/* curvature of any parametric curve by central differences (an independent
+   route to rho; the closed form is asserted against it) */
+function curvatureNumeric(fn,t,h){
+  h=h||1e-4;
+  const p=fn(t+h), m=fn(t-h), c=fn(t);
+  const x1=(p[0]-m[0])/(2*h), y1=(p[1]-m[1])/(2*h);
+  const x2=(p[0]-2*c[0]+m[0])/(h*h), y2=(p[1]-2*c[1]+m[1])/(h*h);
+  return Math.abs(x1*y2-y1*x2)/Math.pow(x1*x1+y1*y1,1.5);
+}
+/* unit tangent and the inward normal (toward the centre of curvature) */
+function cycloidTangent(r,th){ return [Math.sin(th/2),Math.cos(th/2)]; }
+function cycloidNormalIn(r,th){ return [Math.cos(th/2),-Math.sin(th/2)]; }
+
+/* ---- rolling on a circle of radius R: k = R/r = p/q -----------------------
+   epi (outside): P = (R+r)(cos t, sin t) - d(cos mt, sin mt), m = (R+r)/r
+   hypo (inside): P = (R-r)(cos t, sin t) + d(cos mt, -sin mt), m = (R-r)/r
+   t is the orbit angle of the rolling circle's centre; with d = r the point
+   is on the rim; cusps at t = 2 pi j q/p, closure after q orbits. */
+function epiPt(R,r,d,t){ const m=(R+r)/r; return [(R+r)*Math.cos(t)-d*Math.cos(m*t),(R+r)*Math.sin(t)-d*Math.sin(m*t)]; }
+function epiD(R,r,d,t){ const m=(R+r)/r; return [-(R+r)*Math.sin(t)+d*m*Math.sin(m*t),(R+r)*Math.cos(t)-d*m*Math.cos(m*t)]; }
+function hypoPt(R,r,d,t){ const m=(R-r)/r; return [(R-r)*Math.cos(t)+d*Math.cos(m*t),(R-r)*Math.sin(t)-d*Math.sin(m*t)]; }
+function hypoD(R,r,d,t){ const m=(R-r)/r; return [-(R-r)*Math.sin(t)-d*m*Math.sin(m*t),(R-r)*Math.cos(t)-d*m*Math.cos(m*t)]; }
+function rollPt(outside,R,r,d,t){ return outside?epiPt(R,r,d,t):hypoPt(R,r,d,t); }
+function rollD(outside,R,r,d,t){ return outside?epiD(R,r,d,t):hypoD(R,r,d,t); }
+function rollCentre(outside,R,r,t){ const c=outside?R+r:R-r; return [c*Math.cos(t),c*Math.sin(t)]; }
+/* the rolling circle's own rotation angle about its centre, for drawing a spoke */
+function rollSpin(outside,R,r,t){ return outside?(R+r)*t/r:-(R-r)*t/r; }
+function archLengthClosed(outside,R,r){ return 8*r*(R+(outside?r:-r))/R; }
+function famLength(outside,R,r,p,q){ return glQuad(t=>{ const v=rollD(outside,R,r,r,t); return Math.hypot(v[0],v[1]); },0,TAU*q/p,48); }
+function famArea(outside,R,r,q){ return 0.5*glQuad(t=>{ const P=rollPt(outside,R,r,r,t), v=rollD(outside,R,r,r,t); return P[0]*v[1]-P[1]*v[0]; },0,TAU*q,64); }
+function famAreaClosed(outside,r,k){ return outside?PI*r*r*(k+1)*(k+2):PI*r*r*(k-1)*(k-2); }
+/* the named members */
+const NAMED=[{id:'cardioid',name:'cardioid',outside:true,p:1,q:1},{id:'nephroid',name:'nephroid',outside:true,p:2,q:1},
+             {id:'tusi',name:'Tusi couple',outside:false,p:2,q:1},{id:'deltoid',name:'deltoid',outside:false,p:3,q:1},
+             {id:'astroid',name:'astroid',outside:false,p:4,q:1},{id:'custom',name:'p / q',outside:false,p:5,q:2}];
+
+/* ---- the caustic of a circle (specular reflection off the inside) --------
+   Rays are given by a point Q on the unit circle and the incoming direction;
+   the reflected direction is d - 2(d.n)n with n = Q.  The envelope of the
+   reflected rays is found numerically as the intersection of neighbouring
+   rays (Richardson-extrapolated), and compared with the closed forms:
+   parallel light -> the nephroid (3cos ph - cos 3ph, 3sin ph - sin 3ph)/4;
+   a source on the rim at (-1, 0) -> the cardioid
+   (2/3 cos t - 1/3 cos 2t, 2/3 sin t - 1/3 sin 2t). */
+function reflect(d,n){ const k=2*(d[0]*n[0]+d[1]*n[1]); return [d[0]-k*n[0],d[1]-k*n[1]]; }
+/* the first forward hit of the unit circle from a point S inside it */
+function hitCircle(S,d){
+  const b=S[0]*d[0]+S[1]*d[1], c=S[0]*S[0]+S[1]*S[1]-1;
+  const s=-b+Math.sqrt(Math.max(0,b*b-c));
+  return [S[0]+s*d[0],S[1]+s*d[1]];
+}
+/* a ray family: u in (0,1) -> {Q, dIn, dOut}; three sources */
+function rayFamily(src,S){
+  if(src==='parallel') return u=>{ const y=-0.999+1.998*u; const Q=[Math.sqrt(1-y*y),y], d=[1,0]; return {Q,dIn:d,dOut:reflect(d,Q)}; };
+  if(src==='rim') return u=>{ const al=-1.55+3.1*u; const d=[Math.cos(al),Math.sin(al)], Q=hitCircle([-1,0],d); return {Q,dIn:d,dOut:reflect(d,Q)}; };
+  return u=>{ const al=TAU*u; const d=[Math.cos(al),Math.sin(al)], Q=hitCircle(S,d); return {Q,dIn:d,dOut:reflect(d,Q)}; };
+}
+function intersectRays(Q1,d1,Q2,d2){
+  const det=d1[0]*(-d2[1])-(-d2[0])*d1[1];
+  if(Math.abs(det)<1e-14) return null;
+  const bx=Q2[0]-Q1[0], by=Q2[1]-Q1[1];
+  const s=(bx*(-d2[1])-(-d2[0])*by)/det;
+  return [Q1[0]+s*d1[0],Q1[1]+s*d1[1]];
+}
+function envelopePt(fam,u,h){
+  h=h||2e-4;
+  const a=fam(u-h), b=fam(u+h), e1=intersectRays(a.Q,a.dOut,b.Q,b.dOut);
+  const c=fam(u-h/2), dd=fam(u+h/2), e2=intersectRays(c.Q,c.dOut,dd.Q,dd.dOut);
+  if(!e1||!e2) return null;
+  return [(4*e2[0]-e1[0])/3,(4*e2[1]-e1[1])/3];
+}
+function nephroidPt(ph){ return [(3*Math.cos(ph)-Math.cos(3*ph))/4,(3*Math.sin(ph)-Math.sin(3*ph))/4]; }
+function cardioidPt(t){ return [(2/3)*Math.cos(t)-(1/3)*Math.cos(2*t),(2/3)*Math.sin(t)-(1/3)*Math.sin(2*t)]; }
+/* distance from a point to a closed parametric curve, by a coarse scan then refinement */
+function distToCurve(P,fn,n){
+  n=n||720; let best=1e9,bt=0;
+  for(let i=0;i<n;i++){ const t=TAU*i/n, c=fn(t), d=Math.hypot(c[0]-P[0],c[1]-P[1]); if(d<best){ best=d; bt=t; } }
+  let lo=bt-TAU/n, hi=bt+TAU/n;
+  for(let k=0;k<40;k++){ const m1=lo+(hi-lo)/3, m2=hi-(hi-lo)/3;
+    const c1=fn(m1), c2=fn(m2), d1=Math.hypot(c1[0]-P[0],c1[1]-P[1]), d2=Math.hypot(c2[0]-P[0],c2[1]-P[1]);
+    if(d1<d2) hi=m2; else lo=m1; }
+  const c=fn(0.5*(lo+hi)); return Math.hypot(c[0]-P[0],c[1]-P[1]);
+}
+/* the paraxial image of an axial source at distance u from the mirror (R = 1): 1/v = 2/R - 1/u */
+function paraxialImage(u){ return 1/(2-1/u); }
+
+/* ---- the spirograph: ring N teeth (radius 1), wheel n teeth, pen at pen*r --- */
+function spiroPt(N,n,pen,outside,t){ const r=n/N; return rollPt(outside,1,r,pen*r,t); }
+function spiroD(N,n,pen,outside,t){ const r=n/N; return rollD(outside,1,r,pen*r,t); }
+function spiroFacts(N,n){ const g=gcd(N,n); return {g,lobes:N/g,orbits:n/g,r:n/N,turnsPerOrbit:(N-n)/n,turnsPerOrbitOut:(N+n)/n}; }
+
+/* ================================================================== *
+ *  state, the live clock, the per-view model, readout, eqbar          *
+ * ================================================================== */
+const TABS=[['wheel','the wheel'],['family','the family'],['evolute','the evolute'],
+            ['area','the area'],['caustic','the caustic'],['spiro','the spirograph']];
+const SIDE_LIST=[{id:false,name:'inside (hypo-)'},{id:true,name:'outside (epi-)'}];
+const SRC_LIST=[{id:'parallel',name:'parallel light'},{id:'rim',name:'a point on the rim'},{id:'point',name:'a point inside (drag)'}];
+const SPIRO_SIDE=[{id:false,name:'wheel inside the ring'},{id:true,name:'wheel outside the ring'}];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0',
+           dim:'#8b93a6', off:'#161c2c', edge:'#242a3a', comp:'#2a3346', gold:'#d9b44a'};
+const RO_W=300;
+const WHEEL_OMEGA=TAU/4;          /* one turn of the wheel in 4 s at speed 1 */
+const ORBIT_OMEGA=TAU/5;          /* one orbit of the rolling circle in 5 s */
+
+const DEFAULTS={view:'wheel', dr:1.0, running:true, speed:1,
+                named:'deltoid', p:3, q:1, outside:false,
+                src:'parallel', sx:-0.5, sy:0.0, rays:24,
+                spN:96, spn:40, pen:0.8, spOut:false, showFull:true};
+const ST=Object.assign({},DEFAULTS);
+const LIM={drMax:1.8, pMax:9, qMax:5, raysMax:64};
+
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+function lazyC(obj,name,fn){
+  Object.defineProperty(obj,name,{configurable:true,enumerable:false,get(){
+    const v=fn(); Object.defineProperty(obj,name,{value:v,configurable:true,enumerable:false}); return v; }});
+}
+
+/* ---- the live clock: every animated view reads its parameter from SIM.t ---- */
+const SIM={t:0, key:''};
+function simKey(st){ return [st.view,st.dr,st.p,st.q,st.outside,st.spN,st.spn,st.pen,st.spOut].join('|'); }
+function simReset(st){ SIM.t=0; SIM.key=simKey(st); }
+function simAdvance(st){ if(SIM.key!==simKey(st)) simReset(st); SIM.t+=FRAME_DT*st.speed; }
+function viewAnimates(v){ return v!=='caustic'; }
+
+/* the family's live parameters: the named chip sets p, q, side; 'custom' frees the sliders */
+function famParams(st){
+  const nm=NAMED.find(x=>x.id===st.named)||NAMED[NAMED.length-1];
+  if(nm.id==='custom') return {p:st.p,q:st.q,outside:st.outside,name:'k = '+st.p+'/'+st.q};
+  return {p:nm.p,q:nm.q,outside:nm.outside,name:nm.name};
+}
+
+/* ---- the wheel ------------------------------------------------------------ */
+function wheelModel(st){
+  const r=1, d=st.dr;
+  return memo('wheel',String(d),()=>{
+    const Lq=trochoidArchLength(r,d,32), Lc=trochoidArchLengthClosed(r,d);
+    const Aq=trochoidArchArea(r,d,32), Ac=trochoidArchAreaClosed(r,d);
+    const kind=d<r-1e-9?'curtate':(d>r+1e-9?'prolate':'cycloid');
+    return {r,d,Lq,Lc,Aq,Ac,kind,speedMin:Math.abs(r-d),speedMax:r+d};
+  });
+}
+
+/* ---- the family ------------------------------------------------------------ */
+function familyModel(st){
+  const f=famParams(st), R=1, r=f.q/f.p, k=f.p/f.q;
+  return memo('family',[f.p,f.q,f.outside].join('|'),()=>{
+    const g=gcd(f.p,f.q), p=f.p/g, q=f.q/g;
+    const Larch=archLengthClosed(f.outside,R,r), Lq=famLength(f.outside,R,r,p,q);
+    const hasArea=q===1&&(f.outside||p>=2);
+    const A=hasArea?famArea(f.outside,R,r,q):null, Ac=hasArea?famAreaClosed(f.outside,r,k):null;
+    const tClose=TAU*q;
+    /* the closure distances after each orbit and the speed at the cusps */
+    const closes=[]; for(let m=1;m<=q;m++){ const P=rollPt(f.outside,R,r,r,TAU*m), P0=rollPt(f.outside,R,r,r,0); closes.push(Math.hypot(P[0]-P0[0],P[1]-P0[1])); }
+    let vCusp=0; for(let j=0;j<p;j++){ const v=rollD(f.outside,R,r,r,TAU*j*q/p); vCusp=Math.max(vCusp,Math.hypot(v[0],v[1])); }
+    const twin=(!f.outside&&r<R)?{r:R-r,k:R/(R-r)}:null;
+    return {R,r,k,p,q,outside:f.outside,name:f.name,Larch,Ltot:p*Larch,Lq,A,Ac,hasArea,tClose,closes,vCusp,
+            turnsPerOrbit:f.outside?(R+r)/r:(R-r)/r,twin,isTusi:!f.outside&&p===2&&q===1};
+  });
+}
+
+/* ---- the evolute ----------------------------------------------------------- */
+function evoluteModel(st,th){
+  const r=1;
+  const P=trochoid(r,r,th), E=cycloidEvolute(r,th), rho=cycloidRho(r,th);
+  const kappa=curvatureNumeric(t=>trochoid(r,r,t),Math.min(Math.max(th,0.05),TAU-0.05));
+  const sCusp=cycloidArcFromCusp(r,th), sVert=cycloidArcToVertex(r,th), chord=cycloidChordToTop(r,th);
+  const sQuad=glQuad(t=>trochoidSpeed(r,r,t),0,th,32);
+  return {r,th,P,E,rho,rhoNumeric:1/kappa,sCusp,sVert,chord,sQuad,T:wheelTop(r,th),C:wheelContact(r,th),
+          tangent:cycloidTangent(r,th),normal:cycloidNormalIn(r,th),shift:[PI*r,-2*r]};
+}
+
+/* ---- the area --------------------------------------------------------------- */
+function areaModel(st,thS){
+  const r=1, d=Math.min(st.dr,1);          /* Roberval's argument is drawn for d <= r */
+  const W=wheelModel(Object.assign({},st,{dr:d}));
+  const rect=TAU*r*2*r, under=2*PI*r*r, cres=PI*d*d;
+  return {r,d,rect,under,cres,total:under+cres,quad:W.Aq,thS,ys:r-d*Math.cos(thS),gap:companionGap(d,thS),
+          swept:trochoidAreaTo(r,d,thS)};
+}
+
+/* ---- the caustic ------------------------------------------------------------ */
+function causticModel(st){
+  const S=[st.sx,st.sy];
+  const key=[st.src,st.sx,st.sy,st.rays].join('|');
+  return memo('caustic',key,()=>{
+    const fam=rayFamily(st.src,S);
+    const N=st.rays, rays=[]; for(let i=0;i<N;i++){ const u=(i+0.5)/N; rays.push(fam(u)); }
+    const M=240, env=[]; for(let i=1;i<M;i++){ const e=envelopePt(fam,i/M); if(e&&Math.hypot(e[0],e[1])<1.05) env.push(e); }
+    const exact=st.src==='parallel'?nephroidPt:(st.src==='rim'?cardioidPt:null);
+    let worst=0; if(exact) for(const e of env) worst=Math.max(worst,distToCurve(e,exact,720));
+    const cusp=st.src==='parallel'?[0.5,0]:(st.src==='rim'?[1/3,0]:null);
+    /* an axial source at (sx, 0) sits u = 1 - sx from the far wall at (1, 0) */
+    return {src:st.src,S,rays,env,exact,worst,cusp,paraxial:st.src==='point'&&Math.abs(st.sy)<1e-9?paraxialImage(1-st.sx):null};
+  });
+}
+
+/* ---- the spirograph --------------------------------------------------------- */
+function spiroModel(st){
+  const key=[st.spN,st.spn,st.pen,st.spOut].join('|');
+  return memo('spiro',key,()=>{
+    const F=spiroFacts(st.spN,st.spn);
+    const tClose=TAU*F.orbits;
+    const closes=[]; const P0=spiroPt(st.spN,st.spn,st.pen,st.spOut,0);
+    for(let m=1;m<=F.orbits;m++){ const P=spiroPt(st.spN,st.spn,st.pen,st.spOut,TAU*m); closes.push(Math.hypot(P[0]-P0[0],P[1]-P0[1])); }
+    /* count the radial maxima over the closed curve: the lobes */
+    const n=Math.max(2000,F.orbits*720); let lobes=0; let prev=0,cur=0;
+    const rad=i=>{ const idx=((i%n)+n)%n; const P=spiroPt(st.spN,st.spn,st.pen,st.spOut,tClose*idx/n); return Math.hypot(P[0],P[1]); };
+    prev=rad(-1); cur=rad(0);
+    for(let i=0;i<n;i++){ const nx=rad(i+1); if(cur>prev&&cur>nx) lobes++; prev=cur; cur=nx; }
+    return Object.assign({},F,{tClose,closes,lobesCounted:lobes,turns:st.spOut?F.turnsPerOrbitOut:F.turnsPerOrbit,pen:st.pen,outside:st.spOut,N:st.spN,n:st.spn});
+  });
+}
+
+function buildModel(){
+  const st=ST, view=st.view;
+  const M={view,st,t:SIM.t};
+  if(view==='wheel'){ M.W=wheelModel(st); M.th=WHEEL_OMEGA*SIM.t; M.thMod=M.th%TAU;
+    M.P=trochoid(1,st.dr,M.th); M.v=trochoidD(1,st.dr,M.th); M.speed=trochoidSpeed(1,st.dr,M.th);
+    M.centre=wheelCentre(1,M.th); M.contact=wheelContact(1,M.th); M.top=wheelTop(1,M.th); }
+  if(view==='family'){ M.F=familyModel(st); M.t1=ORBIT_OMEGA*SIM.t; M.P=rollPt(M.F.outside,M.F.R,M.F.r,M.F.r,M.t1);
+    M.centre=rollCentre(M.F.outside,M.F.R,M.F.r,M.t1); M.spin=rollSpin(M.F.outside,M.F.R,M.F.r,M.t1);
+    M.closedNow=M.t1>=M.F.tClose; }
+  if(view==='evolute'){ const th=(WHEEL_OMEGA*SIM.t*0.6)%TAU; M.Ev=evoluteModel(st,th); }
+  if(view==='area'){ const thS=(WHEEL_OMEGA*SIM.t*0.8)%TAU; M.Ar=areaModel(st,thS); }
+  if(view==='caustic') M.Ca=causticModel(st);
+  if(view==='spiro'){ M.Sp=spiroModel(st); M.t1=ORBIT_OMEGA*0.7*SIM.t; M.P=spiroPt(st.spN,st.spn,st.pen,st.spOut,M.t1);
+    M.centre=rollCentre(st.spOut,1,M.Sp.r,M.t1); M.spin=rollSpin(st.spOut,1,M.Sp.r,M.t1); M.closedNow=M.t1>=M.Sp.tClose; }
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function readoutHTML(M){
+  const st=ST;
+  let s='<div class="rname">cycloids<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='wheel'){
+    const W=M.W;
+    s+=hd('the wheel')+rrow('r, d',fmt(W.r,2)+', '+fmt(W.d,2))+rrow('kind',W.kind,W.kind==='cycloid'?'good':'')
+      +rrow('&theta;',fmt(M.thMod,3)+' rad')+rrow('P',fmt(M.P[0],3)+', '+fmt(M.P[1],3))
+      +rrow('|v| / r&omega;',fmt(M.speed,4),M.speed<1e-6?'good':'')+rrow('|v| range',fmt(W.speedMin,2)+' &hellip; '+fmt(W.speedMax,2));
+    s+=hd('one arch')+rrow('length, quadrature',fmt(W.Lq,6))+rrow('4(r+d)E(m)',fmt(W.Lc,6),'good')
+      +rrow('&int;y dx, quadrature',fmt(W.Aq,6))+rrow('2&pi;r&sup2; + &pi;d&sup2;',fmt(W.Ac,6),'good');
+    if(W.kind==='cycloid') s+=rrow('= 8r, 3&pi;r&sup2;',fmt(8*W.r,2)+', '+fmt(3*PI*W.r*W.r,4));
+  }
+  else if(M.view==='family'){
+    const F=M.F;
+    s+=hd(F.name)+rrow('k = R/r',F.p+'/'+F.q+' = '+fmt(F.k,4))+rrow('rolling radius r',fmt(F.r,4))
+      +rrow('side',F.outside?'outside (epicycloid)':'inside (hypocycloid)')
+      +rrow('cusps',F.p,'good')+rrow('closes after',F.q+' orbit'+(F.q>1?'s':''))
+      +rrow('rolling circle turns per orbit',fmt(F.turnsPerOrbit,3));
+    s+=hd('lengths and areas')+rrow('one arch, 8r(R&plusmn;r)/R',fmt(F.Larch,6),'good')+rrow('one arch, quadrature',fmt(F.Lq,6))
+      +rrow('whole curve',fmt(F.Ltot,5));
+    if(F.hasArea) s+=rrow('area, &frac12;&oint;(x dy &minus; y dx)',fmt(F.A,6))+rrow('&pi;r&sup2;(k&plusmn;1)(k&plusmn;2)',fmt(F.Ac,6),'good');
+    else s+=rrow('area','not defined: the curve crosses itself');
+    if(F.isTusi) s+=rrow('Tusi couple','a straight diameter','good');
+    if(F.twin) s+=rrow('double generation','r = '+fmt(F.twin.r,4)+' draws the same curve');
+    s+=hd('the run')+rrow('orbit angle t',fmt(M.t1,3)+' rad')+rrow('closed yet',M.closedNow?'yes':'not yet');
+  }
+  else if(M.view==='evolute'){
+    const E=M.Ev;
+    s+=hd('the point')+rrow('&theta;',fmt(E.th,3)+' rad')+rrow('P',fmt(E.P[0],3)+', '+fmt(E.P[1],3));
+    s+=hd('curvature')+rrow('&rho; = 4r sin(&theta;/2)',fmt(E.rho,5),'good')+rrow('1/&kappa;, finite differences',fmt(E.rhoNumeric,5))
+      +rrow('centre E',fmt(E.E[0],3)+', '+fmt(E.E[1],3))+rrow('= r(&theta;+&pi;) + (&pi;r, &minus;2r)','the evolute is a congruent cycloid');
+    s+=hd('arc lengths')+rrow('from the cusp, 4r(1&minus;cos &theta;/2)',fmt(E.sCusp,5),'good')+rrow('from the cusp, quadrature',fmt(E.sQuad,5))
+      +rrow('to the vertex, 4r|cos &theta;/2|',fmt(E.sVert,5))+rrow('chord to the top of the wheel',fmt(E.chord,5))
+      +rrow('arc / chord',fmt(E.sVert/Math.max(E.chord,1e-12),4),'good');
+  }
+  else if(M.view==='area'){
+    const A=M.Ar;
+    s+=hd('Roberval, d = '+fmt(A.d,2))+rrow('rectangle 2&pi;r &times; 2r',fmt(A.rect,5))+rrow('under the companion, 2&pi;r&sup2;',fmt(A.under,5))
+      +rrow('the two crescents, &pi;d&sup2;',fmt(A.cres,5))+rrow('total 2&pi;r&sup2; + &pi;d&sup2;',fmt(A.total,5),'good')
+      +rrow('&int;y dx, quadrature',fmt(A.quad,5));
+    if(A.d>=1-1e-9) s+=rrow('= 3&pi;r&sup2;',fmt(3*PI,5),'good');
+    s+=hd('the slice')+rrow('height y',fmt(A.ys,3))+rrow('gap = d sin &theta;',fmt(A.gap,4))+rrow('area swept to &theta;',fmt(A.swept,4));
+  }
+  else if(M.view==='caustic'){
+    const C=M.Ca;
+    s+=hd('the source')+rrow('light',SRC_LIST.find(x=>x.id===C.src).name)+rrow('rays drawn',C.rays.length);
+    if(C.src==='point') s+=rrow('S',fmt(C.S[0],3)+', '+fmt(C.S[1],3));
+    s+=hd('the envelope')+rrow('points',C.env.length);
+    if(C.exact) s+=rrow('closed form',C.src==='parallel'?'nephroid, cusp at R/2':'cardioid, cusp at R/3','good')
+      +rrow('max distance to it',sigf(C.worst,2))+rrow('cusp',fmt(C.cusp[0],4)+', '+fmt(C.cusp[1],1));
+    else { s+=rrow('closed form','none: computed numerically','bad'); if(C.paraxial!==null) s+=rrow('paraxial focus, 1/v = 2/R &minus; 1/u',fmt(1-C.paraxial,4)+' from the centre'); }
+  }
+  else if(M.view==='spiro'){
+    const P=M.Sp;
+    s+=hd('the gears')+rrow('ring / wheel teeth',P.N+' / '+P.n)+rrow('gcd',P.g)+rrow('wheel radius r',fmt(P.r,4))
+      +rrow('pen at',fmt(P.pen,2)+' r')+rrow('side',P.outside?'outside':'inside');
+    s+=hd('the pattern')+rrow('lobes N/gcd',P.lobes,'good')+rrow('lobes counted',P.lobesCounted,P.lobesCounted===P.lobes?'good':'bad')
+      +rrow('closes after n/gcd',P.orbits+' orbit'+(P.orbits>1?'s':''))+rrow('wheel turns per orbit',fmt(P.turns,4));
+    s+=hd('the run')+rrow('orbit angle t',fmt(M.t1,3)+' rad')+rrow('orbits',fmt(M.t1/TAU,2))+rrow('closed yet',M.closedNow?'yes':'not yet');
+  }
+  s+='</table><div class="note">No measured data: every length is a Gauss&ndash;Legendre quadrature pinned to scipy, every '
+    +'area is Green&rsquo;s theorem, and every closed form is asserted in selfTest against build_cycloid/derive.py.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='wheel') return E('x = r&theta; &minus; d sin &theta;, &nbsp; y = r &minus; d cos &theta; &nbsp;&middot;&nbsp; <span class="hl">v &perp; (P &minus; C)</span>, &nbsp; |v| = &omega;&radic;(r&sup2; + d&sup2; &minus; 2rd cos &theta;)',
+    'the contact point C is the instantaneous centre of rotation: at d = r the point stops dead there, which is the cusp');
+  if(M.view==='family') return E('P = (R &plusmn; r)(cos t, sin t) &minus;&#8202;/&#8202;+ r(cos ((R&plusmn;r)t/r), &plusmn;sin ((R&plusmn;r)t/r)) &nbsp;&middot;&nbsp; <span class="hl">k = R/r = p/q: p cusps, closed after q orbits</span>',
+    'cardioid, nephroid, deltoid, astroid are k = 1, 2 outside and 3, 4 inside; the k = 2 hypocycloid is a straight line');
+  if(M.view==='evolute') return E('<span class="hl">&rho; = 4r sin(&theta;/2)</span>, &nbsp; E = r(&theta; + sin &theta;, cos &theta; &minus; 1) = r(&theta;+&pi;) + (&pi;r, &minus;2r) &nbsp;&middot;&nbsp; s = 4r(1 &minus; cos &theta;/2), total 8r',
+    'the normals envelope a congruent cycloid; the arc to the vertex is twice the chord to the top of the wheel (Wren, 1658)');
+  if(M.view==='area') return E('A = &int;<sub>0</sub><sup>2&pi;</sup> (r &minus; d cos &theta;)<sup>2</sup> d&theta; = <span class="hl">2&pi;r&sup2; + &pi;d&sup2;</span> &nbsp;&rarr;&nbsp; 3&pi;r&sup2; at d = r',
+    'Roberval, 1634: slice the crescents horizontally — every slice equals a chord of the circle of radius d, so together they are one disc');
+  if(M.view==='caustic') return E('<span class="hl">d&prime; = d &minus; 2(d&middot;n)n</span> &nbsp;&middot;&nbsp; parallel light &rarr; nephroid (3cos&phi; &minus; cos 3&phi;, 3sin&phi; &minus; sin 3&phi;)/4 &nbsp;&middot;&nbsp; rim source &rarr; cardioid',
+    'the bright curve in a cup is the envelope of once-reflected rays; the two classical cases are epicycloids, any other source is not');
+  return E('P = (1 &minus; r)(cos t, sin t) + d(cos((1&minus;r)t/r), &minus;sin((1&minus;r)t/r)), &nbsp; r = n/N &nbsp;&middot;&nbsp; <span class="hl">N/gcd lobes, closed after n/gcd orbits</span>',
+    'a Spirograph pattern is a hypotrochoid: the tooth counts fix the symmetry, the pen hole fixes the shape');
+}
+function tagHTML(M){
+  const st=ST;
+  if(M.view==='wheel') return '<b>the wheel</b> — d/r = '+fmt(st.dr,2)+', '+M.W.kind;
+  if(M.view==='family') return '<b>the family</b> — '+M.F.name+', k = '+M.F.p+'/'+M.F.q;
+  if(M.view==='evolute') return '<b>the evolute</b> — &rho; = 4r sin(&theta;/2)';
+  if(M.view==='area') return '<b>the area</b> — Roberval&rsquo;s companion curve';
+  if(M.view==='caustic') return '<b>the caustic</b> — '+SRC_LIST.find(x=>x.id===st.src).name;
+  return '<b>the spirograph</b> — '+st.spN+' / '+st.spn+' teeth';
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+/* a parametric curve fn(t) -> [x,y] drawn from t0 to t1 in n steps; every
+   segment is recorded in POLY_SEGS so legends dodge it and the sweep sees it */
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+/* the long title only when it fits inside its own panel (a 70-character title
+   on a 430 px panel ran off a 560 px canvas in the first sweep) */
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  view: the wheel                                                    *
+ * ================================================================== */
+const WHEEL_CAP_FULL='A wheel of radius r rolls without slipping on the line; the point at distance d from its centre traces a '
+  +'trochoid: curtate for d < r, the cycloid at d = r, prolate with loops for d > r. The contact point C is the instantaneous '
+  +'centre, so the velocity (magenta arrow) is always perpendicular to CP — and for d = r the tangent passes through the top of '
+  +'the wheel and the point stops dead at each cusp. Below: the speed over one turn, and the arc length accumulating to '
+  +'4(r + d)E(m) — exactly 8r for the cycloid. Equal aspect, y up.';
+const WHEEL_CAP_SHORT='A point on a rolling wheel: curtate, cycloid or prolate as d/r passes 1. Equal aspect, y up.';
+function wheelGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,WHEEL_CAP_FULL,WHEEL_CAP_SHORT,2,0.38,1);
+  const d=M.W.d, r=1;
+  const ext={xmin:-0.4-Math.max(d,r),xmax:2*TAU*r+Math.max(d,r)+0.4,ymin:Math.min(0,r-d)-0.3,ymax:r+Math.max(d,r)+0.3};
+  const map=worldFitUp(L.main,ext,0.05);
+  return Object.assign(L,{map,ext});
+}
+function drawWheel(ctx,W,H,M){
+  const G=wheelGeo(ctx,W,H,M), map=G.map, Wm=M.W, r=1, d=Wm.d, th=M.th;
+  frame(ctx,G.main,'#1a2030');
+  /* the ground */
+  seg(ctx,map,[G.ext.xmin,0],[G.ext.xmax,0],'#3a4258',1.2);
+  /* two full turns of the curve, faint; the traced part bright */
+  worldCurve(ctx,map,t=>trochoid(r,d,t),0,2*TAU,400,rgba(COL.pos,0.3),1.2,[4,4]);
+  if(th>0.01) worldCurve(ctx,map,t=>trochoid(r,d,t),0,th,Math.max(4,Math.ceil(th*40)),COL.pos,2.4);
+  /* the wheel, its spoke, the tracing point */
+  circleW(ctx,map,M.centre,r,COL.struct,1.6,null,rgba(COL.struct,0.06));
+  const rim=[M.centre[0]-r*Math.sin(th),M.centre[1]-r*Math.cos(th)];
+  seg(ctx,map,M.centre,d>r?M.P:rim,rgba(COL.struct,0.9),1.2);
+  if(d>r) seg(ctx,map,rim,M.P,rgba(COL.struct,0.5),1.2,[3,3]);
+  dot(ctx,map.X(M.centre[0]),map.Y(M.centre[1]),3,COL.struct,null);
+  /* the instantaneous radius C-P and the velocity, perpendicular to it */
+  seg(ctx,map,M.contact,M.P,rgba('#ffffff',0.7),1.1,[4,3]);
+  dot(ctx,map.X(M.contact[0]),map.Y(M.contact[1]),3.5,'#fff',null);
+  const vs=0.5/(r+d);
+  arrowW(ctx,map,M.P,[M.v[0]*vs,M.v[1]*vs],COL.live,2);
+  if(Math.abs(d-r)<1e-9){ seg(ctx,map,M.P,M.top,rgba(COL.gold,0.8),1.1,[2,4]); dot(ctx,map.X(M.top[0]),map.Y(M.top[1]),3,COL.gold,null);
+    lab(ctx,W,H,map.X(M.top[0])+8,map.Y(M.top[1])-10,'T: the tangent passes here',COL.gold,SM_FONT,'left'); }
+  dot(ctx,map.X(M.P[0]),map.Y(M.P[1]),6,COL.live,'#070b18',1.5);
+  lab(ctx,W,H,map.X(M.P[0])+10,map.Y(M.P[1])+12,'P',COL.live,'bold 12px -apple-system, sans-serif','left');
+  lab(ctx,W,H,map.X(M.contact[0])+8,map.Y(M.contact[1])+12,'C: the instantaneous centre','#fff',SM_FONT,'left');
+  lab(ctx,W,H,map.X(TAU*r)+4,map.Y(r+Math.max(d,r))+2,Wm.kind+' trochoid, d/r = '+fmt(d,2),COL.pos,SM_FONT,'left');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], xs=[],ys=[]; for(let i=0;i<=200;i++){ const t=TAU*i/200; xs.push(t); ys.push(trochoidSpeed(r,d,t)); }
+    axesR(ctx,b,0,TAU,0,Wm.speedMax*1.1,{title:titleFor(b,'speed of the point over one turn, |v| / rω','|v| / rω over a turn'),xlab:'θ, radians',ylab:'|v| / rω',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,xs,ys,0,TAU,0,Wm.speedMax*1.1,COL.live,1.8);
+    marker(ctx,b,0,TAU,0,Wm.speedMax*1.1,M.thMod,M.speed);
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1], xs=[],ys=[]; let s=0; const n=200;
+    for(let i=0;i<=n;i++){ const t=TAU*i/n; if(i>0) s+=glQuad(u=>trochoidSpeed(r,d,u),TAU*(i-1)/n,t,1); xs.push(t); ys.push(s); }
+    const yhi=Wm.Lc*1.1;
+    axesR(ctx,b,0,TAU,0,yhi,{title:titleFor(b,'arc length from the cusp, accumulating to 4(r + d)E(m)','arc length, to 4(r+d)E(m)'),xlab:'θ, radians',ylab:'s / r',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,[0,TAU],[Wm.Lc,Wm.Lc],0,TAU,0,yhi,COL.ref,1.2,[5,4]);
+    polyline(ctx,b,xs,ys,0,TAU,0,yhi,COL.pos,1.8);
+    marker(ctx,b,0,TAU,0,yhi,M.thMod,glQuad(u=>trochoidSpeed(r,d,u),0,M.thMod,32),COL.pos);
+    lab(ctx,W,H,b.x+6,b.y1-b.h*Wm.Lc/yhi-10,(Math.abs(d-r)<1e-9?'8r':'4(r+d)E(m)')+' = '+fmt(Wm.Lc,4),COL.ref,SM_FONT,'left');
+  }
+  drawCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  view: the family                                                   *
+ * ================================================================== */
+const FAM_CAP_FULL='A circle of radius r rolls on the outside (epicycloid) or the inside (hypocycloid) of a fixed circle of radius '
+  +'R = 1, and a point on its rim traces the curve. With k = R/r = p/q in lowest terms the curve has p cusps and closes after q '
+  +'orbits; the rolling circle turns (R ± r)/r times per orbit — a coin rolled round an equal coin turns twice. The k = 2 '
+  +'hypocycloid collapses to a diameter (the Tusi couple), and the (R, r) and (R, R − r) hypocycloids are the same curve, '
+  +'drawn dashed. Below: the speed over one closure (zero at every cusp) and the return distance to the start. Equal aspect.';
+const FAM_CAP_SHORT='A circle rolling on a circle: k = R/r = p/q gives p cusps, closed after q orbits. Equal aspect.';
+function famGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,FAM_CAP_FULL,FAM_CAP_SHORT,2,0.36,1);
+  const F=M.F, reach=F.outside?F.R+2*F.r:F.R;
+  const ext={xmin:-reach,xmax:reach,ymin:-reach,ymax:reach};
+  const map=worldFitUp(L.main,ext,0.06*reach);
+  return Object.assign(L,{map,ext});
+}
+function drawFamily(ctx,W,H,M){
+  const G=famGeo(ctx,W,H,M), map=G.map, F=M.F;
+  circleW(ctx,map,[0,0],F.R,COL.struct,1.8,null,rgba(COL.struct,0.04));
+  /* the full curve faint, the traced part bright, then the twin (double
+     generation) dashed ON TOP — drawn underneath it vanished, which hid the
+     one thing the overlay exists to show: the dashes sit on the green */
+  worldCurve(ctx,map,t=>rollPt(F.outside,F.R,F.r,F.r,t),0,F.tClose,Math.max(240,240*F.q),rgba(COL.pos,0.35),1.3);
+  const tEnd=Math.min(M.t1,F.tClose);
+  if(tEnd>0.01) worldCurve(ctx,map,t=>rollPt(F.outside,F.R,F.r,F.r,t),0,tEnd,Math.max(8,Math.ceil(tEnd*60)),COL.pos,2.4);
+  if(F.twin&&!F.isTusi){ const r2=F.twin.r, g2=gcd(F.p,Math.max(1,F.p-F.q)), q2=(F.p-F.q)/g2;
+    worldCurve(ctx,map,t=>hypoPt(F.R,r2,r2,t),0,TAU*Math.max(1,q2),Math.max(200,240*q2),COL.ref,1.4,[3,6]); }
+  /* the cusps */
+  for(let j=0;j<F.p;j++){ const c=rollPt(F.outside,F.R,F.r,F.r,TAU*j*F.q/F.p); dot(ctx,map.X(c[0]),map.Y(c[1]),2.5,COL.pos,null); }
+  /* the rolling circle, the radius to the tracing point and the spoke
+     opposite it (the point sits on the rim at the spin angle: asserted) */
+  circleW(ctx,map,M.centre,F.r,COL.struct,1.3,null,rgba(COL.struct,0.08));
+  const sp=[2*M.centre[0]-M.P[0],2*M.centre[1]-M.P[1]];
+  seg(ctx,map,M.centre,M.P,rgba(COL.struct,0.9),1.2);
+  seg(ctx,map,M.centre,sp,rgba(COL.struct,0.35),1,[2,3]);
+  dot(ctx,map.X(M.centre[0]),map.Y(M.centre[1]),2.5,COL.struct,null);
+  dot(ctx,map.X(M.P[0]),map.Y(M.P[1]),6,COL.live,'#070b18',1.5);
+  lab(ctx,W,H,map.X(-F.R)-8,map.Y(0),'R = 1',COL.struct,SM_FONT,'right');
+  lab(ctx,W,H,map.X(M.P[0])+10,map.Y(M.P[1])-10,'P',COL.live,'bold 12px -apple-system, sans-serif','left');
+  if(F.twin&&!F.isTusi&&!G.narrow) lab(ctx,W,H,G.main.x+8,G.main.y1-12,'dashed: the same curve from r = '+fmt(F.twin.r,3)+' (double generation)',COL.ref,SM_FONT,'left');
+  if(F.isTusi) lab(ctx,W,H,map.X(0),map.Y(0)-14,'the Tusi couple: a straight diameter',COL.pos,SM_FONT,'center');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], xs=[],ys=[], n=400; let vmax=0;
+    for(let i=0;i<=n;i++){ const t=F.tClose*i/n, v=rollD(F.outside,F.R,F.r,F.r,t), sp2=Math.hypot(v[0],v[1]); xs.push(t/TAU); ys.push(sp2); vmax=Math.max(vmax,sp2); }
+    axesR(ctx,b,0,F.q,0,vmax*1.1,{title:titleFor(b,'speed of the point over one closure: zero at each cusp','speed over one closure'),xlab:'orbits',ylab:'|dP/dt|',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,xs,ys,0,F.q,0,vmax*1.1,COL.pos,1.6);
+    marker(ctx,b,0,F.q,0,vmax*1.1,Math.min(M.t1,F.tClose)/TAU,(()=>{ const v=rollD(F.outside,F.R,F.r,F.r,Math.min(M.t1,F.tClose)); return Math.hypot(v[0],v[1]); })());
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1], xs=[],ys=[], n=400, P0=rollPt(F.outside,F.R,F.r,F.r,0); let dmax=0;
+    for(let i=0;i<=n;i++){ const t=F.tClose*i/n, P=rollPt(F.outside,F.R,F.r,F.r,t), dd=Math.hypot(P[0]-P0[0],P[1]-P0[1]); xs.push(t/TAU); ys.push(dd); dmax=Math.max(dmax,dd); }
+    axesR(ctx,b,0,F.q,0,dmax*1.1,{title:titleFor(b,'distance from the start: back to zero only after q orbits','return distance'),xlab:'orbits',ylab:'|P(t) − P(0)|',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,xs,ys,0,F.q,0,dmax*1.1,COL.struct,1.6);
+    for(let m=1;m<=F.q;m++){ const X=b.x+b.w*m/F.q, Y=b.y1-b.h*F.closes[m-1]/(dmax*1.1); dot(ctx,X,clamp(Y,b.y,b.y1),3.5,m===F.q?COL.pos:COL.ref,'#fff'); }
+  }
+  drawCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  view: the evolute                                                  *
+ * ================================================================== */
+const EVO_CAP_FULL='The normals of a cycloid (faint cyan, one every 15°) envelope its evolute (orange): a congruent cycloid shifted '
+  +'by (πr, −2r). At the moving point the tangent (white) passes through the top T of the generating wheel and the normal through '
+  +'the contact C; the radius of curvature ρ = 4r sin(θ/2) is twice the chord PC, and the osculating circle (dashed) is centred '
+  +'on the evolute. The arc from P to the vertex is twice the chord PT (gold) — which is how Wren found the length 8r. Below: '
+  +'ρ against θ, closed form and finite differences; and the arc length from the cusp, closed form and quadrature. Equal aspect, y up.';
+const EVO_CAP_SHORT='The normals of a cycloid envelope a congruent cycloid; ρ = 4r sin(θ/2), arc to the vertex = 2 × chord to the top. Equal aspect.';
+function evoGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,EVO_CAP_FULL,EVO_CAP_SHORT,2,0.36,1);
+  const ext={xmin:-0.6,xmax:TAU+0.6,ymin:-2.3,ymax:2.4};
+  const map=worldFitUp(L.main,ext,0.05);
+  return Object.assign(L,{map,ext});
+}
+function drawEvolute(ctx,W,H,M){
+  const G=evoGeo(ctx,W,H,M), map=G.map, E=M.Ev, r=1, th=E.th;
+  seg(ctx,map,[G.ext.xmin,0],[G.ext.xmax,0],'#3a4258',1.2);
+  /* the fan of normals */
+  for(let j=1;j<24;j++){ const t=TAU*j/24, P=trochoid(r,r,t), Ee=cycloidEvolute(r,t), n=cycloidNormalIn(r,t);
+    seg(ctx,map,P,[Ee[0]+0.25*n[0],Ee[1]+0.25*n[1]],rgba(COL.struct,0.28),1); }
+  worldCurve(ctx,map,t=>cycloidEvolute(r,t),0,TAU,300,COL.ref,2);
+  worldCurve(ctx,map,t=>trochoid(r,r,t),0,TAU,300,COL.pos,2.4);
+  /* the wheel, the tangent through T, the normal through C to E, the osculating circle */
+  circleW(ctx,map,wheelCentre(r,th),r,rgba(COL.struct,0.5),1,[3,3]);
+  const tg=E.tangent, nm=E.normal;
+  seg(ctx,map,[E.P[0]-1.2*tg[0],E.P[1]-1.2*tg[1]],[E.P[0]+1.2*tg[0],E.P[1]+1.2*tg[1]],'#fff',1.2);
+  seg(ctx,map,E.P,E.E,rgba(COL.live,0.9),1.3,[4,3]);
+  circleW(ctx,map,E.E,E.rho,rgba(COL.live,0.7),1.1,[5,4]);
+  seg(ctx,map,E.P,E.T,COL.gold,1.6);
+  dot(ctx,map.X(E.T[0]),map.Y(E.T[1]),3.5,COL.gold,null);
+  dot(ctx,map.X(E.C[0]),map.Y(E.C[1]),3.5,'#fff',null);
+  dot(ctx,map.X(E.E[0]),map.Y(E.E[1]),4,COL.ref,'#fff');
+  dot(ctx,map.X(E.P[0]),map.Y(E.P[1]),6,COL.live,'#070b18',1.5);
+  lab(ctx,W,H,map.X(E.P[0])+10,map.Y(E.P[1])-10,'P',COL.live,'bold 12px -apple-system, sans-serif','left');
+  lab(ctx,W,H,map.X(E.T[0])+8,map.Y(E.T[1])-8,'T',COL.gold,LAB_FONT,'left');
+  lab(ctx,W,H,map.X(E.C[0])+8,map.Y(E.C[1])+12,'C','#fff',LAB_FONT,'left');
+  lab(ctx,W,H,map.X(E.E[0])+9,map.Y(E.E[1])+12,'E: centre of curvature, ρ = '+fmt(E.rho,3),COL.ref,SM_FONT,'left');
+  lab(ctx,W,H,map.X(PI*r),map.Y(-2*r)+13,'the evolute: the cycloid shifted by (πr, −2r)',COL.ref,SM_FONT,'center','top');
+  lab(ctx,W,H,map.X(0)+6,map.Y(2*r)+2,'arc P→vertex = 2 × chord PT: '+fmt(E.sVert,3)+' = 2 × '+fmt(E.chord,3),COL.gold,SM_FONT,'left');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], xs=[],ys=[],xn=[],yn=[]; for(let i=0;i<=200;i++){ const t=TAU*i/200; xs.push(t); ys.push(cycloidRho(r,t)); }
+    for(let i=1;i<24;i++){ const t=TAU*i/24; xn.push(t); yn.push(1/curvatureNumeric(u=>trochoid(r,r,u),t)); }
+    axesR(ctx,b,0,TAU,0,4.4,{title:titleFor(b,'radius of curvature ρ = 4r sin(θ/2), and 1/κ by finite differences','ρ = 4r sin(θ/2) vs 1/κ'),xlab:'θ, radians',ylab:'ρ / r',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,xs,ys,0,TAU,0,4.4,COL.ref,1.8);
+    for(let i=0;i<xn.length;i++){ const X=b.x+b.w*xn[i]/TAU, Y=b.y1-b.h*yn[i]/4.4; dot(ctx,X,Y,2.5,null,'#fff',1); }
+    marker(ctx,b,0,TAU,0,4.4,th,E.rho);
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1], xs=[],ys=[],xq=[],yq=[]; for(let i=0;i<=200;i++){ const t=TAU*i/200; xs.push(t); ys.push(cycloidArcFromCusp(r,t)); }
+    for(let i=0;i<=16;i++){ const t=TAU*i/16; xq.push(t); yq.push(glQuad(u=>trochoidSpeed(r,r,u),0,t,16)); }
+    axesR(ctx,b,0,TAU,0,8.8,{title:titleFor(b,'arc length from the cusp: 4r(1 − cos θ/2), and its quadrature','arc length s(θ), to 8r'),xlab:'θ, radians',ylab:'s / r',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,[0,TAU],[8,8],0,TAU,0,8.8,'#3a4258',1,[4,4]);
+    polyline(ctx,b,xs,ys,0,TAU,0,8.8,COL.pos,1.8);
+    for(let i=0;i<xq.length;i++){ const X=b.x+b.w*xq[i]/TAU, Y=b.y1-b.h*yq[i]/8.8; dot(ctx,X,Y,2.5,null,'#fff',1); }
+    marker(ctx,b,0,TAU,0,8.8,th,E.sCusp,COL.pos);
+    lab(ctx,W,H,b.x+6,b.y1-b.h*8/8.8-9,'8r',COL.dim,SM_FONT,'left');
+  }
+  drawCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  view: the area                                                     *
+ * ================================================================== */
+const AREA_CAP_FULL='Roberval\'s proof (1634) that the arch holds three times the wheel. The companion curve x = rθ, y = r − d cos θ '
+  +'(cyan) halves the rectangle 2πr × 2r, so the area under it is 2πr². Between the companion and the trochoid lie two crescents; '
+  +'the sweeping slice shows that at every height their width is d sin θ — exactly the half-chord of the circle of radius d '
+  +'drawn beside them at the same height. Cavalieri: the two crescents together make that disc, πd². Total 2πr² + πd², which is '
+  +'3πr² for the cycloid. Below: slice width against height, and the area accumulating. Equal aspect, y up.';
+const AREA_CAP_SHORT='Roberval: half the rectangle plus one disc of radius d, so 2πr² + πd² — three wheels at d = r. Equal aspect.';
+function areaGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,AREA_CAP_FULL,AREA_CAP_SHORT,2,0.36,1);
+  const A=M.Ar, r=A.r, d=A.d;
+  const ext={xmin:-0.3,xmax:TAU*r+3.6*d+0.6,ymin:-0.25,ymax:2*r+0.3};
+  const map=worldFitUp(L.main,ext,0.05);
+  return Object.assign(L,{map,ext});
+}
+function drawArea(ctx,W,H,M){
+  const G=areaGeo(ctx,W,H,M), map=G.map, A=M.Ar, r=A.r, d=A.d;
+  /* the rectangle and the ground */
+  ctx.strokeStyle='#2a3346'; ctx.lineWidth=1; ctx.setLineDash([3,4]);
+  ctx.strokeRect(map.X(0),map.Y(2*r),map.X(TAU*r)-map.X(0),map.Y(0)-map.Y(2*r)); ctx.setLineDash([]);
+  seg(ctx,map,[G.ext.xmin,0],[G.ext.xmax,0],'#3a4258',1.2);
+  /* the two crescents, filled */
+  const n=120, left=[], right=[];
+  for(let i=0;i<=n;i++) left.push(trochoid(r,d,PI*i/n)); for(let i=n;i>=0;i--) left.push(companion(r,d,PI*i/n));
+  for(let i=0;i<=n;i++) right.push(trochoid(r,d,PI+PI*i/n)); for(let i=n;i>=0;i--) right.push(companion(r,d,PI+PI*i/n));
+  worldFill(ctx,map,left,rgba(COL.live,0.22)); worldFill(ctx,map,right,rgba(COL.live,0.22));
+  /* the region under the companion, lightly */
+  const under=[[0,0]]; for(let i=0;i<=n;i++) under.push(companion(r,d,TAU*i/n)); under.push([TAU*r,0]);
+  worldFill(ctx,map,under,rgba(COL.struct,0.07));
+  worldCurve(ctx,map,t=>companion(r,d,t),0,TAU,200,COL.struct,1.6,[6,4]);
+  worldCurve(ctx,map,t=>trochoid(r,d,t),0,TAU,300,COL.pos,2.4);
+  /* the circle of radius d beside the arch, at the height of the wheel's centre */
+  const cc=[TAU*r+1.9*d+0.3,r];
+  circleW(ctx,map,cc,d,COL.ref,1.6,null,rgba(COL.ref,0.08));
+  /* the slice at height y_s: the crescent gap and the equal chord */
+  const th=A.thS, P=trochoid(r,d,th), Q=companion(r,d,th);
+  seg(ctx,map,[G.ext.xmin,A.ys],[cc[0]+d+0.2,A.ys],rgba('#ffffff',0.25),1,[2,4]);
+  seg(ctx,map,P,Q,COL.live,3);
+  const hc=companionGap(d,th);
+  seg(ctx,map,[cc[0],A.ys],[cc[0]+Math.abs(hc),A.ys],COL.live,3);
+  seg(ctx,map,[cc[0]-Math.abs(hc),A.ys],[cc[0],A.ys],rgba(COL.live,0.45),3);
+  dot(ctx,map.X(P[0]),map.Y(P[1]),4,COL.live,'#fff');
+  lab(ctx,W,H,map.X(TAU*r/2),map.Y(2*r)-10,'rectangle 2πr × 2r = '+fmt(A.rect,3),COL.dim,SM_FONT,'center');
+  lab(ctx,W,H,map.X(TAU*r*0.5)+40,map.Y(r*0.55),'under the companion: 2πr² = '+fmt(A.under,3),COL.struct,SM_FONT,'left');
+  lab(ctx,W,H,map.X(TAU*r*0.25),map.Y(r+0.55*d)+2,'crescent',COL.live,SM_FONT,'center');
+  lab(ctx,W,H,map.X(cc[0]),map.Y(r+d)-10,'circle of radius d: πd² = '+fmt(A.cres,3),COL.ref,SM_FONT,'center');
+  /* under the circle, not beside it: beside it the label ran under the readout */
+  lab(ctx,W,H,map.X(cc[0]),map.Y(r-d)+12,'half-chord = d sin θ = '+fmt(Math.abs(hc),3),COL.live,SM_FONT,'center','top');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], xs=[],ys=[],xc=[],yc=[];
+    for(let i=0;i<=200;i++){ const t=PI*i/200; xs.push(r-d*Math.cos(t)); ys.push(companionGap(d,t)); }
+    for(let i=0;i<=200;i++){ const y=r-d+2*d*i/200; xc.push(y); yc.push(Math.sqrt(Math.max(0,d*d-(y-r)*(y-r)))); }
+    axesR(ctx,b,r-d,r+d,0,d*1.15,{title:titleFor(b,'slice width against height: the crescent gap and the half-chord','crescent gap vs half-chord'),xlab:'height y',ylab:'width',nx:4,ny:3});
+    polyline(ctx,b,xc,yc,r-d,r+d,0,d*1.15,COL.ref,3,[6,4]);
+    polyline(ctx,b,xs,ys,r-d,r+d,0,d*1.15,COL.live,1.6);
+    marker(ctx,b,r-d,r+d,0,d*1.15,A.ys,Math.abs(hc));
+    legendAuto(ctx,b,[[COL.live,'crescent: d sin θ'],[COL.ref,'circle: half-chord']]);
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1], xs=[],ys=[]; for(let i=0;i<=48;i++){ const t=TAU*i/48; xs.push(t); ys.push(trochoidAreaTo(r,d,t)); }
+    axesR(ctx,b,0,TAU,0,A.total*1.1,{title:titleFor(b,'area swept under the arch, accumulating to 2πr² + πd²','∫y dx, to 2πr² + πd²'),xlab:'θ, radians',ylab:'area',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,[0,TAU],[A.total,A.total],0,TAU,0,A.total*1.1,COL.ref,1.2,[5,4]);
+    polyline(ctx,b,xs,ys,0,TAU,0,A.total*1.1,COL.pos,1.8);
+    marker(ctx,b,0,TAU,0,A.total*1.1,th,A.swept,COL.pos);
+  }
+  drawCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  view: the caustic                                                  *
+ * ================================================================== */
+const CAU_CAP_FULL='The bright curve in a coffee cup. Rays enter the cup (a circle of radius R), reflect once off the inside wall, and '
+  +'their reflected paths (cyan) pile up along an envelope (magenta), computed here as the meeting point of neighbouring reflected '
+  +'rays. For parallel light the envelope is a nephroid — the epicycloid of a circle of radius R/4 rolling on one of radius R/2, '
+  +'cusp at R/2 — and for a point source on the rim it is a cardioid with its cusp at R/3, both drawn dashed in orange. '
+  +'Move the source inside the cup and the envelope is no longer any epicycloid, so no closed form is drawn. Below: the '
+  +'envelope\'s distance from the centre against where the ray struck. Equal aspect.';
+const CAU_CAP_SHORT='Once-reflected rays in a cup envelope a nephroid (parallel light) or a cardioid (rim source). Equal aspect.';
+function cauGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,CAU_CAP_FULL,CAU_CAP_SHORT,1,0.34,1);
+  const ext={xmin:-1.5,xmax:1.2,ymin:-1.2,ymax:1.2};
+  const map=worldFitUp(L.main,ext,0.03);
+  return Object.assign(L,{map,ext});
+}
+function drawCaustic(ctx,W,H,M){
+  const G=cauGeo(ctx,W,H,M), map=G.map, C=M.Ca;
+  circleW(ctx,map,[0,0],1,COL.struct,2.2,null,rgba(COL.struct,0.04));
+  /* the rays: incoming faint, reflected brighter, each reflected ray to its next wall hit */
+  for(const ry of C.rays){
+    const start=C.src==='parallel'?[-1.45,ry.Q[1]]:(C.src==='rim'?[-1,0]:C.S);
+    seg(ctx,map,start,ry.Q,rgba(COL.struct,0.22),1);
+    const Q2=hitCircle([ry.Q[0]+1e-6*ry.dOut[0],ry.Q[1]+1e-6*ry.dOut[1]],ry.dOut);
+    seg(ctx,map,ry.Q,Q2,rgba(COL.struct,0.55),1);
+  }
+  if(C.exact) worldCurve(ctx,map,C.exact,0,TAU,400,COL.ref,1.6,[5,4]);
+  if(C.env.length>1){ ctx.beginPath(); C.env.forEach((e,i)=>{ if(i===0) ctx.moveTo(map.X(e[0]),map.Y(e[1])); else ctx.lineTo(map.X(e[0]),map.Y(e[1])); });
+    ctx.strokeStyle=COL.live; ctx.lineWidth=2.4; ctx.stroke(); }
+  if(C.src==='parallel'){ for(let i=0;i<5;i++){ const y=-0.8+0.4*i; arrowW(ctx,map,[-1.45,y],[0.25,0],rgba(COL.gold,0.8),1.4); } lab(ctx,W,H,map.X(-1.45),map.Y(1.02),'parallel light',COL.gold,SM_FONT,'left'); }
+  if(C.src==='rim'){ dot(ctx,map.X(-1),map.Y(0),5,COL.gold,'#fff'); lab(ctx,W,H,map.X(-1)-10,map.Y(0)-12,'source on the rim',COL.gold,SM_FONT,'right'); }
+  if(C.src==='point'){ dot(ctx,map.X(C.S[0]),map.Y(C.S[1]),7,null,COL.gold,1.8); dot(ctx,map.X(C.S[0]),map.Y(C.S[1]),3,COL.gold,null);
+    lab(ctx,W,H,map.X(C.S[0])+12,map.Y(C.S[1])-12,'source (drag)',COL.gold,SM_FONT,'left'); }
+  if(C.cusp){ dot(ctx,map.X(C.cusp[0]),map.Y(C.cusp[1]),4,COL.ref,'#fff'); lab(ctx,W,H,map.X(C.cusp[0])+8,map.Y(C.cusp[1])+12,'cusp at '+(C.src==='parallel'?'R/2':'R/3'),COL.ref,SM_FONT,'left'); }
+  lab(ctx,W,H,map.X(0.72),map.Y(0.78),C.exact?(C.src==='parallel'?'nephroid':'cardioid')+' (closed form, dashed)':'no closed form: the envelope only',C.exact?COL.ref:COL.live,SM_FONT,'left');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], xs=[],ys=[];
+    const fam=rayFamily(C.src,C.S);
+    for(let i=1;i<240;i++){ const u=i/240, e=envelopePt(fam,u); if(!e) continue; const Q=fam(u).Q; xs.push(Math.atan2(Q[1],Q[0])/DEG); ys.push(Math.hypot(e[0],e[1])); }
+    axesR(ctx,b,-180,180,0,1.05,{title:titleFor(b,'envelope distance from the centre, against where the ray struck the wall','|envelope| vs strike angle'),xlab:'strike angle φ, degrees',ylab:'|E| / R',nx:6,ny:3,xfmt:v=>fmt(v,0)});
+    /* the closed form's parameter IS the strike angle for both cases
+       (asserted in selfTest against derive.py: the ray striking at φ meets
+       its neighbours on nephroidPt(φ) / cardioidPt(φ)) */
+    if(C.exact){ const xc=[],yc=[]; for(let i=-179;i<=179;i++){ const ph=i*DEG, p=C.exact(ph); xc.push(i); yc.push(Math.hypot(p[0],p[1])); }
+      polyline(ctx,b,xc,yc,-180,180,0,1.05,COL.ref,1.4,[5,4]); }
+    polyline(ctx,b,xs,ys,-180,180,0,1.05,COL.live,1.8);
+  }
+  drawCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  view: the spirograph                                               *
+ * ================================================================== */
+const SPI_CAP_FULL='A Spirograph: a wheel of n teeth rolls inside (or outside) a ring of N teeth, with the pen at a chosen fraction of '
+  +'the wheel\'s radius — a hypotrochoid (or epitrochoid). The tooth counts fix the symmetry: N/gcd(N, n) lobes, and the pattern '
+  +'closes after n/gcd orbits of the wheel; the pen hole fixes the shape, from a cycloid with cusps at the rim to fat loops beyond it. '
+  +'Below: the pen\'s distance from the centre over one closure (one hump per lobe) and its distance from the start, which '
+  +'returns to zero only when the pattern closes. Equal aspect.';
+const SPI_CAP_SHORT='A wheel of n teeth in a ring of N: N/gcd lobes, closed after n/gcd orbits. Equal aspect.';
+function spiGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,SPI_CAP_FULL,SPI_CAP_SHORT,2,0.34,1);
+  const Sp=M.Sp, reach=Sp.outside?1+Sp.r*(1+Sp.pen):Math.max(1,1-Sp.r+Sp.r*Sp.pen);
+  const ext={xmin:-reach,xmax:reach,ymin:-reach,ymax:reach};
+  const map=worldFitUp(L.main,ext,0.06*reach);
+  return Object.assign(L,{map,ext});
+}
+function drawSpiro(ctx,W,H,M){
+  const G=spiGeo(ctx,W,H,M), map=G.map, Sp=M.Sp, st=M.st;
+  /* the ring with its teeth, the wheel with its teeth */
+  circleW(ctx,map,[0,0],1,COL.struct,1.8,null,rgba(COL.struct,0.03));
+  for(let i=0;i<Sp.N;i++){ const a=TAU*i/Sp.N, ro=Sp.outside?1.03:0.97; seg(ctx,map,[Math.cos(a),Math.sin(a)],[ro*Math.cos(a),ro*Math.sin(a)],rgba(COL.struct,0.5),1); }
+  if(st.showFull) worldCurve(ctx,map,t=>spiroPt(st.spN,st.spn,st.pen,st.spOut,t),0,Sp.tClose,Math.max(400,300*Sp.orbits),rgba(COL.pos,0.3),1.2);
+  const tEnd=Math.min(M.t1,Sp.tClose);
+  if(tEnd>0.01) worldCurve(ctx,map,t=>spiroPt(st.spN,st.spn,st.pen,st.spOut,t),0,tEnd,Math.max(8,Math.ceil(tEnd*50)),COL.pos,2.2);
+  circleW(ctx,map,M.centre,Sp.r,COL.struct,1.3,null,rgba(COL.struct,0.08));
+  for(let i=0;i<Sp.n;i++){ const a=M.spin+TAU*i/Sp.n, ri=Sp.r*(Sp.outside?0.94:1.06);
+    seg(ctx,map,[M.centre[0]+Sp.r*Math.cos(a),M.centre[1]+Sp.r*Math.sin(a)],[M.centre[0]+ri*Math.cos(a),M.centre[1]+ri*Math.sin(a)],rgba(COL.struct,0.5),1); }
+  seg(ctx,map,M.centre,M.P,rgba(COL.struct,0.9),1.2);
+  dot(ctx,map.X(M.centre[0]),map.Y(M.centre[1]),2.5,COL.struct,null);
+  dot(ctx,map.X(M.P[0]),map.Y(M.P[1]),5.5,COL.live,'#070b18',1.5);
+  lab(ctx,W,H,map.X(0),map.Y(Sp.outside?-1.06:1)+(Sp.outside?14:-12),'ring, N = '+Sp.N,COL.struct,SM_FONT,'center');
+  lab(ctx,W,H,map.X(M.P[0])+10,map.Y(M.P[1])-10,'pen',COL.live,SM_FONT,'left');
+  lab(ctx,W,H,G.main.x+8,G.main.y+12,Sp.lobes+' lobes, closes after '+Sp.orbits+' orbit'+(Sp.orbits>1?'s':'')+' (gcd '+Sp.g+')',COL.pos,LAB_FONT,'left');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], xs=[],ys=[], n=Math.max(400,240*Sp.orbits); let rmax=0;
+    for(let i=0;i<=n;i++){ const t=Sp.tClose*i/n, P=spiroPt(st.spN,st.spn,st.pen,st.spOut,t), rr=Math.hypot(P[0],P[1]); xs.push(t/TAU); ys.push(rr); rmax=Math.max(rmax,rr); }
+    axesR(ctx,b,0,Sp.orbits,0,rmax*1.1,{title:titleFor(b,'the pen\'s distance from the centre over one closure: one hump per lobe','|pen| over one closure'),xlab:'orbits',ylab:'|P|',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,xs,ys,0,Sp.orbits,0,rmax*1.1,COL.pos,1.5);
+    marker(ctx,b,0,Sp.orbits,0,rmax*1.1,Math.min(M.t1,Sp.tClose)/TAU,Math.hypot(M.P[0],M.P[1]));
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1], xs=[],ys=[], n=Math.max(400,240*Sp.orbits), P0=spiroPt(st.spN,st.spn,st.pen,st.spOut,0); let dmax=0;
+    for(let i=0;i<=n;i++){ const t=Sp.tClose*i/n, P=spiroPt(st.spN,st.spn,st.pen,st.spOut,t), dd=Math.hypot(P[0]-P0[0],P[1]-P0[1]); xs.push(t/TAU); ys.push(dd); dmax=Math.max(dmax,dd); }
+    axesR(ctx,b,0,Sp.orbits,0,dmax*1.1,{title:titleFor(b,'distance from the start: zero again only when the pattern closes','return distance'),xlab:'orbits',ylab:'|P(t) − P(0)|',nx:4,ny:3,xfmt:v=>fmt(v,1)});
+    polyline(ctx,b,xs,ys,0,Sp.orbits,0,dmax*1.1,COL.struct,1.5);
+    for(let m=1;m<=Sp.orbits;m++){ const X=b.x+b.w*m/Sp.orbits, Y=b.y1-b.h*Sp.closes[m-1]/(dmax*1.1); dot(ctx,X,clamp(Y,b.y,b.y1),3.5,m===Sp.orbits?COL.pos:COL.ref,'#fff'); }
+  }
+  drawCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='wheel') drawWheel(ctx,W,H,M);
+  else if(M.view==='family') drawFamily(ctx,W,H,M);
+  else if(M.view==='evolute') drawEvolute(ctx,W,H,M);
+  else if(M.view==='area') drawArea(ctx,W,H,M);
+  else if(M.view==='caustic') drawCaustic(ctx,W,H,M);
+  else drawSpiro(ctx,W,H,M);
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame of time on the animated views; the wheel loops after two turns */
+  S.step=function(){
+    if(!ST.running||!viewAnimates(ST.view)) return false;
+    simAdvance(ST);
+    if(ST.view==='wheel'&&WHEEL_OMEGA*SIM.t>2*TAU) SIM.t=0;
+    return true;
+  };
+  /* the pointer drags the point source in the caustic view; nothing else listens */
+  S.pointer=function(type,x,y){
+    if(ST.view!=='caustic'||ST.src!=='point'){ if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; } return false; }
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    const ctx=canvas.getContext('2d'), G=cauGeo(ctx,S.W,S.H,buildModel()), map=G.map;
+    if(type==='down'){ const d=Math.hypot(x-map.X(ST.sx),y-map.Y(ST.sy)); if(d<16){ DRAG.what='S'; return true; } return false; }
+    if(type==='move'&&DRAG.what==='S'){ let wx=map.wx(x), wy=map.wy(y); const rr=Math.hypot(wx,wy); if(rr>0.92){ wx*=0.92/rr; wy*=0.92/rr; }
+      ST.sx=wx; ST.sy=wy; return true; }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    if(st.view!==k){ st.view=k; simReset(st); }
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  const restart=()=>{ simReset(st); };
+
+  const gWheel=h('div',{class:'grp'},h('h3',null,'the wheel'));
+  gWheel.appendChild(slider('dr','d / r',0,LIM.drMax,0.05,v=>fmt(v,2),restart));
+  const wheelTag=h('div',{class:'tag'}); gWheel.appendChild(wheelTag);
+
+  const gFam=h('div',{class:'grp'},h('h3',null,'the family'));
+  const namedChips=chipRow(NAMED,'named',restart); gFam.appendChild(namedChips); trackChips(gFam,NAMED,'named');
+  gFam.appendChild(slider('p','p (cusps)',1,LIM.pMax,1,v=>fmt(v,0),restart));
+  gFam.appendChild(slider('q','q (orbits)',1,LIM.qMax,1,v=>fmt(v,0),restart));
+  const sideChips=chipRow(SIDE_LIST,'outside',restart); gFam.appendChild(sideChips); trackChips(gFam,SIDE_LIST,'outside');
+  const famTag=h('div',{class:'tag'}); gFam.appendChild(famTag);
+
+  const gCau=h('div',{class:'grp'},h('h3',null,'the light'));
+  const srcChips=chipRow(SRC_LIST,'src',null); gCau.appendChild(srcChips); trackChips(gCau,SRC_LIST,'src');
+  gCau.appendChild(slider('rays','rays drawn',8,LIM.raysMax,4,v=>fmt(v,0)));
+  const cauTag=h('div',{class:'tag'}); gCau.appendChild(cauTag);
+
+  const gSpi=h('div',{class:'grp'},h('h3',null,'the gears'));
+  gSpi.appendChild(slider('spN','ring teeth N',48,120,1,v=>fmt(v,0),restart));
+  gSpi.appendChild(slider('spn','wheel teeth n',12,96,1,v=>fmt(v,0),restart));
+  gSpi.appendChild(slider('pen','pen, fraction of r',0,1.3,0.05,v=>fmt(v,2),restart));
+  const spiChips=chipRow(SPIRO_SIDE,'spOut',restart); gSpi.appendChild(spiChips); trackChips(gSpi,SPIRO_SIDE,'spOut');
+  gSpi.appendChild(h('div',{class:'checks'},checkbox('showFull','show the whole pattern faintly')));
+  const spiTag=h('div',{class:'tag'}); gSpi.appendChild(spiTag);
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the run'));
+  gRun.appendChild(h('div',{class:'checks'},checkbox('running','time runs')));
+  gRun.appendChild(slider('speed','speed',0.25,4,0.25,v=>fmt(v,2)+'×'));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ simReset(st); dirty=true; refresh(); }},'restart'),
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; simReset(st);
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'No measured data. Every length is a Gauss&ndash;Legendre quadrature pinned to scipy '
+      +'(build_cycloid/derive.py), every area is Green&rsquo;s theorem, the caustic envelopes are intersections of '
+      +'neighbouring reflected rays checked against the nephroid and cardioid closed forms, and the spirograph counts '
+      +'are gcd arithmetic checked by counting.'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the mathematics'),h('div',{id:'phys'}));
+  [gWheel,gFam,gCau,gSpi,gRun,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++) if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view;
+    gWheel.hidden=!(v==='wheel'||v==='area');
+    gFam.hidden=(v!=='family');
+    gCau.hidden=(v!=='caustic');
+    gSpi.hidden=(v!=='spiro');
+    gRun.hidden=!viewAnimates(v);
+    const custom=st.named==='custom';
+    rows.p.row.hidden=!custom; rows.q.row.hidden=!custom; sideChips.hidden=!custom;
+    for(const k in rows) rows[k].sync();
+    wheelTag.innerHTML=v==='area'?'Roberval&rsquo;s slices are drawn for d &le; r (the slider is clamped there)'
+                                 :'d &lt; r curtate &middot; d = r the cycloid &middot; d &gt; r prolate, with loops';
+    famTag.innerHTML=custom?'k = p/q in lowest terms: p cusps, closed after q orbits':'the named curves; choose p / q to set your own';
+    cauTag.innerHTML=st.src==='point'?'drag the source inside the cup':'the envelope is computed from 240 rays; the slider only sets how many are drawn';
+    spiTag.innerHTML='pen at 1.00 r is the cusped hypocycloid; beyond 1 the pen makes loops';
+    runTag.innerHTML='space runs/pauses &nbsp; <b>r</b> restarts &nbsp; 1&ndash;6 switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='caustic')?'drag the source when it is a point · 1–6 switch views'
+        :'space pauses · r restarts · 1–6 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ simReset(st); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw(); if(advanced&&frameN%10===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  simReset(st); resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  wheel:'Galileo named it (1599) and tried to weigh it; Mersenne asked everyone he knew about it; Pascal, in 1658, set a prize '
+    +'competition on it under the name roulette. The cycloid is the path of a point on the rim of a wheel rolling along a line '
+    +'— the mark a stone stuck in a tyre would make in the air. Move d off the rim and you get the trochoids: a point inside '
+    +'the wheel (curtate) never stops, a point outside it (prolate, like the flange of a railway wheel) loops backwards. The one '
+    +'fact that explains the shape is that the wheel is, at every instant, rotating about its contact point C: the velocity of '
+    +'P is perpendicular to CP, so it vanishes at the cusp, and for the rim point the tangent passes through the top of the wheel.',
+  family:'Roll the circle on a circle instead. Outside, the rim point traces an epicycloid; inside, a hypocycloid; the ratio '
+    +'k = R/r decides everything. Integer k gives k cusps in one orbit — the cardioid (1), the nephroid (2), the deltoid (3, inside), '
+    +'the astroid (4, inside). A fraction p/q gives p cusps spread over q orbits, and an irrational k would never close. Two '
+    +'surprises: the k = 2 hypocycloid is a straight line, the Tusi couple that al-Tūsī used in 1247 to build linear motion out '
+    +'of circular motion, and the hypocycloids with rolling radii r and R − r are the same curve (double generation) — the '
+    +'astroid can be drawn with a wheel of radius R/4 or 3R/4. The coin paradox lives here too: a coin rolled round an equal '
+    +'coin turns twice, (R + r)/r, not once.',
+  evolute:'Every point of a curve has a circle that fits it best — the osculating circle — and its centre traces the evolute. '
+    +'For the cycloid the radius of curvature is ρ = 4r sin(θ/2), twice the chord from the point down to the contact, and the '
+    +'evolute is another cycloid, congruent to the first and shifted by (πr, −2r). That is why Huygens\' cycloidal pendulum works: '
+    +'a string unwinding from a cycloid traces a cycloid. The same geometry gives the length. Wren showed in 1658 that the arc '
+    +'from a point to the vertex is twice the chord to the top of the generating wheel, so a whole arch is 8r — four times '
+    +'the diameter, one of the first curves ever rectified exactly.',
+  area:'Roberval found the area in 1634 (Torricelli published it in 1644) with the companion curve: the point\'s height plotted '
+    +'against the wheel\'s progress, x = rθ. It divides the 2πr × 2r rectangle in half, so the area under it is 2πr². Between '
+    +'the companion and the cycloid lie two crescents, and Roberval\'s observation is that every horizontal slice of a crescent '
+    +'has exactly the width of the chord of the generating circle at that height — d sin θ. By Cavalieri\'s principle the two '
+    +'crescents together therefore have the area of the circle itself, πd², and the arch holds 2πr² + πd² = 3πr²: exactly three '
+    +'times the wheel. Move d off the rim and the argument survives unchanged — only the disc shrinks.',
+  caustic:'Look into a cup of coffee under a lamp and there is a bright curve on the surface with a cusp pointing at you. It is a '
+    +'caustic: rays reflected once off the inside wall crowd along an envelope. For parallel light that envelope is a nephroid '
+    +'— the two-cusped epicycloid — with its cusp half-way out from the centre; the same curve is why a spherical mirror has no '
+    +'true focus. For a point source on the rim it is a cardioid with its cusp at a third of the radius, which is also the '
+    +'paraxial image point 1/v = 2/R − 1/u. Put the source anywhere else and the envelope is still a caustic, but no longer an '
+    +'epicycloid — so the sim draws only what it can compute and refuses to name it.',
+  spiro:'The Spirograph (Denys Fisher, 1965) is a hypotrochoid machine: a toothed wheel inside a toothed ring, a pen in one of '
+    +'the wheel\'s holes. Because the teeth cannot slip, the geometry is exact: the wheel\'s radius is n/N of the ring\'s, the '
+    +'pattern has N/gcd(N, n) lobes, and it closes after n/gcd orbits — with 96 and 40 teeth that is 12 lobes in 5 orbits. The '
+    +'pen hole sets the shape: at the rim the curve has cusps (the hypocycloid of the family view), inside it rounds off, '
+    +'outside it loops. The same curves, rolled outside the ring, are the epitrochoids — the Wankel engine\'s housing is one.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  wheel:'<h4>rolling without slipping</h4>'
+    +EQ(1,'<span class="rm">centre</span> (r&theta;, r), &nbsp; <span class="rm">point</span> P = (r&theta; &minus; d sin &theta;, r &minus; d cos &theta;)')
+    +EQ(2,'v = &omega;(r &minus; d cos &theta;, d sin &theta;), &nbsp; |v| = &omega;&radic;(r&sup2; + d&sup2; &minus; 2rd cos &theta;), &nbsp; v &middot; (P &minus; C) = 0')
+    +'<p>The contact point C = (r&theta;, 0) is the instantaneous centre: the wheel&rsquo;s motion is a pure rotation about it, so v is perpendicular to CP and proportional to |CP|. '
+    +'At d = r the point sits on C at &theta; = 0 and its speed vanishes there — the cusp is a moment of rest, not a corner the point rounds.</p>'
+    +EQ(3,'L = &int;<sub>0</sub><sup>2&pi;</sup> &radic;(r&sup2; + d&sup2; &minus; 2rd cos &theta;) d&theta; = 4(r + d) E(m), &nbsp; m = '+FR('4rd','(r + d)<sup>2</sup>')+' &nbsp;<span class="rm">(E the complete elliptic integral of the second kind; E(1) = 1 gives 8r)</span>')
+    +'<div class="cite">pins: lengths and areas at d = 0.5, 1, 1.5 against scipy quad and ellipe; the cross and dot products at three angles — derive.py</div>',
+  family:'<h4>rolling on a circle</h4>'
+    +EQ(1,'<span class="rm">epi:</span> P = (R+r)(cos t, sin t) &minus; r(cos mt, sin mt), m = '+FR('R + r','r')+'; &nbsp; <span class="rm">hypo:</span> P = (R&minus;r)(cos t, sin t) + r(cos mt, &minus;sin mt), m = '+FR('R &minus; r','r'))
+    +'<p>The rolling circle turns m times per orbit about its own centre. With R/r = p/q in lowest terms the point returns to the rim of R when mt &minus; t = 2&pi;j, i.e. every 2&pi;q/p of orbit: '
+    +'p cusps, and the curve closes after q orbits.</p>'
+    +EQ(2,'<span class="rm">one arch:</span> 8r'+FR('R &plusmn; r','R')+', &nbsp; <span class="rm">area (integer k):</span> &pi;r&sup2;(k &plusmn; 1)(k &plusmn; 2)')
+    +EQ(3,'<span class="rm">double generation:</span> hypo(R, R&minus;r; (R&minus;r)t/r) = (x, &minus;y) of hypo(R, r; t) &nbsp;<span class="rm">— the same set of points</span>')
+    +'<div class="cite">pins: closure distances, cusp speeds, lengths and areas for k = 1 &hellip; 5, 3/2, 5/2, 5/3, 7/3, 8/3; the twin identity at r = 0.3; the Tusi line — derive.py</div>',
+  evolute:'<h4>curvature and the evolute</h4>'
+    +EQ(1,'&kappa; = '+FR('|x&prime;y&Prime; &minus; y&prime;x&Prime;|','(x&prime;<sup>2</sup> + y&prime;<sup>2</sup>)<sup>3/2</sup>')+' = '+FR('1','4r sin(&theta;/2)')+', &nbsp; &rho; = 4r sin(&theta;/2) = 2|PC|')
+    +EQ(2,'E = P + &rho;n = (r(&theta; + sin &theta;), r(cos &theta; &minus; 1)) = r(&theta;+&pi;) + (&pi;r, &minus;2r)')
+    +EQ(3,'ds = 2r sin(&theta;/2) d&theta; &nbsp;&rArr;&nbsp; s(&theta;) = 4r(1 &minus; cos &theta;/2), &nbsp; s(2&pi;) = 8r; &nbsp; <span class="rm">arc to the vertex</span> 4r|cos &theta;/2| = 2 |PT|')
+    +'<p>The tangent at P passes through the top T of the wheel and the normal through the contact C (Thales: TC is a diameter, so the angle at P is right). '
+    +'Since PT = 2r cos(&theta;/2), the arc from P to the vertex is exactly twice the chord PT — Wren&rsquo;s rectification.</p>'
+    +'<div class="cite">pins: &rho; against finite-difference curvature, E against the shifted cycloid, arc lengths against quadrature, arc/chord = 2 at three angles — derive.py</div>',
+  area:'<h4>Roberval&rsquo;s companion curve</h4>'
+    +EQ(1,'A = &int; y dx = &int;<sub>0</sub><sup>2&pi;</sup> (r &minus; d cos &theta;)<sup>2</sup> d&theta; = 2&pi;r&sup2; + &pi;d&sup2;')
+    +EQ(2,'<span class="rm">companion</span> (r&theta;, r &minus; d cos &theta;): &nbsp; area under it = &int; (r &minus; d cos &theta;) r d&theta; = 2&pi;r&sup2; &nbsp;<span class="rm">(half the rectangle)</span>')
+    +EQ(3,'<span class="rm">crescent width at parameter &theta;:</span> x<sub>comp</sub> &minus; x<sub>cyc</sub> = d sin &theta; = <span class="rm">half-chord of the circle of radius d at height</span> r &minus; d cos &theta;')
+    +'<p>Cavalieri: two regions with equal slices at every height have equal areas. The two crescents are the two halves of the disc of radius d, so the arch is half the rectangle plus one disc.</p>'
+    +'<div class="cite">pins: the area at d = 0.5, 1, 1.5 by quadrature and closed form; the gap d sin &theta; at &theta; = 1 — derive.py</div>',
+  caustic:'<h4>the envelope of reflected rays</h4>'
+    +EQ(1,'d&prime; = d &minus; 2(d&middot;n)n, &nbsp; n = Q &nbsp;<span class="rm">(the unit circle&rsquo;s normal is the point itself)</span>')
+    +EQ(2,'<span class="rm">parallel light, strike angle &phi;:</span> d&prime; = &minus;(cos 2&phi;, sin 2&phi;), &nbsp; <span class="rm">envelope</span> = (3cos &phi; &minus; cos 3&phi;, 3sin &phi; &minus; sin 3&phi;)/4 = <span class="rm">the nephroid</span>')
+    +EQ(3,'<span class="rm">source at (&minus;R, 0):</span> envelope = (2cos &phi; &minus; cos 2&phi;, 2sin &phi; &minus; sin 2&phi;)/3 = <span class="rm">the cardioid</span>, cusp at R/3 = <span class="rm">the paraxial image</span> 1/v = 2/R &minus; 1/u')
+    +'<p>The envelope of a one-parameter family of lines is where neighbouring members meet; the file intersects the reflected rays at &phi; &plusmn; h and Richardson-extrapolates, then checks the two closed forms to 1e-8.</p>'
+    +'<div class="cite">pins: the numerical envelope against the nephroid at &phi; = 0.5 and over [&minus;1.4, 1.4], against the cardioid at &phi; = 0 and 1, the paraxial focus of an inside source at u = 1.5 — derive.py</div>',
+  spiro:'<h4>tooth counts and symmetry</h4>'
+    +EQ(1,'r = '+FR('n','N')+', &nbsp; d = <span class="rm">pen</span> &middot; r, &nbsp; P(t) = (1 &minus; r)(cos t, sin t) + d(cos((1&minus;r)t/r), &minus;sin((1&minus;r)t/r))')
+    +EQ(2,'<span class="rm">closes when</span> t = 2&pi;m <span class="rm">and</span> (1&minus;r)t/r = (N&minus;n)m/n &middot; 2&pi; &isin; 2&pi;&#8484; &nbsp;&rArr;&nbsp; m = n/gcd(N, n); &nbsp; <span class="rm">lobes</span> = N/gcd(N, n)')
+    +'<p>The wheel turns (N &minus; n)/n times per orbit (N + n)/n outside). The pattern is the same for every pen radius; only the lobe shape changes — cusps at d = r, rounded inside, looped outside.</p>'
+    +'<div class="cite">pins: gcd, lobes (also counted as radial maxima), orbits and closure distances for (96,40), (105,42), (96,32), (84,60), (96,36) — derive.py</div>',
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) are lines of build_cycloid/refvals.txt, the printed       *
+ *  output of derive.py (scipy quad / ellipe, a numerical envelope,    *
+ *  kd-tree set distances, gcd arithmetic), read in full.              *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    Object.assign(ST,DEFAULTS,over); simReset(ST);
+    if(over.t!==undefined) SIM.t=over.t;
+    try{ return fn(); } finally{ Object.assign(ST,stSave); simReset(ST); }
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  close(90*DEG,PI/2,1e-15,'DEG converts degrees INTO radians (90 DEG = pi/2)');
+  eq(gcd(96,40),8,'gcd(96,40) = 8'); eq(gcd(105,42),21,'gcd(105,42) = 21'); eq(gcd(7,3),1,'gcd(7,3) = 1');
+  { let threw=false; try{ gcd(0,0); }catch(e){ threw=true; } ok(threw,'gcd(0,0) throws rather than returning 0 (a zero would loop every closure for ever)'); }
+  rel(glQuad(x=>Math.sin(x),0,PI,8),2,1e-14,'glQuad integrates sin over [0, pi] to 2');
+  rel(glQuad(x=>Math.exp(x),0,1,4),Math.E-1,1e-14,'glQuad integrates exp to e - 1');
+
+  /* ---------- A. the wheel ---------- */
+  for(const [d,Lw,Aw,vw,px,py,gap] of [[0.5,6.682446610278,7.068583470577,0.842435572689,0.5792645075961,0.7298488470659,0.4207354924039],
+                                       [1,8,9.424777960769,0.9588510772084,0.1585290151921,0.4596976941319,0.8414709848079],
+                                       [1.5,10.50502226984,13.35176877776,1.276359307717,-0.2622064772118,0.1895465411978,1.262206477212]]){
+    rel(trochoidArchLength(1,d,32),Lw,1e-12,'arch length by quadrature, d='+d+' (derive quad)');
+    rel(trochoidArchLengthClosed(1,d),Lw,1e-12,'4(r+d)E(m), d='+d+' (derive ellipe)');
+    rel(trochoidArchArea(1,d,32),Aw,1e-12,'signed area by quadrature, d='+d+' (derive)');
+    rel(trochoidArchAreaClosed(1,d),Aw,1e-12,'2 pi r^2 + pi d^2, d='+d+' (derive)');
+    rel(trochoidSpeed(1,d,1),vw,1e-12,'|v|/omega at theta=1, d='+d+' (derive)');
+    const P=trochoid(1,d,1); rel(P[0],px,1e-12,'point x at theta=1, d='+d+' (derive)'); rel(P[1],py,1e-12,'point y (derive)');
+    rel(companionGap(d,1),gap,1e-12,'companion gap d sin 1, d='+d+' (derive)');
+    const v=trochoidD(1,d,1); rel(Math.hypot(v[0],v[1]),vw,1e-12,'the derivative\'s norm is the speed, d='+d); }
+  eq(trochoidArchLengthClosed(1,1),8,'8r exactly at d = r (E(1) = 1)');
+  rel(trochoidArchAreaClosed(1,1),3*PI,1e-15,'3 pi r^2 at d = r');
+  rel(ellipE(0),PI/2,1e-14,'E(0) = pi/2'); rel(ellipE(1),1,1e-12,'E(1) = 1');
+  for(const [th,rho,Ex,Ey,sV,ch,sC] of [[0.7,1.371591229822,1.344217687238,-0.2351578127155,3.75749085139,1.878745425695,0.2425091486105],
+                                        [1.9,3.253662019157,2.846300087687,-1.323289566864,2.326732357856,1.163366178928,1.673267642144],
+                                        [4,3.637189707303,3.243197504692,-1.653643620864,1.664587346189,0.8322936730943,5.664587346189]]){
+    const P=trochoid(1,1,th), v=trochoidD(1,1,th), T=wheelTop(1,th), C=wheelContact(1,th);
+    close(v[0]*(T[1]-P[1])-v[1]*(T[0]-P[0]),0,1e-12,'the tangent passes through the top of the wheel at theta='+th+' (derive)');
+    close(v[0]*(C[0]-P[0])+v[1]*(C[1]-P[1]),0,1e-12,'the normal passes through the contact point at theta='+th+' (derive)');
+    rel(cycloidRho(1,th),rho,1e-12,'rho = 4r sin(theta/2) at theta='+th+' (derive)');
+    rel(1/curvatureNumeric(t=>trochoid(1,1,t),th),rho,1e-6,'1/kappa by finite differences at theta='+th+' (derive numeric)');
+    rel(cycloidRho(1,th),2*Math.hypot(C[0]-P[0],C[1]-P[1]),1e-12,'rho is twice the normal chord to the contact');
+    const E=cycloidEvolute(1,th); rel(E[0],Ex,1e-12,'evolute x at theta='+th+' (derive)'); rel(E[1],Ey,1e-12,'evolute y (derive)');
+    const ph=th-PI; close(E[0],(ph-Math.sin(ph))+PI,1e-12,'evolute = the cycloid shifted by pi r (x)'); close(E[1],(1-Math.cos(ph))-2,1e-12,'and by -2r (y)');
+    const n=cycloidNormalIn(1,th); close(E[0]-(P[0]+rho*n[0]),0,1e-12,'E = P + rho n (x)'); close(E[1]-(P[1]+rho*n[1]),0,1e-12,'E = P + rho n (y)');
+    const tg=cycloidTangent(1,th); close(tg[0]*n[0]+tg[1]*n[1],0,1e-15,'tangent and normal are perpendicular'); close(Math.hypot(tg[0],tg[1]),1,1e-15,'unit tangent');
+    close(tg[0]*v[1]-tg[1]*v[0],0,1e-12,'the unit tangent is along the velocity');
+    rel(cycloidArcToVertex(1,th),sV,1e-12,'arc to the vertex at theta='+th+' (derive)');
+    rel(cycloidChordToTop(1,th),ch,1e-12,'chord to the top (derive)');
+    rel(cycloidArcToVertex(1,th)/cycloidChordToTop(1,th),2,1e-12,'arc / chord = 2 exactly (Wren)');
+    rel(glQuad(t=>trochoidSpeed(1,1,t),Math.min(th,PI),Math.max(th,PI),32),sV,1e-12,'arc to the vertex by quadrature');
+    rel(cycloidArcFromCusp(1,th),sC,1e-12,'arc from the cusp at theta='+th+' (derive)');
+    rel(glQuad(t=>trochoidSpeed(1,1,t),0,th,32),sC,1e-12,'arc from the cusp by quadrature'); }
+  eq(cycloidArcFromCusp(1,TAU),8,'a whole arch is 8r');
+
+  /* ---------- B. the family ---------- */
+  const FAM=[
+    /* outside,p,q, closes, Larch, Ltot, area|null, px, py, midSpeed */
+    [true,1,1,[0],16,16,18.84955592154,1.359717231669,0.3029856444869,4],
+    [true,2,1,[0],6,12,9.424777960769,1.399686333227,0.5347218475321,3],
+    [false,2,1,[0],2,4,0,0.7648421872845,0,1],
+    [true,3,1,[0],3.555555555556,10.66666666667,6.981317007977,1.333863696602,0.7472941995983,2.666666666667],
+    [false,3,1,[0],1.777777777778,5.333333333333,0.6981317007977,0.5665505058231,0.100995214829,1.333333333333],
+    [true,4,1,[0],2.5,10,5.890486225481,1.190166905928,0.8929679159695,2.5],
+    [false,4,1,[0],1.5,6,1.178097245096,0.4474201143134,0.267360923766,1.5],
+    [true,5,1,[0],1.92,9.6,5.277875658031,1.01586278901,0.9473763791679,2.4],
+    [false,5,1,[0],1.28,6.4,1.507964473723,0.4234292816939,0.448376519759,1.6],
+    [true,3,2,[1.333333333333,0],8.888888888889,26.66666666667,null,1.393567682574,0.4177055141469,3.333333333333],
+    [false,3,2,[1.333333333333,0],1.777777777778,5.333333333333,null,0.8811958709931,-0.0138593092244,0.6666666666667],
+    [true,5,2,[0.8,0],4.48,22.4,null,1.378871563817,0.646798881279,2.8],
+    [false,5,2,[0.8,0],1.92,9.6,null,0.6579337315274,0.03956132210501,1.2],
+    [true,5,3,[1.039230484541,1.039230484541,0],7.68,38.4,null,1.398690989429,0.4568190570897,3.2],
+    [false,5,3,[1.039230484541,1.039230484541,0],1.92,9.6,null,0.8417806468329,-0.01226005343852,0.8],
+    [true,7,3,[0.7423074889581,0.7423074889581,0],4.897959183673,34.28571428571,null,1.388670898871,0.6104170324517,2.857142857143],
+    [false,7,3,[0.7423074889581,0.7423074889581,0],1.959183673469,13.71428571429,null,0.6921206496493,0.02372085112393,1.142857142857],
+    [true,8,3,[0.6495190528383,0.6495190528383,0],4.125,33,null,1.366370214144,0.6818845657057,2.75],
+    [false,8,3,[0.6495190528383,0.6495190528383,0],1.875,15,null,0.6254833719689,0.0578441873034,1.25],
+  ];
+  for(const f of FAM){
+    const [out,p,q,closes,Larch,Ltot,A,px,py,midV]=f, r=q/p, tag=(out?'epi':'hypo')+' '+p+'/'+q+': ';
+    const M=withState({view:'family',named:'custom',p,q,outside:out},()=>familyModel(ST));
+    eq(M.p,p,tag+'p'); eq(M.q,q,tag+'q'); rel(M.r,r,1e-15,tag+'r = q/p');
+    for(let m=1;m<=q;m++) close(M.closes[m-1],closes[m-1],1e-10,tag+'distance from the start after orbit '+m+' (derive)');
+    close(M.closes[q-1],0,1e-10,tag+'closes after q orbits');
+    if(q>1) ok(M.closes[0]>0.5,tag+'and not after the first');
+    rel(M.Larch,Larch,1e-12,tag+'one arch 8r(R+-r)/R (derive)'); rel(M.Lq,Larch,1e-12,tag+'one arch by quadrature (derive)');
+    rel(M.Ltot,Ltot,1e-12,tag+'whole curve (derive)');
+    if(A!==null){ ok(M.hasArea,tag+'has an area'); if(A>0){ rel(M.A,A,1e-11,tag+'area by Green (derive)'); rel(M.Ac,A,1e-12,tag+'pi r^2 (k+-1)(k+-2) (derive)'); }
+      else { close(M.A,0,1e-12,tag+'Tusi: zero area'); close(M.Ac,0,1e-12,tag+'closed form zero'); } }
+    else ok(!M.hasArea,tag+'self-crossing: no area claimed');
+    const P=rollPt(out,1,r,r,0.7); rel(P[0],px,1e-12,tag+'point at t=0.7 x (derive)'); close(P[1],py,1e-12,tag+'point at t=0.7 y (derive)');
+    close(M.vCusp,0,1e-12,tag+'the speed vanishes at every cusp');
+    const v=rollD(out,1,r,r,PI*q/p); rel(Math.hypot(v[0],v[1]),midV,1e-12,tag+'speed between cusps (derive)');
+    /* the derivative is the derivative: central difference of the point */
+    const h=1e-6, P1=rollPt(out,1,r,r,0.7+h), P2=rollPt(out,1,r,r,0.7-h), dv=rollD(out,1,r,r,0.7);
+    close((P1[0]-P2[0])/(2*h),dv[0],1e-7,tag+'dP/dt x by finite difference'); close((P1[1]-P2[1])/(2*h),dv[1],1e-7,tag+'dP/dt y by finite difference');
+  }
+  { const A=hypoPt(1,0.25,0.25,0.7); rel(A[0],Math.pow(Math.cos(0.7),3),1e-12,'the astroid is x = R cos^3 t'); rel(A[1],Math.pow(Math.sin(0.7),3),1e-12,'and y = R sin^3 t'); }
+  { const a=hypoPt(1,0.3,0.3,0.9), b=hypoPt(1,0.7,0.7,0.7*0.9/0.3);
+    rel(a[0],0.2836731464095,1e-12,'double generation: r = 0.3 point x (derive)'); rel(a[1],0.2893660267446,1e-12,'y (derive)');
+    close(b[0]-a[0],0,1e-12,'r = 0.7 at (R-r)t/r gives the same x'); close(b[1]+a[1],0,1e-12,'and the mirrored y — the same curve'); }
+  { let my=0; for(let i=0;i<720;i++){ const P=hypoPt(1,0.5,0.5,TAU*i/720); my=Math.max(my,Math.abs(P[1])); }
+    close(my,0,1e-12,'the Tusi couple never leaves the diameter'); close(hypoPt(1,0.5,0.5,0)[0],1,1e-15,'from x = 1'); close(hypoPt(1,0.5,0.5,PI)[0],-1,1e-15,'to x = -1'); }
+  { const N=withState({view:'family',named:'deltoid'},()=>familyModel(ST)); eq(N.p,3,'the deltoid chip is p = 3'); ok(!N.outside,'inside'); rel(N.Ac,0.6981317007977,1e-12,'deltoid area 2 pi r^2 (derive)');
+    const C=withState({view:'family',named:'cardioid'},()=>familyModel(ST)); eq(C.p,1,'cardioid p = 1'); rel(C.turnsPerOrbit,2,1e-15,'the coin paradox: two turns per orbit');
+    const T=withState({view:'family',named:'tusi'},()=>familyModel(ST)); ok(T.isTusi,'the Tusi chip'); const As=withState({view:'family',named:'astroid'},()=>familyModel(ST)); rel(As.turnsPerOrbit,3,1e-15,'astroid: three turns per orbit');
+    ok(As.twin&&Math.abs(As.twin.r-0.75)<1e-15,'the astroid\'s twin rolls with r = 3/4'); }
+  { const spin=rollSpin(true,1,1,0.7); rel(spin,2*0.7,1e-15,'the cardioid\'s rolling circle spins twice the orbit angle'); }
+  /* the rolling circle's centre and spin are what the views draw, and the
+     rim point must sit ON that circle at the spin angle — this identity is
+     the only thing that pins them (the first sweep let both mutate freely) */
+  for(const [out,r] of [[true,1],[true,0.5],[true,0.4],[false,0.25],[false,1/3],[false,0.6]]) for(const t of [0.3,1.7,4.4]){
+    const P=rollPt(out,1,r,r,t), C=rollCentre(out,1,r,t), tag=(out?'epi':'hypo')+' r='+fmt(r,3)+' t='+t+': ';
+    close(Math.hypot(C[0],C[1]),out?1+r:1-r,1e-12,tag+'the centre orbits at R ± r');
+    close(Math.hypot(P[0]-C[0],P[1]-C[1]),r,1e-12,tag+'the rim point is r from the centre');
+    const ang=Math.atan2(P[1]-C[1],P[0]-C[0]), want=rollSpin(out,1,r,t)+(out?PI:0);
+    close(Math.atan2(Math.sin(ang-want),Math.cos(ang-want)),0,1e-12,tag+'and sits at the spin angle (+π outside)'); }
+  { const M=withState({view:'family',named:'custom',p:4,q:2,outside:false},()=>familyModel(ST));
+    eq(M.p,2,'4/2 reduces to 2 cusps'); eq(M.q,1,'and one orbit'); ok(M.isTusi,'4/2 IS the Tusi couple'); close(M.tClose,TAU,1e-15,'closing after 2π');
+    const M2=withState({view:'family',named:'custom',p:6,q:3,outside:true},()=>familyModel(ST)); eq(M2.p,2,'6/3 outside is the nephroid'); rel(M2.Larch,6,1e-12,'with the nephroid arch 8r(R+r)/R = 6 at r = 1/2 (derive)');
+    rel(M2.r,0.5,1e-15,'r = q/p = 1/2 before and after reduction'); }
+
+  /* ---------- C. the caustic ---------- */
+  { const fam=rayFamily('parallel',[0,0]); let worst=0;
+    for(let i=0;i<=28;i++){ const ph=-1.4+2.8*i/28, y=Math.sin(ph), u=(y+0.999)/1.998, e=envelopePt(fam,u), n=nephroidPt(ph); worst=Math.max(worst,Math.hypot(e[0]-n[0],e[1]-n[1])); }
+    ok(worst<1e-8,'parallel light: the numerical envelope IS the nephroid over [-1.4, 1.4] ('+worst.toExponential(2)+'; derive 8e-13)');
+    const u5=(Math.sin(0.5)+0.999)/1.998, e5=envelopePt(fam,u5);
+    rel(e5[0],0.640502621001,1e-8,'envelope at phi = 0.5, x (derive)'); rel(e5[1],0.1101954073024,1e-7,'y (derive)');
+    close(nephroidPt(0)[0],0.5,1e-15,'the nephroid\'s cusp is at R/2'); const q=fam(u5); close(Math.atan2(q.Q[1],q.Q[0]),0.5,1e-12,'that ray strikes at phi = 0.5');
+    const n7=nephroidPt(0.7), e7=epiPt(0.5,0.25,0.25,0.7); close(n7[0]-e7[0],0,1e-15,'the nephroid is the epicycloid R = 1/2, r = 1/4 (x)'); close(n7[1]-e7[1],0,1e-15,'(y)');
+    const r=fam(0.5); close(r.Q[1],0,1e-12,'the middle ray strikes on the axis'); close(r.dOut[0]+1,0,1e-12,'and reflects straight back'); }
+  { const fam=rayFamily('rim',[0,0]);
+    const u0=(0+1.55)/3.1, e0=envelopePt(fam,u0); rel(e0[0],1/3,1e-8,'rim source: the axial envelope point is the paraxial focus R/3 (derive)'); close(e0[1],0,1e-8,'on the axis');
+    const u1=(0.5+1.55)/3.1, e1=envelopePt(fam,u1), q1=fam(u1);
+    close(Math.atan2(q1.Q[1],q1.Q[0]),1,1e-9,'direction 0.5 rad from the rim strikes at phi = 1 (inscribed angle)');
+    rel(e1[0],0.4989171494278,1e-8,'rim: envelope at phi = 1, x (derive)'); rel(e1[1],0.2578815142633,1e-8,'y (derive)');
+    const c1=cardioidPt(1); close(e1[0]-c1[0],0,1e-8,'and it is cardioidPt(1): the parameter is the strike angle (x)'); close(e1[1]-c1[1],0,1e-8,'(y)');
+    let worst=0; for(let i=1;i<=26;i++){ const u=i/27, e=envelopePt(fam,u); worst=Math.max(worst,distToCurve(e,cardioidPt,720)); }
+    ok(worst<1e-8,'rim source: every envelope point lies on the cardioid ('+worst.toExponential(2)+')');
+    const c7=cardioidPt(0.7), e7=epiPt(1/3,1/3,1/3,0.7); close(c7[0]-e7[0],0,1e-15,'the cardioid is the epicycloid R = r = 1/3 (x)'); close(c7[1]-e7[1],0,1e-15,'(y)');
+    close(cardioidPt(PI)[0],-1,1e-15,'the cardioid reaches the source'); }
+  { const S=[-0.5,0], fam=rayFamily('point',S);
+    const e0=envelopePt(fam,0); rel(e0[0],0.25,1e-8,'inside source at (-0.5, 0): axial envelope at 0.25 (derive)'); close(e0[1],0,1e-8,'on the axis');
+    rel(1-paraxialImage(1.5),0.25,1e-15,'= the paraxial image 1/v = 2/R - 1/u with u = 1.5');
+    /* find the ray that strikes at phi = 0.8 and pin its envelope point */
+    let lo=0,hi=0.25; for(let k=0;k<60;k++){ const m=0.5*(lo+hi), Q=fam(m).Q; if(Math.atan2(Q[1],Q[0])<0.8) lo=m; else hi=m; }
+    const e8=envelopePt(fam,0.5*(lo+hi)); rel(e8[0],0.3353316656497,1e-7,'inside source: envelope at strike 0.8, x (derive)'); rel(e8[1],0.07252309645881,1e-6,'y (derive)');
+    const famS=rayFamily('point',[-1+1e-12,0]); const eS=envelopePt(famS,0.5/3.1*0+0.5*(0.5/TAU)+0); ok(!!eS,'the generic family runs at the rim');
+    const Q=hitCircle([-0.5,0],[1,0]); close(Q[0],1,1e-15,'hitCircle from (-0.5,0) along +x reaches (1,0)'); close(Q[1],0,1e-15,'y = 0');
+    const d=reflect([1,0],[Math.SQRT1_2,Math.SQRT1_2]); close(d[0],0,1e-15,'reflect (1,0) off the 45-degree normal: x'); close(d[1],-1,1e-15,'y = -1'); }
+  { const C=withState({view:'caustic',src:'parallel'},()=>causticModel(ST)); ok(C.env.length>200,'the model carries the envelope ('+C.env.length+' points)'); ok(C.worst<1e-8,'and it sits on the nephroid ('+C.worst.toExponential(2)+')'); ok(C.exact===nephroidPt,'closed form: nephroid'); eq(C.rays.length,24,'24 rays drawn');
+    const R=withState({view:'caustic',src:'rim'},()=>causticModel(ST)); ok(R.worst<1e-8,'rim model on the cardioid ('+R.worst.toExponential(2)+')'); ok(R.exact===cardioidPt,'closed form: cardioid');
+    const P=withState({view:'caustic',src:'point',sx:-0.5,sy:0},()=>causticModel(ST)); ok(P.exact===null,'an inside source has no closed form'); rel(P.paraxial,0.75,1e-15,'but a paraxial focus'); ok(P.env.length>100,'and an envelope'); }
+
+  /* ---------- D. the spirograph ---------- */
+  for(const [N,n,pen,g,orb,lob,closes,px,py,turns] of [[96,40,0.8,8,5,12,[0.6340376775301,0.3918568348616,0.3918568348616,0.6340376775301,0],0.3718320593898,0.1623748311418,1.4],
+      [105,42,0.6,21,2,5,[0.48,0],0.3411583119211,0.2654837940998,1.5],[96,32,0.9,32,1,3,[0],0.2353574862813,0.2881914284909,2],
+      [84,60,0.7,12,5,7,[0.9510565162952,0.5877852522925,0.5877852522925,0.9510565162952,0],0.6149025843923,0.04571111021936,0.4],
+      [96,36,1.0,12,3,8,[0.6495190528383,0.6495190528383,0],0.3017926106622,0.152641381348,1.666666666667]]){
+    const tag='spiro '+N+'/'+n+' pen '+pen+': ';
+    const M=withState({view:'spiro',spN:N,spn:n,pen,spOut:false},()=>spiroModel(ST));
+    eq(M.g,g,tag+'gcd (derive)'); eq(M.orbits,orb,tag+'orbits to close (derive)'); eq(M.lobes,lob,tag+'lobes N/gcd (derive)'); eq(M.lobesCounted,lob,tag+'lobes COUNTED as radial maxima (derive)');
+    for(let m=1;m<=orb;m++) close(M.closes[m-1],closes[m-1],1e-10,tag+'distance from the start after orbit '+m+' (derive)');
+    const P=spiroPt(N,n,pen,false,1); rel(P[0],px,1e-12,tag+'point at t=1 x (derive)'); rel(P[1],py,1e-12,tag+'y (derive)');
+    rel(M.turns,turns,1e-12,tag+'wheel turns per orbit (derive)'); }
+  { const M=withState({view:'spiro',spN:96,spn:40,pen:0.8,spOut:true},()=>spiroModel(ST));
+    eq(M.orbits,5,'the epitrochoid 96/40 also closes after 5 orbits'); close(M.closes[4],0,1e-10,'(derive: 2.7e-15)'); ok(M.closes[0]>0.6,'and not after one'); rel(M.turns,136/40,1e-12,'outside: (N+n)/n turns per orbit'); }
+
+  /* ---------- E. the models, the readouts, the scene ---------- */
+  { const W=withState({view:'wheel',dr:0.5},()=>wheelModel(ST)); eq(W.kind,'curtate','d < r is curtate'); const W1=withState({view:'wheel',dr:1},()=>wheelModel(ST)); eq(W1.kind,'cycloid','d = r is the cycloid'); const W2=withState({view:'wheel',dr:1.5},()=>wheelModel(ST)); eq(W2.kind,'prolate','d > r is prolate');
+    rel(W.Lq,W.Lc,1e-12,'the wheel model\'s two lengths agree'); rel(W.Aq,W.Ac,1e-12,'and its two areas'); }
+  { const E=withState({view:'evolute'},()=>evoluteModel(ST,0.7)); rel(E.rho,1.371591229822,1e-12,'evolute model rho (derive)'); rel(E.rhoNumeric,E.rho,1e-6,'and the numeric route'); rel(E.sQuad,E.sCusp,1e-12,'arc: quadrature = closed'); rel(E.sVert/E.chord,2,1e-12,'arc/chord = 2 in the model'); }
+  { const A=withState({view:'area',dr:1.5},()=>areaModel(ST,1.0)); rel(A.d,1,1e-15,'the area view clamps d to r'); rel(A.total,3*PI,1e-15,'3 pi r^2'); rel(A.quad,A.total,1e-12,'quadrature agrees'); rel(A.gap,0.8414709848079,1e-12,'gap at theta = 1 (derive)');
+    const A6=withState({view:'area',dr:0.6},()=>areaModel(ST,2.0)); rel(A6.total,2*PI+PI*0.36,1e-15,'2 pi r^2 + pi d^2 at d = 0.6'); rel(A6.cres,PI*0.36,1e-15,'the crescents are one disc');
+    rel(A6.swept,trochoidAreaTo(1,0.6,2.0),1e-15,'swept area to theta'); rel(trochoidAreaTo(1,0.6,TAU),A6.total,1e-12,'and to 2 pi it is the whole'); }
+  for(const [v] of TABS){
+    const M=withState({view:v,t:0.7},()=>buildModel());
+    const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+    ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0,'panels clean for '+v);
+  }
+  { const M=withState({view:'wheel',dr:1},()=>buildModel()); ok(readoutHTML(M).indexOf('9.424778')>=0,'the wheel readout prints 3 pi r^2 = 9.424778 off the model'); ok(readoutHTML(M).indexOf('8.000000')>=0,'and 8r'); }
+  { const M=withState({view:'spiro'},()=>buildModel()); ok(readoutHTML(M).indexOf('12')>=0&&readoutHTML(M).indexOf('5 orbits')>=0,'the spirograph readout prints 12 lobes and 5 orbits'); }
+  { const shot=makeShot(1100,712); const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS); simReset(ST);
+    ok(S.step(),'a frame advances on the wheel'); close(SIM.t,FRAME_DT,1e-15,'by 1/60 s');
+    ST.running=false; ok(!S.step(),'paused: no frame'); ST.running=true;
+    ST.view='caustic'; simReset(ST); ok(!S.step(),'the caustic view has no clock');
+    ST.view='wheel'; simReset(ST); SIM.t=2*TAU/WHEEL_OMEGA+0.1; S.step(); ok(SIM.t<0.1,'the wheel loops after two turns');
+    ST.view='spiro'; simReset(ST); SIM.t=5; S.step(); ok(SIM.t>5,'the spirograph does not loop');
+    /* the pointer: only the caustic's point source listens */
+    ST.view='caustic'; ST.src='point'; ST.sx=-0.5; ST.sy=0; simReset(ST);
+    const G=cauGeo(shot,S.W,S.H,buildModel()), map=G.map;
+    ok(S.pointer('down',map.X(-0.5)+3,map.Y(0)-2),'pointer-down on the source grabs it'); eq(DRAG.what,'S','it is S');
+    S.pointer('move',map.X(0.3),map.Y(0.4)); close(ST.sx,0.3,1e-9,'the source follows the pointer (x)'); close(ST.sy,0.4,1e-9,'(y)');
+    S.pointer('move',map.X(1.5),map.Y(0)); ok(Math.hypot(ST.sx,ST.sy)<=0.92+1e-12,'and is held inside the cup');
+    ok(S.pointer('up',0,0),'pointer-up releases'); eq(DRAG.what,null,'nothing dragged');
+    ok(!S.pointer('down',map.X(0.9),map.Y(0.9)),'a pointer-down away from the source grabs nothing');
+    ST.src='parallel'; ok(!S.pointer('down',map.X(ST.sx),map.Y(ST.sy)),'with parallel light nothing listens');
+    ST.view='wheel'; ok(!S.pointer('down',300,300),'the wheel view ignores the pointer');
+    Object.assign(ST,stSave); simReset(ST); }
+
+  /* ---------- F. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['wheel cycloid',{view:'wheel',dr:1,t:1.3},4],['wheel curtate',{view:'wheel',dr:0.5,t:2.7},4],['wheel prolate',{view:'wheel',dr:1.6,t:0.4},4],['wheel start',{view:'wheel',dr:1,t:0},4],
+    ['family deltoid',{view:'family',named:'deltoid',t:2},4],['family cardioid',{view:'family',named:'cardioid',t:6},4],['family nephroid',{view:'family',named:'nephroid',t:1},4],
+    ['family astroid',{view:'family',named:'astroid',t:9},4],['family tusi',{view:'family',named:'tusi',t:3},3],
+    ['family 5/2 epi',{view:'family',named:'custom',p:5,q:2,outside:true,t:4},4],['family 8/3 hypo',{view:'family',named:'custom',p:8,q:3,outside:false,t:12},4],
+    ['evolute',{view:'evolute',t:1.1},6],['evolute late',{view:'evolute',t:5.0},6],['evolute start',{view:'evolute',t:0.05},6],
+    ['area cycloid',{view:'area',dr:1,t:1.4},4],['area curtate',{view:'area',dr:0.6,t:3.1},4],
+    ['caustic parallel',{view:'caustic',src:'parallel'},3],['caustic rim',{view:'caustic',src:'rim'},3],['caustic point',{view:'caustic',src:'point',sx:-0.5,sy:0.2},3],
+    ['spiro 96/40',{view:'spiro',t:6},3],['spiro 84/60',{view:'spiro',spN:84,spn:60,pen:0.7,t:20},3],['spiro outside',{view:'spiro',spOut:true,t:3},3],['spiro loops',{view:'spiro',pen:1.25,t:8},3],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

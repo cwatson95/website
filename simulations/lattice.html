@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crystal lattices — BCC · FCC · HCP</title>
+<!--
+  Crystal lattices: an interactive 3D explorer for the three metallic close/near-close
+  packings — body-centered cubic, face-centered cubic, and hexagonal close-packed.
+
+  Single file, no dependencies, works over file://.
+  All 3D math + the shaded-sphere painter renderer are hand-rolled on canvas 2D.
+
+  Geometry is exact. With the atomic radius r set to 1 (world units) the hard
+  spheres just touch, so the conventional-cell lattice constants are
+      BCC : a = 4r/sqrt(3)                 (touch along the body diagonal, 4r = a*sqrt(3))
+      FCC : a = 2*sqrt(2)*r                (touch along the face diagonal, 4r = a*sqrt(2))
+      HCP : a = 2r, c = a*sqrt(8/3)        (ideal, in-plane touch; c/a = 1.633)
+  and the atomic packing fractions come out at their textbook values
+      BCC : pi*sqrt(3)/8 = 0.6802   FCC = HCP : pi/(3*sqrt(2)) = 0.7405.
+
+  FCC and HCP are both the densest sphere packings and differ only in stacking
+  order of the close-packed planes: FCC = ABCABC (along a cube body-diagonal),
+  HCP = ABAB (along c). Toggle "stacking colours" to see it.
+
+  Toggle "clip to cell" to slice the spheres at the cell boundary. Every boundary atom
+  lies exactly on its cell planes, so those cuts pass through the sphere centre: cube
+  corners -> 1/8, edges -> 1/4, faces -> 1/2, HCP hex-corners -> 1/6. In the ball-and-stick
+  limit the drawn atoms-per-cell count (2 / 4 / 6) becomes literal; at larger radius the
+  three HCP interior atoms — whose spheres overhang the prism side faces by ~0.42 r — are
+  correctly trimmed there too, so the hex-prism sum eases from 6 toward ~5.66 at touching
+  radius. Each atom is drawn as the exact projection of the convex solid left inside the cell
+  — outline = convex hull of the sphere's silhouette arcs and the rims of the cut faces, with
+  the camera-facing cut faces painted flat over it — so it is one fixed 3-D body seen from
+  wherever you orbit to, and a corner keeps reading as 1/8 of a sphere. (Its projected area is
+  of course not constant: a corner covers 1/4 of the disc down a cube axis and 0.43 down the
+  body diagonal. What must not change, and now does not, is the solid itself.)
+
+  Headless self-test: extract the <script> body and run it with
+      osascript -l JavaScript lattice.js
+  (when `document` is undefined it runs geometry/physics assertions instead of
+  booting the UI).
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0b0d14; --panel2:#12151f; --text:#d3d7e0; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#20242f; --edge2:#2a2f3d;
+    --A:#5ac8e0;  /* layer A / corner atoms — cyan   */
+    --B:#8fd16b;  /* layer B / face+interior atoms — green */
+    --C:#ffcf5a;  /* layer C / bcc body atom — gold  */
+    --hi:#ff9e4a; /* coordination centre highlight   */
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap;}
+  nav{margin-left:auto; display:flex; gap:6px;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+  #stage{position:relative; width:100%; height:calc(100% - 48px - 116px);}
+  canvas{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:grab;}
+  canvas.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:12px; right:14px; width:246px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(12,14,20,.82), rgba(12,14,20,.62));
+           border:1px solid var(--edge2); border-radius:9px; padding:11px 13px 12px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 21px Georgia, serif; color:#fff; line-height:1.1;}
+  #readout .rname small{font-size:12px; color:var(--dim); font-style:normal; display:block; margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:9px; font-size:12px;}
+  #readout td{padding:2px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout .apf{margin-top:8px;}
+  #readout .apfbar{height:7px; border-radius:4px; background:#20242f; overflow:hidden; margin-top:3px;
+                   box-shadow:inset 0 0 0 1px rgba(255,255,255,.05);}
+  #readout .apffill{height:100%; border-radius:4px;
+                    background:linear-gradient(90deg,#3a7f8f,#5ac8e0);}
+  #readout .ex{margin-top:10px; font-size:11px; color:#7b8398; line-height:1.5;}
+  #readout .ex b{color:var(--dim); font-weight:600; font-style:italic; font-family:Georgia,serif;}
+  #readout .legend{margin-top:10px; display:flex; flex-wrap:wrap; gap:4px 11px; font-size:11px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:10px; height:10px; border-radius:50%; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:12px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag b{color:var(--text); font-style:normal; font-weight:600; font-family:-apple-system,sans-serif;}
+
+  footer{height:116px; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 15px 11px; display:flex; flex-direction:column; gap:8px;}
+  #captionrow{display:flex; align-items:baseline; gap:14px; min-height:18px;}
+  #caption{color:var(--dim); font-size:12.5px; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #credit{color:#5c637a; font-size:11px; white-space:nowrap; font-style:italic; font-family:Georgia,serif;}
+  #controlbar{display:flex; align-items:center; gap:9px 15px; flex-wrap:wrap;}
+  .ctl{display:flex; align-items:center; gap:7px; color:var(--dim); font-size:12px; white-space:nowrap;}
+  .ctl input[type=range]{width:118px; accent-color:var(--accent);}
+  .ctl input[type=checkbox]{accent-color:var(--accent); width:14px; height:14px;}
+  .ctl .val{color:var(--text); font-variant-numeric:tabular-nums; min-width:34px; display:inline-block;}
+  .seg{display:flex; border:1px solid var(--edge2); border-radius:13px; overflow:hidden;}
+  .seg button{background:var(--panel2); border:0; color:var(--dim); padding:4px 11px;
+              cursor:pointer; font-size:12px; font-family:Georgia, serif; font-style:italic;}
+  .seg button.on{background:rgba(90,200,224,.16); color:var(--text);}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--dim);
+        border-radius:13px; padding:4px 12px; cursor:pointer; font-size:12px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent); color:var(--text);}
+  .chip.on{border-color:var(--accent); color:var(--accent); background:rgba(90,200,224,.10);}
+  .chip.disabled{opacity:.34; cursor:default; border-color:var(--edge);}
+  .chip.disabled:hover{color:var(--dim); border-color:var(--edge);}
+  .sep{width:1px; height:22px; background:var(--edge2);}
+
+  #errbox{position:absolute; left:12px; top:44px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Crystal lattices</h1>
+  <span class="sub">metallic packings in three dimensions — drag to orbit</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="stage">
+  <canvas id="view"></canvas>
+  <div id="tag"></div>
+  <div id="readout"></div>
+  <div id="hint"></div>
+  <div id="errbox"></div>
+</div>
+<footer>
+  <div id="captionrow">
+    <div id="caption"></div>
+    <div id="credit">an interactive crystallography explorer</div>
+  </div>
+  <div id="controlbar"></div>
+</footer>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, DEG=Math.PI/180;
+
+function hexToRgb(h){ h=(''+h).replace('#',''); if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255]; }
+function mix(a,b,t){ const A=hexToRgb(a),B=hexToRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','+Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k==='text') e.textContent=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){ const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c); }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector + 3x3 matrix helpers                                      *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.hypot(a[0],a[1],a[2]),
+  dist:(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]),
+  norm:a=>{const l=Math.hypot(a[0],a[1],a[2])||1; return [a[0]/l,a[1]/l,a[2]/l];},
+  lerp:(a,b,t)=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t],
+};
+const I3=[[1,0,0],[0,1,0],[0,0,1]];
+function matVec(M,p){ return [M[0][0]*p[0]+M[0][1]*p[1]+M[0][2]*p[2],
+                              M[1][0]*p[0]+M[1][1]*p[1]+M[1][2]*p[2],
+                              M[2][0]*p[0]+M[2][1]*p[1]+M[2][2]*p[2]]; }
+// Rodrigues rotation matrix: rotate by `ang` about unit axis k
+function rotAxis(k,ang){
+  k=v3.norm(k); const c=Math.cos(ang),s=Math.sin(ang),t=1-c,[x,y,z]=k;
+  return [[t*x*x+c,   t*x*y-s*z, t*x*z+s*y],
+          [t*x*y+s*z, t*y*y+c,   t*y*z-s*x],
+          [t*x*z-s*y, t*y*z+s*x, t*z*z+c ]];
+}
+// rotation taking unit vector a onto unit vector b
+function rotBetween(a,b){
+  a=v3.norm(a); b=v3.norm(b);
+  const d=clamp(v3.dot(a,b),-1,1); let ax=v3.cross(a,b);
+  if(v3.len(ax)<1e-9){ if(d>0) return I3; ax=Math.abs(a[0])<0.9?[1,0,0]:[0,1,0]; ax=v3.cross(a,ax); }
+  return rotAxis(v3.norm(ax),Math.acos(d));
+}
+// an orthonormal pair spanning the plane perpendicular to unit s
+function perpBasis(s){
+  s=v3.norm(s); let t=Math.abs(s[0])<0.9?[1,0,0]:[0,1,0];
+  const e1=v3.norm(v3.cross(s,t)), e2=v3.cross(s,e1); return [e1,e2];
+}
+
+/* ================================================================== *
+ *  orbit camera + perspective projection (z-up)                       *
+ * ================================================================== */
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.80,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta),st=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi), sp=Math.sin(cam.phi);
+  const dir=[cp*ct,cp*st,sp];                      // unit target->eye
+  const eye=v3.add(cam.target,v3.scale(dir,cam.dist));
+  const fwd=v3.norm(v3.sub(cam.target,eye));       // eye->target
+  let right=v3.cross(fwd,[0,0,1]);
+  if(v3.len(right)<1e-6) right=[1,0,0];
+  right=v3.norm(right);
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0],dy=p[1]-B.eye[1],dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<0.02) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]+dy*B.up[1]+dz*B.up[2])/z,
+           z, s:B.f/z };
+}
+
+/* ================================================================== *
+ *  shaded-sphere + segment drawing                                    *
+ * ================================================================== */
+function drawSphere(ctx,x,y,R,color,shade){
+  if(R<0.7){ ctx.globalAlpha=shade; ctx.fillStyle=color;
+    ctx.beginPath(); ctx.arc(x,y,Math.max(R,0.6),0,TAU); ctx.fill(); return; }
+  const hx=x-0.34*R, hy=y-0.42*R;
+  const g=ctx.createRadialGradient(hx,hy,R*0.04, x,y,R*1.03);
+  g.addColorStop(0,   mix(color,'#ffffff',0.60));
+  g.addColorStop(0.30,mix(color,'#ffffff',0.14));
+  g.addColorStop(0.68,color);
+  g.addColorStop(1,   mix(color,'#05070d',0.62));
+  ctx.globalAlpha=shade; ctx.fillStyle=g;
+  ctx.beginPath(); ctx.arc(x,y,R,0,TAU); ctx.fill();
+  ctx.globalAlpha=shade*0.55; ctx.lineWidth=Math.max(0.6,R*0.035);
+  ctx.strokeStyle=mix(color,'#05070d',0.45);
+  ctx.beginPath(); ctx.arc(x,y,R,0,TAU); ctx.stroke();
+  ctx.globalAlpha=shade*0.55; ctx.fillStyle='rgba(255,255,255,.85)';
+  ctx.beginPath(); ctx.arc(x-0.36*R,y-0.44*R,R*0.12,0,TAU); ctx.fill();
+}
+/* --- the same sphere, cut down to the part inside the cell ------------------- *
+ * it.planes carries the cell faces this sphere pokes through: {n:outward unit normal,
+ * delta:world distance from the atom centre to that plane (>=0 while the centre is inside)}.
+ * The kept solid  K = ball(r) ∩ {x·n_i <= delta_i}  is CONVEX, and we draw its exact shadow from
+ * the eye, so what you see is one fixed 3-D body seen from wherever the camera happens to be — a
+ * corner atom reads as 1/8 of a sphere at every orbit angle. Three earlier tries were all wrong:
+ *   · a straight screen chord per face — a 2-D cut, not the shadow of any solid (worst error
+ *     0.42 of the disc: at some angles a corner atom vanished outright);
+ *   · the exact per-face silhouette, intersected — that builds ∩ proj(K_i), and proj(∩ K_i) is
+ *     a strict subset of it whenever two faces point opposite ways along the view axis, so it
+ *     over-kept by up to 0.25 of the disc;
+ *   · the right solid, but projected ORTHOGRAPHICALLY (planes offset by delta*f/z, silhouette taken
+ *     as a great circle) while the scene is drawn in perspective. The camera sits only ~10 r off,
+ *     so r/z ~ 0.12 and the outline slid by up to 8.5 px on an 85 px atom, swinging 0..8.5 px round
+ *     an orbit — the residual "drift". All three are on the changelog's known-bad list.
+ * So we work from K's extreme points in camera coordinates (eye at the origin, z = depth away).
+ * The shadow's boundary is generated by the sphere's TANGENT circle from the eye — radius
+ * r*sqrt(1-(r/L)^2), pushed r^2/L back along the eye->centre direction, L = |centre|; the great
+ * circle is only its L -> infinity limit — plus the rim circle of each cut face and the corners
+ * where faces meet. Project those through the real perspective divide and take the 2-D convex hull.
+ * cutFace() gets the face rims by Sutherland–Hodgman-clipping each rim circle against the other
+ * faces, which drops the plane∩plane∩sphere junctions and the 3-plane corners in for free.
+ * selfTest checks the hull against a raw ray cast from the eye over 108 camera poses at three
+ * zooms: worst disagreement 0.15 px on atoms up to 398 px across — pure polygon sagitta. */
+function hull2(pts){                                        // Andrew monotone chain
+  if(pts.length<3) return pts.slice();
+  pts=pts.slice().sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  const cr=(o,a,b)=>(a[0]-o[0])*(b[1]-o[1])-(a[1]-o[1])*(b[0]-o[0]), lo=[], up=[];
+  for(const p of pts){ while(lo.length>=2&&cr(lo[lo.length-2],lo[lo.length-1],p)<=0) lo.pop(); lo.push(p); }
+  for(let i=pts.length-1;i>=0;i--){ const p=pts[i];
+    while(up.length>=2&&cr(up[up.length-2],up[up.length-1],p)<=0) up.pop(); up.push(p); }
+  lo.pop(); up.pop(); return lo.concat(up);
+}
+// the flat disc face cut by plane i: rim circle of radius sqrt(Rs^2-d^2), trimmed by the other faces
+function cutFace(P,i,Rs,N){
+  const p=P[i]; if(!(Math.abs(p.d)<Rs)) return [];          // plane misses the sphere: no face
+  const rho=Math.sqrt(Rs*Rs-p.d*p.d), e=perpBasis(p.m), e1=e[0], e2=e[1];
+  let poly=[];
+  for(let k=0;k<N;k++){ const t=TAU*k/N, c=Math.cos(t)*rho, s=Math.sin(t)*rho;
+    poly.push([p.d*p.m[0]+c*e1[0]+s*e2[0], p.d*p.m[1]+c*e1[1]+s*e2[1], p.d*p.m[2]+c*e1[2]+s*e2[2]]); }
+  for(let j=0;j<P.length&&poly.length;j++){                 // Sutherland–Hodgman against face j
+    if(j===i) continue;
+    const q=P[j], nx=[];
+    for(let k=0;k<poly.length;k++){
+      const A=poly[k], Bp=poly[(k+1)%poly.length];
+      const da=v3.dot(A,q.m)-q.d, db=v3.dot(Bp,q.m)-q.d;
+      if(da<=0) nx.push(A);
+      if((da<0&&db>0)||(da>0&&db<0)) nx.push(v3.lerp(A,Bp,da/(da-db)));
+    }
+    poly=nx;
+  }
+  return poly;
+}
+// P: cell faces in camera coordinates {m: unit outward normal, d: WORLD distance centre->plane}.
+// c: the atom centre in camera coordinates (eye at the origin); r: its world radius; f: focal
+// length in px. Returns the outline of K's shadow and its cut faces, as screen offsets from the
+// atom's projected centre — every generator goes through the true perspective divide.
+function clipSolid(P,c,r,N,f){
+  const eps=1e-7*r+1e-12, pts=[], faces=[], k0=f/c[2], ox=k0*c[0], oy=k0*c[1];
+  const prj=x=>{ const k=f/(c[2]+x[2]); return [k*(c[0]+x[0])-ox, k*(c[1]+x[1])-oy]; };
+  for(let i=0;i<P.length;i++){
+    const fp=cutFace(P,i,r,N).map(prj); faces.push(fp);
+    for(const s of fp) pts.push(s);
+  }
+  const L=Math.hypot(c[0],c[1],c[2]);
+  if(L>r*1.0001){                                           // tangent circle as seen from the eye
+    const u=[c[0]/L,c[1]/L,c[2]/L], off=r*r/L, rt=r*Math.sqrt(Math.max(0,1-r*r/(L*L))),
+          e=perpBasis(u), e1=e[0], e2=e[1];
+    for(let k=0;k<N;k++){ const t=TAU*k/N, a=Math.cos(t)*rt, b=Math.sin(t)*rt,
+        x=[a*e1[0]+b*e2[0]-off*u[0], a*e1[1]+b*e2[1]-off*u[1], a*e1[2]+b*e2[2]-off*u[2]];
+      let keep=true; for(const q of P) if(v3.dot(x,q.m)-q.d>eps){ keep=false; break; }
+      if(keep) pts.push(prj(x));
+    }
+  }
+  return {outline:hull2(pts), faces:faces};
+}
+const CUT_LIGHT=[-0.34,-0.42,-0.84];                        // matches drawSphere's up-left highlight
+function drawClippedSphere(ctx,B,it,shade){
+  const P=it.planes.map(pl=>({ m:[v3.dot(pl.n,B.right), -v3.dot(pl.n,B.up), v3.dot(pl.n,B.fwd)],
+                               d:pl.delta }));
+  const N=clamp(Math.round(it.R*0.8),18,72), K=clipSolid(P,it.c,it.rw,N,B.f), out=K.outline;
+  if(out.length<3) return;                                  // nothing of this atom lies in the cell
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(it.x+out[0][0],it.y+out[0][1]);
+  for(let i=1;i<out.length;i++) ctx.lineTo(it.x+out[i][0],it.y+out[i][1]);
+  ctx.closePath(); ctx.clip();
+  // drawSphere paints the ball as a flat circle of radius it.R — the same scaled-orthographic
+  // stand-in every unclipped atom gets. Clipping to that too keeps a cut atom inside exactly the
+  // disc its whole-sphere neighbours fill, instead of spilling past it when the zoom is close.
+  ctx.beginPath(); ctx.arc(it.x,it.y,it.R,0,TAU); ctx.clip();
+  drawSphere(ctx,it.x,it.y,it.R,it.col,shade);
+  // K is convex, so its camera-facing cut faces tile the front surface without overlapping:
+  // painting them over the sphere is exact hidden-surface removal, and the flat matte tone is
+  // what makes the wedge read as a solid rather than a bitten ball.
+  if(it.R>2.5) for(let i=0;i<P.length;i++){
+    const fp=K.faces[i];
+    // the eye lies outside this face's plane <=> the face is turned towards us. m[2]<0 is only the
+    // orthographic limit of that test and mislabels faces near grazing, so use the exact form.
+    if(v3.dot(it.c,P[i].m)+P[i].d>=0||fp.length<3) continue; // turned away: hidden by the sphere
+    const lam=Math.max(0,v3.dot(P[i].m,CUT_LIGHT));
+    ctx.beginPath(); ctx.moveTo(it.x+fp[0][0],it.y+fp[0][1]);
+    for(let k=1;k<fp.length;k++) ctx.lineTo(it.x+fp[k][0],it.y+fp[k][1]);
+    ctx.closePath();
+    ctx.globalAlpha=shade; ctx.fillStyle=mix(it.col,'#05070d',0.58-0.34*lam); ctx.fill();
+    ctx.globalAlpha=shade*0.55; ctx.lineWidth=Math.max(0.6,it.R*0.03);
+    ctx.strokeStyle=mix(it.col,'#ffffff',0.22); ctx.lineJoin='round'; ctx.stroke();
+  }
+  ctx.restore(); ctx.globalAlpha=1;
+}
+
+/* ================================================================== *
+ *  crystal geometry — everything exact, radius r = 1 (touching)       *
+ * ================================================================== */
+const R_ATOM=1;
+const SQ3=Math.sqrt(3), SQ2=Math.sqrt(2);
+const A_BCC=4/SQ3;                 // 2.309401…
+const A_FCC=2*SQ2;                 // 2.828427…
+const A_HCP=2;                     // in-plane, = 2r
+const COA=Math.sqrt(8/3);          // ideal c/a = 1.632993…
+const C_HCP=A_HCP*COA;             // 3.265986…
+const H_HCP=C_HCP/2;               // close-packed interlayer spacing = 1.632993…
+
+const APF_BCC=Math.PI*SQ3/8;       // 0.680175…
+const APF_CP =Math.PI/(3*SQ2);     // 0.740480…  (FCC and HCP)
+
+const STRUCT={
+  bcc:{ key:'bcc', abbr:'BCC', name:'body-centered cubic', a:A_BCC,
+        atomsPerCell:2, CN:8, apf:APF_BCC, poly:'cube', closePacked:false,
+        aRel:'a = (4/√3) r ≈ 2.31 r',
+        examples:'α-Fe · Cr · W · Mo · V · Nb · Na · K',
+        caption:'8 shared corner atoms + 1 body-centre atom — 2 atoms per cell, coordination 8, 68% packed. The only near-close packing here.' },
+  fcc:{ key:'fcc', abbr:'FCC', name:'face-centered cubic', a:A_FCC,
+        atomsPerCell:4, CN:12, apf:APF_CP, poly:'cuboctahedron', closePacked:true,
+        aRel:'a = 2√2 r ≈ 2.83 r',
+        examples:'Cu · Al · Au · Ag · Ni · Pt · Pb · γ-Fe',
+        caption:'8 corners + 6 face centres — 4 atoms per cell, coordination 12, 74% packed. Close-packed, ABCABC stacking along a body diagonal.' },
+  hcp:{ key:'hcp', abbr:'HCP', name:'hexagonal close-packed', a:A_HCP, c:C_HCP, coa:COA,
+        atomsPerCell:6, CN:12, apf:APF_CP, poly:'anticuboctahedron', closePacked:true,
+        aRel:'a = 2r,  c/a = √(8/3) ≈ 1.633',
+        examples:'Mg · Zn · Ti · Co · Zr · Be · Cd',
+        caption:'Hexagonal prism — 6 atoms per cell, coordination 12, 74% packed. Close-packed, ABAB stacking along c.' },
+};
+
+/* ---- conventional-cell / extended-block atom generators ---------- *
+ * Each returns { atoms:[{p,role}], edges:[[p0,p1]], center:[x,y,z] }. *
+ * role drives colour: corner|body|face|A|B (A/B are HCP sublayers).   */
+
+function genBCC(n){
+  const a=A_BCC, atoms=[], edges=[];
+  for(let i=0;i<=n;i++)for(let j=0;j<=n;j++)for(let k=0;k<=n;k++)
+    atoms.push({p:[i*a,j*a,k*a],role:'corner'});
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++)for(let k=0;k<n;k++)
+    atoms.push({p:[(i+0.5)*a,(j+0.5)*a,(k+0.5)*a],role:'body'});
+  cubeGrid(edges,n,a);
+  return {atoms,edges,center:[n*a/2,n*a/2,n*a/2]};
+}
+function genFCC(n){
+  const a=A_FCC, atoms=[], edges=[], seen=new Set();
+  const trans=[[0,0,0,'corner'],[0.5,0.5,0,'face'],[0.5,0,0.5,'face'],[0,0.5,0.5,'face']];
+  for(let i=0;i<=n;i++)for(let j=0;j<=n;j++)for(let k=0;k<=n;k++)
+    for(const t of trans){
+      const x=i+t[0],y=j+t[1],z=k+t[2];
+      if(x<-1e-6||x>n+1e-6||y<-1e-6||y>n+1e-6||z<-1e-6||z>n+1e-6) continue;
+      const key=Math.round(x*2)+'|'+Math.round(y*2)+'|'+Math.round(z*2);
+      if(seen.has(key)) continue; seen.add(key);
+      atoms.push({p:[x*a,y*a,z*a],role:t[3]});
+    }
+  cubeGrid(edges,n,a);
+  return {atoms,edges,center:[n*a/2,n*a/2,n*a/2]};
+}
+function cubeGrid(edges,n,a){
+  for(let j=0;j<=n;j++)for(let k=0;k<=n;k++) edges.push([[0,j*a,k*a],[n*a,j*a,k*a]]);
+  for(let i=0;i<=n;i++)for(let k=0;k<=n;k++) edges.push([[i*a,0,k*a],[i*a,n*a,k*a]]);
+  for(let i=0;i<=n;i++)for(let j=0;j<=n;j++) edges.push([[i*a,j*a,0],[i*a,j*a,n*a]]);
+}
+
+// iconic single hexagonal-prism cell (17 drawn atoms; 6 per cell by sharing)
+function genHCPcell(){
+  const a=A_HCP, c=C_HCP, atoms=[], edges=[];
+  atoms.push({p:[0,0,0],role:'A'}); atoms.push({p:[0,0,c],role:'A'});
+  const bot=[], top=[];
+  for(let k=0;k<6;k++){
+    const th=k*60*DEG, x=a*Math.cos(th), y=a*Math.sin(th);
+    atoms.push({p:[x,y,0],role:'A'}); atoms.push({p:[x,y,c],role:'A'});
+    bot.push([x,y,0]); top.push([x,y,c]);
+  }
+  const ri=a/SQ3;                              // interior-atom radius from the c-axis
+  for(let m=0;m<3;m++){
+    const th=(30+120*m)*DEG;
+    atoms.push({p:[ri*Math.cos(th),ri*Math.sin(th),c/2],role:'B'});
+  }
+  for(let k=0;k<6;k++){
+    edges.push([bot[k],bot[(k+1)%6]]); edges.push([top[k],top[(k+1)%6]]);
+    edges.push([bot[k],top[k]]);
+  }
+  return {atoms,edges,center:[0,0,c/2]};
+}
+// extended HCP block (close-packed layers, ABAB), clipped to a tidy disc
+function genHCPblock(rings,layers){
+  const a=A_HCP, h=H_HCP, atoms=[];
+  const u=[a,0,0], v=[a/2,a*SQ3/2,0], tB=[a/2,a/(2*SQ3),0];
+  const Rmax=(rings+0.55)*a, R2=Rmax*Rmax;
+  for(let L=-layers;L<=layers;L++){
+    const isB=((L%2)+2)%2===1, z=L*h, off=isB?tB:[0,0,0];
+    for(let i=-rings-1;i<=rings+1;i++)for(let j=-rings-1;j<=rings+1;j++){
+      const x=i*u[0]+j*v[0]+off[0], y=i*u[1]+j*v[1]+off[1];
+      if(x*x+y*y>R2) continue;
+      atoms.push({p:[x,y,z],role:isB?'B':'A'});
+    }
+  }
+  // keep the iconic prism wireframe anchored at the central cell
+  const cell=genHCPcell();
+  return {atoms,edges:cell.edges,center:[0,0,0]};
+}
+
+/* ---- coordination shells (built directly => always exactly CN) --- */
+function coordCluster(key){
+  const a=STRUCT[key].a, center=[0,0,0], nbr=[];
+  if(key==='bcc'){ const s=a/2;
+    for(const sx of[-1,1])for(const sy of[-1,1])for(const sz of[-1,1]) nbr.push([sx*s,sy*s,sz*s]); }
+  else if(key==='fcc'){ const s=a/2;
+    const P=[[1,1,0],[1,-1,0],[-1,1,0],[-1,-1,0],[1,0,1],[1,0,-1],[-1,0,1],[-1,0,-1],[0,1,1],[0,1,-1],[0,-1,1],[0,-1,-1]];
+    for(const p of P) nbr.push([p[0]*s,p[1]*s,p[2]*s]); }
+  else { const ah=A_HCP, ri=ah/SQ3, h=H_HCP;
+    for(let k=0;k<6;k++){ const th=k*60*DEG; nbr.push([ah*Math.cos(th),ah*Math.sin(th),0]); }
+    for(const dz of[h,-h])for(let m=0;m<3;m++){ const th=(30+120*m)*DEG;
+      nbr.push([ri*Math.cos(th),ri*Math.sin(th),dz]); } }
+  // polyhedron edges = neighbour pairs at the minimum inter-neighbour distance
+  let mind=Infinity;
+  for(let i=0;i<nbr.length;i++)for(let j=i+1;j<nbr.length;j++){
+    const d=v3.dist(nbr[i],nbr[j]); if(d<mind) mind=d; }
+  const poly=[]; const tol=mind*0.08;
+  for(let i=0;i<nbr.length;i++)for(let j=i+1;j<nbr.length;j++)
+    if(Math.abs(v3.dist(nbr[i],nbr[j])-mind)<tol) poly.push([nbr[i],nbr[j]]);
+  return {center,nbr,poly};
+}
+
+// close-packed layer index (0=A,1=B,2=C) for stacking colours
+function stackLayer(key,p){
+  if(key==='fcc') return ((Math.round((p[0]+p[1]+p[2])/A_FCC)%3)+3)%3;
+  if(key==='hcp') return ((Math.round(p[2]/H_HCP)%2)+2)%2;
+  return -1;
+}
+
+// bounding planes of the conventional cell, each {n:outward unit normal, d:offset};
+// a point p is OUTSIDE the cell across that plane when p·n > d. Cubic cells span
+// [0,n·a]^3; the HCP prism is z in [0,c] capped by six side planes at the apothem.
+function cellPlanes(key,n){
+  const P=[];
+  if(key==='hcp'){
+    const ap=A_HCP*SQ3/2;                          // apothem = centre-to-side distance
+    P.push({n:[0,0,1],d:C_HCP}); P.push({n:[0,0,-1],d:0});
+    for(let k=0;k<6;k++){ const th=(30+60*k)*DEG;
+      P.push({n:[Math.cos(th),Math.sin(th),0],d:ap}); }
+  } else {
+    const hi=n*(key==='bcc'?A_BCC:A_FCC);
+    P.push({n:[1,0,0],d:hi}); P.push({n:[-1,0,0],d:0});
+    P.push({n:[0,1,0],d:hi}); P.push({n:[0,-1,0],d:0});
+    P.push({n:[0,0,1],d:hi}); P.push({n:[0,0,-1],d:0});
+  }
+  return P;
+}
+
+/* ================================================================== *
+ *  a single lattice scene, instantiated per structure                 *
+ * ================================================================== */
+const LAYER_COL=['#5ac8e0','#8fd16b','#ffcf5a'];      // A,B,C
+function roleColor(role){
+  return role==='body'?'#ffcf5a':(role==='face'||role==='B')?'#8fd16b':'#5ac8e0';
+}
+
+function makeLatticeScene(env,key){
+  const S=STRUCT[key];
+  const st={ rFrac:0.58, extent:1, showCell:true, showCoord:false, showStack:false,
+             align:false, spin:true, clip:false };
+  const cam=makeCamera(0.62,0.42,10,[0,0,0]);
+  let geom=null, model=I3, invReady=false;
+
+  function rebuild(){
+    if(st.showCoord){
+      const c=coordCluster(key);
+      geom={mode:'coord', atoms:[{p:c.center,role:'center'}].concat(c.nbr.map(p=>({p,role:'nbr'}))),
+            bonds:c.nbr.map(p=>[c.center,p]), poly:c.poly, edges:[], center:c.center};
+    } else if(key==='hcp'){
+      geom=st.extent===1?genHCPcell():genHCPblock(st.extent-1,st.extent);
+      geom.mode='cell';
+    } else {
+      geom=(key==='bcc'?genBCC:genFCC)(st.extent); geom.mode='cell';
+    }
+    // planes the "clip to cell" toggle slices against (cubic any extent; HCP prism only)
+    geom.cellPlanes = (geom.mode==='cell' && (key!=='hcp' || st.extent===1))
+      ? cellPlanes(key, st.extent) : null;
+    // model rotation: only when "align" is on for FCC (bring [111] -> z)
+    model = (st.align && key==='fcc') ? rotBetween([1,1,1],[0,0,1]) : I3;
+    fit();
+  }
+  function fit(){
+    const pts=geom.atoms.map(a=>matVec(model,a.p));
+    let cx=0,cy=0,cz=0; for(const p of pts){ cx+=p[0];cy+=p[1];cz+=p[2]; }
+    const n=pts.length||1; const ctr=[cx/n,cy/n,cz/n];
+    let R=0; for(const p of pts){ const d=v3.dist(p,ctr); if(d>R) R=d; }
+    R+=R_ATOM*st.rFrac+0.4;
+    cam.target=ctr;
+    cam.dist=clamp(R/Math.tan(cam.fov/2)*1.28, 4, 60);
+  }
+
+  function draw(ctx,dt){
+    if(st.spin && dt>0) cam.theta+=dt*0.30;
+    const B=camBasis(cam), worldR=R_ATOM*st.rFrac;
+    const clipOn=st.clip && geom.mode==='cell' && geom.cellPlanes;
+    const items=[];
+
+    // atoms
+    for(const at of geom.atoms){
+      const p=matVec(model,at.p), pc=project(cam,B,p); if(!pc) continue;
+      let col;
+      if(at.role==='center') col='#ff9e4a';
+      else if(st.showStack && S.closePacked){ col=LAYER_COL[stackLayer(key,at.p)]||'#5ac8e0'; }
+      else col=roleColor(at.role);
+      let planes=null, cq=null;
+      if(clipOn){                                    // planes this sphere pokes through
+        planes=[];
+        for(const pl of geom.cellPlanes){
+          const delta=pl.d-v3.dot(at.p,pl.n);        // world dist centre->plane (>=0 inside)
+          if(delta < worldR-1e-6) planes.push({n:matVec(model,pl.n),delta});
+        }
+        if(!planes.length) planes=null;              // fully inside -> whole sphere
+        else { const q=v3.sub(p,B.eye);              // centre in camera coords, eye at the origin:
+          cq=[v3.dot(q,B.right),-v3.dot(q,B.up),v3.dot(q,B.fwd)];   // the clip is exact perspective
+        }
+      }
+      items.push({kind:'sph',z:pc.z,x:pc.x,y:pc.y,R:worldR*pc.s,col,planes,c:cq,rw:worldR});
+    }
+    // cell wireframe
+    if(st.showCell && geom.mode==='cell')
+      for(const e of geom.edges) pushSeg(items,cam,B,matVec(model,e[0]),matVec(model,e[1]),'rgba(150,170,205,.34)',1.1,6);
+    // coordination bonds + polyhedron
+    if(geom.mode==='coord'){
+      for(const e of geom.bonds) pushSeg(items,cam,B,e[0],e[1],'rgba(230,236,248,.55)',1.6,3);
+      for(const e of geom.poly)  pushSeg(items,cam,B,e[0],e[1],'rgba(255,158,74,.42)',1.3,3);
+    }
+
+    // depth sort (far -> near) and paint, with a gentle distance shade
+    items.sort((p,q)=>q.z-p.z);
+    let zmin=Infinity,zmax=-Infinity; for(const it of items){ if(it.z<zmin)zmin=it.z; if(it.z>zmax)zmax=it.z; }
+    const span=Math.max(zmax-zmin,1e-3);
+    for(const it of items){
+      const shade=lerp(0.62,1.0,(zmax-it.z)/span);
+      if(it.kind==='sph'){ if(it.planes) drawClippedSphere(ctx,B,it,shade);
+        else drawSphere(ctx,it.x,it.y,it.R,it.col,shade); }
+      else { ctx.globalAlpha=it.a*shade; ctx.strokeStyle=it.col; ctx.lineWidth=it.w; ctx.lineCap='round';
+        ctx.beginPath(); ctx.moveTo(it.p0.x,it.p0.y); ctx.lineTo(it.p1.x,it.p1.y); ctx.stroke(); }
+    }
+    ctx.globalAlpha=1;
+  }
+
+  function pushSeg(items,cam,B,p0,p1,col,w,parts){
+    for(let i=0;i<parts;i++){
+      const a=v3.lerp(p0,p1,i/parts), b=v3.lerp(p0,p1,(i+1)/parts);
+      const pa=project(cam,B,a), pb=project(cam,B,b); if(!pa||!pb) continue;
+      items.push({kind:'seg',z:(pa.z+pb.z)/2,p0:pa,p1:pb,col,w,a:1});
+    }
+  }
+
+  function pointer(type,e){
+    if(type==='move'){ cam.theta-=e.dx*0.008; cam.phi=clamp(cam.phi+e.dy*0.008,-1.45,1.45); }
+  }
+  function wheel(dy){ cam.dist=clamp(cam.dist*Math.exp(dy*0.0011),4,60); }
+
+  function readoutHTML(){
+    const pct=(S.apf*100).toFixed(1);
+    const rows=[
+      ['atoms / cell', S.atomsPerCell],
+      ['coordination', S.CN],
+      ['nearest nbrs', '2r (touching)'],
+    ];
+    if(key==='hcp') rows.push(['ideal c/a', S.coa.toFixed(3)]);
+    let t='';
+    for(const r of rows) t+='<tr><td>'+r[0]+'</td><td class="v">'+r[1]+'</td></tr>';
+    const legend = st.showStack && S.closePacked
+      ? (key==='fcc'
+          ? '<span><i style="background:#5ac8e0"></i>A</span><span><i style="background:#8fd16b"></i>B</span><span><i style="background:#ffcf5a"></i>C</span>'
+          : '<span><i style="background:#5ac8e0"></i>A layer</span><span><i style="background:#8fd16b"></i>B layer</span>')
+      : (st.showCoord
+          ? '<span><i style="background:#ff9e4a"></i>centre</span><span><i style="background:#5ac8e0"></i>'+S.CN+' neighbours</span>'
+          : legendDefault());
+    return '<div class="rname">'+S.abbr+'<small>'+S.name+'</small></div>'+
+      '<table>'+t+'</table>'+
+      '<div class="apf"><table><tr><td>packing (APF)</td><td class="v">'+pct+'%</td></tr></table>'+
+      '<div class="apfbar"><div class="apffill" style="width:'+pct+'%"></div></div></div>'+
+      '<div class="ex"><b>'+S.aRel+'</b><br>'+S.examples+'</div>'+
+      '<div class="legend">'+legend+'</div>';
+  }
+  function legendDefault(){
+    if(key==='bcc') return '<span><i style="background:#5ac8e0"></i>corner</span><span><i style="background:#ffcf5a"></i>body centre</span>';
+    if(key==='fcc') return '<span><i style="background:#5ac8e0"></i>corner</span><span><i style="background:#8fd16b"></i>face centre</span>';
+    return '<span><i style="background:#5ac8e0"></i>A (basal)</span><span><i style="background:#8fd16b"></i>B (interior)</span>';
+  }
+
+  const scene={ key, title:S.abbr, caption:S.caption,
+    hint:'drag to orbit · scroll to zoom · keys: 1/2/3 tabs · c coordination · k stacking · l clip · e cells · space spin',
+    st, _cam:cam, rebuild, fit, draw, pointer, wheel, readoutHTML };
+  return scene;
+}
+
+/* ================================================================== *
+ *  boot (UI wiring)                                                    *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('view');
+  const ctx=canvas.getContext('2d');
+  const stage=document.getElementById('stage');
+  const tabsEl=document.getElementById('tabs');
+  const bar=document.getElementById('controlbar');
+  const readoutEl=document.getElementById('readout');
+  const captionEl=document.getElementById('caption');
+  const hintEl=document.getElementById('hint');
+  const tagEl=document.getElementById('tag');
+
+  window.addEventListener('error',ev=>{ const b=document.getElementById('errbox');
+    b.style.display='block'; b.textContent='error: '+ev.message+' ('+(ev.lineno||'?')+')'; });
+
+  let readoutDirty=true;
+  const env={ requestReadout:()=>{ readoutDirty=true; } };
+  const scenes=['bcc','fcc','hcp'].map(k=>makeLatticeScene(env,k));
+  let active=scenes[0];
+
+  // tabs
+  for(const sc of scenes){
+    const b=h('button',{},sc.title); b.dataset.scene=sc.key;
+    b.addEventListener('click',()=>select(sc.key)); tabsEl.appendChild(b);
+  }
+
+  // shared control bar (acts on the active scene)
+  const rRange=h('input',{type:'range',min:'30',max:'100',value:'58'});
+  const rVal=h('span',{class:'val'},'0.58');
+  const extSeg=h('div',{class:'seg'});
+  const extBtns=[1,2,3].map(n=>{ const b=h('button',{},''+n); b.dataset.n=n;
+    b.addEventListener('click',()=>{ active.st.extent=n; active.rebuild(); syncBar(); readoutDirty=true; }); extSeg.appendChild(b); return b; });
+  const cellChip =chip('unit cell', ()=>{ active.st.showCell=!active.st.showCell; syncBar(); });
+  const clipChip =chip('clip to cell', ()=>{ if(active.st.showCoord||(active.key==='hcp'&&active.st.extent>1)) return;
+    active.st.clip=!active.st.clip; syncBar(); });
+  const coordChip=chip('coordination', ()=>{ active.st.showCoord=!active.st.showCoord; active.rebuild(); syncBar(); readoutDirty=true; });
+  const stackChip=chip('stacking', ()=>{ if(!STRUCT[active.key].closePacked) return; active.st.showStack=!active.st.showStack; syncBar(); readoutDirty=true; });
+  const alignChip=chip('align [111]', ()=>{ if(active.key!=='fcc') return; active.st.align=!active.st.align;
+    if(active.st.align) active.st.showStack=true; active.rebuild(); syncBar(); readoutDirty=true; });
+  const spinChip =chip('spin', ()=>{ active.st.spin=!active.st.spin; syncBar(); });
+  const spaceBtn =h('button',{class:'chip',onclick:()=>{ active.st.rFrac=1.0; rRange.value=100; rVal.textContent='1.00'; }},'space-filling');
+  const resetBtn =h('button',{class:'chip',onclick:()=>resetView()},'reset view');
+
+  rRange.addEventListener('input',()=>{ active.st.rFrac=rRange.value/100; rVal.textContent=(active.st.rFrac).toFixed(2); active.fit(); });
+
+  bar.appendChild(h('div',{class:'ctl'}, 'radius', rRange, rVal));
+  bar.appendChild(h('div',{class:'ctl'}, 'cells', extSeg));
+  bar.appendChild(h('div',{class:'sep'}));
+  bar.appendChild(cellChip); bar.appendChild(clipChip); bar.appendChild(coordChip); bar.appendChild(stackChip);
+  bar.appendChild(alignChip);
+  bar.appendChild(h('div',{class:'sep'}));
+  bar.appendChild(spinChip); bar.appendChild(spaceBtn); bar.appendChild(resetBtn);
+
+  function chip(label,fn){ const b=h('button',{class:'chip'},label); b.addEventListener('click',fn); return b; }
+  function toggle(el,on,dis){ el.classList.toggle('on',!!on&&!dis); el.classList.toggle('disabled',!!dis); }
+
+  function syncBar(){
+    const s=active.st, S=STRUCT[active.key];
+    rRange.value=Math.round(s.rFrac*100); rVal.textContent=s.rFrac.toFixed(2);
+    for(const b of extBtns) b.classList.toggle('on', +b.dataset.n===s.extent);
+    toggle(cellChip, s.showCell, s.showCoord);
+    toggle(clipChip, s.clip, s.showCoord || (active.key==='hcp' && s.extent>1));
+    toggle(coordChip, s.showCoord, false);
+    toggle(stackChip, s.showStack, !S.closePacked);
+    toggle(alignChip, s.align, active.key!=='fcc');
+    toggle(spinChip, s.spin, false);
+  }
+
+  function resetView(){ const c=active._cam; c.theta=0.62; c.phi=0.42; active.fit(); }
+
+  function select(key){
+    active=scenes.find(s=>s.key===key)||scenes[0];
+    for(const b of tabsEl.children) b.classList.toggle('active', b.dataset.scene===active.key);
+    captionEl.textContent=active.caption; hintEl.textContent=active.hint;
+    tagEl.innerHTML='<b>'+STRUCT[active.key].abbr+'</b> — '+STRUCT[active.key].name;
+    active.rebuild(); syncBar(); readoutDirty=true;
+    if(history.replaceState) history.replaceState(null,'','#'+active.key);
+  }
+
+  // canvas sizing
+  function resize(){
+    const r=stage.getBoundingClientRect(), dpr=Math.min(window.devicePixelRatio||1,2);
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    for(const sc of scenes){ sc._cam.W=r.width; sc._cam.H=r.height; }
+  }
+  window.addEventListener('resize',resize); resize();
+
+  // pointer orbit
+  let down=false,last=null;
+  canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId); down=true;
+    last=[e.clientX,e.clientY]; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove',e=>{ if(!down) return;
+    active.pointer('move',{dx:e.clientX-last[0],dy:e.clientY-last[1]}); last=[e.clientX,e.clientY]; });
+  const up=()=>{ down=false; last=null; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); active.wheel(e.deltaY); },{passive:false});
+  canvas.addEventListener('contextmenu',e=>e.preventDefault());
+
+  // keyboard
+  window.addEventListener('keydown',e=>{
+    const k=e.key.toLowerCase();
+    if(k==='1') select('bcc'); else if(k==='2') select('fcc'); else if(k==='3') select('hcp');
+    else if(k==='c') coordChip.click();
+    else if(k==='k') stackChip.click();
+    else if(k==='l') clipChip.click();
+    else if(k==='g') cellChip.click();
+    else if(k==='a') alignChip.click();
+    else if(k==='e'){ active.st.extent=active.st.extent%3+1; active.rebuild(); syncBar(); readoutDirty=true; }
+    else if(k==='x') resetView();
+    else if(k===' '){ e.preventDefault(); spinChip.click(); }
+  });
+
+  const startId=(location.hash||'').slice(1);
+  select(scenes.some(s=>s.key===startId)?startId:'bcc');
+
+  // vignette + frame loop
+  let lastT=(typeof performance!=='undefined'?performance.now():0);
+  function frame(t){
+    const dt=clamp((t-lastT)/1000,0,0.05); lastT=t;
+    const W=active._cam.W, H=active._cam.H;
+    const g=ctx.createRadialGradient(W*0.5,H*0.44,H*0.1, W*0.5,H*0.5,H*0.95);
+    g.addColorStop(0,'#0b1226'); g.addColorStop(1,'#04060c');
+    ctx.globalAlpha=1; ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    active.draw(ctx,dt);
+    if(readoutDirty){ readoutEl.innerHTML=active.readoutHTML(); readoutDirty=false; }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ================================================================== *
+ *  headless self-test                                                 *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,n)=>{ if(c){pass++; /*console.log('ok — '+n);*/} else {fail++; console.log('FAIL — '+n);} };
+  const approx=(a,b,e)=>Math.abs(a-b)<=(e||1e-9);
+
+  // packing fractions match textbook constants
+  ok(approx(APF_BCC,0.680175,1e-6),'APF(BCC) = pi*sqrt3/8 = 0.6802');
+  ok(approx(APF_CP ,0.740480,1e-6),'APF(FCC=HCP) = pi/(3*sqrt2) = 0.7405');
+  ok(approx(COA,1.632993,1e-6),'ideal c/a = sqrt(8/3) = 1.633');
+
+  // APF re-derived from generated cell counts + volumes (end-to-end)
+  const vol=4/3*Math.PI*R_ATOM**3;
+  ok(approx(2*vol/A_BCC**3, APF_BCC,1e-9),'APF(BCC) from 2 atoms / a^3');
+  ok(approx(4*vol/A_FCC**3, APF_CP,1e-9),'APF(FCC) from 4 atoms / a^3');
+  const hexVol=(3*Math.sqrt(3)/2)*A_HCP*A_HCP*C_HCP;
+  ok(approx(6*vol/hexVol, APF_CP,1e-9),'APF(HCP) from 6 atoms / prism volume');
+
+  // drawn atom counts of the conventional cells
+  const bcc=genBCC(1), fcc=genFCC(1), hcp=genHCPcell();
+  ok(bcc.atoms.length===9,'BCC cell draws 8 corners + 1 body ('+bcc.atoms.length+')');
+  ok(fcc.atoms.length===14,'FCC cell draws 8 corners + 6 faces ('+fcc.atoms.length+')');
+  ok(hcp.atoms.length===17,'HCP prism draws 2 centres + 12 corners + 3 interior ('+hcp.atoms.length+')');
+  ok(bcc.atoms.filter(a=>a.role==='body').length===1,'BCC has exactly one body atom');
+  ok(fcc.atoms.filter(a=>a.role==='face').length===6,'FCC has six face atoms');
+  ok(hcp.atoms.filter(a=>a.role==='B').length===3,'HCP has three interior atoms');
+
+  // minimum interatomic distance = 2r (spheres just touch) in every structure
+  const minDist=(atoms)=>{ let m=Infinity; for(let i=0;i<atoms.length;i++)for(let j=i+1;j<atoms.length;j++){
+    const d=v3.dist(atoms[i].p,atoms[j].p); if(d>1e-6&&d<m) m=d; } return m; };
+  ok(approx(minDist(bcc.atoms),2*R_ATOM,1e-6),'BCC nearest-neighbour distance = 2r');
+  ok(approx(minDist(fcc.atoms),2*R_ATOM,1e-6),'FCC nearest-neighbour distance = 2r');
+  ok(approx(minDist(hcp.atoms),2*R_ATOM,1e-6),'HCP nearest-neighbour distance = 2r');
+  ok(approx(minDist(genHCPblock(1,1).atoms),2*R_ATOM,1e-6),'HCP block nearest-neighbour = 2r');
+  ok(approx(minDist(genFCC(2).atoms),2*R_ATOM,1e-6),'FCC 2x2x2 nearest-neighbour = 2r');
+
+  // coordination clusters: exactly CN neighbours, all touching the centre
+  for(const key of ['bcc','fcc','hcp']){
+    const c=coordCluster(key), S=STRUCT[key];
+    ok(c.nbr.length===S.CN,key.toUpperCase()+' coordination number = '+S.CN+' ('+c.nbr.length+')');
+    let allTouch=true; for(const p of c.nbr) if(!approx(v3.len(p),2*R_ATOM,1e-6)) allTouch=false;
+    ok(allTouch,key.toUpperCase()+' all '+S.CN+' neighbours sit at 2r from the centre');
+  }
+  // polyhedron edge counts: cube 12, cuboctahedron 24, anticuboctahedron 24
+  ok(coordCluster('bcc').poly.length===12,'BCC coordination polyhedron = cube (12 edges)');
+  ok(coordCluster('fcc').poly.length===24,'FCC coordination polyhedron = cuboctahedron (24 edges)');
+  ok(coordCluster('hcp').poly.length===24,'HCP coordination polyhedron = anticuboctahedron (24 edges)');
+
+  // stacking: FCC single cell shows all three layers with counts 2/6/6
+  const cnt=[0,0,0]; for(const a of genFCC(1).atoms) cnt[stackLayer('fcc',a.p)]++;
+  ok(cnt[0]===2&&cnt[1]===6&&cnt[2]===6,'FCC {111} layers split A/B/C = 2/6/6 ('+cnt.join('/')+')');
+  const hc=[0,0]; for(const a of genHCPblock(1,1).atoms) hc[stackLayer('hcp',a.p)]++;
+  ok(hc[0]>0&&hc[1]>0,'HCP basal planes split into two layers A/B');
+
+  // the FCC vs HCP distinction: staggered (cuboctahedron) vs eclipsed (anticuboctahedron)
+  function ringAzimuthOffset(key,axis){
+    const c=coordCluster(key), pr=c.nbr.map(p=>v3.dot(p,v3.norm(axis)));
+    const mx=Math.max.apply(null,pr.map(Math.abs));
+    const [e1,e2]=perpBasis(axis);
+    const az=p=>Math.atan2(v3.dot(p,e2),v3.dot(p,e1));
+    const up=[],dn=[];
+    c.nbr.forEach((p,i)=>{ if(pr[i]>0.5*mx) up.push(az(p)); else if(pr[i]<-0.5*mx) dn.push(az(p)); });
+    // minimal |up_i - dn_j| folded into [0,60deg]
+    let best=Infinity;
+    for(const u of up)for(const d of dn){ let a=Math.abs(u-d)%(TAU/3); a=Math.min(a,TAU/3-a); best=Math.min(best,a); }
+    return {best, up:up.length, dn:dn.length};
+  }
+  const fccOff=ringAzimuthOffset('fcc',[1,1,1]);
+  const hcpOff=ringAzimuthOffset('hcp',[0,0,1]);
+  ok(fccOff.up===3&&fccOff.dn===3,'FCC shell has 3 up + 3 down neighbours about [111]');
+  ok(hcpOff.up===3&&hcpOff.dn===3,'HCP shell has 3 up + 3 down neighbours about c');
+  ok(Math.abs(fccOff.best-TAU/6)<8*DEG,'FCC top/bottom triangles are staggered (~60 deg) => cuboctahedron');
+  ok(hcpOff.best<8*DEG,'HCP top/bottom triangles are eclipsed (~0 deg) => anticuboctahedron');
+
+  // rotation helper: bring [111] onto z (used by "align layers")
+  const rq=matVec(rotBetween([1,1,1],[0,0,1]),v3.norm([1,1,1]));
+  ok(approx(rq[0],0,1e-9)&&approx(rq[1],0,1e-9)&&approx(rq[2],1,1e-9),'rotBetween sends [111]->[001]');
+
+  // projection sanity
+  const cam=makeCamera(0.6,0.4,10,[0,0,0]); cam.W=800; cam.H=600;
+  const B=camBasis(cam), s=project(cam,B,[1,0,0]);
+  ok(s&&isFinite(s.x)&&isFinite(s.y)&&s.z>0,'perspective projection returns finite screen point');
+  let allFinite=true;
+  for(const a of genFCC(2).atoms){ const q=project(cam,B,a.p); if(q&&(!isFinite(q.x)||!isFinite(q.y))) allFinite=false; }
+  ok(allFinite,'all FCC 2x2x2 atoms project to finite coordinates');
+
+  // "clip to cell": fraction of each atom's sphere volume left inside the cell, measured
+  // by an independent volume-uniform sampler over the ball (Fibonacci directions × cbrt radii).
+  // This is the crystallographically meaningful check: boundary atoms are sliced by planes
+  // through their centres (corner 1/8, edge 1/4, face 1/2, HCP hex-corner 1/6), while a body /
+  // interior atom that clears every face stays whole.
+  function volFrac(key,center,rad,Nd,Nr){
+    const P=cellPlanes(key,1), g=(1+Math.sqrt(5))/2; let inside=0,tot=0;
+    for(let i=0;i<Nd;i++){
+      const zz=1-(2*i+1)/Nd, rr=Math.sqrt(Math.max(0,1-zz*zz)), ph=TAU*i/g;
+      const u=[rr*Math.cos(ph),rr*Math.sin(ph),zz];
+      for(let j=0;j<Nr;j++){
+        const t=rad*Math.cbrt((j+0.5)/Nr);
+        const q=[center[0]+t*u[0],center[1]+t*u[1],center[2]+t*u[2]];
+        let ins=true; for(const pl of P) if(v3.dot(q,pl.n)-pl.d>1e-9){ ins=false; break; }
+        if(ins) inside++; tot++;
+      }
+    }
+    return inside/tot;
+  }
+  ok(cellPlanes('bcc',1).length===6 && cellPlanes('hcp',1).length===8,
+     'cell bounded by 6 (cubic) / 8 (hex-prism) planes');
+  ok(approx(volFrac('bcc',[0,0,0],1,500,30),1/8,0.01),'BCC corner clips to 1/8 sphere');
+  ok(approx(volFrac('bcc',[A_BCC/2,A_BCC/2,A_BCC/2],1,200,20),1,1e-12),'BCC body atom stays whole');
+  ok(approx(volFrac('fcc',[A_FCC/2,A_FCC/2,0],1,500,30),1/2,0.01),'FCC face atom clips to 1/2 sphere');
+  ok(approx(volFrac('hcp',[A_HCP,0,0],1,500,30),1/6,0.012),'HCP hex-corner clips to 1/6 sphere');
+  ok(approx(volFrac('hcp',[0,0,0],1,500,30),1/2,0.01),'HCP basal-centre clips to 1/2 sphere');
+  // cubic cells: clipped spheres sum exactly to atoms/cell at any radius (all cuts central)
+  for(const key of ['bcc','fcc']){
+    const cell=key==='bcc'?genBCC(1):genFCC(1);
+    let sum=0; for(const at of cell.atoms) sum+=volFrac(key,at.p,1,240,24);
+    ok(approx(sum,STRUCT[key].atomsPerCell,0.03),
+       key.toUpperCase()+' clip Σ sphere-in-cell = '+STRUCT[key].atomsPerCell+' atoms/cell ('+sum.toFixed(3)+')');
+  }
+  // HCP interior atoms sit inside the prism but their spheres overhang ONE side face at r=1
+  const ri=A_HCP/SQ3, gap=A_HCP*SQ3/2-ri;              // centre-to-nearest-face clearance
+  ok(approx(gap,0.5774,1e-3),'HCP interior-atom clearance to nearest side face = a(√3/2 − 1/√3) ≈ 0.577');
+  ok(gap<R_ATOM,'…which is < r, so a touching interior sphere overhangs the prism face');
+  const capFrac=0.25*(1-gap)*(1-gap)*(2+gap);          // spherical-cap fraction beyond the face (r=1)
+  const fInt=volFrac('hcp',[ri*Math.cos(30*DEG),ri*Math.sin(30*DEG),C_HCP/2],1,600,60);
+  ok(approx(fInt,1-capFrac,0.015),'HCP interior atom keeps 1 − cap ≈ '+(1-capFrac).toFixed(3)+' at r=1 ('+fInt.toFixed(3)+')');
+  // whole prism: 12·(1/6)+2·(1/2)+3·(1−cap) ≈ 5.66 at touching radius, → 6 as r→0
+  let hsum=0; for(const at of genHCPcell().atoms) hsum+=volFrac('hcp',at.p,1,240,24);
+  ok(approx(hsum,3+3*(1-capFrac),0.05) && hsum<5.95 && hsum>5.3,
+     'HCP prism clipped sum ≈ 5.66 at r=1 ('+hsum.toFixed(3)+')');
+  let hsum0=0; for(const at of genHCPcell().atoms) hsum0+=volFrac('hcp',at.p,0.5,240,24);
+  ok(approx(hsum0,6,0.03),'HCP prism clipped sum → 6 atoms/cell in the ball-and-stick limit ('+hsum0.toFixed(3)+')');
+
+  // RENDERER. "clip to cell" must draw the exact shadow of the fixed 3-D solid left inside the cell
+  // — at every camera angle AND every zoom, which is what makes a corner atom read as 1/8 of a
+  // sphere. Ground truth is a raw ray cast from the eye: a screen point is covered iff some t>0 puts
+  // the ray inside the ball while every cell face still holds — an intersection of intervals in t.
+  // The block re-runs the three renderers this one replaced, so their failure stays falsifiable.
+  (function(){
+    const dirCam=(B,n)=>[v3.dot(n,B.right),-v3.dot(n,B.up),v3.dot(n,B.fwd)];
+    const TOL=1e-9;                                    // the solid is closed: a face point is in it
+    // exact perspective: does the ray t*d (eye at the origin of camera coords) meet the solid?
+    function covered(P,c,r,d){
+      const A=v3.dot(d,d), Bq=-2*v3.dot(d,c), C0=v3.dot(c,c)-r*r, disc=Bq*Bq-4*A*C0;
+      if(disc<0) return false;
+      const s=Math.sqrt(disc); let lo=(-Bq-s)/(2*A), hi=(-Bq+s)/(2*A);
+      if(hi<=0) return false; if(lo<1e-12) lo=1e-12;
+      for(const p of P){ const a=v3.dot(d,p.m), b=p.d+v3.dot(c,p.m);    // a*t <= b
+        if(Math.abs(a)<1e-14){ if(b<-TOL) return false; }
+        else if(a>0) hi=Math.min(hi,(b+TOL)/a); else lo=Math.max(lo,(b+TOL)/a);
+        if(lo>hi) return false; }
+      return true;
+    }
+    function coveredO(P,Rs,u,v){                       // its orthographic limit, for the two below
+      const q=Rs*Rs-u*u-v*v; if(q<-TOL) return false;
+      const W=Math.sqrt(Math.max(0,q)); let lo=-W, hi=W;
+      for(const p of P){ const rhs=p.d-u*p.m[0]-v*p.m[1], c=p.m[2];
+        if(Math.abs(c)<1e-12){ if(rhs<-TOL) return false; }
+        else if(c>0) hi=Math.min(hi,(rhs+TOL)/c); else lo=Math.max(lo,(rhs+TOL)/c);
+        if(lo>hi) return false; }
+      return true;
+    }
+    const sArea=p=>{ let a=0; for(let i=0;i<p.length;i++){ const q=p[(i+1)%p.length];
+      a+=p[i][0]*q[1]-q[0]*p[i][1]; } return a/2; };       // signed
+    const area=p=>Math.abs(sArea(p));
+    // outward unit edge normals of the (convex) outline -> exact signed distance, negative inside.
+    // A radial comparison is useless here: the projection often has a boundary edge lying exactly
+    // along a probe ray (and its apex at the sphere centre), so rays graze it at machine epsilon.
+    function edgesOf(poly){
+      const w=sArea(poly)>0?1:-1, E=[];
+      for(let i=0;i<poly.length;i++){ const A=poly[i], Z=poly[(i+1)%poly.length];
+        const nx=w*(Z[1]-A[1]), ny=w*(A[0]-Z[0]), L=Math.hypot(nx,ny);
+        if(L>1e-12) E.push([nx/L,ny/L,(nx*A[0]+ny*A[1])/L]); }
+      return E;
+    }
+    const sd=(E,u,v)=>{ let m=-Infinity;
+      for(const e of E){ const t=e[0]*u+e[1]*v-e[2]; if(t>m) m=t; } return m; };
+    // KNOWN-BAD v3: the right solid, built in a scaled-orthographic frame — plane offsets delta*f/z
+    // and the silhouette taken as a great circle. Kept so the drift it caused stays measured.
+    function orthoOutline(P,r,Rs,N){
+      const Po=P.map(p=>({m:p.m,d:p.d*Rs/r})), eps=1e-7*Rs+1e-12, pts=[];
+      for(let i=0;i<Po.length;i++) for(const x of cutFace(Po,i,Rs,N)) pts.push([x[0],x[1]]);
+      for(let k=0;k<N;k++){ const t=TAU*k/N, x=[Rs*Math.cos(t),Rs*Math.sin(t),0];
+        let keep=true; for(const q of Po) if(v3.dot(x,q.m)-q.d>eps){ keep=false; break; }
+        if(keep) pts.push([x[0],x[1]]); }
+      return hull2(pts);
+    }
+    function chordKeep(P,Rs,u,v){                      // v1 (shipped 2026-07-22): a screen chord
+      if(u*u+v*v>Rs*Rs) return false;
+      for(const p of P){ const L=Math.hypot(p.m[0],p.m[1]); if(L<1e-3) continue;
+        if((u*p.m[0]+v*p.m[1])/L>p.d*L+1e-9) return false; }
+      return true;
+    }
+    function perFaceKeep(P,Rs,u,v){                    // v2: exact per-face silhouettes, intersected
+      if(u*u+v*v>Rs*Rs) return false;                  // = ∩ proj(K_i) — exact for ONE face only
+      for(const p of P){ const L=Math.hypot(p.m[0],p.m[1]); if(L<1e-3) continue;
+        const nx=p.m[0]/L, ny=p.m[1]/L, aT=p.d/L; if(aT>=Rs) continue;
+        const a=u*nx+v*ny; if(a<=aT) continue;         // silhouette half of the outline
+        const rho=Math.sqrt(Math.max(0,Rs*Rs-p.d*p.d)), b=-u*ny+v*nx;
+        const an=rho*Math.sqrt(Math.max(0,1-L*L)), off=p.d*L;   // projected-rim ellipse
+        if(((a-off)/an)*((a-off)/an)+(b/rho)*(b/rho)>1) return false; }
+      return true;
+    }
+    const gridFrac=(fn,P,Rs,G)=>{ let c=0,t=0;
+      for(let i=0;i<G;i++)for(let j=0;j<G;j++){
+        const u=Rs*(-1+2*(i+0.5)/G), v=Rs*(-1+2*(j+0.5)/G);
+        if(u*u+v*v<=Rs*Rs){ t++; if(fn(P,Rs,u,v)) c++; } }
+      return c/t; };
+    const c30=Math.cos(30*DEG), s30=Math.sin(30*DEG), hb=2/SQ3;   // hb = a/2 for the BCC cell
+    const CASES=[
+      {nm:'cubic corner',  C:[hb,hb,hb], n:[[1,0,0],[0,1,0],[0,0,1]],       d:[0,0,0]},
+      {nm:'cubic edge',    C:[hb,hb,0],  n:[[1,0,0],[0,1,0]],               d:[0,0]},
+      {nm:'HCP hex-corner',C:[A_HCP,0,1],n:[[c30,s30,0],[c30,-s30,0],[0,0,1]], d:[0,0,0]},
+      {nm:'HCP interior',  C:[A_HCP/SQ3,0,0], n:[[c30,s30,0]],   d:[A_HCP*SQ3/2-A_HCP/SQ3]},
+    ];
+    // camera angles: down a cube axis, down the body diagonal [111], then a scatter of generic ones
+    const ANG=[[0,0],[Math.PI/4,0.61548],[0.13,0.40],[1.10,-0.50],[2.40,0.90],
+               [3.30,-1.10],[4.60,0.25],[5.60,-0.30],[0.90,1.25]];
+    const ZOOM=[10.29,6,4];        // default fit for one cell, then two clicks of wheel-zoom in
+    const BAND=0.4;                // px: ignore samples this close to the drawn boundary
+    let wMis=0, wA=0, wOver=0, wFace=0, wNew=0, wOrtho=0, nPose=0, Rrep=0;
+    for(const C of CASES) for(const ang of ANG) for(const dz of ZOOM){
+      const B2=camBasis(makeCamera(ang[0], ang[1], dz, [0,0,0]));
+      const q=v3.sub(C.C,B2.eye);                      // atom centre in camera coords, eye at origin
+      const cc=[v3.dot(q,B2.right),-v3.dot(q,B2.up),v3.dot(q,B2.fwd)];
+      if(cc[2]<1.3) continue;                          // behind / inside the near plane
+      const P=C.n.map((n,i)=>({m:dirCam(B2,v3.norm(n)),d:C.d[i]}));
+      const Rpx=B2.f/cc[2], N=clamp(Math.round(Rpx*0.8),18,72);
+      const K=clipSolid(P,cc,1,N,B2.f), poly=K.outline; if(poly.length<3) continue;
+      const E=edgesOf(poly), Eo=edgesOf(orthoOutline(P,1,Rpx,N));
+      const px=B2.f*cc[0]/cc[2], py=B2.f*cc[1]/cc[2];  // centre, relative to the principal point
+      let nT=0, nP=0, mis=0, G=44, S2=Rpx*1.3;
+      for(let i=0;i<G;i++)for(let j=0;j<G;j++){
+        const u=-S2+2*S2*(i+0.5)/G, v=-S2+2*S2*(j+0.5)/G;
+        const cv=covered(P,cc,1,[px+u,py+v,B2.f]), s=sd(E,u,v);
+        if(cv) nT++; if(s<0) nP++;
+        if(Math.abs(s)>BAND && cv!==(s<0)) mis++;
+        if(cv){ if(s>wNew) wNew=s;                     // how far the truth spills past each build
+                const so=sd(Eo,u,v); if(so>wOrtho) wOrtho=so; }
+      }
+      const cellA=(2*S2/G)*(2*S2/G), disc=Math.PI*Rpx*Rpx;
+      wMis=Math.max(wMis,mis*cellA/disc);
+      wA=Math.max(wA,Math.abs(nT-nP)*cellA/disc);
+      wOver=Math.max(wOver,(nP-nT)*cellA/disc);        // the hull is inscribed: must never exceed
+      let fSum=0;                                      // camera-facing cut faces: inside, disjoint
+      for(let i=0;i<P.length;i++){ const fp=K.faces[i];
+        if(v3.dot(cc,P[i].m)+P[i].d>=0||fp.length<3) continue;
+        fSum+=area(fp);
+        for(const x of fp) wFace=Math.max(wFace,sd(E,x[0],x[1])/Rpx); }
+      wFace=Math.max(wFace,(fSum-area(poly))/(Rpx*Rpx));
+      nPose++; Rrep=Math.max(Rrep,Rpx);
+    }
+    ok(wMis===0,'clip outline = ray cast from the eye at all '+nPose+
+       ' camera poses / 3 zooms (0 misclassified samples outside a '+BAND+' px band)');
+    ok(wA<0.01,'clip outline area matches the ray cast (worst '+wA.toFixed(4)+' of the disc)');
+    ok(wOver<0.002,'the drawn outline never exceeds the true shadow — hull of points of the solid ('+
+       wOver.toFixed(4)+')');
+    ok(wFace<1e-6,'camera-facing cut faces lie inside the outline and never overlap ('+
+       wFace.toExponential(1)+')');
+    // the defect this replaced: the solid was right but its shadow was built orthographically, so
+    // the outline slid across the atom as the camera moved. Both measured against the same truth.
+    ok(wNew<1.0 && wOrtho>4*wNew+3,
+       'shadow is cast from the eye, not orthographically: outline holds to '+wNew.toFixed(2)+
+       ' px where the scaled-orthographic build drifted up to '+wOrtho.toFixed(1)+
+       ' px (atoms reach '+Rrep.toFixed(0)+' px)');
+    // v1 and v2 were 2-D constructions on the projected disc, so they are judged in the orthographic
+    // limit, where the numbers isolate their own defect instead of mixing in the perspective term.
+    let wChord=0, wMulti=0, wOne=0, aMin=9, aMax=-9;
+    for(const C of CASES) for(const ang of ANG){
+      const B2=camBasis(makeCamera(ang[0], ang[1], 10, [0,0,0]));
+      const P=C.n.map((n,i)=>({m:dirCam(B2,v3.norm(n)),d:C.d[i]}));
+      const G=40; let nT=0, nIn=0;
+      for(let i=0;i<G;i++)for(let j=0;j<G;j++){
+        const u=-1+2*(i+0.5)/G, v=-1+2*(j+0.5)/G;
+        if(u*u+v*v>1) continue; nIn++; if(coveredO(P,1,u,v)) nT++; }
+      const tr=nT/nIn;
+      if(C.nm==='cubic corner'){ aMin=Math.min(aMin,tr); aMax=Math.max(aMax,tr); }
+      wChord=Math.max(wChord,Math.abs(gridFrac(chordKeep,P,1,G)-tr));
+      const pf=Math.abs(gridFrac(perFaceKeep,P,1,G)-tr);
+      if(P.length>1) wMulti=Math.max(wMulti,pf); else wOne=Math.max(wOne,pf);
+    }
+    // the property the user reported missing: the SAME solid from every angle. Its projected area
+    // must of course still vary — a corner covers 1/4 of the disc down a cube axis, 0.43 down [111].
+    ok(approx(aMin,0.25,0.01) && aMax>0.41,
+       'corner atom = one fixed 1/8-sphere: projected area sweeps '+aMin.toFixed(3)+'..'+aMax.toFixed(3)+
+       ' of the disc (1/4 down a cube axis, 0.43 down [111])');
+    // known-bad renderers, re-run here so the regression cannot come back unnoticed
+    ok(wChord>0.30,'KNOWN-BAD v1 screen-chord clip is off by '+wChord.toFixed(3)+
+       ' of the disc — not the projection of any solid');
+    ok(wOne<0.002,'per-face silhouette (silhouette arc + rim ellipse) is exact for a single face ('+
+       wOne.toFixed(4)+')');
+    ok(wMulti>0.15,'KNOWN-BAD v2: intersecting per-face silhouettes over-keeps by '+wMulti.toFixed(3)+
+       ' of the disc — proj(∩Kᵢ) ⊊ ∩proj(Kᵢ)');
+  })();
+
+  console.log(pass+' passed, '+fail+' failed');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

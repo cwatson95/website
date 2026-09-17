@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydrogen orbitals — electron-cloud explorer</title>
+<!--
+  Hydrogen-atom electron clouds as rotatable Monte Carlo point clouds.
+
+  Physics: psi_nlm(r,th,ph) = R_nl(r) * Y_lm(th,ph), lengths in Bohr radii a0.
+  The density |psi|^2 r^2 sin(th) factorizes exactly into three 1-d marginals
+  (r^2 R^2) x (Theta^2 sin th) x (phi-part), so points are drawn by exact
+  inverse-CDF sampling of tabulated marginals — no Metropolis, no burn-in.
+  "Real orbitals" combine +-m into cos/sin(m phi) (p_x, d_xy, ... shapes);
+  "complex" keeps the e^{im phi} eigenstates (phi-symmetric densities).
+  Mix mode decouples the radial R_(nR,lR) from the angular Y_(lY,mY) so either
+  factor can be inspected on its own (physical hydrogen states need lR = lY).
+  The bottom bar prints the exact closed form of the current wavefunction:
+  BigInt rational algebra assembles sqrt(A/(B pi a0^3)) and the integer
+  radial/polar polynomials (contents folded into the constant), with signs
+  matching the sampler's conventions (Condon-Shortley in the polar part, so
+  e.g. psi_211 and the real 2p_x carry a leading minus). Hover the bar for a
+  plain-text copy of the formula.
+
+  Rendering: hand-rolled WebGL1 point sprites, additive blending on black.
+  Per-point colors follow Mathematica's ColorData["NeonColors"] gradient
+  (control points reproduced in NEON_STOPS below), mapped to |psi|^2,
+  phase/sign of psi, or radius.
+
+  Single file, no dependencies, works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript orbitals_test.js
+  — when `document` is undefined it runs the assertion suite instead of
+  booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #cloud{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; cursor:grab;}
+  #cloud.dragging{cursor:grabbing;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.6;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .efrac{display:inline-flex; flex-direction:column; vertical-align:middle;
+                text-align:center; margin:0 2px; line-height:1.3; font-size:14.5px;}
+  #eqbar .efrac .en{border-bottom:1px solid #9a9aa4; padding:0 4px;}
+  #eqbar .efrac .ed{padding:0 4px;}
+  #eqbar .rb{border-top:1px solid currentColor; padding:0 2px;}
+  #eqbar sup{font-size:10.5px;}
+  #eqbar sub{font-size:10.5px;}
+  #glfail{position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+          color:var(--dim); font-size:13px; text-align:center; padding:30px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .chip.mini{padding:3px 9px; font-size:11.5px; font-family:Georgia, serif; font-style:italic;}
+  .steprow{display:flex; align-items:center; gap:8px; margin:5px 0;}
+  .steprow .qn{width:22px; font:italic 15px Georgia, serif; color:var(--text);}
+  .steprow button{width:24px; height:24px; border-radius:12px; background:var(--panel2);
+                  border:1px solid var(--edge); color:var(--text); cursor:pointer; font-size:14px; line-height:1;}
+  .steprow button:hover{border-color:var(--accent);}
+  .steprow button:disabled{opacity:.28; cursor:default; border-color:var(--edge);}
+  .steprow .val{min-width:34px; text-align:center; font:600 14px "SF Mono", Menlo, monospace; color:#fff;}
+  .steprow .range{color:#666; font-size:10.5px; margin-left:auto;}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:62px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:56px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; gap:16px; margin-top:6px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center; gap:6px; cursor:pointer;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #gradbar{display:block; width:100%; height:10px; border-radius:5px; margin:6px 0 3px;}
+  #gradlabels{display:flex; justify-content:space-between; font-size:10.5px; color:#777;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Hydrogen orbitals</h1>
+  <span class="sub">electron clouds sampled from |&psi;<sub>n&#8467;m</sub>|&sup2; &mdash; exact inverse-CDF Monte Carlo, lengths in a&#8320;</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="cloud"></canvas>
+    <div id="glfail">WebGL unavailable — this visualization needs a WebGL-capable browser.</div>
+    <div id="hint">drag to rotate &middot; scroll to zoom &middot; presets set n,&#8467;</div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    <canvas id="inset" width="300" height="150"></canvas>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>state</h3>
+      <div class="chips">
+        <button class="chip on" id="modeOrb" title="one hydrogen eigenstate psi_nlm">&psi;<sub>n&#8467;m</sub> orbital</button>
+        <button class="chip" id="modeMix" title="pair any radial R with any angular Y">mix R&times;Y</button>
+      </div>
+      <div class="chips" style="margin-top:6px">
+        <button class="chip on" id="formReal" title="cos/sin(m phi) combinations — chemistry shapes">real orbitals</button>
+        <button class="chip" id="formCplx" title="e^{im phi} eigenstates — phi-symmetric density">complex e<sup>im&phi;</sup></button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpQN">
+      <h3>quantum numbers</h3>
+      <div class="steprow"><span class="qn">n</span>
+        <button id="nSub">&minus;</button><span class="val" id="nVal">3</span><button id="nAdd">+</button>
+        <span class="range">1 &hellip; 10</span></div>
+      <div class="steprow"><span class="qn">&#8467;</span>
+        <button id="lSub">&minus;</button><span class="val" id="lVal">2</span><button id="lAdd">+</button>
+        <span class="range" id="lRange">0 &hellip; n&minus;1</span></div>
+      <div class="steprow"><span class="qn">m</span>
+        <button id="mSub">&minus;</button><span class="val" id="mVal">0</span><button id="mAdd">+</button>
+        <span class="range" id="mRange">&minus;&#8467; &hellip; +&#8467;</span></div>
+      <div class="chips" id="presets" style="margin-top:7px">
+        <button class="chip mini" data-n="1" data-l="0">1s</button>
+        <button class="chip mini" data-n="2" data-l="0">2s</button>
+        <button class="chip mini" data-n="2" data-l="1">2p</button>
+        <button class="chip mini" data-n="3" data-l="0">3s</button>
+        <button class="chip mini" data-n="3" data-l="1">3p</button>
+        <button class="chip mini" data-n="3" data-l="2">3d</button>
+        <button class="chip mini" data-n="4" data-l="0">4s</button>
+        <button class="chip mini" data-n="4" data-l="1">4p</button>
+        <button class="chip mini" data-n="4" data-l="2">4d</button>
+        <button class="chip mini" data-n="4" data-l="3">4f</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpMix" hidden>
+      <h3>mix: radial &times; angular</h3>
+      <div class="steprow"><span class="qn">n<sub>R</sub></span>
+        <button id="nrSub">&minus;</button><span class="val" id="nrVal">3</span><button id="nrAdd">+</button>
+        <span class="range">radial R<sub>n&#8467;</sub></span></div>
+      <div class="steprow"><span class="qn">&#8467;<sub>R</sub></span>
+        <button id="lrSub">&minus;</button><span class="val" id="lrVal">1</span><button id="lrAdd">+</button>
+        <span class="range">0 &hellip; n<sub>R</sub>&minus;1</span></div>
+      <div class="steprow"><span class="qn">&#8467;<sub>Y</sub></span>
+        <button id="lySub">&minus;</button><span class="val" id="lyVal">2</span><button id="lyAdd">+</button>
+        <span class="range">angular Y<sub>&#8467;m</sub>, 0 &hellip; 10</span></div>
+      <div class="steprow"><span class="qn">m<sub>Y</sub></span>
+        <button id="mySub">&minus;</button><span class="val" id="myVal">1</span><button id="myAdd">+</button>
+        <span class="range">&minus;&#8467;<sub>Y</sub> &hellip; +&#8467;<sub>Y</sub></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>cloud</h3>
+      <div class="sliderrow"><label for="ptsSlider">points</label>
+        <input type="range" id="ptsSlider" min="3" max="5.699" step="0.001">
+        <span class="val" id="ptsVal"></span></div>
+      <div class="sliderrow"><label for="sizeSlider">point size</label>
+        <input type="range" id="sizeSlider" min="0.4" max="6" step="0.1">
+        <span class="val" id="sizeVal"></span></div>
+      <div class="sliderrow"><label for="brightSlider">brightness</label>
+        <input type="range" id="brightSlider" min="0.15" max="3" step="0.05">
+        <span class="val" id="brightVal"></span></div>
+      <div class="btnrow">
+        <button id="resampleBtn" title="draw a fresh random cloud">resample</button>
+        <button id="resetViewBtn" title="restore the initial orientation and zoom">reset view</button>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" id="spinChk" checked> spin</label>
+        <label><input type="checkbox" id="axesChk" checked> axes</label>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>color &mdash; NeonColors</h3>
+      <div class="chips">
+        <button class="chip" id="colorDensity">density</button>
+        <button class="chip" id="colorPhase">phase</button>
+        <button class="chip" id="colorRadius">radius</button>
+      </div>
+      <canvas id="gradbar" width="248" height="10"></canvas>
+      <div id="gradlabels"><span id="gradLo"></span><span id="gradHi"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>orbital</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<div id="eqbar" title=""></div>
+<script>
+'use strict';
+/* ===================== math: special functions =================== */
+const PI = Math.PI, TAU = 2*PI;
+const FACTLN = (()=>{ const t=[0]; for (let k=1;k<=64;k++) t[k]=t[k-1]+Math.log(k); return t; })();
+
+// generalized Laguerre L_k^a(x) by the stable three-term recurrence
+function assocLaguerre(k,a,x){
+  if (k===0) return 1;
+  let Lm2=1, Lm1=1+a-x;
+  for (let i=2;i<=k;i++){ const L=((2*i-1+a-x)*Lm1-(i-1+a)*Lm2)/i; Lm2=Lm1; Lm1=L; }
+  return Lm1;
+}
+
+// hydrogen radial function R_nl(r), a0=1:
+//   R = sqrt((2/n)^3 (n-l-1)! / (2n (n+l)!)) e^{-r/n} (2r/n)^l L^{2l+1}_{n-l-1}(2r/n)
+function radialR(n,l,r){
+  const lnN = 1.5*Math.log(2/n) + 0.5*(FACTLN[n-l-1] - Math.log(2*n) - FACTLN[n+l]);
+  const x = 2*r/n;
+  const pw = l===0 ? 1 : Math.pow(x,l);
+  return Math.exp(lnN - r/n)*pw*assocLaguerre(n-l-1, 2*l+1, x);
+}
+
+// associated Legendre P_l^m(x), m>=0, Condon–Shortley phase included
+function assocLegendreP(l,m,x){
+  let pmm=1;
+  if (m>0){
+    const s=Math.sqrt(Math.max(0,(1-x)*(1+x)));
+    let f=1;
+    for (let i=1;i<=m;i++){ pmm*=-f*s; f+=2; }        // (-1)^m (2m-1)!! s^m
+  }
+  if (l===m) return pmm;
+  let pm1=x*(2*m+1)*pmm;
+  if (l===m+1) return pm1;
+  let p=0;
+  for (let ll=m+2;ll<=l;ll++){ p=((2*ll-1)*x*pm1-(ll+m-1)*pmm)/(ll-m); pmm=pm1; pm1=p; }
+  return p;
+}
+
+// Theta_l|m|(cos th): |Y_lm| = Theta; full normalization, int |Y|^2 dOmega = 1
+function thetaAmp(l,m){
+  const am=Math.abs(m);
+  const N=Math.exp(0.5*(Math.log((2*l+1)/(4*PI)) + FACTLN[l-am] - FACTLN[l+am]));
+  return ct => N*assocLegendreP(l,am,ct);
+}
+
+/* =================== tabulated CDFs and sampling ================== */
+function buildCDF(f,x0,x1,N){
+  const xs=new Float64Array(N), fs=new Float64Array(N), F=new Float64Array(N);
+  const dx=(x1-x0)/(N-1);
+  for (let i=0;i<N;i++){ xs[i]=x0+dx*i; fs[i]=Math.max(0,f(xs[i])); }
+  let c=0;
+  for (let i=1;i<N;i++){ c+=(fs[i-1]+fs[i])*0.5*dx; F[i]=c; }
+  const tot=c||1;
+  for (let i=0;i<N;i++) F[i]/=tot;
+  return {xs,fs,F,total:c,dx};
+}
+function sampleCDF(tab,u){
+  const F=tab.F, xs=tab.xs;
+  let lo=0, hi=F.length-1;
+  while (hi-lo>1){ const mid=(lo+hi)>>1; if (F[mid]<u) lo=mid; else hi=mid; }
+  const f0=F[lo], f1=F[hi], t=f1>f0 ? (u-f0)/(f1-f0) : 0;
+  return xs[lo]+(xs[hi]-xs[lo])*t;
+}
+function tabMean(tab){            // mean of x under the tabulated density
+  let s=0, w=0;
+  for (let i=1;i<tab.xs.length;i++){
+    const wm=(tab.fs[i-1]+tab.fs[i])*0.5*tab.dx, xm=(tab.xs[i-1]+tab.xs[i])*0.5;
+    s+=wm*xm; w+=wm;
+  }
+  return w>0 ? s/w : 0;
+}
+function interpTab(xs,fs,x){      // linear interp on a uniform grid
+  const n=xs.length;
+  if (x<=xs[0]) return fs[0];
+  if (x>=xs[n-1]) return fs[n-1];
+  const t=(x-xs[0])/(xs[n-1]-xs[0])*(n-1), i=Math.min(n-2,Math.floor(t)), f=t-i;
+  return fs[i]*(1-f)+fs[i+1]*f;
+}
+function mulberry32(seed){
+  let a=seed>>>0;
+  return ()=>{ a|=0; a=(a+0x6D2B79F5)|0;
+    let t=Math.imul(a^(a>>>15),1|a); t=(t+Math.imul(t^(t>>>7),61|t))^t;
+    return ((t^(t>>>14))>>>0)/4294967296; };
+}
+
+/* ========================= orbital model ========================= */
+const NMAX=10, LYMAX=10;
+function clampState(s){
+  const c=Object.assign({},s);
+  c.n =Math.max(1,Math.min(NMAX,c.n|0));  c.l =Math.max(0,Math.min(c.n-1,c.l|0));
+  c.m =Math.max(-c.l,Math.min(c.l,c.m|0));
+  c.nR=Math.max(1,Math.min(NMAX,c.nR|0)); c.lR=Math.max(0,Math.min(c.nR-1,c.lR|0));
+  c.lY=Math.max(0,Math.min(LYMAX,c.lY|0)); c.mY=Math.max(-c.lY,Math.min(c.lY,c.mY|0));
+  return c;
+}
+
+// Build the sampling tables for the current state. Density factorizes:
+//   p(r,th,ph) dr dth dph = [r^2 R^2] [Theta^2 sin th] [phi-part]
+function buildModel(st){
+  const nR = st.mode==='mix' ? st.nR : st.n,  lR = st.mode==='mix' ? st.lR : st.l;
+  const lY = st.mode==='mix' ? st.lY : st.l,  mY = st.mode==='mix' ? st.mY : st.m;
+  const am = Math.abs(mY);
+  const rEnd = 2*nR*nR + 10*nR + 20;                       // e^{-2r/n} tail is dead by here
+  const radTab = buildCDF(r=>{ const R=radialR(nR,lR,r); return r*r*R*R; }, 0, rEnd, 4096);
+  const Rgrid = new Float64Array(radTab.xs.length);
+  for (let i=0;i<Rgrid.length;i++) Rgrid[i]=radialR(nR,lR,radTab.xs[i]);
+  const Th = thetaAmp(lY,mY);
+  const thTab = buildCDF(th=>{ const a=Th(Math.cos(th)); return a*a*Math.sin(th); }, 0, PI, 2048);
+  const phMode = (st.real && am>0) ? (mY>0?'cos':'sin') : 'uni';
+  const phTab = phMode==='uni' ? null :
+    buildCDF(ph=>{ const c = phMode==='cos'?Math.cos(am*ph):Math.sin(am*ph); return c*c; }, 0, TAU, 2048);
+  // deterministic density ceiling for color normalization (grids include r=0 cusp)
+  let R2max=0; for (let i=0;i<Rgrid.length;i++) R2max=Math.max(R2max,Rgrid[i]*Rgrid[i]);
+  let T2max=0; for (let i=0;i<thTab.xs.length;i++){ const a=Th(Math.cos(thTab.xs[i])); T2max=Math.max(T2max,a*a); }
+  const dMax=R2max*T2max*((st.real&&am>0)?2:1);
+  return { nR,lR,lY,mY,am, real:st.real, mode:st.mode,
+           radTab,Rgrid,thTab,phTab,phMode,Th, rEnd,
+           r99:sampleCDF(radTab,0.995), rMean:tabMean(radTab), dMax };
+}
+
+// Draw N points; returns positions plus the per-point quantities colors map to.
+function sampleCloud(model,N,seed){
+  const rnd=mulberry32(seed);
+  const pos=new Float32Array(3*N), dens=new Float32Array(N),
+        phs=new Float32Array(N), rad=new Float32Array(N);
+  const SQ2=Math.SQRT2, mY=model.mY, am=model.am;
+  for (let i=0;i<N;i++){
+    const r  = sampleCDF(model.radTab,rnd());
+    const th = sampleCDF(model.thTab,rnd());
+    const ph = model.phMode==='uni' ? rnd()*TAU : sampleCDF(model.phTab,rnd());
+    const s=Math.sin(th);
+    pos[3*i]=r*s*Math.cos(ph); pos[3*i+1]=r*s*Math.sin(ph); pos[3*i+2]=r*Math.cos(th);
+    const Rv=interpTab(model.radTab.xs,model.Rgrid,r), Tv=model.Th(Math.cos(th));
+    const ang = model.real ? (am>0 ? SQ2*(mY>0?Math.cos(am*ph):Math.sin(am*ph)) : 1) : 1;
+    const psi=Rv*Tv*ang;                       // real mode: actual psi; complex: |psi| (ang=1)
+    dens[i]=psi*psi;
+    phs[i]=model.real ? (psi>=0?1:0) : (am===0?0:(((mY*ph)%TAU+TAU)%TAU)/TAU);
+    rad[i]=r;
+  }
+  return {pos,dens,phs,rad,N};
+}
+
+/* ================= colormap: Mathematica NeonColors ==============
+   ColorData["NeonColors"] sampled exactly at t=k/15 (float precision),
+   from the idsc-frazzoli/tensor port of Mathematica's color schemes
+   (colorscheme/neon.csv), verified against Wolfram's rendered swatch
+   (reference.wolfram.com ColorSchemes guide). Blend interpolates
+   piecewise-linearly in RGB between stops, same as Mathematica.
+   Character: chartreuse -> ochre-orange -> coral red -> pink -> magenta. */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+
+// fill RGB bytes for the cloud under a color mode
+function colorize(cloud,model,mode,out){
+  const N=cloud.N;
+  for (let i=0;i<N;i++){
+    let t;
+    if (mode==='density')     t=Math.pow(cloud.dens[i]/(model.dMax||1),0.30);
+    else if (mode==='phase')  t=model.real ? (cloud.phs[i]>0.5?0.94:0.06) : cloud.phs[i];
+    else                      t=cloud.rad[i]/(model.r99||1);
+    const c=neon(t);
+    out[3*i]=Math.round(255*c[0]); out[3*i+1]=Math.round(255*c[1]); out[3*i+2]=Math.round(255*c[2]);
+  }
+}
+
+/* ==================== quaternions + matrices ===================== */
+function qmul(a,b){ return [
+  a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],
+  a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+  a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],
+  a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]]; }
+function qnormalize(q){ const L=Math.hypot(q[0],q[1],q[2],q[3])||1; return [q[0]/L,q[1]/L,q[2]/L,q[3]/L]; }
+function qaxis(ax,ang){ const h=ang/2, s=Math.sin(h), L=Math.hypot(ax[0],ax[1],ax[2])||1;
+  return [Math.cos(h), ax[0]/L*s, ax[1]/L*s, ax[2]/L*s]; }
+function qrotate(v,q){ const p=qmul(qmul(q,[0,v[0],v[1],v[2]]),[q[0],-q[1],-q[2],-q[3]]);
+  return [p[1],p[2],p[3]]; }
+// column-major 4x4
+function mat4Mul(a,b){ const c=new Float32Array(16);
+  for (let col=0;col<4;col++) for (let row=0;row<4;row++){
+    let s=0; for (let k=0;k<4;k++) s+=a[k*4+row]*b[col*4+k];
+    c[col*4+row]=s; }
+  return c; }
+function mat4Persp(fovy,aspect,zn,zf){ const f=1/Math.tan(fovy/2), m=new Float32Array(16);
+  m[0]=f/aspect; m[5]=f; m[10]=(zf+zn)/(zn-zf); m[11]=-1; m[14]=2*zf*zn/(zn-zf); return m; }
+function mat4FromQuatScale(q,s){ const w=q[0],x=q[1],y=q[2],z=q[3], m=new Float32Array(16);
+  m[0]=s*(1-2*(y*y+z*z)); m[1]=s*2*(x*y+w*z);     m[2]=s*2*(x*z-w*y);
+  m[4]=s*2*(x*y-w*z);     m[5]=s*(1-2*(x*x+z*z)); m[6]=s*2*(y*z+w*x);
+  m[8]=s*2*(x*z+w*y);     m[9]=s*2*(y*z-w*x);     m[10]=s*(1-2*(x*x+y*y));
+  m[15]=1; return m; }
+function mat4View(dist){ const m=new Float32Array(16); m[0]=m[5]=m[10]=m[15]=1; m[14]=-dist; return m; }
+
+/* ========================= labels ================================ */
+const LLETTER=['s','p','d','f','g','h','i','k','l','m'];
+const REALNAME={
+  1:{'0':'z','1':'x','-1':'y'},
+  2:{'0':'z²','1':'xz','-1':'yz','2':'x²−y²','-2':'xy'},
+  3:{'0':'z³','1':'xz²','-1':'yz²','2':'z(x²−y²)','-2':'xyz','3':'x(x²−3y²)','-3':'y(3x²−y²)'},
+};
+function fmtM(m){ return (m>0?'+':m<0?'−':'')+Math.abs(m); }
+function orbitalLabel(st){
+  if (st.mode==='mix') return 'R('+st.nR+','+st.lR+') × Y('+st.lY+','+fmtM(st.mY)+')';
+  const base=st.n+LLETTER[st.l];
+  if (st.real && st.l>=1 && st.l<=3 && REALNAME[st.l][String(st.m)]!==undefined)
+    return base+'_'+REALNAME[st.l][String(st.m)];
+  if (st.l===0) return base;
+  return base+' (m='+fmtM(st.m)+')';
+}
+
+/* ============ exact closed form of psi (BigInt algebra) ===========
+   Feeds the bottom equation bar. Builds the textbook expression
+     psi = sign * [aOut sqrt(aIn)] / [bOut sqrt(bIn pi a0^3)]
+           * (r/a0)^l * Q(r/a0) * e^{-r/(n a0)}
+           * sin^|m|(th) * E(cos th) * { cos|m|phi | sin|m|phi | e^{im phi} }
+   where Q and E are integer-coefficient polynomials (their rational
+   content is pulled into the constant) and the constant is kept exact:
+   C^2 = A rational, times 1/pi. Signs match the sampler exactly: the
+   Condon-Shortley phase lives in the polar part, so with the polynomials
+   printed positive the prefactor sign is (-1)^|m| for real orbitals and
+   for complex m>0, +1 for complex m<=0.                              */
+const babs=x=>x<0n?-x:x;
+function bgcd(a,b){ a=babs(a); b=babs(b); while (b){ const t=a%b; a=b; b=t; } return a; }
+function bfact(k){ let r=1n; for (let i=2n;i<=k;i++) r*=i; return r; }
+function bbinom(n,k){ if (k<0n||k>n) return 0n; let r=1n;
+  for (let i=1n;i<=k;i++) r=r*(n-k+i)/i; return r; }
+function bisqrt(x){ if (x<2n) return x; let r=x, y=x/2n+1n;
+  while (y<r){ r=y; y=(r+x/r)/2n; } return r; }
+function lnBig(x){ const s=x.toString();
+  return s.length<=15 ? Math.log(Number(x))
+                      : Math.log(Number(s.slice(0,15)))+Math.LN10*(s.length-15); }
+function frac(n,d){ if (d===undefined) d=1n;
+  if (d<0n){ n=-n; d=-d; }
+  const g=bgcd(n,d)||1n; return {n:n/g, d:d/g}; }
+const fmul=(a,b)=>frac(a.n*b.n,a.d*b.d);
+
+// P_l(x) coefficients as Frac[], index = power of x
+function legendreCoeffs(l){
+  const c=[];
+  for (let i=0;i<=l;i++) c.push(frac(0n));
+  for (let j=0;2*j<=l;j++)
+    c[l-2*j]=frac(((j%2)?-1n:1n)*bbinom(BigInt(l),BigInt(j))*bbinom(BigInt(2*(l-j)),BigInt(l)),
+                  1n<<BigInt(l));
+  return c;
+}
+// pull the rational content out of a Frac[] polynomial -> integer coeffs
+function extractContent(coeffs){
+  let L=1n, G=0n;
+  for (const c of coeffs) if (c.n!==0n) L=L/bgcd(L,c.d)*c.d;
+  let ints=coeffs.map(c=>c.n*(L/c.d));
+  for (const v of ints) G=bgcd(G,v);
+  if (G===0n) G=1n;
+  ints=ints.map(v=>v/G);
+  return {content:frac(G,L), ints};
+}
+// split x>0 as out^2 * in, `in` squarefree (prime factors here are tiny)
+function sqrtSplit(x){
+  let out=1n, inn=1n;
+  for (let p=2n;p<=97n&&p*p<=x;p++){
+    let e=0n; while (x%p===0n){ x/=p; e++; }
+    if (e){ out*=p**(e/2n); if (e%2n) inn*=p; }
+  }
+  if (x>1n){ const r=bisqrt(x); if (r*r===x) out*=r; else inn*=x; }
+  return [out,inn];
+}
+
+// Exact symbolic form of R_(nR,lR) x Y_(lY,mY) (physical psi when nR>lY=lR).
+function symbolicPsi(nR,lR,lY,mY,real){
+  const am=Math.abs(mY), k=nR-lR-1, nB=BigInt(nR);
+  // radial polynomial: L^{2l+1}_k(2u/n) in u = r/a0
+  const lag=[];
+  for (let i=0;i<=k;i++)
+    lag.push(frac(((i%2)?-1n:1n)*bbinom(BigInt(k+2*lR+1),BigInt(k-i))*(2n**BigInt(i)),
+                  bfact(BigInt(i))*(nB**BigInt(i))));
+  const rad=extractContent(lag);
+  // angular polynomial: (d/dx)^|m| P_lY, leading coefficient positive
+  let leg=legendreCoeffs(lY);
+  for (let j=0;j<am;j++){
+    const d=[];
+    for (let q=1;q<leg.length;q++) d.push(fmul(leg[q],frac(BigInt(q))));
+    leg=d.length?d:[frac(0n)];
+  }
+  const ang=extractContent(leg);
+  // C^2 * pi = (2/n)^{3+2l} (n-l-1)!/(2n (n+l)!) contR^2
+  //          * (2lY+1)/4 (lY-|m|)!/(lY+|m|)! contE^2 * (2 if real, m!=0)
+  let A=frac(2n**BigInt(3+2*lR),nB**BigInt(3+2*lR));
+  A=fmul(A,frac(bfact(BigInt(k)),2n*nB*bfact(BigInt(nR+lR))));
+  A=fmul(A,fmul(rad.content,rad.content));
+  A=fmul(A,frac(BigInt(2*lY+1),4n));
+  A=fmul(A,frac(bfact(BigInt(lY-am)),bfact(BigInt(lY+am))));
+  A=fmul(A,fmul(ang.content,ang.content));
+  if (real&&am>0) A=fmul(A,frac(2n));
+  const sa=sqrtSplit(A.n), sb=sqrtSplit(A.d);
+  const sign=(real||mY>0) ? ((am%2)?-1:1) : 1;
+  const phi= am===0 ? 'none' : real ? (mY>0?'cos':'sin') : 'exp';
+  return { nR,lR,lY,mY,am,real,sign,phi, c2:A,
+           aOut:sa[0],aIn:sa[1], bOut:sb[0],bIn:sb[1],
+           radInts:rad.ints, angInts:ang.ints };
+}
+
+// numeric value of the symbolic form (a0=1); in complex mode this is the
+// phi-independent factor (the e^{im phi} part has modulus 1)
+function evalSymbolic(sym,r,th,ph){
+  const lnC=0.5*(lnBig(sym.c2.n)-lnBig(sym.c2.d)-Math.log(PI));
+  let poly=0;
+  for (let i=sym.radInts.length-1;i>=0;i--) poly=poly*r+Number(sym.radInts[i]);
+  const x=Math.cos(th);
+  let E=0;
+  for (let i=sym.angInts.length-1;i>=0;i--) E=E*x+Number(sym.angInts[i]);
+  let v=sym.sign*Math.exp(lnC-r/sym.nR)*Math.pow(r,sym.lR)*poly*
+        Math.pow(Math.sin(th),sym.am)*E;
+  if (sym.phi==='cos') v*=Math.cos(sym.am*ph);
+  else if (sym.phi==='sin') v*=Math.sin(sym.am*ph);
+  return v;
+}
+
+// pretty-printer: html=true -> markup for #eqbar, false -> plain text
+function fmtPsi(sym,html,mode){
+  const TH=html?'&theta;':'θ', PH=html?'&phi;':'φ', MINUS=html?'&minus;':'−';
+  const A0=html?'a&#8320;':'a₀', HSP=html?'&#8202;':'';
+  const RA=html?'(r/a&#8320;)':'(r/a₀)';
+  const sup=s=>html?'<sup>'+s+'</sup>':'^'+s;
+  const sq=b=>html?'&radic;<span class="rb">'+b+'</span>':'√('+b+')';
+  const radBody=(sym.bIn>1n?sym.bIn.toString()+HSP:'')+(html?'&pi;&#8202;a&#8320;&sup3;':'π a₀³');
+  const num=sym.aIn>1n ? (sym.aOut>1n?sym.aOut.toString()+HSP:'')+sq(sym.aIn.toString())
+                       : sym.aOut.toString();
+  let den=sq(radBody);
+  if (sym.bOut>1n) den=sym.bOut.toString()+HSP+den;
+  let coef;
+  if (html) coef='<span class="efrac"><span class="en">'+num+'</span><span class="ed">'+den+'</span></span>';
+  else coef='('+num+'/'+(sym.bOut>1n?'('+den+')':den)+')';
+  const factors=[(sym.sign<0?MINUS:'')+coef];
+  if (sym.lR>=1) factors.push(RA+(sym.lR>=2?sup(''+sym.lR):''));
+  // radial polynomial, ascending powers
+  if (sym.radInts.reduce((c,v)=>c+(v!==0n?1:0),0)>1){
+    let s='', first=true;
+    for (let i=0;i<sym.radInts.length;i++){
+      let c=sym.radInts[i]; if (c===0n) continue;
+      const neg=c<0n; if (neg) c=-c;
+      s+=first?(neg?MINUS:''):(neg?' '+MINUS+' ':' + ');
+      s+=((c===1n&&i>0)?'':c.toString())+(i===0?'':RA+(i>=2?sup(''+i):''));
+      first=false;
+    }
+    factors.push('('+s+')');
+  }
+  const expIn=MINUS+'r/'+(sym.nR===1?A0:'('+sym.nR+A0+')');
+  factors.push(html?'e<sup>'+expIn+'</sup>':'e^('+expIn+')');
+  // angular part
+  if (sym.am>=1) factors.push('sin'+(sym.am>=2?sup(''+sym.am):'')+(html?HSP:' ')+TH);
+  const cosT=k=>'cos'+(k>=2?sup(''+k):'')+(html?HSP:' ')+TH;
+  const anz=sym.angInts.reduce((c,v)=>c+(v!==0n?1:0),0);
+  if (anz===1 && sym.angInts.length>1){
+    factors.push(cosT(sym.angInts.length-1));
+  } else if (anz>1){
+    let s='', first=true;
+    for (let i=sym.angInts.length-1;i>=0;i--){
+      let c=sym.angInts[i]; if (c===0n) continue;
+      const neg=c<0n; if (neg) c=-c;
+      s+=first?(neg?MINUS:''):(neg?' '+MINUS+' ':' + ');
+      s+=((c===1n&&i>0)?'':c.toString())+(i>0?cosT(i):'');
+      first=false;
+    }
+    factors.push('('+s+')');
+  }
+  if (sym.phi==='cos'||sym.phi==='sin')
+    factors.push(sym.phi+(html?HSP:' ')+(sym.am>1?sym.am:'')+PH);
+  else if (sym.phi==='exp'){
+    const ei=(sym.mY<0?MINUS:'')+(sym.am>1?sym.am:'')+'i'+PH;
+    factors.push(html?'e<sup>'+ei+'</sup>':'e^('+ei+')');
+  }
+  let lhs;
+  if (mode==='mix'){
+    const ystr=sym.lY+','+(sym.mY>0?'+':sym.mY<0?MINUS:'')+Math.abs(sym.mY);
+    lhs=html?'<span class="lhs">R<sub>'+sym.nR+','+sym.lR+'</sub>(r)&middot;Y<sub>'+ystr+'</sub>('+TH+','+PH+')</span> = '
+            :'R_'+sym.nR+','+sym.lR+'(r)·Y_'+ystr+'(θ,φ) = ';
+  } else {
+    const sub=(sym.nR<10&&sym.mY>=0)?''+sym.nR+sym.lR+sym.mY
+                                    :sym.nR+','+sym.lR+','+(sym.mY<0?MINUS:'')+Math.abs(sym.mY);
+    lhs=html?'<span class="lhs">&psi;<sub>'+sub+'</sub>(r,'+TH+','+PH+')</span> = '
+            :'ψ_'+sub+'(r,θ,φ) = ';
+  }
+  return lhs+factors.join(html?'&#8201;':' ');
+}
+
+/* ===================== WebGL point renderer ====================== */
+const VSRC=[
+'attribute vec3 aPos;','attribute vec3 aCol;',
+'uniform mat4 uMVP;','uniform float uPt;','varying vec3 vCol;',
+'void main(){',
+'  gl_Position=uMVP*vec4(aPos,1.0);',
+'  gl_PointSize=clamp(uPt*3.2/max(gl_Position.w,0.1),0.75,64.0);',
+'  vCol=aCol;','}'].join('\n');
+const FSRC=[
+'precision mediump float;','varying vec3 vCol;',
+'uniform float uExp;','uniform float uIsLine;',
+'void main(){',
+'  float a=1.0;',
+'  if(uIsLine<0.5){',
+'    vec2 d=gl_PointCoord-vec2(0.5);',
+'    float r2=dot(d,d);',
+'    if(r2>0.25) discard;',
+'    a=exp(-9.0*r2)-exp(-2.25);','  }',
+'  gl_FragColor=vec4(vCol*uExp*a,1.0);','}'].join('\n');
+
+function makeRenderer(canvas){
+  const gl=canvas.getContext('webgl',{antialias:false,alpha:false,depth:false,
+                                      premultipliedAlpha:false,preserveDrawingBuffer:false});
+  if (!gl) return null;
+  function sh(type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s);
+    if (gl.getShaderParameter(s,gl.COMPILE_STATUS)===false) throw new Error('shader: '+gl.getShaderInfoLog(s));
+    return s; }
+  const prog=gl.createProgram();
+  gl.attachShader(prog,sh(gl.VERTEX_SHADER,VSRC));
+  gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,FSRC));
+  gl.linkProgram(prog);
+  if (gl.getProgramParameter(prog,gl.LINK_STATUS)===false) throw new Error('link: '+gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const loc={ pos:gl.getAttribLocation(prog,'aPos'), col:gl.getAttribLocation(prog,'aCol'),
+              mvp:gl.getUniformLocation(prog,'uMVP'), pt:gl.getUniformLocation(prog,'uPt'),
+              exp:gl.getUniformLocation(prog,'uExp'), line:gl.getUniformLocation(prog,'uIsLine') };
+  gl.enableVertexAttribArray(loc.pos); gl.enableVertexAttribArray(loc.col);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE,gl.ONE);          // additive: neon on black
+  gl.disable(gl.DEPTH_TEST);
+  const posBuf=gl.createBuffer(), colBuf=gl.createBuffer(),
+        axPosBuf=gl.createBuffer(), axColBuf=gl.createBuffer();
+  let nPts=0;
+  const R={gl};
+  R.setCloud=(pos,colBytes,N)=>{
+    gl.bindBuffer(gl.ARRAY_BUFFER,posBuf); gl.bufferData(gl.ARRAY_BUFFER,pos,gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER,colBuf); gl.bufferData(gl.ARRAY_BUFFER,colBytes,gl.STATIC_DRAW);
+    nPts=N; };
+  R.recolor=colBytes=>{ gl.bindBuffer(gl.ARRAY_BUFFER,colBuf);
+    gl.bufferData(gl.ARRAY_BUFFER,colBytes,gl.STATIC_DRAW); };
+  R.setAxes=len=>{
+    const p=new Float32Array([-len,0,0, len,0,0, 0,-len,0, 0,len,0, 0,0,-len, 0,0,len]);
+    const c=new Uint8Array([90,40,40, 90,40,40, 40,90,40, 40,90,40, 70,70,150, 70,70,150]);
+    gl.bindBuffer(gl.ARRAY_BUFFER,axPosBuf); gl.bufferData(gl.ARRAY_BUFFER,p,gl.STATIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER,axColBuf); gl.bufferData(gl.ARRAY_BUFFER,c,gl.STATIC_DRAW); };
+  R.resize=(w,h)=>{ gl.viewport(0,0,w,h); };
+  R.draw=st=>{
+    gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
+    const P=mat4Persp(38*PI/180,st.aspect,0.05,100);
+    const MVP=mat4Mul(P,mat4Mul(mat4View(st.dist),mat4FromQuatScale(st.q,st.scale)));
+    gl.uniformMatrix4fv(loc.mvp,false,MVP);
+    gl.uniform1f(loc.exp,st.exposure);
+    if (st.axes){
+      gl.uniform1f(loc.line,1);
+      gl.bindBuffer(gl.ARRAY_BUFFER,axPosBuf); gl.vertexAttribPointer(loc.pos,3,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,axColBuf); gl.vertexAttribPointer(loc.col,3,gl.UNSIGNED_BYTE,true,0,0);
+      gl.drawArrays(gl.LINES,0,6);
+    }
+    if (nPts>0){
+      gl.uniform1f(loc.line,0);
+      gl.uniform1f(loc.pt,st.ptPx);
+      gl.bindBuffer(gl.ARRAY_BUFFER,posBuf); gl.vertexAttribPointer(loc.pos,3,gl.FLOAT,false,0,0);
+      gl.bindBuffer(gl.ARRAY_BUFFER,colBuf); gl.vertexAttribPointer(loc.col,3,gl.UNSIGNED_BYTE,true,0,0);
+      gl.drawArrays(gl.POINTS,0,nPts);
+    } };
+  return R;
+}
+
+/* ====================== radial inset plot ======================== */
+function drawInset(ctx,W,H,model){
+  ctx.clearRect(0,0,W,H);
+  const padL=10,padR=8,padT=16,padB=16, iw=W-padL-padR, ih=H-padT-padB;
+  const rMaxPlot=Math.min(model.rEnd,model.r99*1.35);
+  const M=240, rr=new Array(M), Rv=new Array(M), Pv=new Array(M);
+  let Rmax=0,Pmax=0;
+  for (let i=0;i<M;i++){
+    const r=rMaxPlot*i/(M-1); rr[i]=r;
+    Rv[i]=radialR(model.nR,model.lR,r); Pv[i]=r*r*Rv[i]*Rv[i];
+    Rmax=Math.max(Rmax,Math.abs(Rv[i])); Pmax=Math.max(Pmax,Pv[i]);
+  }
+  const X=i=>padL+iw*rr[i]/rMaxPlot;
+  const c0=neon(0.82), c1=neon(0.25);
+  const rgb=c=>'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+  // zero line
+  ctx.strokeStyle='#333'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(padL,padT+ih/2); ctx.lineTo(padL+iw,padT+ih/2); ctx.stroke();
+  // r^2 R^2 (filled)
+  ctx.beginPath(); ctx.moveTo(X(0),padT+ih/2);
+  for (let i=0;i<M;i++) ctx.lineTo(X(i),padT+ih/2-(Pv[i]/(Pmax||1))*(ih/2-2));
+  ctx.lineTo(X(M-1),padT+ih/2);
+  ctx.closePath();
+  ctx.fillStyle='rgba('+Math.round(255*c0[0])+','+Math.round(255*c0[1])+','+Math.round(255*c0[2])+',0.28)';
+  ctx.fill();
+  ctx.strokeStyle=rgb(c0);
+  ctx.beginPath();
+  for (let i=0;i<M;i++){ const y=padT+ih/2-(Pv[i]/(Pmax||1))*(ih/2-2); if (i) ctx.lineTo(X(i),y); else ctx.moveTo(X(i),y); }
+  ctx.stroke();
+  // R_nl itself (signed, thin)
+  ctx.strokeStyle=rgb(c1);
+  ctx.beginPath();
+  for (let i=0;i<M;i++){ const y=padT+ih/2-(Rv[i]/(Rmax||1))*(ih/2-2); if (i) ctx.lineTo(X(i),y); else ctx.moveTo(X(i),y); }
+  ctx.stroke();
+  // <r> marker
+  const xm=padL+iw*Math.min(1,model.rMean/rMaxPlot);
+  ctx.strokeStyle='#666';
+  ctx.beginPath(); ctx.moveTo(xm,padT); ctx.lineTo(xm,padT+ih); ctx.stroke();
+  ctx.fillStyle='#999'; ctx.font='10px -apple-system, sans-serif';
+  ctx.fillText('R'+model.nR+LLETTER[model.lR]+'   thick: r²R²   thin: R   |: ⟨r⟩',padL,10);
+  ctx.fillText('r = 0 … '+rMaxPlot.toFixed(0)+' a₀',padL,H-4);
+}
+
+/* ============================ UI boot ============================ */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const canvas=$('cloud');
+  const rend=makeRenderer(canvas);
+  if (!rend){ $('glfail').style.display='flex'; return; }
+  const insetCtx=$('inset').getContext('2d');
+  const gradCtx=$('gradbar').getContext('2d');
+
+  const st={ mode:'orb', real:true, n:3,l:2,m:0, nR:3,lR:1,lY:2,mY:1,
+             points:80000, ptPx:2.2, bright:1.0, colorBy:'density',
+             seed:20260716, spin:true, axes:true };
+  const Q0=qnormalize(qmul(qaxis([1,0,0],-1.15),qaxis([0,0,1],0.5)));
+  const view={ q:Q0.slice(), dist:3.2, scale:1 };
+  let model=null, cloud=null, colBytes=null, dragging=false, lastPX=0, lastPY=0;
+
+  function exposure(){ return st.bright*Math.max(0.08,Math.min(2.5,Math.sqrt(60000/st.points))); }
+
+  function updateSteppers(){
+    $('nVal').textContent=st.n; $('lVal').textContent=st.l; $('mVal').textContent=fmtM(st.m);
+    $('nrVal').textContent=st.nR; $('lrVal').textContent=st.lR;
+    $('lyVal').textContent=st.lY; $('myVal').textContent=fmtM(st.mY);
+    $('nSub').disabled=st.n<=1; $('nAdd').disabled=st.n>=NMAX;
+    $('lSub').disabled=st.l<=0; $('lAdd').disabled=st.l>=st.n-1;
+    $('mSub').disabled=st.m<=-st.l; $('mAdd').disabled=st.m>=st.l;
+    $('nrSub').disabled=st.nR<=1; $('nrAdd').disabled=st.nR>=NMAX;
+    $('lrSub').disabled=st.lR<=0; $('lrAdd').disabled=st.lR>=st.nR-1;
+    $('lySub').disabled=st.lY<=0; $('lyAdd').disabled=st.lY>=LYMAX;
+    $('mySub').disabled=st.mY<=-st.lY; $('myAdd').disabled=st.mY>=st.lY;
+  }
+  function updateReadout(){
+    $('roMain').textContent=orbitalLabel(st);
+    $('roSub').innerHTML= st.mode==='mix'
+      ? (st.real?'real':'complex')+' angular part &middot; radial R<sub>'+st.nR+','+st.lR+'</sub>'
+      : 'n='+st.n+'&ensp;&#8467;='+st.l+'&ensp;m='+fmtM(st.m)+'&ensp;&middot;&ensp;'+(st.real?'real':'complex');
+  }
+  function updateInfo(){
+    const lines=[];
+    if (st.mode==='orb'){
+      const E=-13.605693/(st.n*st.n);
+      lines.push('<b>E<sub>'+st.n+'</sub></b> = '+E.toFixed(3)+' eV');
+    }
+    lines.push('<b>&#10216;r&#10217;</b> = '+model.rMean.toFixed(2)+' a&#8320; &ensp; <b>r<sub>99</sub></b> = '+model.r99.toFixed(1)+' a&#8320;');
+    lines.push('<b>nodes</b>: '+(model.nR-model.lR-1)+' radial, '+model.lY+' angular');
+    lines.push('<b>'+st.points.toLocaleString('en-US')+'</b> points &middot; exact inverse-CDF');
+    $('info').innerHTML=lines.join('<br>');
+  }
+  function updateEquation(){
+    const sym=symbolicPsi(model.nR,model.lR,model.lY,model.mY,st.real);
+    $('eqbar').innerHTML=fmtPsi(sym,true,st.mode);
+    $('eqbar').title=fmtPsi(sym,false,st.mode);   // hover = copyable plain text
+  }
+  function updateGradbar(){
+    const W=$('gradbar').width, H=$('gradbar').height;
+    for (let x=0;x<W;x++){ const c=neon(x/(W-1));
+      gradCtx.fillStyle='rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+      gradCtx.fillRect(x,0,1,H); }
+    const lab={ density:['low |&psi;|&sup2;','high'],
+                phase: st.real?['&psi; &lt; 0','&psi; &gt; 0']:['arg &psi; = 0','2&pi;'],
+                radius:['r = 0','r&#8329;&#8329;'] }[st.colorBy];
+    $('gradLo').innerHTML=lab[0]; $('gradHi').innerHTML=lab[1];
+    const map={density:'colorDensity',phase:'colorPhase',radius:'colorRadius'};
+    for (const k in map) $(map[k]).classList.toggle('on',k===st.colorBy);
+  }
+  // levels: 'model' rebuilds tables, 'sample' redraws points, 'color' remaps colors
+  function rebuild(level){
+    Object.assign(st,clampState(st));
+    if (level==='model'){ model=buildModel(st); rend.setAxes(model.r99*1.12); view.scale=1/(model.r99*1.05); }
+    if (level==='model'||level==='sample'){
+      cloud=sampleCloud(model,st.points,st.seed);
+      colBytes=new Uint8Array(3*st.points);
+      colorize(cloud,model,st.colorBy,colBytes);
+      rend.setCloud(cloud.pos,colBytes,st.points);
+    } else {
+      colorize(cloud,model,st.colorBy,colBytes);
+      rend.recolor(colBytes);
+    }
+    updateSteppers(); updateReadout(); updateInfo(); updateGradbar(); updateEquation();
+    drawInset(insetCtx,$('inset').width,$('inset').height,model);
+  }
+
+  /* ---- wiring ---- */
+  function step(key,d){ return ()=>{ st[key]+=d; rebuild('model'); }; }
+  $('nSub').addEventListener('click',step('n',-1)); $('nAdd').addEventListener('click',step('n',1));
+  $('lSub').addEventListener('click',step('l',-1)); $('lAdd').addEventListener('click',step('l',1));
+  $('mSub').addEventListener('click',step('m',-1)); $('mAdd').addEventListener('click',step('m',1));
+  $('nrSub').addEventListener('click',step('nR',-1)); $('nrAdd').addEventListener('click',step('nR',1));
+  $('lrSub').addEventListener('click',step('lR',-1)); $('lrAdd').addEventListener('click',step('lR',1));
+  $('lySub').addEventListener('click',step('lY',-1)); $('lyAdd').addEventListener('click',step('lY',1));
+  $('mySub').addEventListener('click',step('mY',-1)); $('myAdd').addEventListener('click',step('mY',1));
+  const presetBtns=$('presets').getElementsByTagName('button');
+  for (let i=0;i<presetBtns.length;i++){
+    const b=presetBtns[i];
+    b.addEventListener('click',()=>{ st.n=+b.getAttribute('data-n'); st.l=+b.getAttribute('data-l');
+                                     st.m=0; st.mode='orb'; syncModeChips(); rebuild('model'); });
+  }
+  function syncModeChips(){
+    $('modeOrb').classList.toggle('on',st.mode==='orb');
+    $('modeMix').classList.toggle('on',st.mode==='mix');
+    $('grpQN').hidden=st.mode!=='orb'; $('grpMix').hidden=st.mode!=='mix';
+    $('formReal').classList.toggle('on',st.real); $('formCplx').classList.toggle('on',!st.real);
+  }
+  $('modeOrb').addEventListener('click',()=>{ st.mode='orb'; syncModeChips(); rebuild('model'); });
+  $('modeMix').addEventListener('click',()=>{ st.mode='mix'; syncModeChips(); rebuild('model'); });
+  $('formReal').addEventListener('click',()=>{ st.real=true;  syncModeChips(); rebuild('model'); });
+  $('formCplx').addEventListener('click',()=>{ st.real=false; syncModeChips(); rebuild('model'); });
+  $('colorDensity').addEventListener('click',()=>{ st.colorBy='density'; rebuild('color'); });
+  $('colorPhase').addEventListener('click',()=>{ st.colorBy='phase'; rebuild('color'); });
+  $('colorRadius').addEventListener('click',()=>{ st.colorBy='radius'; rebuild('color'); });
+
+  const fmtPts=v=>v>=1e4?Math.round(v/1e3)+'k':v>=1e3?(v/1e3).toFixed(1)+'k':''+v;
+  let ptsTimer=null;
+  $('ptsSlider').value=Math.log10(st.points);
+  $('ptsVal').textContent=fmtPts(st.points);
+  $('ptsSlider').addEventListener('input',()=>{
+    const v=Math.pow(10,+$('ptsSlider').value);
+    st.points=Math.max(1000,Math.min(500000,Math.round(v/500)*500));
+    $('ptsVal').textContent=fmtPts(st.points);
+    if (ptsTimer!==null) clearTimeout(ptsTimer);
+    ptsTimer=setTimeout(()=>{ ptsTimer=null; rebuild('sample'); },140);
+  });
+  $('sizeSlider').value=st.ptPx; $('sizeVal').textContent=st.ptPx.toFixed(1)+' px';
+  $('sizeSlider').addEventListener('input',()=>{ st.ptPx=+$('sizeSlider').value;
+    $('sizeVal').textContent=st.ptPx.toFixed(1)+' px'; });
+  $('brightSlider').value=st.bright; $('brightVal').textContent='×'+st.bright.toFixed(2);
+  $('brightSlider').addEventListener('input',()=>{ st.bright=+$('brightSlider').value;
+    $('brightVal').textContent='×'+st.bright.toFixed(2); });
+  $('resampleBtn').addEventListener('click',()=>{ st.seed=(st.seed+1)>>>0; rebuild('sample'); });
+  $('resetViewBtn').addEventListener('click',()=>{ view.q=Q0.slice(); view.dist=3.2; });
+  $('spinChk').addEventListener('change',()=>{ st.spin=$('spinChk').checked; });
+  $('axesChk').addEventListener('change',()=>{ st.axes=$('axesChk').checked; });
+
+  canvas.addEventListener('pointerdown',e=>{ dragging=true; lastPX=e.clientX; lastPY=e.clientY;
+    st.spin=false; $('spinChk').checked=false;
+    canvas.classList.add('dragging');
+    if (canvas.setPointerCapture && e.pointerId!==undefined) canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener('pointermove',e=>{ if (!dragging) return;
+    const dx=e.clientX-lastPX, dy=e.clientY-lastPY; lastPX=e.clientX; lastPY=e.clientY;
+    // premultiply = rotate about the camera's screen axes
+    view.q=qnormalize(qmul(qaxis([0,1,0],dx*0.0075),qmul(qaxis([1,0,0],dy*0.0075),view.q))); });
+  const endDrag=()=>{ dragging=false; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',endDrag);
+  canvas.addEventListener('pointerleave',endDrag);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault();
+    view.dist=Math.max(1.4,Math.min(25,view.dist*Math.exp(e.deltaY*0.0012))); },{passive:false});
+
+  function resize(){
+    const dpr=(typeof window!=='undefined'&&window.devicePixelRatio)||1;
+    const w=Math.max(1,Math.round(canvas.clientWidth*dpr)), h=Math.max(1,Math.round(canvas.clientHeight*dpr));
+    if (canvas.width!==w||canvas.height!==h){ canvas.width=w; canvas.height=h; }
+    rend.resize(w,h);
+  }
+  window.addEventListener('resize',resize);
+
+  let lastT=0;
+  function frame(t){
+    const dt=lastT?Math.min(0.1,(t-lastT)/1000):0.016; lastT=t;
+    if (st.spin&&!dragging) view.q=qnormalize(qmul(view.q,qaxis([0,0,1],dt*0.25)));
+    resize();
+    rend.draw({ q:view.q, dist:view.dist, scale:view.scale,
+                aspect:canvas.width/Math.max(1,canvas.height),
+                ptPx:st.ptPx*((typeof window!=='undefined'&&window.devicePixelRatio)||1),
+                exposure:exposure(), axes:st.axes });
+    requestAnimationFrame(frame);
+  }
+  syncModeChips();
+  rebuild('model');
+  requestAnimationFrame(frame);
+}
+
+/* ===================== headless self-test ======================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,eps)=>Math.abs(a-b)<=(eps===undefined?1e-12:eps);
+
+  /* --- radial functions vs closed forms --- */
+  let good=true;
+  for (const r of [0.13,0.9,2.7,6.5]){
+    if (!approx(radialR(1,0,r),2*Math.exp(-r),1e-12)) good=false;
+    if (!approx(radialR(2,0,r),Math.SQRT1_2*(1-r/2)*Math.exp(-r/2),1e-12)) good=false;
+    if (!approx(radialR(2,1,r),r*Math.exp(-r/2)/(2*Math.sqrt(6)),1e-12)) good=false;
+    if (!approx(radialR(3,2,r),2*Math.SQRT2/(81*Math.sqrt(15))*r*r*Math.exp(-r/3),1e-12)) good=false;
+  }
+  ok(good,'R_10, R_20, R_21, R_32 match closed forms');
+  ok(radialR(3,1,0)===0 && Math.abs(radialR(4,0,0))>0,'R(r=0): zero iff l>0');
+
+  /* --- radial normalization / orthogonality / <r> --- */
+  const trapz=(xs,ys)=>{ let s=0; for (let i=1;i<xs.length;i++) s+=(ys[i-1]+ys[i])*0.5*(xs[i]-xs[i-1]); return s; };
+  good=true;
+  for (const nl of [[1,0],[3,1],[5,2],[10,0],[10,9]]){
+    const n=nl[0], l=nl[1];
+    const rEnd=2*n*n+10*n+20, M=6000, xs=[],ys=[];
+    for (let i=0;i<M;i++){ const r=rEnd*i/(M-1); xs.push(r); const R=radialR(n,l,r); ys.push(r*r*R*R); }
+    if (!approx(trapz(xs,ys),1,2e-3)) good=false;
+  }
+  ok(good,'int r^2 R_nl^2 dr = 1 for (1,0),(3,1),(5,2),(10,0),(10,9)');
+  { const M=6000, rEnd=60, xs=[],ys=[];
+    for (let i=0;i<M;i++){ const r=rEnd*i/(M-1); xs.push(r); ys.push(r*r*radialR(1,0,r)*radialR(2,0,r)); }
+    ok(approx(trapz(xs,ys),0,1e-3),'R_10 and R_20 orthogonal'); }
+  good=true;
+  for (const nl of [[2,1],[3,2],[7,3]]){
+    const n=nl[0], l=nl[1];
+    const tab=buildCDF(r=>{const R=radialR(n,l,r); return r*r*R*R;},0,2*n*n+10*n+20,4096);
+    const want=(3*n*n-l*(l+1))/2;
+    if (!approx(tabMean(tab),want,0.02*want)) good=false;
+  }
+  ok(good,'<r> from CDF tables = (3n^2 - l(l+1))/2');
+
+  /* --- spherical harmonics --- */
+  ok(approx(thetaAmp(0,0)(0.31),1/Math.sqrt(4*PI),1e-12),'Y_00 = 1/sqrt(4 pi)');
+  ok(approx(thetaAmp(1,0)(Math.cos(0.7)),Math.sqrt(3/(4*PI))*Math.cos(0.7),1e-12),'Theta_10 = sqrt(3/4pi) cos');
+  ok(approx(Math.pow(thetaAmp(1,1)(0),2),3/(8*PI),1e-12),'|Y_11|^2(equator) = 3/8pi');
+  good=true;
+  for (const lm of [[0,0],[1,1],[3,2],[9,0],[9,9],[10,5]]){
+    const l=lm[0], m=lm[1];
+    const M=4000, xs=[],ys=[], Th=thetaAmp(l,m);
+    for (let i=0;i<M;i++){ const th=PI*i/(M-1); xs.push(th); const a=Th(Math.cos(th)); ys.push(a*a*Math.sin(th)); }
+    if (!approx(2*PI*trapz(xs,ys),1,1e-3)) good=false;
+  }
+  ok(good,'int |Y_lm|^2 dOmega = 1 up to l=10');
+
+  /* --- CDF machinery --- */
+  { const tab=buildCDF(x=>1,0,1,101);
+    ok(approx(sampleCDF(tab,0.25),0.25,1e-9)&&approx(sampleCDF(tab,0.9),0.9,1e-9),
+       'inverse CDF of uniform density is identity'); }
+
+  /* --- sampling statistics (seeded, deterministic) --- */
+  const mkState=o=>clampState(Object.assign({mode:'orb',real:true,n:3,l:2,m:1,nR:3,lR:1,lY:2,mY:1},o));
+  { const model=buildModel(mkState({n:3,l:2,m:1,real:false}));
+    const c=sampleCloud(model,30000,42);
+    let sr=0; for (let i=0;i<c.N;i++) sr+=c.rad[i];
+    ok(approx(sr/c.N,10.5,0.12),'sampled <r> for (3,2) = 10.5 a0 (5-sigma window)');
+    let dmaxOK=true; for (let i=0;i<c.N;i++) if (c.dens[i]>model.dMax*1.05) dmaxOK=false;
+    ok(dmaxOK,'per-point densities stay under the deterministic ceiling');
+    const c2=sampleCloud(model,30000,42);
+    ok(c2.pos[0]===c.pos[0]&&c2.pos[300]===c.pos[300],'same seed reproduces the cloud'); }
+  { const model=buildModel(mkState({n:2,l:1,m:0}));
+    const c=sampleCloud(model,30000,7);
+    let s=0; for (let i=0;i<c.N;i++){ const ct=c.pos[3*i+2]/c.rad[i]; s+=ct*ct; }
+    ok(approx(s/c.N,0.6,0.01),'<cos^2 th> for |Y_10|^2 = 3/5'); }
+  { const model=buildModel(mkState({n:3,l:2,m:2,real:true}));
+    const c=sampleCloud(model,30000,11);
+    let s=0; for (let i=0;i<c.N;i++){ const ph=Math.atan2(c.pos[3*i+1],c.pos[3*i]); s+=Math.cos(4*ph); }
+    ok(approx(s/c.N,0.5,0.03),'real m=+2: <cos 4phi> = 1/2 (cos^2 2phi law)');
+    let signOK=true;
+    for (let i=0;i<c.N;i++){ const ph=Math.atan2(c.pos[3*i+1],c.pos[3*i]);
+      const want=Math.cos(2*ph)>=0?1:0;
+      // psi sign = sign(cos 2phi) here: Theta_22 >= 0 everywhere
+      if (c.dens[i]>1e-12*model.dMax && c.phs[i]!==want){ signOK=false; break; } }
+    ok(signOK,'phase channel tracks sign(psi) in real mode'); }
+  { const mix=buildModel(mkState({mode:'mix',nR:2,lR:1,lY:5,mY:3}));
+    const c=sampleCloud(mix,20000,5);
+    let sr=0; for (let i=0;i<c.N;i++) sr+=c.rad[i];
+    ok(approx(sr/c.N,5,0.08),'mix mode: radial marginal is R_21 (<r> = 5 a0)'); }
+
+  /* --- symbolic equation: exact strings vs textbook (Griffiths Tab. 4.7) --- */
+  const txt=(n,l,m,real,mode)=>fmtPsi(symbolicPsi(n,l,l,m,real),false,mode||'orb');
+  ok(txt(1,0,0,false)==='ψ_100(r,θ,φ) = (1/√(π a₀³)) e^(−r/a₀)','symbolic 1s string');
+  ok(txt(2,0,0,false)==='ψ_200(r,θ,φ) = (1/(4√(2π a₀³))) (2 − (r/a₀)) e^(−r/(2a₀))','symbolic 2s string');
+  ok(txt(2,1,0,false)==='ψ_210(r,θ,φ) = (1/(4√(2π a₀³))) (r/a₀) e^(−r/(2a₀)) cos θ','symbolic 2p0 string');
+  ok(txt(2,1,1,false)==='ψ_211(r,θ,φ) = −(1/(8√(π a₀³))) (r/a₀) e^(−r/(2a₀)) sin θ e^(iφ)',
+     'symbolic 211 string (Condon–Shortley minus)');
+  ok(txt(2,1,-1,false)==='ψ_2,1,−1(r,θ,φ) = (1/(8√(π a₀³))) (r/a₀) e^(−r/(2a₀)) sin θ e^(−iφ)',
+     'symbolic 21-1 string (plus sign)');
+  ok(txt(2,1,1,true)==='ψ_211(r,θ,φ) = −(1/(4√(2π a₀³))) (r/a₀) e^(−r/(2a₀)) sin θ cos φ',
+     'symbolic 2p_x string (sqrt2 folded in, sampler sign)');
+  ok(txt(3,0,0,false)==='ψ_300(r,θ,φ) = (1/(81√(3π a₀³))) (27 − 18(r/a₀) + 2(r/a₀)^2) e^(−r/(3a₀))',
+     'symbolic 3s string');
+  ok(txt(3,2,0,false)==='ψ_320(r,θ,φ) = (1/(81√(6π a₀³))) (r/a₀)^2 e^(−r/(3a₀)) (3cos^2 θ − 1)',
+     'symbolic 3d_z2 string');
+  ok(fmtPsi(symbolicPsi(2,1,5,3,false),false,'mix').indexOf('R_2,1(r)·Y_5,+3(θ,φ) = ')===0,
+     'mix-mode lhs label');
+
+  /* --- symbolic psi == sampler psi, every (n,l,m) up to NMAX, both forms --- */
+  good=true;
+  let worst=0;
+  for (let n=1;n<=NMAX;n++) for (let l=0;l<n;l++) for (let m=-l;m<=l;m++)
+    for (const real of [true,false]){
+      const sym=symbolicPsi(n,l,l,m,real), am=Math.abs(m), Th=thetaAmp(l,m);
+      for (const pt of [[0.7,0.9,0.6],[1.9,2.2,4.0],[0.35*n,1.4,2.8]]){
+        const r=pt[0], th=pt[1], ph=pt[2];
+        const R=radialR(n,l,r), T=Th(Math.cos(th));
+        const want= real ? R*T*(am>0?Math.SQRT2*(m>0?Math.cos(am*ph):Math.sin(am*ph)):1)
+                         : R*T*((m<0&&am%2===1)?-1:1);   // symbolic drops e^{im phi}
+        const got=evalSymbolic(sym,r,th,ph);
+        const err=Math.abs(got-want)/(Math.abs(want)+1e-300);
+        worst=Math.max(worst,err);
+        if (!(Math.abs(got-want)<=1e-8*Math.abs(want)+1e-18)) good=false;
+      }
+    }
+  ok(good,'symbolic psi matches sampler psi for all 385 states x {real,complex} (worst rel '+worst.toExponential(1)+')');
+  { const sym=symbolicPsi(3,1,7,-4,false), r=2.3, th=1.1;
+    const want=radialR(3,1,r)*thetaAmp(7,-4)(Math.cos(th));
+    ok(approx(evalSymbolic(sym,r,th,0),want,1e-10*Math.abs(want)),'mix symbolic R(3,1)xY(7,-4) pointwise'); }
+
+  /* --- symbolic form is globally normalized: int |psi|^2 dV = 1 --- */
+  good=true;
+  for (const c of [[1,0,0,false],[2,1,0,false],[10,0,0,false],[10,9,5,true],[10,9,-5,false],
+                   [5,2,-2,true],[7,3,3,true],[4,3,-3,false]]){
+    const n=c[0], l=c[1], m=c[2], real=c[3], am=Math.abs(m);
+    const sym=symbolicPsi(n,l,l,m,real);
+    const lnC=0.5*(lnBig(sym.c2.n)-lnBig(sym.c2.d)-Math.log(PI));
+    const rEnd=2*n*n+10*n+20, MR=6000, MT=800;
+    let ri=0;
+    for (let i=0;i<MR;i++){
+      const r=rEnd*(i+0.5)/MR;
+      let Q=0; for (let q=sym.radInts.length-1;q>=0;q--) Q=Q*r+Number(sym.radInts[q]);
+      const f=Math.exp(lnC-r/n)*Math.pow(r,l)*Q;
+      ri+=f*f*r*r*(rEnd/MR);
+    }
+    let ti=0;
+    for (let i=0;i<MT;i++){
+      const th=PI*(i+0.5)/MT, x=Math.cos(th);
+      let E=0; for (let q=sym.angInts.length-1;q>=0;q--) E=E*x+Number(sym.angInts[q]);
+      const g=Math.pow(Math.sin(th),am)*E;
+      ti+=g*g*Math.sin(th)*(PI/MT);
+    }
+    const phFac=(am===0)?TAU:(real?PI:TAU);
+    if (!approx(ri*ti*phFac,1,2e-3)) good=false;
+  }
+  ok(good,'symbolic |psi|^2 integrates to 1 (incl. n=10 edge states, real and complex)');
+
+  /* --- state clamping --- */
+  { let s=mkState({n:4,l:3,m:-3}); s.n=2; s=clampState(s);
+    ok(s.l===1&&s.m===-1,'shrinking n reclamps l and m'); }
+  { let s=mkState({mode:'mix',lY:6,mY:-6}); s.lY=2; s=clampState(s);
+    ok(s.mY===-2,'shrinking lY reclamps mY'); }
+
+  /* --- labels --- */
+  ok(orbitalLabel({mode:'orb',real:true,n:3,l:2,m:0})==='3d_z²','label 3d_z2');
+  ok(orbitalLabel({mode:'orb',real:true,n:2,l:1,m:1})==='2p_x','label 2p_x');
+  ok(orbitalLabel({mode:'orb',real:false,n:4,l:3,m:-2})==='4f (m=−2)','label 4f m=-2');
+  ok(orbitalLabel({mode:'orb',real:true,n:1,l:0,m:0})==='1s','label 1s');
+  ok(orbitalLabel({mode:'mix',nR:2,lR:1,lY:5,mY:3})==='R(2,1) × Y(5,+3)','mix label');
+
+  /* --- colormap --- */
+  good=true;
+  for (let i=0;i<=40;i++){ const c=neon(i/40);
+    for (const v of c) if (!(v>=-1e-9&&v<=1+1e-9)) good=false; }
+  ok(good,'neon(t) stays inside RGB unit cube');
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS, E=S[S.length-1];
+    ok(approx(c0[0],S[0][1])&&approx(c0[1],S[0][2])&&approx(c0[2],S[0][3])&&
+       approx(c1[0],E[1])&&approx(c1[1],E[2])&&approx(c1[2],E[3]),
+       'neon endpoints hit the gradient stops'); }
+  { const model=buildModel(mkState({}));
+    const c=sampleCloud(model,500,3);
+    const out=new Uint8Array(1500);
+    good=true;
+    for (const mode of ['density','phase','radius']){
+      colorize(c,model,mode,out);
+      let sum=0;
+      for (let i=0;i<1500;i++) sum+=out[i];
+      if (!(sum>0)) good=false;
+    }
+    ok(good,'colorize fills nonzero bytes in all three modes'); }
+
+  /* --- quaternions and matrices --- */
+  { const q=qaxis([0,1,0],PI/2), v=qrotate([1,0,0],q);
+    ok(approx(v[0],0,1e-12)&&approx(v[1],0,1e-12)&&approx(v[2],-1,1e-12),
+       'quarter turn about y: x -> -z'); }
+  { const q=qnormalize(qmul(qaxis([1,0,0],0.4),qaxis([0,1,0],1.1)));
+    const v=qrotate([0.3,-0.2,0.9],q);
+    ok(approx(Math.hypot(v[0],v[1],v[2]),Math.hypot(0.3,0.2,0.9),1e-12),'rotation preserves length'); }
+  { const MVP=mat4Mul(mat4Persp(38*PI/180,1.5,0.05,100),
+                      mat4Mul(mat4View(3),mat4FromQuatScale([1,0,0,0],1)));
+    // origin -> clip = column 3 of MVP: x=y=0, w=dist
+    ok(approx(MVP[12],0,1e-9)&&approx(MVP[13],0,1e-9)&&approx(MVP[15],3,1e-6),
+       'origin projects to screen center at w = dist'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

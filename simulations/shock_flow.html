@@ -1,0 +1,2605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shock flow — the second root of the conservation laws</title>
+<!--
+  A SHOCK IS THE SECOND ROOT.
+
+  Write mass, energy and momentum across a thin discontinuity in a duct of
+  fixed area (Moran/Shapiro/Boettner/Bailey, Fundamentals of Engineering
+  Thermodynamics, Sec. 9.13.3, eqs. 9.46-9.49):
+
+      rho_x V_x = rho_y V_y                          (9.46)  mass
+      h_x + V_x^2/2 = h_y + V_y^2/2                  (9.47)  energy
+      p_x + rho_x V_x^2 = p_y + rho_y V_y^2          (9.48)  momentum
+      s_y - s_x = sigma_cv / mdot >= 0               (9.49)  entropy
+
+  Three conservation equations in the two unknowns of a simple compressible
+  substance, plus one inequality. They do NOT have a unique solution. They have
+  exactly TWO, and one of them is the state you started from. The shock is the
+  other one — and eq. 9.49 is the only thing that says which way you may go.
+
+  That is the whole file. Four views, one statement, four scales.
+
+  1. THE JUMP. Mass+energy at fixed mass flux is a curve in the h-s plane (the
+     FANNO line); mass+momentum is another (the RAYLEIGH line). Both pass
+     through x. Both have their maximum entropy exactly at M = 1, so each has a
+     subsonic upper branch and a supersonic lower branch. State y must satisfy
+     all three equations at once, so y is where the two curves cross AGAIN —
+     Fig. 9.34 of the source, drawn here rather than sketched. The sim does not
+     plot eq. 9.55; it root-solves the raw invariants (G, h0, I) and then checks
+     that what it found IS eq. 9.55, to 1e-12. Entropy then picks the direction:
+     the crossing with the larger s is subsonic, so a shock can only turn
+     supersonic into subsonic, never the reverse. Nothing else in gas dynamics
+     needs to be assumed for that; it falls out of which of two roots has more
+     entropy.
+
+  2. THE NOZZLE. Where the second root gets used. In a converging-diverging
+     nozzle at fixed stagnation state there is a whole band of back pressures
+     for which NO smooth solution exists: the flow is choked at the throat, so
+     the mass flow rate cannot adjust, and isentropic flow reaches the exit at
+     the wrong pressure. The gas resolves it by inserting a discontinuity —
+     it takes the second root somewhere in the diverging section, at exactly
+     the place that makes the exit pressure come out right. Slide the back
+     pressure and watch the shock position solve p_e(M_x) = p_b. All ten cases
+     a-j of Fig. 9.32 are the one-parameter family this produces.
+
+  3. THE BLAST. The same jump, in the strong limit. As M_x -> infinity the
+     density ratio does not: it saturates at (gamma+1)/(gamma-1) = 6 for air,
+     because the gas heats instead of compressing. A point release of energy E
+     into ambient rho_0 therefore has no length or time scale of its own, and
+     the Pi-theorem alone (Buckingham 1914; Atzeni & Meyer-ter-Vehn, The Physics
+     of Inertial Fusion, Sec. 6.5) fixes the answer without solving anything:
+
+         R_s(t) = xi_0(gamma) (E t^2 / rho_0)^(1/5)          spherical
+         R_s(t) = xi_0(gamma) (E t^2 / rho_0)^(1/(n+2))      n = 1, 2, 3
+
+     The sim builds the dimensional matrix live and solves it for the exponents,
+     then gets the front factor xi_0 the only way it can be got — by integrating
+     the self-similar Euler equations in from the shock and normalising on the
+     energy integral. That returns xi_0(1.4) = 1.032777, against the literature
+     1.033. Then it does what G. I. Taylor did in 1950 with a set of declassified
+     photographs: fit log R against log t, read the slope (2/5 if the flow is
+     self-similar) and the intercept (the yield), and get about 20 kt.
+
+  4. THE MUSHROOM. What is left afterwards is hot light gas underneath cold
+     dense air, which is the Rayleigh-Taylor configuration. Dimensional analysis
+     again, and it is the reason the cloud has one head and not a thousand
+     fingers: RT HAS NO LENGTH SCALE. From an acceleration a and a wavenumber k
+     the only rate is sqrt(ak), so (Atzeni eqs. 8.1, 8.36)
+
+         sigma_RT = sqrt(A_t a k),     A_t = (rho_2-rho_1)/(rho_2+rho_1)
+
+     which diverges as lambda -> 0: every mode grows, small ones fastest. If
+     that were the end of it the interface would be fine-grained froth. But
+     growth saturates at zeta_sat = (lambda/2 pi sqrt3) sqrt(2/(1+A_t)) (eq.
+     8.164), after which a bubble rises at a TERMINAL velocity that scales as
+     sqrt(a lambda) (eq. 8.161, Table 8.2) — so from then on the long modes are
+     the fast ones and the pattern coarsens. The only length available at time t
+     is a t^2, and the observed law h_b = alpha A_t a t^2 with alpha = 0.04-0.07
+     is that statement. One cap, growing quadratically. The sim integrates the
+     buoyancy-drag equation 8.160 rather than asserting its asymptote, and draws
+     the interface from the third-order result of Jacobs & Catton (eq. 8.165),
+     which is what makes bubbles blunt and spikes sharp.
+
+  WHAT IS COMPUTED AND WHAT IS DRAWN. Everything with a number attached is
+  computed: Mach numbers, pressure and temperature ratios, entropy production,
+  shock position, mass flow rate, the Sedov profiles and front factor, the fit
+  and its yield, RT growth rates, saturation amplitudes and bubble/spike
+  trajectories. The Kelvin-Helmholtz roll-up at a spike tip is DRAWN — a spiral
+  of the size the model gives, not a vortex-sheet calculation — and is labelled
+  as such on the canvas. The sim does not pretend to simulate what it did not.
+
+  VERIFICATION. selfTest() checks the closed forms against the source's own
+  printed tables (Table 9.2 isentropic, Table 9.3 normal-shock, all rows and
+  columns) and against Examples 9.14 and 9.15 case by case, at the tolerance the
+  tables are PRINTED to and no tighter. Two of Example 9.15's quoted Mach
+  numbers are reproduced only to ~0.01 because the book reads its own coarse
+  table by eye — the exact inversion of A/A* is asserted separately to 1e-12 and
+  the discrepancy is asserted to be the interpolation error, not ours. The
+  Sedov front factor is checked against literature, against step-count and
+  cutoff refinement, and against the analytic core limits U -> lambda/gamma and
+  G ~ lambda^(n/(gamma-1)) that the ODEs themselves predict.
+
+  Single file, no dependencies, works over file://. All drawing is hand-rolled
+  canvas 2D. Same palette and NeonColors table as the rest of this collection.
+
+  Headless self-test: extract the script body (between the LAST script
+  open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript shock_test.js
+  — with `document` undefined it runs the assertion suite instead of the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --sup:#5ac8e0; --sub:#e8a33a; --shock:#ff5a4a;
+    --fanno:#b8ec4c; --rayl:#cd35c4; --stag:#6f7789;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none;}
+  #scene.grabbing{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:272px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.88), rgba(10,12,18,.68));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 18px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:5px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px;}
+  #readout .cap{position:absolute; top:0; bottom:0; width:2px; background:#fff; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:50%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:296px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .chip.sm{padding:3px 9px; font-size:11.5px;}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:92px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:66px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:var(--shock);}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Shock flow</h1>
+  <span class="sub" id="sub">the conservation laws have two roots &mdash; entropy picks one</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k==='text') e.textContent=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){ const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c); }
+  return e;
+}
+
+/* robust bracketed root find — bisection, no derivatives, never diverges */
+function bisect(f,a,b,tol,maxit){
+  tol=tol||1e-13; maxit=maxit||200;
+  let fa=f(a), fb=f(b);
+  if(!(isFinite(fa)&&isFinite(fb))) throw new Error('bisect: non-finite endpoint');
+  if(fa===0) return a; if(fb===0) return b;
+  if(fa*fb>0) throw new Error('bisect: root not bracketed on ['+a+','+b+']');
+  for(let i=0;i<maxit;i++){
+    const m=0.5*(a+b), fm=f(m);
+    if(fm===0||(b-a)<tol*Math.max(1,Math.abs(m))) return m;
+    if(fa*fm<0){ b=m; fb=fm; } else { a=m; fa=fm; }
+  }
+  return 0.5*(a+b);
+}
+
+/* ================================================================== *
+ *  GAS DYNAMICS                                                       *
+ *  Moran, Shapiro, Boettner & Bailey, Fundamentals of Engineering      *
+ *  Thermodynamics — Secs. 9.13.3 and 9.14, eqs. 9.46-9.57.             *
+ * ================================================================== */
+const RU=8.31446261815324;                       /* J/(mol K) */
+const GASES=[
+  {id:'air',  name:'air',              k:1.400, Mw:28.97},
+  {id:'mono', name:'argon / helium',   k:1.667, Mw:39.948},
+  {id:'co2',  name:'carbon dioxide',   k:1.289, Mw:44.01},
+  {id:'steam',name:'steam',            k:1.330, Mw:18.015},
+  {id:'ch4',  name:'methane',          k:1.320, Mw:16.04},
+];
+const gasById=id=>GASES.find(g=>g.id===id)||GASES[0];
+const Rspec=g=>RU/(g.Mw*1e-3);                   /* J/(kg K) */
+const cpOf =g=>g.k*Rspec(g)/(g.k-1);
+
+/* ---- isentropic flow functions, eqs. 9.50 / 9.51 / 9.52 ---- */
+const TT0=(M,k)=>1/(1+0.5*(k-1)*M*M);                       /* T / T0      */
+const pp0=(M,k)=>Math.pow(1+0.5*(k-1)*M*M,-k/(k-1));        /* p / p0      */
+const rr0=(M,k)=>Math.pow(1+0.5*(k-1)*M*M,-1/(k-1));        /* rho / rho0  */
+function AAs(M,k){                                          /* A / A*      */
+  return (1/M)*Math.pow((2/(k+1))*(1+0.5*(k-1)*M*M),(k+1)/(2*(k-1)));
+}
+/* invert p/p0 -> M (closed form) */
+const MfromP=(pr,k)=>Math.sqrt(Math.max(0,(2/(k-1))*(Math.pow(pr,-(k-1)/k)-1)));
+/* invert A/A* -> M.  Two roots for every A/A* > 1; `sup` selects which.
+   Nothing here is ever read off a printed table: the inversion is exact to
+   1e-13, which is why this sim disagrees with two of the Mach numbers quoted
+   in Example 9.15 (the book interpolates its own 0.1-spaced table by eye). */
+function MfromA(Ar,k,sup){
+  if(!(Ar>=1)) throw new Error('MfromA: A/A* = '+Ar+' < 1 has no solution');
+  if(Ar===1) return 1;
+  return sup ? bisect(M=>AAs(M,k)-Ar,1,200)
+             : bisect(M=>AAs(M,k)-Ar,1e-9,1);
+}
+
+/* ---- normal-shock functions, eqs. 9.53-9.56 ---- */
+const MyOfMx=(Mx,k)=>Math.sqrt((Mx*Mx+2/(k-1))/((2*k/(k-1))*Mx*Mx-1));
+const pRatio =(Mx,My,k)=>(1+k*Mx*Mx)/(1+k*My*My);                    /* py/px   */
+const TRatio =(Mx,My,k)=>(1+0.5*(k-1)*Mx*Mx)/(1+0.5*(k-1)*My*My);    /* Ty/Tx   */
+const p0Ratio=(Mx,My,k)=>(Mx/My)*Math.pow((1+0.5*(k-1)*My*My)/(1+0.5*(k-1)*Mx*Mx),
+                                          (k+1)/(2*(k-1)));          /* poy/pox */
+/* the whole jump in one call */
+function shock(Mx,k){
+  const My=MyOfMx(Mx,k);
+  const p=pRatio(Mx,My,k), T=TRatio(Mx,My,k), p0=p0Ratio(Mx,My,k);
+  return {Mx,My,k,p,T,rho:p/T,V:1/(p/T),p0,
+          /* T0 is unchanged across the shock, so s_y - s_x = -R ln(poy/pox)
+             exactly — eq. 9.49 with no integration needed. */
+          dsR:-Math.log(p0),
+          Astar:1/p0};                            /* eq. 9.57: A*x/A*y = poy/pox */
+}
+
+/* ================================================================== *
+ *  THE FANNO AND RAYLEIGH LINES  (Fig. 9.34)                          *
+ *                                                                     *
+ *  Fanno    = mass + energy at fixed area  (eqs. 9.46 + 9.47)         *
+ *  Rayleigh = mass + momentum at fixed area (eqs. 9.46 + 9.48)        *
+ *                                                                     *
+ *  Everything is referred to the upstream state x and normalised:      *
+ *     y-axis   h/h0  (= T/T0, ideal gas with constant cp)             *
+ *     x-axis   (s - s_x)/R                                            *
+ *  so the picture is the same for every gas and every stagnation state *
+ *  and depends on M_x and gamma alone.                                 *
+ * ================================================================== */
+/* Fanno: G and h0 fixed.  p ~ sqrt(T)/M follows from rho V = G. */
+function fannoAt(M,Mx,k){
+  const T=TT0(M,k)/TT0(Mx,k);              /* T / Tx  */
+  const p=(Mx/M)*Math.sqrt(T);             /* p / px  */
+  return {M,T,p,hh0:TT0(M,k),dsR:(k/(k-1))*Math.log(T)-Math.log(p)};
+}
+/* Rayleigh: G and I = p + rho V^2 fixed.  p/px = (1+k Mx^2)/(1+k M^2). */
+function rayleighAt(M,Mx,k){
+  const p=(1+k*Mx*Mx)/(1+k*M*M);           /* p / px  */
+  const T=Math.pow(M*p/Mx,2);              /* T / Tx  (from rho V = G)  */
+  return {M,T,p,hh0:T*TT0(Mx,k),dsR:(k/(k-1))*Math.log(T)-Math.log(p)};
+}
+/* Both lines take their maximum entropy at M = 1 — that is what makes the
+   upper branch subsonic and the lower branch supersonic, and it is asserted
+   in selfTest rather than assumed. */
+const fannoSonic   =(Mx,k)=>fannoAt(1,Mx,k);
+const rayleighSonic=(Mx,k)=>rayleighAt(1,Mx,k);
+
+/* ---- the shock found WITHOUT eq. 9.55 ------------------------------
+   Solve the raw invariants (G, h0, I) for the OTHER root.  Only mass,
+   energy and momentum go in; eq. 9.55 is then a prediction to be checked,
+   not an input.  Returns M of the second intersection.                */
+function shockByInvariants(Mx,k){
+  /* work in units where Tx = 1, px = 1, so G, h0, I are pure numbers */
+  const Vx=Mx*Math.sqrt(k);                       /* V / sqrt(R Tx)     */
+  const rhox=1;                                   /* p/(R T) = 1        */
+  const G=rhox*Vx, h0=k/(k-1)+0.5*Vx*Vx, I=1+rhox*Vx*Vx;
+  const res=T=>{                                   /* p + G V - I        */
+    const V=Math.sqrt(Math.max(2*(h0-k/(k-1)*T),0));
+    if(!(V>0)) return -I;
+    return G*T/V+G*V-I;
+  };
+  const Tsonic=(h0*(k-1)/k)*(2/(k+1)), Tmax=h0*(k-1)/k;
+  const T=bisect(res,Tsonic*(1+1e-12),Tmax*(1-1e-12),1e-15);
+  const V=Math.sqrt(2*(h0-k/(k-1)*T));
+  return V/Math.sqrt(k*T);
+}
+
+/* ================================================================== *
+ *  CONVERGING-DIVERGING NOZZLE  (Fig. 9.32, Example 9.15)             *
+ * ================================================================== */
+/* Area distribution, in units of the throat area.  Both halves are
+   quadratic with zero slope at the throat, so A(x) is C1 there. */
+function nozzleArea(u,cfg){
+  const xt=cfg.xt;
+  if(u<=xt){ const q=1-u/xt;      return 1+(cfg.Ai-1)*q*q; }
+  const q=(u-xt)/(1-xt);          return 1+(cfg.Ae-1)*q*q;
+}
+const REGIMES={
+  none      :{name:'no flow',            note:'back pressure at or above the stagnation pressure'},
+  venturi   :{name:'venturi',            note:'subsonic throughout, not choked — mass flow still responds to p<sub>b</sub>'},
+  chokedSub :{name:'choked, subsonic',   note:'M = 1 at the throat, diverging section acts as a diffuser (case d)'},
+  shockIn   :{name:'shock in the nozzle',note:'no smooth solution exists — the gas takes the second root (cases e, f)'},
+  shockExit :{name:'shock at the exit',  note:'the shock has been pushed to the exit plane (case g)'},
+  over      :{name:'overexpanded',       note:'p<sub>e</sub> &lt; p<sub>b</sub>: oblique shocks outside, not describable in 1-D (case h)'},
+  design    :{name:'design',             note:'p<sub>e</sub> = p<sub>b</sub>, isentropic throughout, no waves anywhere (case i)'},
+  under     :{name:'underexpanded',      note:'p<sub>e</sub> &gt; p<sub>b</sub>: expansion fans outside (case j)'},
+};
+function nozzleSolve(st){
+  const k=st.k, Ae=st.Ae, pb=st.pbr;
+  const MsubE=MfromA(Ae,k,false), MsupE=MfromA(Ae,k,true);
+  const p1=pp0(MsubE,k);                              /* choked, subsonic exit */
+  const p3=pp0(MsupE,k);                              /* design                */
+  const sE=shock(MsupE,k);
+  const p2=p3*sE.p;                                   /* shock at the exit plane */
+  const out={k,Ae,pb,MsubE,MsupE,p1,p2,p3,choked:false,Mx:null,My:null,
+             Astar:1,AstarY:1,p0y:1,Me:null,pe:null,shockU:null,shockA:null,
+             regime:'none',mdotFrac:0};
+  if(pb>=1){ out.regime='none'; out.Me=0; out.pe=1; return out; }
+  if(pb>p1){                                          /* not choked */
+    out.regime='venturi';
+    out.Me=MfromP(pb,k); out.pe=pb;
+    out.Astar=Ae/AAs(out.Me,k);
+    out.Mt=MfromA(1/out.Astar,k,false);
+    out.mdotFrac=out.Astar;
+    return out;
+  }
+  out.choked=true; out.mdotFrac=1; out.Mt=1;
+  if(Math.abs(pb-p1)<=1e-12){ out.regime='chokedSub'; out.Me=MsubE; out.pe=p1; return out; }
+  if(pb>p2){                                          /* shock inside */
+    out.regime='shockIn';
+    const peOf=Mx=>{ const s=shock(Mx,k);
+                     const Me=MfromA(Ae*s.p0,k,false);
+                     return s.p0*pp0(Me,k); };
+    const Mx=bisect(mx=>peOf(mx)-pb,1+1e-12,MsupE,1e-14);
+    const s=shock(Mx,k);
+    out.Mx=Mx; out.My=s.My; out.p0y=s.p0; out.AstarY=1/s.p0;
+    out.shockA=AAs(Mx,k);
+    out.Me=MfromA(Ae*s.p0,k,false); out.pe=pb;
+    out.shockU=uOfAreaDiverging(out.shockA,st);
+    return out;
+  }
+  /* choked and supersonic all the way to the exit — the exit state is the
+     same for every one of these; only what happens OUTSIDE differs. */
+  out.Me=MsupE; out.pe=p3;
+  if(Math.abs(pb-p2)<=1e-12){ out.regime='shockExit'; out.Mx=MsupE; out.My=sE.My; }
+  else if(pb>p3)             out.regime='over';
+  else if(Math.abs(pb-p3)<=1e-12) out.regime='design';
+  else                       out.regime='under';
+  return out;
+}
+/* where in the diverging section does A(u)/At equal a given ratio? */
+function uOfAreaDiverging(Ar,st){
+  const cfg=st, xt=cfg.xt;
+  if(Ar<=1) return xt;
+  if(Ar>=cfg.Ae) return 1;
+  return xt+(1-xt)*Math.sqrt((Ar-1)/(cfg.Ae-1));
+}
+/* Sampled profile down the nozzle: Mach number and p/p0x at every station. */
+function nozzleProfile(st,sol,N){
+  N=N||220; const k=st.k, out=[];
+  for(let i=0;i<=N;i++){
+    const u=i/N, Ar=nozzleArea(u,st);
+    let M,pr,post=false;
+    if(sol.regime==='none'){ M=0; pr=1; }
+    else if(!sol.choked){
+      M=MfromA(Ar/sol.Astar,k,false); pr=pp0(M,k);
+    } else if(sol.regime==='shockIn' && u>sol.shockU){
+      post=true; M=MfromA(Ar/sol.AstarY,k,false); pr=sol.p0y*pp0(M,k);
+    } else {
+      const sup=(u>st.xt) && sol.regime!=='chokedSub';
+      M=MfromA(Ar,k,sup); pr=pp0(M,k);
+    }
+    out.push({u,Ar,M,pr,Tr:TT0(M,k),post});
+  }
+  return out;
+}
+/* choked mass flow rate.  mdot = p0 A* sqrt(k/(R T0)) ((k+1)/2)^(-(k+1)/2(k-1)) */
+function mdotChoked(p0,T0,Astar,g){
+  const k=g.k, R=Rspec(g);
+  return p0*Astar*Math.sqrt(k/(R*T0))*Math.pow((k+1)/2,-(k+1)/(2*(k-1)));
+}
+
+/* ================================================================== *
+ *  DIMENSIONAL ANALYSIS — the Pi-theorem, turned by hand              *
+ *  Atzeni & Meyer-ter-Vehn, The Physics of Inertial Fusion, Sec. 6.5. *
+ *                                                                     *
+ *  R_s = f(t, E, A)  with A = rho_0 / r^kappa the ambient density      *
+ *  coefficient.  Units L, M, T only, so k = n = 3 and the Pi-theorem   *
+ *  leaves NO free function — a pure power law, exponents and all,      *
+ *  before a single differential equation is written down.              *
+ * ================================================================== */
+/* dimensional matrix, rows = (L, M, T), columns = (t, E, A) */
+function dimMatrix(n,kap){
+  return {rows:['L','M','T'], cols:['t','E','A'],
+          M:[[0, 2, -(n+kap)],
+             [0, 1,  1      ],
+             [1,-2,  0      ]],
+          rhs:[1,0,0]};                     /* dimensions of R_s = L */
+}
+/* Solve M x = rhs by Gauss-Jordan with partial pivoting.  This is the crank:
+   the exponents 2/5, 1/5, -1/5 are computed, never typed in. */
+function solveLinear(Min,bin){
+  const n=bin.length, A=Min.map((r,i)=>r.concat([bin[i]]));
+  for(let c=0;c<n;c++){
+    let piv=c; for(let r=c+1;r<n;r++) if(Math.abs(A[r][c])>Math.abs(A[piv][c])) piv=r;
+    if(Math.abs(A[piv][c])<1e-14) throw new Error('solveLinear: singular at column '+c);
+    const t=A[c]; A[c]=A[piv]; A[piv]=t;
+    const d=A[c][c]; for(let j=c;j<=n;j++) A[c][j]/=d;
+    for(let r=0;r<n;r++) if(r!==c){ const f=A[r][c];
+      if(f!==0) for(let j=c;j<=n;j++) A[r][j]-=f*A[c][j]; }
+  }
+  return A.map(r=>r[n]);
+}
+function blastExponents(n,kap){
+  const D=dimMatrix(n,kap||0);
+  const x=solveLinear(D.M,D.rhs);
+  return {t:x[0],E:x[1],A:x[2],D};          /* R_s ~ t^x0 E^x1 A^x2 */
+}
+
+/* ================================================================== *
+ *  THE SEDOV-TAYLOR SOLUTION                                          *
+ *                                                                     *
+ *  Self-similar Euler equations behind a strong shock.  With           *
+ *     lambda = r/R,   u = D U(l),  rho = rho0 G(l),  p = rho0 D^2 P(l) *
+ *     D = alpha R/t,  alpha = 2/(n+2)                                  *
+ *  the three conservation laws collapse to                             *
+ *     (C)  (U-l) G' + G U' + (n-1) G U / l = 0                         *
+ *     (M)  (U-l) U' + ((alpha-1)/alpha) U + P'/G = 0                   *
+ *     (E)  (U-l) (P'/P - gamma G'/G) = 2(1-alpha)/alpha                *
+ *  with strong-shock Rankine-Hugoniot conditions at l = 1:             *
+ *     U(1) = 2/(g+1),  G(1) = (g+1)/(g-1),  P(1) = 2/(g+1).            *
+ *                                                                     *
+ *  G falls like l^(n/(g-1)) — sixty decades by l = 1e-3 for air — so   *
+ *  the integration is done on ln G and ln P against ln lambda, where    *
+ *  every derivative is O(1).  Integrating the linear variables to the   *
+ *  same depth returns G < 0.  The core below the cutoff is added        *
+ *  analytically from the asymptotics the ODEs themselves imply          *
+ *  (U -> l/gamma, P -> const), and contributes 6e-10 of the energy.     *
+ * ================================================================== */
+const _sedovCache=new Map();
+function sedov(gam,n,opts){
+  n=n||3; opts=opts||{};
+  const nsteps=opts.nsteps||20000, lmin=opts.lmin||1e-3;
+  const key=gam.toFixed(6)+'|'+n+'|'+nsteps+'|'+lmin;
+  if(_sedovCache.has(key)) return _sedovCache.get(key);
+  const a=2/(n+2), K=2*(1-a)/a;
+  let U=2/(gam+1), lg=Math.log((gam+1)/(gam-1)), lp=Math.log(2/(gam+1));
+  let s=0; const ds=Math.log(lmin)/nsteps;
+  const prof=[];
+  const deriv=(s,y)=>{
+    const U=y[0], G=Math.exp(y[1]), P=Math.exp(y[2]), l=Math.exp(s), w=U-l;
+    const dU=(((1-a)/a)*U-(P/(G*w))*(K-gam*(n-1)*U/l))/(w-gam*P/(G*w));
+    const dg=(-(n-1)*U/l-dU)/w;
+    const dq=K/w+gam*dg;
+    return [dU*l,dg*l,dq*l];                /* d/d(ln lambda) */
+  };
+  const add=(y,d,f)=>[y[0]+f*d[0],y[1]+f*d[1],y[2]+f*d[2]];
+  const integrand=(s,y)=>Math.pow(Math.exp(s),n)*(Math.exp(y[1])*y[0]*y[0]/2
+                                                 +Math.exp(y[2])/(gam-1));
+  let y=[U,lg,lp], J=0;
+  for(let i=0;i<nsteps;i++){
+    const f0=integrand(s,y);
+    prof.push([Math.exp(s),y[0],Math.exp(y[1]),Math.exp(y[2])]);
+    const k1=deriv(s,y), k2=deriv(s+ds/2,add(y,k1,ds/2));
+    const k3=deriv(s+ds/2,add(y,k2,ds/2)), k4=deriv(s+ds,add(y,k3,ds));
+    y=[y[0]+ds/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]),
+       y[1]+ds/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]),
+       y[2]+ds/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2])];
+    s+=ds;
+    J+=-0.5*(f0+integrand(s,y))*ds;
+  }
+  const Pcore=Math.exp(y[2]);
+  J+=Pcore*Math.pow(lmin,n)/(n*(gam-1));    /* analytic core tail */
+  const gn=[2,2*Math.PI,4*Math.PI][n-1];
+  const xi0=Math.pow(1/(gn*a*a*J),1/(n+2));
+  const res={gam,n,alpha:a,xi0,J,prof,core:{lam:Math.exp(s),U:y[0],G:Math.exp(y[1]),P:Pcore}};
+  _sedovCache.set(key,res);
+  return res;
+}
+/* R_s(t) = xi0 (E t^2 / rho0)^(1/(n+2))  and its inverse */
+const blastR=(t,E,rho0,S)=>S.xi0*Math.pow(E*t*t/rho0,1/(S.n+2));
+const blastE=(t,R,rho0,S)=>rho0*Math.pow(R/S.xi0,S.n+2)/(t*t);
+const blastD=(t,E,rho0,S)=>S.alpha*blastR(t,E,rho0,S)/t;      /* shock speed */
+const KT_J=4.184e12;                                          /* 1 kt TNT, J */
+
+/* ================================================================== *
+ *  TAYLOR'S 1945 DATA                                                 *
+ *  Radius of the luminous front against time, read by G. I. Taylor    *
+ *  from the declassified Mack photographs of the 16 July 1945 Trinity *
+ *  test and published as Table 1 of Taylor, "The formation of a blast *
+ *  wave by a very intense explosion. II", Proc. R. Soc. A 201 (1950). *
+ *  Reproduced here from the widely circulated transcription of that   *
+ *  table, NOT from a copy of the paper — the sim's own fit is the     *
+ *  check on it: it returns slope 0.406 against the predicted 0.400    *
+ *  and a yield of 19.5 kt against Taylor's published "about 20 kt"    *
+ *  (Atzeni Sec. 6.5.2) and the declassified 21 kt.                    *
+ * ================================================================== */
+const TAYLOR=[
+  [0.10,11.1],[0.24,19.9],[0.38,25.4],[0.52,28.8],[0.66,31.9],[0.80,34.2],
+  [0.94,36.3],[1.08,38.9],[1.22,41.0],[1.36,42.8],[1.50,44.4],[1.65,46.0],
+  [1.79,46.9],[1.93,48.7],[3.26,59.0],[3.53,61.1],[3.80,62.9],[4.07,64.3],
+  [4.34,65.6],[4.61,67.3],[15.0,106.5],[25.0,130.0],[34.0,145.0],[53.0,175.0],
+  [62.0,185.0]];                                     /* t in ms, R in m */
+/* Least squares on log R against log t over a chosen time window.
+ *
+ * THE SLOPE AND THE YIELD ARE TWO DIFFERENT QUESTIONS.  The slope is the test:
+ * is the flow self-similar?  The intercept is the answer: how much energy?  And
+ * the intercept must be read AT THE DATA, never extrapolated.  E goes like the
+ * (n+2)th power of R, so an intercept read D decades away from the data carries
+ * a slope error d as a factor 10^((n+2) D d) — over the three decades from 1 ms
+ * to 1 s a slope wrong by 0.02 is a factor of 2 in the yield, and on the
+ * narrowest windows this sim allows it reaches a factor of 400.  Measured on
+ * the window 0.10-0.66 ms: reading the same fitted line at t = 1 s gives
+ * 8872 kt; reading it at the centre of the window gives 13.2 kt.
+ *
+ * Reading it at the centroid also makes the estimator unambiguous: a
+ * least-squares line passes through (mean log t, mean log R) by construction,
+ * so the free-slope fit read at the centroid is IDENTICALLY equal to pinning
+ * the slope at 2/(n+2) and fitting only the constant — which is what Taylor
+ * did.  selfTest asserts the two agree to 1e-12, so there is no choice to make.
+ */
+function taylorFit(win,S,rho0){
+  const pts=TAYLOR.filter(p=>p[0]>=win[0]-1e-9&&p[0]<=win[1]+1e-9);
+  if(pts.length<2) return null;
+  let sx=0,sy=0,sxx=0,sxy=0;
+  for(const p of pts){ const x=Math.log10(p[0]*1e-3), y=Math.log10(p[1]);
+    sx+=x; sy+=y; sxx+=x*x; sxy+=x*y; }
+  const N=pts.length, den=N*sxx-sx*sx;
+  const slope=(N*sxy-sx*sy)/den, inter=(sy-slope*sx)/N;
+  const xbar=sx/N, ybar=sy/N, th=S.alpha, interP=ybar-th*xbar;
+  const E    =rho0*Math.pow(Math.pow(10,interP)/S.xi0,S.n+2);   /* slope pinned  */
+  const Ecent=rho0*Math.pow(Math.pow(10,ybar)/S.xi0,S.n+2)
+              /Math.pow(10,2*xbar);                             /* free, at data */
+  const Eext =rho0*Math.pow(Math.pow(10,inter)/S.xi0,S.n+2);    /* extrapolated  */
+  let ss=0; for(const p of pts){
+    const r=Math.log10(p[1])-(slope*Math.log10(p[0]*1e-3)+inter); ss+=r*r; }
+  /* an honest error bar: what each point in the window implies on its own */
+  const Ei=pts.map(p=>taylorPointE(p,S,rho0));
+  return {pts,N,slope,inter,interP,theory:th,E,Ecent,Eext,
+          Elo:Math.min.apply(null,Ei),Ehi:Math.max.apply(null,Ei),
+          rms:Math.sqrt(ss/N),xbar,ybar};
+}
+/* the yield each single point would imply on its own — this is what makes the
+   self-similar window visible, because outside it the answer drifts */
+const taylorPointE=(p,S,rho0)=>blastE(p[0]*1e-3,p[1],rho0,S);
+
+/* ================================================================== *
+ *  RAYLEIGH-TAYLOR                                                    *
+ *  Atzeni & Meyer-ter-Vehn Ch. 8: eqs. 8.1/8.36 (growth rate),        *
+ *  8.2 (Atwood), 8.35 (with surface tension), 8.160/8.161 and         *
+ *  Table 8.2 (buoyancy-drag and its asymptotes), 8.164 (saturation),  *
+ *  8.165 (third-order shape, Jacobs & Catton 1988).                   *
+ * ================================================================== */
+const atwood=(r2,r1)=>(r2-r1)/(r2+r1);
+/* eq. 8.35 — real part only; imaginary sigma is a stable gravity wave */
+function sigmaRT(lam,At,a,surf,rsum){
+  const kk=TAU/lam, arg=At*a*kk-(surf?kk*kk*kk*surf/rsum:0);
+  return arg>0?Math.sqrt(arg):0;
+}
+const sigmaClassical=(lam,At,a)=>Math.sqrt(Math.max(0,At*a*TAU/lam));
+/* eq. 8.164 */
+const zetaSat=(lam,At)=>(lam/(TAU*Math.sqrt(3)))*Math.sqrt(2/(At+1));
+/* Table 8.2 — asymptotic bubble and spike speeds (Cdrag = 6 pi) */
+const CDRAG=6*Math.PI;
+const ubAsym=(lam,At,a)=>Math.sqrt((2*At/(1+At))*a*lam/CDRAG);
+const usAsym=(lam,At,a)=>At>=1?Infinity:Math.sqrt((2*At/(1-At))*a*lam/CDRAG);
+/* eq. 8.160 / 8.163 — integrate rather than assert the asymptote.
+   (2 r2 + r1) du/dt = (r2 - r1) a - Cd r2 u^2 / lam        (bubble)
+   (2 r1 + r2) du/dt = (r2 - r1) a - Cd r1 u^2 / lam        (spike, u>0 downward) */
+function buoyancyDrag(lam,At,a,tmax,N,which){
+  N=N||600;
+  const r2=1+At, r1=1-At;                     /* any normalisation: only ratios enter */
+  const inert=which==='spike'?(2*r1+r2):(2*r2+r1);
+  const drag =which==='spike'?r1:r2;
+  const dt=tmax/N; let u=0,h=0; const out=[[0,0,0]];
+  for(let i=0;i<N;i++){
+    const f=uu=>((r2-r1)*a-CDRAG*drag*uu*uu/lam)/inert;
+    const k1=f(u), k2=f(u+dt/2*k1), k3=f(u+dt/2*k2), k4=f(u+dt*k3);
+    const du=dt/6*(k1+2*k2+2*k3+k4);
+    h+=dt*(u+du/2); u+=du;
+    out.push([(i+1)*dt,h,u]);
+  }
+  return out;
+}
+/* eq. 8.165 — third order in k*zeta, At = 1.  This is what makes bubbles
+   blunt and spikes sharp; to second order the rising vertex sits at
+   zeta1 - k zeta1^2/2 and the falling one at zeta1 + k zeta1^2/2. */
+function rtInterface(x,lam,z1){
+  const kk=TAU/lam, q=kk*z1;
+  return z1*((1-0.25*q*q)*Math.cos(kk*x)-0.5*q*Math.cos(2*kk*x)+0.375*q*q*Math.cos(3*kk*x));
+}
+/* NON-LINEAR MORPHOLOGY.  Eq. 8.165 is a third-order result: it is the shape
+   in and just past the linear stage, and it is used there unchanged.  It must
+   NOT simply be scaled up.  Stretching a sinusoid-like profile to ten times
+   its own amplitude keeps its horizontal structure and multiplies its vertical
+   curvature, so the blunt bubble crest that the third-order term exists to
+   produce is turned into a spire — a picture of nothing.  A bubble is blunt
+   precisely because its cap keeps a curvature set by the WAVELENGTH while the
+   sides grow.
+   Past saturation the profile is therefore built from the two things the model
+   does supply: the tip positions (eq. 8.160, integrated, not asserted) and the
+   bubble-cap curvature scale 3/k = 3λ/2π, which is the length appearing in the
+   Layzer–Kull bubble equation 8.158.  With v the fraction of the way from the
+   crest to the tip,
+       z = h_b − (h_b + h_s) [ a v² + (1−a) v⁶ ],   a = πλ / 12(h_b + h_s)
+   which passes through both tips exactly and has crest curvature 2π/3λ, i.e.
+   cap radius 3λ/2π, at ANY amplitude: as the excursion grows a shrinks, the
+   cap stays the same size and the sides lengthen.  The profile BETWEEN the
+   tips is drawn, and says so on the canvas. */
+const RT_CAP=3/TAU;                                /* R_cap / lambda */
+function rtNonlinearShape(x,lam,hb,hs){
+  const t=((x%lam)+lam)%lam, d=Math.min(t,lam-t), v=d/(lam/2);
+  /* a is clamped only to keep the profile monotone; the cap radius is exact
+     everywhere between the clamps, which is 0.002 <= a <= 1.5, i.e. up to an
+     excursion of ~130 lambda — far beyond the point where a cap of 0.48 lambda
+     is still a visible feature */
+  const a=clamp(Math.PI*lam/(12*Math.max(hb+hs,1e-12)),0.002,1.5);
+  return hb-(hb+hs)*(a*v*v+(1-a)*Math.pow(v,6));
+}
+/* linear stage with zero initial velocity is cosh, not exp */
+const zetaLin=(z0,sig,t)=>z0*Math.cosh(sig*t);
+/* turbulent bubble penetration, h_b = alpha At a t^2, alpha = 0.04-0.07 */
+const hTurb=(al,At,a,t)=>al*At*a*t*t;
+
+/* ================================================================== *
+ *  PLOTTING PRIMITIVES                                                *
+ * ================================================================== */
+function niceTicks(lo,hi,n){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(1,n), mag=Math.pow(10,Math.floor(Math.log10(raw))), norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag, out=[];
+  for(let v=Math.ceil(lo/step-1e-9)*step; v<=hi+step*1e-9; v+=step)
+    out.push(Math.abs(v)<step*1e-9?0:v);
+  return out;
+}
+function logTicks(lo,hi){
+  const out=[];
+  for(let d=Math.floor(Math.log10(lo))-1; d<=Math.ceil(Math.log10(hi))+1; d++)
+    for(let m=1;m<10;m++){ const v=m*Math.pow(10,d);
+      if(v>=lo*(1-1e-12)&&v<=hi*(1+1e-12)) out.push({v,major:m===1}); }
+  return out;
+}
+function fmtTick(v,log){
+  if(v===0) return '0';
+  const a=Math.abs(v);
+  if(log||a>=1e4||a<1e-3){
+    const e=Math.floor(Math.log10(a)), m=v/Math.pow(10,e);
+    return (Math.abs(m-1)<1e-9?'10':(Math.abs(m-Math.round(m))<1e-9?Math.round(m):m.toFixed(1))+'·10')
+           +sup(e);
+  }
+  if(a>=100) return v.toFixed(0);
+  if(a>=10)  return v.toFixed(a%1?1:0);
+  if(a>=1)   return v.toFixed(a%1?2:0);
+  return v.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
+}
+const SUPS={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴',
+            '5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+const sup=n=>(''+n).split('').map(c=>SUPS[c]||c).join('');
+
+function makeAxes(rect,dom,opt){
+  opt=opt||{};
+  const lx=!!opt.logx, ly=!!opt.logy;
+  const fx=v=>lx?Math.log10(v):v, fy=v=>ly?Math.log10(v):v;
+  const x0=fx(dom.x0),x1=fx(dom.x1),y0=fy(dom.y0),y1=fy(dom.y1);
+  if(!(isFinite(x0)&&isFinite(x1)&&isFinite(y0)&&isFinite(y1)&&x1!==x0&&y1!==y0))
+    throw new Error('makeAxes: degenerate domain');
+  return {rect,dom,logx:lx,logy:ly,
+    X:v=>rect.x+(fx(v)-x0)/(x1-x0)*rect.w,
+    Y:v=>rect.y+rect.h-(fy(v)-y0)/(y1-y0)*rect.h,
+    invX:px=>{const u=(px-rect.x)/rect.w*(x1-x0)+x0; return lx?Math.pow(10,u):u;},
+    invY:py=>{const u=(rect.y+rect.h-py)/rect.h*(y1-y0)+y0; return ly?Math.pow(10,u):u;},
+    inside:(vx,vy)=>vx>=Math.min(dom.x0,dom.x1)&&vx<=Math.max(dom.x0,dom.x1)
+                  &&vy>=Math.min(dom.y0,dom.y1)&&vy<=Math.max(dom.y0,dom.y1)};
+}
+/* Every data path is clipped to the axes frame.  Curves genuinely leave the
+   box (the Fanno line runs to s = -infinity at both ends) and would otherwise
+   be drawn straight through the tick labels.  Known-bad list, steam file. */
+function clipTo(ctx,ax){
+  ctx.save(); ctx.beginPath();
+  ctx.rect(ax.rect.x,ax.rect.y,ax.rect.w,ax.rect.h); ctx.clip();
+}
+function drawFrame(ctx,ax,o){
+  o=o||{}; const r=ax.rect;
+  ctx.save();
+  if(o.fill){ ctx.fillStyle=o.fill; ctx.fillRect(r.x,r.y,r.w,r.h); }
+  ctx.strokeStyle='#232833'; ctx.lineWidth=1;
+  ctx.font='10.5px -apple-system, sans-serif'; ctx.textBaseline='middle';
+  const tx=ax.logx?logTicks(ax.dom.x0,ax.dom.x1):niceTicks(ax.dom.x0,ax.dom.x1,o.nx||6)
+                     .map(v=>({v,major:true}));
+  const ty=ax.logy?logTicks(ax.dom.y0,ax.dom.y1):niceTicks(ax.dom.y0,ax.dom.y1,o.ny||5)
+                     .map(v=>({v,major:true}));
+  for(const t of tx){ const X=ax.X(t.v); if(X<r.x-.5||X>r.x+r.w+.5) continue;
+    ctx.strokeStyle=t.major?'#20242e':'#171a22'; ctx.beginPath();
+    ctx.moveTo(X,r.y); ctx.lineTo(X,r.y+r.h); ctx.stroke();
+    if(t.major){ ctx.fillStyle='#7b8394'; ctx.textAlign='center';
+      ctx.fillText(fmtTick(t.v,ax.logx),X,r.y+r.h+12); } }
+  for(const t of ty){ const Y=ax.Y(t.v); if(Y<r.y-.5||Y>r.y+r.h+.5) continue;
+    ctx.strokeStyle=t.major?'#20242e':'#171a22'; ctx.beginPath();
+    ctx.moveTo(r.x,Y); ctx.lineTo(r.x+r.w,Y); ctx.stroke();
+    if(t.major){ ctx.fillStyle='#7b8394'; ctx.textAlign='right';
+      ctx.fillText(fmtTick(t.v,ax.logy),r.x-7,Y); } }
+  ctx.strokeStyle='#39404f'; ctx.lineWidth=1;
+  ctx.strokeRect(r.x+.5,r.y+.5,r.w-1,r.h-1);
+  ctx.fillStyle='#98a1b3'; ctx.font='11.5px -apple-system, sans-serif';
+  if(o.xlabel){ ctx.textAlign='center'; ctx.fillText(o.xlabel,r.x+r.w/2,r.y+r.h+29); }
+  if(o.ylabel){ ctx.save(); ctx.translate(r.x-38,r.y+r.h/2); ctx.rotate(-Math.PI/2);
+    ctx.textAlign='center'; ctx.fillText(o.ylabel,0,0); ctx.restore(); }
+  if(o.title){ ctx.textAlign='left'; ctx.fillStyle='#cfd4de';
+    ctx.font='600 11.5px -apple-system, sans-serif'; ctx.fillText(o.title,r.x,r.y-9); }
+  ctx.restore();
+}
+/* Adaptive sampling: split the longest SCREEN segment until every segment is
+   short.  Sampling uniformly in a parameter that is not uniform on screen is
+   on the Known-bad list — the Fanno line crosses two decades of pressure in
+   the last few percent of its Mach range. */
+function adaptiveCurve(t0,t1,evalFn,maxSeg,maxPts,n0){
+  maxSeg=maxSeg||6; maxPts=maxPts||900; n0=n0||24;
+  let pts=[]; for(let i=0;i<=n0;i++){ const t=t0+(t1-t0)*i/n0; pts.push({t,p:evalFn(t)}); }
+  const d2=(a,b)=>{ if(!a.p||!b.p) return 0;
+    const dx=a.p[0]-b.p[0], dy=a.p[1]-b.p[1]; return dx*dx+dy*dy; };
+  const lim=maxSeg*maxSeg;
+  while(pts.length<maxPts){
+    let worst=-1, wi=-1;
+    for(let i=0;i<pts.length-1;i++){ const d=d2(pts[i],pts[i+1]); if(d>worst){worst=d; wi=i;} }
+    if(worst<=lim||wi<0) break;
+    const tm=0.5*(pts[wi].t+pts[wi+1].t);
+    pts.splice(wi+1,0,{t:tm,p:evalFn(tm)});
+  }
+  return pts;
+}
+function strokeCurve(ctx,pts,style,width,dash){
+  ctx.save();
+  ctx.strokeStyle=style; ctx.lineWidth=width||1.6; ctx.lineJoin='round'; ctx.lineCap='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.beginPath(); let pen=false;
+  for(const q of pts){ const p=q.p||q;
+    if(!p||!isFinite(p[0])||!isFinite(p[1])){ pen=false; continue; }
+    if(pen) ctx.lineTo(p[0],p[1]); else { ctx.moveTo(p[0],p[1]); pen=true; } }
+  ctx.stroke(); ctx.restore();
+}
+function dot(ctx,x,y,r,fill,ring){
+  ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,TAU); ctx.fillStyle=fill; ctx.fill();
+  if(ring){ ctx.lineWidth=1.4; ctx.strokeStyle=ring; ctx.stroke(); } ctx.restore();
+}
+function label(ctx,x,y,text,col,font,align,base){
+  ctx.save(); ctx.fillStyle=col||'#cfd4de';
+  ctx.font=font||'11.5px -apple-system, sans-serif';
+  ctx.textAlign=align||'left'; ctx.textBaseline=base||'middle';
+  ctx.shadowColor='rgba(0,0,0,.85)'; ctx.shadowBlur=4;
+  ctx.fillText(text,x,y); ctx.restore();
+}
+function badge(ctx,x,y,text,col){
+  ctx.save(); ctx.font='600 10.5px -apple-system, sans-serif';
+  const w=ctx.measureText(text).width+11;
+  ctx.fillStyle='rgba(7, 11, 24,.82)'; ctx.strokeStyle=col; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.roundRect?ctx.roundRect(x,y-8.5,w,17,8):ctx.rect(x,y-8.5,w,17);
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle=col; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(text,x+5.5,y+.5); ctx.restore();
+  return w;
+}
+
+/* ================================================================== *
+ *  VIEW 1 — THE JUMP                                                  *
+ *  Fanno x Rayleigh on the h-s plane, Fig. 9.34 computed not sketched. *
+ * ================================================================== */
+function jumpGeometry(st,W,H){
+  const RIGHT=336;
+  const plot={x:74,y:56,w:Math.max(180,W-RIGHT-96),h:Math.max(140,H-56-64)};
+  /* bottom-right, NOT top-right: the readout is an HTML overlay pinned to the
+     top-right corner and is ~460 px tall on this view */
+  const cvh=Math.min(196,Math.max(120,H*0.26));
+  const cv={x:W-RIGHT+10,y:Math.max(300,H-cvh-26),w:RIGHT-30,h:cvh};
+  return {plot,cv};
+}
+function jumpCurves(st){
+  const k=st.k, Mx=st.Mx;
+  const Mlo=0.06, Mhi=Math.max(3.2,Mx+1.0);
+  const F=M=>fannoAt(M,Mx,k), R=M=>rayleighAt(M,Mx,k);
+  const sF=fannoSonic(Mx,k), sR=rayleighSonic(Mx,k);
+  const y=shock(Mx,k);
+  const yF=fannoAt(y.My,Mx,k);
+  return {Mlo,Mhi,F,R,sF,sR,y,yF,x:F(Mx),xR:R(Mx)};
+}
+/* The frame is set by the four states the picture is ABOUT — x, y and the two
+   sonic points — not by the sweep.  Both lines run to s = −∞ at both ends, so
+   letting the sweep set the domain squashes everything interesting into a
+   tenth of the frame (measured: 1.3 of 7.0 axis units at the default Mx). The
+   tails are clipped instead, which is what the clip is for. */
+function jumpDomain(C){
+  let smin=Infinity,smax=-Infinity,hmax=1.06;
+  for(const q of [C.x,C.yF,C.sF,C.sR]){
+    smin=Math.min(smin,q.dsR); smax=Math.max(smax,q.dsR); hmax=Math.max(hmax,q.hh0); }
+  const w=Math.max(smax-smin,0.35);
+  return {x0:smin-1.55*w,x1:smax+0.50*w,y0:0,
+          y1:Math.max(1.10,Math.min(hmax*1.07,1.75))};
+}
+function drawJump(ctx,W,H,st){
+  const G=jumpGeometry(st,W,H), C=jumpCurves(st), k=st.k;
+  const ax=makeAxes(G.plot,jumpDomain(C));
+  drawFrame(ctx,ax,{xlabel:'(s − sₓ) / R',ylabel:'h / h₀',
+                    title:'Fanno × Rayleigh — the two roots of eqs. 9.46–9.48',
+                    fill:'rgba(255,255,255,.012)',nx:6,ny:6});
+  clipTo(ctx,ax);
+  /* constant stagnation enthalpy — unchanged across the shock (eq. 9.47b) */
+  ctx.save(); ctx.strokeStyle=rgba('#6f7789',.55); ctx.lineWidth=1; ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(ax.rect.x,ax.Y(1)); ctx.lineTo(ax.rect.x+ax.rect.w,ax.Y(1));
+  ctx.stroke(); ctx.restore();
+
+  const proj=g=>M=>{ const q=g(M); return isFinite(q.dsR)?[ax.X(q.dsR),ax.Y(q.hh0)]:null; };
+  if(st.showRayleigh)
+    strokeCurve(ctx,adaptiveCurve(C.Mlo,C.Mhi,proj(C.R)),rgba('#cd35c4',.95),1.9);
+  if(st.showFanno)
+    strokeCurve(ctx,adaptiveCurve(C.Mlo,C.Mhi,proj(C.F)),rgba('#b8ec4c',.95),1.9);
+
+  /* the two velocity heads, drawn as the gaps below h0 */
+  if(st.showHeads){
+    ctx.save(); ctx.strokeStyle=rgba('#8b93a6',.75); ctx.lineWidth=1;
+    /* label x's head on the LEFT and y's on the RIGHT so neither sits on the
+       chord that joins them */
+    for(const [q,lab,side] of [[C.x,'Vₓ²/2',-1],[C.yF,'Vᵧ²/2',1]]){
+      const X=ax.X(q.dsR); ctx.beginPath(); ctx.moveTo(X,ax.Y(1)); ctx.lineTo(X,ax.Y(q.hh0));
+      ctx.stroke();
+      label(ctx,X+side*7,(ax.Y(1)+ax.Y(q.hh0))/2,lab,'#8b93a6',
+            'italic 11px Georgia, serif',side<0?'right':'left'); }
+    ctx.restore();
+  }
+  /* sonic points: the maximum-entropy point of each line is M = 1 */
+  dot(ctx,ax.X(C.sR.dsR),ax.Y(C.sR.hh0),3.6,'#070b18','#cd35c4');
+  dot(ctx,ax.X(C.sF.dsR),ax.Y(C.sF.hh0),3.6,'#070b18','#b8ec4c');
+  label(ctx,ax.X(C.sR.dsR)+7,ax.Y(C.sR.hh0),'a','#cd35c4','italic 13px Georgia, serif');
+  label(ctx,ax.X(C.sF.dsR)+7,ax.Y(C.sF.hh0),'b','#b8ec4c','italic 13px Georgia, serif');
+  /* the two intersections */
+  const px=[ax.X(C.x.dsR),ax.Y(C.x.hh0)], py=[ax.X(C.yF.dsR),ax.Y(C.yF.hh0)];
+  ctx.save(); ctx.strokeStyle=rgba('#ff5a4a',.9); ctx.lineWidth=2.2; ctx.setLineDash([2,3]);
+  ctx.beginPath(); ctx.moveTo(px[0],px[1]); ctx.lineTo(py[0],py[1]); ctx.stroke(); ctx.restore();
+  dot(ctx,px[0],px[1],5,'#5ac8e0','#070b18');
+  dot(ctx,py[0],py[1],5,'#e8a33a','#070b18');
+  ctx.restore();                                   /* end clip */
+
+  label(ctx,px[0]-9,px[1]+2,'x','#5ac8e0','italic 15px Georgia, serif','right');
+  label(ctx,py[0]+9,py[1]-1,'y','#e8a33a','italic 15px Georgia, serif','left');
+  const mid=[(px[0]+py[0])/2,(px[1]+py[1])/2];
+  label(ctx,mid[0]+8,mid[1]+12,'the shock','#ff5a4a','italic 12px Georgia, serif');
+  /* branch key */
+  let bx=ax.rect.x+9, by=ax.rect.y+14;
+  label(ctx,bx,by,'M < 1 on the upper branches','#8b93a6','10.5px -apple-system, sans-serif');
+  label(ctx,bx,by+15,'M > 1 on the lower branches','#8b93a6','10.5px -apple-system, sans-serif');
+  label(ctx,bx,by+30,'maximum s on each line is exactly M = 1','#6f7789',
+        'italic 10.5px Georgia, serif');
+
+  drawControlVolume(ctx,G.cv,st,C);
+}
+/* Fig. 9.33 — the control volume, with the arrows to scale in V */
+function drawControlVolume(ctx,r,st,C){
+  const k=st.k, y=C.y;
+  ctx.save();
+  ctx.fillStyle='rgba(255,255,255,.02)'; ctx.strokeStyle='#232833'; ctx.lineWidth=1;
+  ctx.fillRect(r.x,r.y,r.w,r.h); ctx.strokeRect(r.x+.5,r.y+.5,r.w-1,r.h-1);
+  const hw=Math.min(34,Math.max(18,r.h*0.19));
+  const cy=r.y+r.h*0.44, xs=r.x+r.w*0.52;
+  /* duct walls */
+  ctx.strokeStyle='#39404f'; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(r.x+14,cy-hw); ctx.lineTo(r.x+r.w-14,cy-hw);
+  ctx.moveTo(r.x+14,cy+hw); ctx.lineTo(r.x+r.w-14,cy+hw); ctx.stroke();
+  /* the shock itself */
+  ctx.save(); ctx.strokeStyle='#ff5a4a'; ctx.lineWidth=2.4;
+  ctx.shadowColor=rgba('#ff5a4a',.7); ctx.shadowBlur=9;
+  ctx.beginPath(); ctx.moveTo(xs,cy-hw); ctx.lineTo(xs,cy+hw); ctx.stroke(); ctx.restore();
+  /* velocity arrows: length proportional to V, i.e. to 1/rho */
+  const Vscale=Math.min(r.w*0.3,54);
+  const arrow=(x0,dir,len,col,lab,sub)=>{
+    ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(x0,cy); ctx.lineTo(x0+dir*len,cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x0+dir*len,cy);
+    ctx.lineTo(x0+dir*(len-8),cy-4.5); ctx.lineTo(x0+dir*(len-8),cy+4.5); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    label(ctx,x0+dir*len/2,cy-13,lab,col,'italic 12.5px Georgia, serif','center');
+    label(ctx,x0+dir*len/2,cy+15,sub,'#8b93a6','10.5px -apple-system, sans-serif','center');
+  };
+  /* y.V IS Vy/Vx (= 1/(rho_y/rho_x)), so the downstream arrow is Vscale TIMES
+     it.  Dividing drew the slower stream as the longer arrow — at Mx = 2 that
+     is 144 px of "slowed down" against 54 px of "supersonic". */
+  arrow(r.x+22,1,Vscale,'#5ac8e0','Vₓ','M = '+st.Mx.toFixed(2));
+  arrow(xs+12,1,Math.max(10,Vscale*y.V),'#e8a33a','Vᵧ','M = '+y.My.toFixed(3));
+  /* density shading either side */
+  ctx.save(); ctx.globalAlpha=.5;
+  ctx.fillStyle=rgba('#5ac8e0',.10); ctx.fillRect(r.x+14,cy-hw,xs-r.x-14,2*hw);
+  ctx.fillStyle=rgba('#e8a33a',clamp(.05*y.rho,.05,.30));
+  ctx.fillRect(xs,cy-hw,r.x+r.w-14-xs,2*hw);
+  ctx.restore();
+  label(ctx,r.x+12,r.y+14,'control volume enclosing the shock','#8b93a6',
+        '600 10.5px -apple-system, sans-serif');
+  label(ctx,r.x+12,r.y+r.h-40,'ρᵧ/ρₓ = '+y.rho.toFixed(3)
+        +'   pᵧ/pₓ = '+y.p.toFixed(3),'#cfd4de','11px "SF Mono", Menlo, monospace');
+  label(ctx,r.x+12,r.y+r.h-24,'Tᵧ/Tₓ = '+y.T.toFixed(3)
+        +'   p₀ᵧ/p₀ₓ = '+y.p0.toFixed(4),'#cfd4de','11px "SF Mono", Menlo, monospace');
+  label(ctx,r.x+12,r.y+r.h-8,'thickness ≈ 10⁻⁵ cm — drawn thick',
+        '#6f7789','italic 10.5px Georgia, serif');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  VIEW 2 — THE NOZZLE                                                *
+ * ================================================================== */
+function nozzleGeometry(st,W,H){
+  const RIGHT=336, L=74, Rr=Math.max(200,W-RIGHT-96);
+  const duct={x:L,y:52,w:Rr,h:Math.max(90,(H-130)*0.40)};
+  const plot={x:L,y:duct.y+duct.h+42,w:Rr,h:Math.max(110,(H-130)-duct.h-52)};
+  return {duct,plot,RIGHT};
+}
+/* The band colour is PRE-MIXED against the page background rather than drawn
+   at globalAlpha < 1.  The bands are widened by SEAM so that abutting quads do
+   not leave a sub-pixel gap that antialiases into a visible vertical stripe —
+   but with alpha < 1 the overlap composites twice and paints a stripe of its
+   own, brighter instead of darker.  Opaque colour makes the overlap invisible.
+   selfTest asserts the BRIGHTNESS of each band, not that the colour string is
+   well formed: rgb(0,0,0) is well formed. (Known-bad list, steam file.) */
+function nozzleBandColour(q){
+  const base=q.post ? mix('#e8a33a','#8a3a2a',clamp(1-q.M/0.9,0,1))
+        : (q.M<1 ? mix('#1b3550','#5ac8e0',clamp(q.M,0,1))
+                 : mix('#5ac8e0','#0e2a3a',clamp((q.M-1)/2,0,1)));
+  return mix('#070b18',base,0.72);
+}
+function drawNozzle(ctx,W,H,st){
+  const G=nozzleGeometry(st,W,H), sol=nozzleSolve(st), prof=nozzleProfile(st,sol,260);
+  /* ---- the duct ---- */
+  const d=G.duct, cy=d.y+d.h/2;
+  const rmax=Math.sqrt(Math.max(st.Ai,st.Ae));
+  const half=u=>d.h/2*0.92*Math.sqrt(nozzleArea(u,st))/rmax;
+  const XU=u=>d.x+u*d.w;
+  ctx.save();
+  /* Fill, coloured by Mach number.  Each quad is widened by SEAM past its right
+     edge: abutting quads leave a sub-pixel gap that antialiases to a visible
+     vertical stripe across the whole duct, and 260 of them read as corduroy
+     rather than as a smooth field.  The overlap is hidden by the next quad
+     except at the shock, where the next quad is a different colour anyway. */
+  const SEAM=0.7;
+  for(let i=0;i<prof.length-1;i++){
+    const a=prof[i],b=prof[i+1];
+    ctx.fillStyle=nozzleBandColour(a);
+    const x0=XU(a.u), x1=XU(b.u)+(a.post===b.post?SEAM:0);
+    ctx.beginPath();
+    ctx.moveTo(x0,cy-half(a.u)); ctx.lineTo(x1,cy-half(b.u));
+    ctx.lineTo(x1,cy+half(b.u)); ctx.lineTo(x0,cy+half(a.u)); ctx.closePath(); ctx.fill();
+  }
+  ctx.strokeStyle='#5b6577'; ctx.lineWidth=1.6;
+  ctx.beginPath();
+  for(let i=0;i<prof.length;i++){ const u=prof[i].u, X=XU(u), Yy=cy-half(u);
+    i?ctx.lineTo(X,Yy):ctx.moveTo(X,Yy); }
+  ctx.stroke();
+  ctx.beginPath();
+  for(let i=0;i<prof.length;i++){ const u=prof[i].u, X=XU(u), Yy=cy+half(u);
+    i?ctx.lineTo(X,Yy):ctx.moveTo(X,Yy); }
+  ctx.stroke();
+  /* throat marker */
+  ctx.strokeStyle=rgba('#8b93a6',.5); ctx.lineWidth=1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(XU(st.xt),cy-half(st.xt)-8); ctx.lineTo(XU(st.xt),cy+half(st.xt)+8);
+  ctx.stroke(); ctx.setLineDash([]);
+  label(ctx,XU(st.xt),cy+half(st.xt)+19,'throat','#8b93a6','10.5px -apple-system, sans-serif','center');
+  /* the shock */
+  if(sol.shockU!=null){
+    const X=XU(sol.shockU);
+    ctx.save(); ctx.strokeStyle='#ff5a4a'; ctx.lineWidth=2.6;
+    ctx.shadowColor=rgba('#ff5a4a',.8); ctx.shadowBlur=11;
+    ctx.beginPath(); ctx.moveTo(X,cy-half(sol.shockU)); ctx.lineTo(X,cy+half(sol.shockU));
+    ctx.stroke(); ctx.restore();
+    badge(ctx,X+7,d.y+13,'Mₓ = '+sol.Mx.toFixed(3)+' → '+sol.My.toFixed(3),'#ff5a4a');
+  } else if(sol.regime==='shockExit'){
+    const X=XU(1);
+    ctx.save(); ctx.strokeStyle='#ff5a4a'; ctx.lineWidth=2.6; ctx.beginPath();
+    ctx.moveTo(X,cy-half(1)); ctx.lineTo(X,cy+half(1)); ctx.stroke(); ctx.restore();
+  }
+  /* plume outside the exit for the over/under-expanded cases */
+  if(sol.regime==='over'||sol.regime==='under'){
+    const X=XU(1), hh=half(1), over=sol.regime==='over';
+    ctx.save(); ctx.strokeStyle=over?rgba('#ff5a4a',.55):rgba('#5ac8e0',.55); ctx.lineWidth=1.4;
+    for(let i=1;i<=3;i++){ const dx=i*13;
+      ctx.beginPath();
+      ctx.moveTo(X,cy-hh); ctx.lineTo(X+dx,cy-hh*(over?1-0.16*i:1+0.16*i));
+      ctx.moveTo(X,cy+hh); ctx.lineTo(X+dx,cy+hh*(over?1-0.16*i:1+0.16*i));
+      ctx.stroke(); }
+    ctx.restore();
+    label(ctx,X+8,cy-hh-16,over?'oblique shocks':'expansion fans',
+          over?'#ff5a4a':'#5ac8e0','italic 11px Georgia, serif');
+  }
+  ctx.restore();
+  label(ctx,d.x,d.y-10,'nozzle — cool shading is |M − 1|, brightest at the sonic point; '
+        +'warm is after the shock',
+        '#cfd4de','600 11.5px -apple-system, sans-serif');
+
+  /* ---- the pressure plot ---- */
+  const ax=makeAxes(G.plot,{x0:0,x1:1,y0:0,y1:1.02});
+  drawFrame(ctx,ax,{xlabel:'position along the nozzle',ylabel:'p / p₀',
+                    title:'pressure distribution — the whole family of Fig. 9.32',
+                    fill:'rgba(255,255,255,.012)',nx:5,ny:5});
+  clipTo(ctx,ax);
+  /* the faint family: one curve per back pressure */
+  if(st.showFamily){
+    for(let i=1;i<=13;i++){
+      const s2=nozzleSolve(Object.assign({},st,{pbr:i/14}));
+      const pr=nozzleProfile(st,s2,120);
+      strokeCurve(ctx,pr.map(q=>[ax.X(q.u),ax.Y(q.pr)]),rgba('#6c778c',.62),1);
+    }
+  }
+  /* the critical back pressures — labelled on the right, where the active
+     curve has already left the frame, rather than on top of it */
+  for(const [p,col,lab] of [[sol.p1,'#8b93a6','p₁ choked'],
+                            [sol.p2,'#ff5a4a','p₂ shock at exit'],
+                            [sol.p3,'#5ac8e0','p₃ design']]){
+    ctx.save(); ctx.strokeStyle=rgba(col,.5); ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(ax.rect.x,ax.Y(p)); ctx.lineTo(ax.rect.x+ax.rect.w,ax.Y(p));
+    ctx.stroke(); ctx.restore();
+    label(ctx,ax.rect.x+ax.rect.w-5,ax.Y(p)-8,lab,col,'10px -apple-system, sans-serif','right');
+  }
+  /* the active curve, split at the shock so the discontinuity is visible */
+  const pre=prof.filter(q=>!q.post), post=prof.filter(q=>q.post);
+  strokeCurve(ctx,pre.map(q=>[ax.X(q.u),ax.Y(q.pr)]),'#b8ec4c',2.3);
+  if(post.length) strokeCurve(ctx,post.map(q=>[ax.X(q.u),ax.Y(q.pr)]),'#e8a33a',2.3);
+  if(sol.shockU!=null&&pre.length&&post.length){
+    const X=ax.X(sol.shockU), a=pre[pre.length-1], b=post[0];
+    ctx.save(); ctx.strokeStyle='#ff5a4a'; ctx.lineWidth=2.6;
+    ctx.beginPath(); ctx.moveTo(X,ax.Y(a.pr)); ctx.lineTo(X,ax.Y(b.pr)); ctx.stroke(); ctx.restore();
+  }
+  /* back pressure */
+  ctx.save(); ctx.strokeStyle='#cd35c4'; ctx.lineWidth=1.6; ctx.setLineDash([6,4]);
+  ctx.beginPath(); ctx.moveTo(ax.rect.x,ax.Y(st.pbr)); ctx.lineTo(ax.rect.x+ax.rect.w,ax.Y(st.pbr));
+  ctx.stroke(); ctx.restore();
+  ctx.restore();                                   /* end clip */
+  /* on the LEFT: the right-hand edge is where the active curve ends */
+  label(ctx,ax.rect.x+5,ax.Y(st.pbr)-9,'back pressure','#cd35c4',
+        'italic 11.5px Georgia, serif');
+}
+
+/* ================================================================== *
+ *  VIEW 3 — THE BLAST                                                 *
+ * ================================================================== */
+function blastGeometry(st,W,H){
+  const RIGHT=336, L=76, Lw=Math.max(220,W-RIGHT-100);
+  const main={x:L,y:56,w:Lw,h:Math.max(120,(H-138)*0.60)};
+  const strip={x:L,y:main.y+main.h+50,w:Lw,h:Math.max(80,(H-138)-main.h-56)};
+  /* bottom-right: the readout overlay owns the top-right corner */
+  const ph=Math.min(206,Math.max(130,H*0.25));
+  const prof={x:W-RIGHT+22,y:Math.max(300,H-ph-46),w:RIGHT-46,h:ph};
+  return {main,strip,prof};
+}
+function drawBlast(ctx,W,H,st){
+  const G=blastGeometry(st,W,H);
+  const S=sedov(st.gamB,st.ndim), rho0=st.rho0;
+  const fit=taylorFit([st.winLo,st.winHi],S,rho0);
+
+  /* ---- main: log R against log t ---- */
+  const ax=makeAxes(G.main,{x0:0.05,x1:120,y0:7,y1:300},{logx:true,logy:true});
+  drawFrame(ctx,ax,{xlabel:'t  (ms)',ylabel:'R  (m)',
+    title:'Taylor 1945 — shock radius against time, both logarithmic',
+    fill:'rgba(255,255,255,.012)'});
+  clipTo(ctx,ax);
+  /* the fit window */
+  if(fit){
+    ctx.save(); ctx.fillStyle=rgba('#b8ec4c',.055);
+    ctx.fillRect(ax.X(st.winLo),ax.rect.y,ax.X(st.winHi)-ax.X(st.winLo),ax.rect.h);
+    ctx.strokeStyle=rgba('#b8ec4c',.35); ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    for(const v of [st.winLo,st.winHi]){ ctx.beginPath();
+      ctx.moveTo(ax.X(v),ax.rect.y); ctx.lineTo(ax.X(v),ax.rect.y+ax.rect.h); ctx.stroke(); }
+    ctx.restore();
+  }
+  /* the theoretical slope through the fitted intercept — a straight line on
+     these axes if and only if the flow is self-similar */
+  if(fit){
+    const line=(inter,slope,col,w,dash)=>{
+      const pts=[];
+      for(let i=0;i<=60;i++){ const lt=Math.log10(0.05)+ (Math.log10(120)-Math.log10(0.05))*i/60;
+        const tt=Math.pow(10,lt), R=Math.pow(10,inter+slope*Math.log10(tt*1e-3));
+        pts.push([ax.X(tt),ax.Y(R)]); }
+      strokeCurve(ctx,pts,col,w,dash);
+    };
+    line(fit.interP,fit.theory,rgba('#5ac8e0',.85),1.6,[6,4]);
+    line(fit.inter,fit.slope,'#b8ec4c',2.1);
+  }
+  /* the data */
+  for(const p of TAYLOR){
+    const inWin=p[0]>=st.winLo-1e-9&&p[0]<=st.winHi+1e-9;
+    dot(ctx,ax.X(p[0]),ax.Y(p[1]),inWin?4:3,inWin?'#e8a33a':'rgba(139,147,166,.55)','#070b18');
+  }
+  ctx.restore();                                   /* end clip */
+  if(fit){
+    const bw=228, bx0=ax.rect.x+ax.rect.w-bw-8, by0=ax.rect.y+ax.rect.h-62;
+    ctx.save();
+    ctx.fillStyle='rgba(7, 11, 24,.80)'; ctx.strokeStyle='#2a2f3d'; ctx.lineWidth=1;
+    ctx.beginPath();
+    if(ctx.roundRect) ctx.roundRect(bx0,by0,bw,54,7); else ctx.rect(bx0,by0,bw,54);
+    ctx.fill(); ctx.stroke(); ctx.restore();
+    label(ctx,bx0+bw-9,by0+15,'fitted slope  '+fit.slope.toFixed(4),
+      '#b8ec4c','11.5px "SF Mono", Menlo, monospace','right');
+    label(ctx,bx0+bw-9,by0+30,'theory  2/(n+2) = '+S.alpha.toFixed(4),
+      '#5ac8e0','11.5px "SF Mono", Menlo, monospace','right');
+    label(ctx,bx0+bw-9,by0+44,fit.N+' pts, rms '+(fit.rms*100).toFixed(2)+'% in log R',
+      '#8b93a6','10.5px -apple-system, sans-serif','right');
+  }
+  if(st.showMatrix) drawDimMatrix(ctx,ax.rect.x+10,ax.rect.y+10,st,S);
+
+  /* ---- strip: the yield each point implies on its own ---- */
+  const Es=TAYLOR.map(p=>taylorPointE(p,S,rho0)/KT_J);
+  const eMax=Math.max.apply(null,Es), eLo=0, eHi=Math.max(28,eMax*1.12);
+  const bx=makeAxes(G.strip,{x0:0.05,x1:120,y0:eLo,y1:eHi},{logx:true});
+  drawFrame(ctx,bx,{xlabel:'t  (ms)',ylabel:'E  (kt)',
+    title:'the yield each single point would imply — flat exactly where the flow is self-similar',
+    fill:'rgba(255,255,255,.012)',ny:4});
+  clipTo(ctx,bx);
+  if(fit){
+    ctx.save(); ctx.fillStyle=rgba('#b8ec4c',.055);
+    ctx.fillRect(bx.X(st.winLo),bx.rect.y,bx.X(st.winHi)-bx.X(st.winLo),bx.rect.h); ctx.restore();
+    ctx.save(); ctx.strokeStyle='#b8ec4c'; ctx.lineWidth=1.6; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.moveTo(bx.rect.x,bx.Y(fit.E/KT_J));
+    ctx.lineTo(bx.rect.x+bx.rect.w,bx.Y(fit.E/KT_J)); ctx.stroke(); ctx.restore();
+  }
+  strokeCurve(ctx,TAYLOR.map((p,i)=>[bx.X(p[0]),bx.Y(Es[i])]),rgba('#e8a33a',.55),1.3);
+  TAYLOR.forEach((p,i)=>{
+    const inWin=p[0]>=st.winLo-1e-9&&p[0]<=st.winHi+1e-9;
+    dot(ctx,bx.X(p[0]),bx.Y(Es[i]),inWin?3.6:2.6,inWin?'#e8a33a':'rgba(139,147,166,.5)','#070b18'); });
+  ctx.restore();
+  label(ctx,bx.rect.x+7,bx.rect.y+bx.rect.h-11,
+    'left: not yet a point explosion.   right: the shock has weakened and the ambient '
+    +'pressure is no longer negligible.','#6f7789','italic 10.5px Georgia, serif');
+
+  /* ---- the Sedov interior ---- */
+  if(st.showSedov) drawSedovProfiles(ctx,G.prof,S);
+}
+/* The Pi-theorem, turned live: matrix in, exponents out. */
+function drawDimMatrix(ctx,x,y,st,S){
+  const D=dimMatrix(st.ndim,st.kappa), e=blastExponents(st.ndim,st.kappa);
+  const w=232,hh=112;
+  ctx.save();
+  ctx.fillStyle='rgba(7, 11, 24,.80)'; ctx.strokeStyle='#2a2f3d'; ctx.lineWidth=1;
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x,y,w,hh,7); else ctx.rect(x,y,w,hh);
+  ctx.fill(); ctx.stroke();
+  label(ctx,x+10,y+14,'dimensional matrix','#98a1b3','600 10.5px -apple-system, sans-serif');
+  const cx=[x+64,x+108,x+152], cy0=y+32;
+  ctx.font='11px "SF Mono", Menlo, monospace';
+  D.cols.forEach((c,j)=>label(ctx,cx[j],cy0,c,'#8b93a6','italic 11.5px Georgia, serif','center'));
+  D.rows.forEach((r,i)=>{
+    label(ctx,x+34,cy0+16+i*15,r,'#8b93a6','italic 11.5px Georgia, serif','right');
+    D.M[i].forEach((v,j)=>label(ctx,cx[j],cy0+16+i*15,
+      (Math.round(v*100)/100).toString(),'#cfd4de','11px "SF Mono", Menlo, monospace','center'));
+    label(ctx,x+w-14,cy0+16+i*15,'= '+D.rhs[i],'#6f7789',
+          '11px "SF Mono", Menlo, monospace','right');
+  });
+  const ex=v=>{ const q=Math.round(v*1000)/1000;
+    const den=st.ndim+ (st.kappa||0) +2;
+    const num=Math.round(v*den);
+    return Math.abs(num/den-v)<1e-9?(num+'/'+den):q.toFixed(3); };
+  label(ctx,x+10,y+hh-14,'R ∝ t'+sup(ex(e.t))+'  E'+sup(ex(e.E))+'  ρ₀'+sup(ex(e.A)),
+        '#b8ec4c','12px "SF Mono", Menlo, monospace');
+  ctx.restore();
+}
+function drawSedovProfiles(ctx,r,S){
+  const ax=makeAxes(r,{x0:0,x1:1,y0:0,y1:1.06});
+  drawFrame(ctx,ax,{xlabel:'r / R(t)',ylabel:'/ post-shock',
+    title:'Sedov interior, γ = '+S.gam.toFixed(3)+',  ξ₀ = '+S.xi0.toFixed(6),
+    fill:'rgba(255,255,255,.012)',nx:4,ny:4});
+  clipTo(ctx,ax);
+  const P=S.prof, G1=P[0][2], P1=P[0][3], U1=P[0][1];
+  const series=[[2,G1,'#5ac8e0','ρ'],[3,P1,'#ff5a4a','p'],[1,U1,'#b8ec4c','u']];
+  for(const [idx,ref,col,nm] of series){
+    const pts=[];
+    for(let i=P.length-1;i>=0;i--){ const q=P[i];
+      pts.push([ax.X(q[0]),ax.Y(q[idx]/ref)]); }
+    strokeCurve(ctx,pts,col,1.8);
+  }
+  ctx.restore();
+  let lx=r.x+8;
+  for(const [ ,,col,nm] of series){
+    label(ctx,lx,r.y+13,nm,col,'italic 13px Georgia, serif'); lx+=19; }
+  label(ctx,r.x+r.w-6,r.y+13,'ρ→0, p→const at the centre','#6f7789',
+        'italic 10px Georgia, serif','right');
+  /* xi0 lives in the panel title: every corner of this plot has a curve in it
+     (rho climbs from 0 to 1 inside the last tenth of the radius) */
+}
+
+/* ================================================================== *
+ *  VIEW 4 — THE MUSHROOM                                              *
+ * ================================================================== */
+function rtState(st){
+  const r=st.rhoRatio, At=atwood(1,r);            /* heavy = 1, light = r */
+  const a=st.aRT, lam=st.lam, t=st.tRT;
+  const sig=sigmaRT(lam,At,a,st.surf,1+r);
+  const zsat=zetaSat(lam,At);
+  /* linear stage, zero initial velocity => cosh */
+  const zLin=zetaLin(st.z0,sig,t);
+  let tsat=Infinity;
+  if(sig>0&&zsat>st.z0) tsat=Math.acosh(zsat/st.z0)/sig;
+  const nonlinear=t>tsat;
+  let hb,hs,ub,us;
+  if(!nonlinear){ hb=hs=Math.min(zLin,zsat); ub=us=sig*hb; }
+  else{
+    const dt=t-tsat;
+    const B=buoyancyDrag(lam,At,a,dt,400,'bubble');
+    const Sp=buoyancyDrag(lam,At,a,dt,400,'spike');
+    hb=zsat+B[B.length-1][1]; ub=B[B.length-1][2];
+    hs=zsat+Sp[Sp.length-1][1]; us=Sp[Sp.length-1][2];
+  }
+  return {At,a,lam,t,sig,zsat,zLin,tsat,nonlinear,hb,hs,ub,us,
+          ubInf:ubAsym(lam,At,a),usInf:usAsym(lam,At,a),
+          hMix:hTurb(st.alphaMix,At,a,t)};
+}
+function mushGeometry(st,W,H){
+  const RIGHT=336, L=76, Lw=Math.max(240,W-RIGHT-100);
+  const box={x:L,y:52,w:Lw,h:Math.max(150,(H-132)*0.58)};
+  /* 78 px of gutter, not 34: the right plot's y-label sits 38 px left of its
+     frame and its tick labels 7 px left, so a narrow gutter puts them on top
+     of the left plot's frame */
+  const GUT=78, gw=(Lw-GUT)/2;
+  const disp={x:L,y:box.y+box.h+46,w:gw,h:Math.max(90,(H-132)-box.h-52)};
+  const amp ={x:L+gw+GUT,y:disp.y,w:gw,h:disp.h};
+  return {box,disp,amp};
+}
+/* ---- the interface, as geometry, separated from the drawing ----------------
+   EQUAL ASPECT IS NOT OPTIONAL HERE.  A bubble and a spike are distinguished
+   by their SHAPE — blunt against sharp — so a picture drawn with different x
+   and y scales is not a picture of the interface at all.  At the default
+   settings and t = 22 s the excursion is 818 m against a 120 m wavelength, so
+   fitting both to a wide box independently squashes the vertical by 7.7x and
+   turns every mushroom into a flat-topped mesa.  There is therefore ONE scale,
+   and the field of view widens as the excursion grows: at late times you are
+   standing further back, which is also when the coarsening argument wants more
+   wavelengths on screen.  selfTest measures the aspect ratio of the emitted
+   polyline against the world coordinates it came from.                       */
+const SPAN_MAX_LAM=9;      /* never show more than this many λ vertically */
+function rtBoxScale(r,st,R){
+  const want=(R.hb+R.hs)*1.18+st.lam*0.30;
+  /* Equal aspect is kept unconditionally; what gives instead is the field of
+     view.  At A_t → 1 the spike accelerates at a, so by t = 60 s it is 32 km
+     long against a 120 m wavelength — 270 wavelengths.  Showing all of it at
+     equal aspect would mean 700 wavelengths across the box, so the vertical
+     span is capped and the spikes simply run off the bottom, which is what a
+     long thin jet does.  The alternative, squashing the vertical, would draw a
+     shape that is not the interface. */
+  const span=Math.min(want,st.lam*SPAN_MAX_LAM);
+  const s=Math.min(r.w/(1.7*st.lam),r.h/span);
+  /* tile enough wavelengths to cover the box, so the fill never has to be
+     closed across empty space; the +1 guarantees the span exceeds r.w */
+  const NW=clamp(Math.ceil(r.w/(s*st.lam))+1,1,64);
+  return {s,NW,worldW:NW*st.lam,span,clipped:want>span*1.001};
+}
+function rtInterfacePoints(r,st,R){
+  const B=rtBoxScale(r,st,R);
+  const cx=r.x+r.w*0.5, cy=r.y+r.h*0.5;
+  /* centre the EXCURSION, not z = 0: spikes outrun bubbles (h_s > h_b always
+     once non-linear), so anchoring z = 0 to the middle of the box pushes the
+     spike tips off the bottom while the top third stays empty */
+  const zc=(R.hb-R.hs)/2;
+  const X=x=>cx+(x-B.worldW/2)*B.s, Y=z=>cy-(z-zc)*B.s;
+  const N=clamp(Math.round(150*B.NW),240,1600);
+  const pts=[], world=[];
+  for(let i=0;i<=N;i++){
+    const x=B.worldW*i/N;
+    const z=R.nonlinear?rtNonlinearShape(x,st.lam,R.hb,R.hs)
+                       :rtInterface(x,st.lam,Math.min(R.zLin,R.zsat));
+    world.push([x,z]); pts.push([X(x),Y(z)]);
+  }
+  return {B,pts,world,X,Y,cx,cy};
+}
+function drawMushroom(ctx,W,H,st){
+  const G=mushGeometry(st,W,H), R=rtState(st);
+  drawRTBox(ctx,G.box,st,R);
+
+  /* ---- dispersion relation ---- */
+  const lamHi=st.lam*6, lamLo=st.lam/12;
+  let sMax=0;
+  for(let i=0;i<=200;i++){ const l=lamLo*Math.pow(lamHi/lamLo,i/200);
+    sMax=Math.max(sMax,sigmaRT(l,R.At,R.a,st.surf,1+st.rhoRatio)); }
+  const dx=makeAxes(G.disp,{x0:lamLo,x1:lamHi,y0:0,y1:Math.max(sMax*1.12,1e-6)},{logx:true});
+  drawFrame(ctx,dx,{xlabel:'λ  (m)',ylabel:'σ  (s⁻¹)',
+    title:'σ = √(Aₜ a k) — short modes win',
+    fill:'rgba(255,255,255,.012)',ny:4});
+  clipTo(ctx,dx);
+  strokeCurve(ctx,adaptiveCurve(Math.log(lamLo),Math.log(lamHi),u=>{
+    const l=Math.exp(u); return [dx.X(l),dx.Y(sigmaClassical(l,R.At,R.a))]; }),
+    rgba('#8b93a6',.6),1.4,[5,4]);
+  strokeCurve(ctx,adaptiveCurve(Math.log(lamLo),Math.log(lamHi),u=>{
+    const l=Math.exp(u); return [dx.X(l),dx.Y(sigmaRT(l,R.At,R.a,st.surf,1+st.rhoRatio))]; }),
+    '#cd35c4',2);
+  ctx.save(); ctx.strokeStyle=rgba('#b8ec4c',.6); ctx.lineWidth=1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(dx.X(st.lam),dx.rect.y); ctx.lineTo(dx.X(st.lam),dx.rect.y+dx.rect.h);
+  ctx.stroke(); ctx.restore();
+  dot(ctx,dx.X(st.lam),dx.Y(R.sig),4,'#b8ec4c','#070b18');
+  ctx.restore();
+  if(st.surf>0) label(ctx,dx.rect.x+6,dx.rect.y+13,
+    'dashed: no surface tension','#8b93a6','10px -apple-system, sans-serif');
+
+  /* ---- amplitude against time ---- */
+  const tHi=Math.max(st.tRT*1.15,1e-3);
+  let yHi=Math.max(R.hb,R.hs,R.hMix,R.zsat*2);
+  const ay=makeAxes(G.amp,{x0:0,x1:tHi,y0:0,y1:yHi*1.1});
+  drawFrame(ctx,ay,{xlabel:'t  (s)',ylabel:'amplitude  (m)',
+    title:'exponential → saturation → terminal → a t²',
+    fill:'rgba(255,255,255,.012)',ny:4,nx:4});
+  clipTo(ctx,ay);
+  /* linear stage */
+  strokeCurve(ctx,adaptiveCurve(0,Math.min(tHi,isFinite(R.tsat)?R.tsat:tHi),
+    t=>[ay.X(t),ay.Y(zetaLin(st.z0,R.sig,t))]),'#5ac8e0',1.8);
+  /* the same law continued past saturation — the thing that does NOT happen */
+  strokeCurve(ctx,adaptiveCurve(isFinite(R.tsat)?Math.min(R.tsat,tHi):tHi,tHi,
+    t=>[ay.X(t),ay.Y(zetaLin(st.z0,R.sig,t))]),rgba('#5ac8e0',.32),1.2,[4,4]);
+  /* saturation level */
+  ctx.save(); ctx.strokeStyle=rgba('#8b93a6',.55); ctx.lineWidth=1; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(ay.rect.x,ay.Y(R.zsat)); ctx.lineTo(ay.rect.x+ay.rect.w,ay.Y(R.zsat));
+  ctx.stroke(); ctx.restore();
+  /* nonlinear bubble and spike, integrated */
+  if(isFinite(R.tsat)&&tHi>R.tsat){
+    const dt=tHi-R.tsat;
+    for(const [which,col] of [['bubble','#b8ec4c'],['spike','#ff5a4a']]){
+      const tr=buoyancyDrag(st.lam,R.At,R.a,dt,300,which);
+      strokeCurve(ctx,tr.map(q=>[ay.X(R.tsat+q[0]),ay.Y(R.zsat+q[1])]),col,1.9);
+    }
+  }
+  /* the turbulent law */
+  if(st.showMix)
+    strokeCurve(ctx,adaptiveCurve(0,tHi,t=>[ay.X(t),ay.Y(hTurb(st.alphaMix,R.At,R.a,t))]),
+      rgba('#cd35c4',.8),1.6,[7,4]);
+  ctx.save(); ctx.strokeStyle=rgba('#fff',.35); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(ay.X(st.tRT),ay.rect.y); ctx.lineTo(ay.X(st.tRT),ay.rect.y+ay.rect.h);
+  ctx.stroke(); ctx.restore();
+  ctx.restore();
+  label(ctx,ay.rect.x+ay.rect.w-6,ay.Y(R.zsat)-8,'ζ saturation','#8b93a6',
+        'italic 11px Georgia, serif','right');
+  /* measure rather than guess a character width — the guess ran the four
+     legend entries into one another */
+  let lgx=ay.rect.x+7;
+  ctx.save(); ctx.font='10.5px -apple-system, sans-serif';
+  for(const [nm,col] of [['linear','#5ac8e0'],['bubble','#b8ec4c'],['spike','#ff5a4a'],
+                         ['α Aₜ a t²','#cd35c4']]){
+    label(ctx,lgx,ay.rect.y+13,nm,col,'10.5px -apple-system, sans-serif');
+    lgx+=ctx.measureText(nm).width+15; }
+  ctx.restore();
+}
+/* the interface picture */
+function drawRTBox(ctx,r,st,R){
+  ctx.save();
+  ctx.fillStyle='rgba(255,255,255,.012)'; ctx.fillRect(r.x,r.y,r.w,r.h);
+  const P=rtInterfacePoints(r,st,R), NW=P.B.NW, X=P.X, Y=P.Y, pts=P.pts;
+  ctx.save(); ctx.beginPath(); ctx.rect(r.x,r.y,r.w,r.h); ctx.clip();
+  /* fill heavy above, light below */
+  ctx.beginPath(); ctx.moveTo(r.x,r.y);
+  for(const p of pts) ctx.lineTo(p[0],p[1]);
+  ctx.lineTo(r.x+r.w,r.y); ctx.closePath();
+  ctx.fillStyle=rgba('#2b4a6e',.85); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(r.x,r.y+r.h);
+  for(const p of pts) ctx.lineTo(p[0],p[1]);
+  ctx.lineTo(r.x+r.w,r.y+r.h); ctx.closePath();
+  ctx.fillStyle=rgba('#a8442c',.8); ctx.fill();
+  strokeCurve(ctx,pts,'#e8d5a8',1.6);
+  /* Kelvin-Helmholtz roll-up: DRAWN, not simulated — a spiral of the size the
+     model gives, at the spike tips, once the spike is deep enough to have one. */
+  if(st.showRoll&&R.nonlinear&&R.hs>st.lam*0.35){
+    const rad=Math.min(st.lam*0.19,R.hs*0.42)*P.B.s;
+    for(let m=0;m<NW;m++){
+      const xc=X((m+0.5)*st.lam), yc=Y(-R.hs)+rad*0.55;
+      for(const sgn of [-1,1]){
+        ctx.save(); ctx.strokeStyle='#e8d5a8'; ctx.lineWidth=1.5; ctx.globalAlpha=.9;
+        ctx.beginPath();
+        for(let i=0;i<=90;i++){ const th=i/90*2.6*Math.PI;
+          const rr=rad*(1-i/90*0.82);
+          const px=xc+sgn*(rad*0.95-rr*Math.cos(th)), py=yc-rr*Math.sin(th)*0.8;
+          i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+        ctx.stroke(); ctx.restore();
+      }
+    }
+  }
+  /* the turbulent mixing envelope */
+  if(st.showMix){
+    ctx.save(); ctx.strokeStyle=rgba('#cd35c4',.7); ctx.lineWidth=1.4; ctx.setLineDash([6,4]);
+    ctx.beginPath(); ctx.moveTo(r.x,Y(R.hMix)); ctx.lineTo(r.x+r.w,Y(R.hMix));
+    ctx.moveTo(r.x,Y(-R.hMix)); ctx.lineTo(r.x+r.w,Y(-R.hMix)); ctx.stroke(); ctx.restore();
+  }
+  ctx.restore();                                   /* end box clip */
+  ctx.strokeStyle='#39404f'; ctx.lineWidth=1; ctx.strokeRect(r.x+.5,r.y+.5,r.w-1,r.h-1);
+  /* gravity / acceleration arrow */
+  ctx.save(); ctx.strokeStyle='#8b93a6'; ctx.fillStyle='#8b93a6'; ctx.lineWidth=1.6;
+  const gx=r.x+r.w-24, gy0=r.y+18;
+  ctx.beginPath(); ctx.moveTo(gx,gy0); ctx.lineTo(gx,gy0+30); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(gx,gy0+34); ctx.lineTo(gx-4,gy0+26); ctx.lineTo(gx+4,gy0+26);
+  ctx.closePath(); ctx.fill(); ctx.restore();
+  label(ctx,gx-8,gy0+16,'a','#8b93a6','italic 12.5px Georgia, serif','right');
+  label(ctx,r.x+10,r.y+15,'heavy  ρ₂  (cold air)','#9dc0e8','11px -apple-system, sans-serif');
+  /* a two-line strip, so the captions are legible over whichever fluid happens
+     to be behind them — at late times the spike tips reach the box floor */
+  ctx.save(); ctx.fillStyle='rgba(7, 11, 24,.76)';
+  ctx.fillRect(r.x+1,r.y+r.h-41,r.w-2,40); ctx.restore();
+  label(ctx,r.x+10,r.y+r.h-28,'light  ρ₁  (hot fireball gas)','#e8a082',
+        '11px -apple-system, sans-serif');
+  label(ctx,r.x+10,r.y+r.h-11,
+    R.nonlinear?'tips: eq. 8.160 · cap 3λ/2π: eq. 8.158 · profile drawn'
+               :'ζ = ζ₀ cosh σt, shape from eq. 8.165 (third order)',
+    '#6f7789','italic 10.5px Georgia, serif');
+  label(ctx,r.x+r.w-10,r.y+r.h-11,
+    'equal aspect · '+Math.round(P.B.s*st.lam)+' px per λ'
+    +(P.B.clipped?' · spikes run off the box':'')
+    +(st.showRoll&&R.nonlinear&&R.hs>st.lam*0.35?' · roll-up drawn':''),
+    '#6f7789','italic 10.5px Georgia, serif','right');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  STATE                                                              *
+ * ================================================================== */
+const VIEWS=[{id:'jump',    label:'the jump'},
+             {id:'nozzle',  label:'the nozzle'},
+             {id:'blast',   label:'the blast'},
+             {id:'mushroom',label:'the mushroom'}];
+const DEFAULTS={
+  view:'jump', gas:'air', k:1.4,
+  /* jump */
+  Mx:2.0, showFanno:true, showRayleigh:true, showHeads:true,
+  /* nozzle */
+  Ae:2.4, Ai:3.2, xt:0.34, pbr:0.60, showFamily:true,
+  p0MPa:1.0, T0:500, AtCm2:10,
+  /* blast */
+  ndim:3, kappa:0, gamB:1.4, rho0:1.25, winLo:0.24, winHi:1.93,
+  showSedov:true, showMatrix:true,
+  /* mushroom */
+  rhoRatio:0.12, aRT:20, lam:120, z0:2, tRT:8, surf:0, alphaMix:0.055,
+  showRoll:true, showMix:true,
+};
+function syncGas(st){ st.k=gasById(st.gas).k; return st; }
+const SUBTITLE={
+  jump:    'the conservation laws have two roots — entropy picks one',
+  nozzle:  'where the second root gets used: no smooth solution exists',
+  blast:   'the same jump, strong — and dimensional analysis alone gives the yield',
+  mushroom:'Rayleigh–Taylor has no length scale, which is why there is one cap',
+};
+
+/* ================================================================== *
+ *  TEXT — readout, equation bar, corner tag                           *
+ * ================================================================== */
+const f=(v,n)=>(isFinite(v)?v.toFixed(n==null?3:n):'—');
+function fmtE(J){
+  const kt=J/KT_J;
+  return kt>=1?kt.toFixed(2)+' kt':(kt*1000).toFixed(1)+' t';
+}
+function fmtSI(v,u,n){
+  const a=Math.abs(v);
+  if(a>=1e6) return (v/1e6).toFixed(n==null?2:n)+' M'+u;
+  if(a>=1e3) return (v/1e3).toFixed(n==null?2:n)+' k'+u;
+  return v.toFixed(n==null?2:n)+' '+u;
+}
+function row(k,v){ return '<tr><td>'+k+'</td><td class="v">'+v+'</td></tr>'; }
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+
+function readoutHTML(st){
+  const g=gasById(st.gas);
+  if(st.view==='jump'){
+    const y=shock(st.Mx,st.k);
+    const raw=shockByInvariants(st.Mx,st.k);
+    const resid=Math.abs(raw-y.My)/y.My;
+    return '<div class="rname">normal shock<small>'+g.name+', γ = '+f(st.k,3)+'</small></div>'
+      +'<table>'
+      +hd('across the jump')
+      +row('M<sub>x</sub>',f(st.Mx,4))+row('M<sub>y</sub>',f(y.My,5))
+      +row('p<sub>y</sub>/p<sub>x</sub>',f(y.p,4))+row('T<sub>y</sub>/T<sub>x</sub>',f(y.T,4))
+      +row('ρ<sub>y</sub>/ρ<sub>x</sub>',f(y.rho,4))+row('V<sub>y</sub>/V<sub>x</sub>',f(y.V,4))
+      +hd('what is lost')
+      +row('p<sub>0y</sub>/p<sub>0x</sub>',f(y.p0,5))
+      +row('(s<sub>y</sub> − s<sub>x</sub>)/R',f(y.dsR,5))
+      +row('A*<sub>y</sub>/A*<sub>x</sub>',f(y.Astar,4))
+      +'</table>'
+      +'<div class="bar"><div class="fill" style="width:'+(y.p0*100).toFixed(1)
+      +'%;background:linear-gradient(90deg,#7c2338,#ff5a4a)"></div></div>'
+      +'<div class="note">stagnation pressure surviving the shock. T<sub>0</sub> does not '
+      +'change (eq. 9.47b), so the entire entropy rise is −R ln(p<sub>0y</sub>/p<sub>0x</sub>).</div>'
+      +'<div class="note"><b>live check:</b> solving eqs. 9.46–9.48 for the second root '
+      +'gives M<sub>y</sub> = '+raw.toPrecision(9)+', against eq. 9.55 — relative difference '
+      +resid.toExponential(1)+'.</div>'
+      +'<div class="legend"><span><i style="background:#b8ec4c"></i>Fanno (mass + energy)</span>'
+      +'<span><i style="background:#cd35c4"></i>Rayleigh (mass + momentum)</span></div>';
+  }
+  if(st.view==='nozzle'){
+    const sol=nozzleSolve(st), Rg=REGIMES[sol.regime];
+    const At=st.AtCm2*1e-4, p0=st.p0MPa*1e6;
+    const md=mdotChoked(p0,st.T0,At,g)*sol.mdotFrac;   /* mdot ∝ A* */
+    const dsR=sol.Mx?shock(sol.Mx,st.k).dsR:0;
+    return '<div class="rname">'+Rg.name+'<small>'+g.name+', γ = '+f(st.k,3)
+      +' &nbsp;·&nbsp; A<sub>e</sub>/A<sub>t</sub> = '+f(st.Ae,2)+'</small></div>'
+      +'<table>'
+      +hd('critical back pressures')
+      +row('p₁/p₀ &nbsp;choked',f(sol.p1,4))
+      +row('p₂/p₀ &nbsp;shock at exit',f(sol.p2,4))
+      +row('p₃/p₀ &nbsp;design',f(sol.p3,4))
+      +row('p<sub>b</sub>/p₀ &nbsp;<b>now</b>',f(st.pbr,4))
+      +hd('the flow')
+      +row('M at the throat',f(sol.Mt,4))
+      +row('M at the exit',f(sol.Me,4))
+      +row('p<sub>e</sub>/p₀',f(sol.pe,4))
+      +row('mass flow',fmtSI(md,'kg/s',3))
+      +(sol.Mx?hd('the discontinuity')
+        +row('M<sub>x</sub> → M<sub>y</sub>',f(sol.Mx,4)+' → '+f(sol.My,4))
+        +row('A<sub>s</sub>/A<sub>t</sub>',f(sol.shockA,4))
+        +row('position',sol.shockU!=null?(100*sol.shockU).toFixed(1)+'% along':'exit plane')
+        +row('(s<sub>y</sub>−s<sub>x</sub>)/R',f(dsR,4)):'')
+      +'</table>'
+      +'<div class="note">'+Rg.note+'</div>'
+      +(sol.choked?'<div class="note"><b>choked.</b> The mass flow rate is stuck at its '
+        +'maximum for this stagnation state — lowering p<sub>b</sub> further cannot increase '
+        +'it, which is exactly why a shock has to appear.</div>':'');
+  }
+  if(st.view==='blast'){
+    const S=sedov(st.gamB,st.ndim), fit=taylorFit([st.winLo,st.winHi],S,st.rho0);
+    const tRef=1e-3, E=fit?fit.E:0;
+    const D=E>0?blastD(tRef,E,st.rho0,S):0;
+    return '<div class="rname">Sedov–Taylor<small>γ = '+f(st.gamB,3)+', n = '+st.ndim
+      +(st.kappa?', κ = '+f(st.kappa,2):'')+'</small></div>'
+      +'<table>'
+      +hd('from dimensions alone')
+      +row('α = 2/(n+2)',f(S.alpha,5))
+      +row('ξ₀(γ, n)',f(S.xi0,6))
+      +hd('the test: is it self-similar?')
+      +(fit?row('fitted slope',f(fit.slope,4))
+           +row('predicted α',f(fit.theory,4))
+           +row('points in window',fit.N+' of '+TAYLOR.length)
+           +row('rms in log R',(fit.rms*100).toFixed(2)+'%')
+           +hd('the answer: the yield')
+           +row('E',fmtE(fit.E))
+           +row('E',fit.E.toExponential(3)+' J')
+           +row('spread over the window',fmtE(fit.Elo)+' – '+fmtE(fit.Ehi))
+           +hd('at t = 1 ms')
+           +row('R',f(blastR(tRef,fit.E,st.rho0,S),1)+' m')
+           +row('shock speed',fmtSI(D,'m/s',0))
+           +row('M of the shock',f(D/Math.sqrt(1.4*287.05*300),0))
+        :row('window','too narrow'))
+      +'</table>'
+      +'<div class="note">Taylor published <b>about 20 kt</b> from this data; the '
+      +'declassified Trinity yield is <b>21 kt</b>. No hydrodynamics was solved to get '
+      +'it — only the Π-theorem and the slope of a straight line.</div>'
+      +'<div class="note"><b>the intercept is read at the data, not at t = 1 s.</b> '
+      +'E goes like R⁵, so extrapolating three decades multiplies any slope error by '
+      +'10¹⁵ᵈ: the same fitted line read at t = 1 s would say '
+      +(fit?fmtE(fit.Eext):'—')+'.</div>'
+      +(st.kappa?'<div class="note"><b>κ ≠ 0</b> enters the dimensional matrix only. '
+        +'ξ₀ and the fit are the uniform-ambient solution.</div>':'');
+  }
+  const R=rtState(st);
+  const nE=R.sig>0?R.sig*st.tRT/Math.LN2:0;
+  return '<div class="rname">Rayleigh–Taylor<small>A<sub>t</sub> = '+f(R.At,4)
+    +' &nbsp;·&nbsp; λ = '+f(st.lam,1)+' m</small></div>'
+    +'<table>'
+    +hd('linear stage')
+    +row('σ = √(A<sub>t</sub> a k)',f(R.sig,4)+' s⁻¹')
+    +row('e-folding time',f(R.sig>0?1/R.sig:Infinity,3)+' s')
+    +row('doublings so far',f(nE,2))
+    +row('ζ<sub>sat</sub> (eq. 8.164)',f(R.zsat,2)+' m')
+    +row('t at saturation',isFinite(R.tsat)?f(R.tsat,3)+' s':'never')
+    +hd('non-linear stage')
+    +row('bubble height',f(R.hb,2)+' m')
+    +row('spike depth',f(R.hs,2)+' m')
+    +row('bubble speed',f(R.ub,3)+' m/s')
+    +row('terminal (Table 8.2)',f(R.ubInf,3)+' m/s')
+    +row('spike terminal',isFinite(R.usInf)?f(R.usInf,3)+' m/s':'accelerates at a')
+    +hd('turbulent stage')
+    +row('h = α A<sub>t</sub> a t²',f(R.hMix,1)+' m')
+    +'</table>'
+    +'<div class="note">σ ∝ λ<sup>−1/2</sup> so short modes grow fastest; but the terminal '
+    +'bubble speed ∝ √λ, so once saturated the <b>long</b> modes win and the pattern '
+    +'coarsens. The only length available at time t is a t² — hence one cap.</div>';
+}
+
+function eqbarHTML(st){
+  if(st.view==='jump'){
+    const y=shock(st.Mx,st.k);
+    return '<span class="lhs">M<sub>y</sub><sup>2</sup></span> = '
+      +'( M<sub>x</sub><sup>2</sup> + 2/(k−1) ) / ( [2k/(k−1)] M<sub>x</sub><sup>2</sup> − 1 )'
+      +' &nbsp;&nbsp;→&nbsp;&nbsp; <span class="hl">M<sub>y</sub> = '+f(y.My,5)+'</span>'
+      +' &nbsp;&nbsp; s<sub>y</sub> − s<sub>x</sub> = <span class="hl2">+'+f(y.dsR,4)+' R</span> &gt; 0'
+      +'<span class="sm">eq. 9.55 — but the sim finds it by intersecting the Fanno and '
+      +'Rayleigh lines, and only then checks the formula</span>';
+  }
+  if(st.view==='nozzle'){
+    const sol=nozzleSolve(st);
+    return '<span class="lhs">A/A*</span> = (1/M) [ (2/(k+1))(1 + ½(k−1)M<sup>2</sup>) ]'
+      +'<sup>(k+1)/2(k−1)</sup> &nbsp;&nbsp;·&nbsp;&nbsp; '
+      +'<span class="lhs">A*<sub>x</sub>/A*<sub>y</sub></span> = p<sub>0y</sub>/p<sub>0x</sub>'
+      +' &nbsp;&nbsp;→&nbsp;&nbsp; <span class="hl">'+REGIMES[sol.regime].name+'</span>'
+      +'<span class="sm">eqs. 9.52 and 9.57 — the second fixes where the shock has to stand '
+      +'so that p<sub>e</sub> comes out equal to p<sub>b</sub></span>';
+  }
+  if(st.view==='blast'){
+    const S=sedov(st.gamB,st.ndim), fit=taylorFit([st.winLo,st.winHi],S,st.rho0);
+    return '<span class="lhs">R<sub>s</sub>(t)</span> = ξ₀(γ) ( E t<sup>2</sup> / ρ₀ )'
+      +'<sup>1/(n+2)</sup> &nbsp;&nbsp;→&nbsp;&nbsp; <span class="hl">slope '
+      +(fit?f(fit.slope,4):'—')+'</span> vs <span class="hl2">2/(n+2) = '+f(S.alpha,4)+'</span>'
+      +' &nbsp;&nbsp; E = <span class="hl">'+(fit?fmtE(fit.E):'—')+'</span>'
+      +'<span class="sm">the exponents come out of the dimensional matrix; ξ₀ = '
+      +f(S.xi0,6)+' comes out of the energy integral of the self-similar solution</span>';
+  }
+  const R=rtState(st);
+  return '<span class="lhs">σ<sub>RT</sub></span> = √( A<sub>t</sub> a k ) '
+    +'&nbsp;&nbsp;·&nbsp;&nbsp; <span class="lhs">u<sub>b</sub><sup>∞</sup></span> = '
+    +'√( [2A<sub>t</sub>/(1+A<sub>t</sub>)] aλ/6π ) &nbsp;&nbsp;·&nbsp;&nbsp; '
+    +'<span class="lhs">h</span> = α A<sub>t</sub> a t<sup>2</sup>'
+    +' &nbsp;&nbsp;→&nbsp;&nbsp; <span class="hl">σ = '+f(R.sig,3)+' s⁻¹</span>, '
+    +'<span class="hl2">u<sub>b</sub><sup>∞</sup> = '+f(R.ubInf,2)+' m/s</span>'
+    +'<span class="sm">three laws, one dimensional argument: from a and k the only rate is '
+    +'√(ak), from a and λ the only speed is √(aλ), from a and t the only length is a t²</span>';
+}
+function tagHTML(st){
+  const T={
+    jump:'<b>The second root.</b> Mass, energy and momentum give two states, not one. '
+         +'Both curves pass through x; y is where they cross again.',
+    nozzle:'<b>No smooth solution.</b> Between p₂ and p₁ the flow is choked and isentropic '
+          +'flow cannot reach p<sub>b</sub>, so a discontinuity appears.',
+    blast:'<b>No equation solved.</b> The exponent comes from the units; only the front '
+         +'factor needs the Euler equations.',
+    mushroom:'<b>No length scale.</b> Every wavelength is unstable, so the pattern is set '
+            +'by what grows fastest at each stage — and that changes.',
+  };
+  return T[st.view]||'';
+}
+const HINT={
+  jump:'drag left/right to change Mₓ',
+  nozzle:'drag up/down to change the back pressure',
+  blast:'drag inside the plot to move the fit window',
+  mushroom:'drag left/right to move time',
+};
+
+/* ================================================================== *
+ *  PANEL                                                              *
+ * ================================================================== */
+function buildPanel(st,onChange){
+  const P=document.getElementById('panel'); P.innerHTML='';
+  const grp=(title,...kids)=>{ const g=h('div',{class:'grp'});
+    if(title) g.appendChild(h('h3',{text:title}));
+    for(const kk of kids) if(kk) g.appendChild(kk); P.appendChild(g); return g; };
+  const chips=(opts,get,set)=>{
+    const box=h('div',{class:'chips'});
+    for(const o of opts){
+      const b=h('button',{class:'chip'+(get()===o.v?' on':''),text:o.t,
+        onclick:()=>{ set(o.v); onChange(); }});
+      box.appendChild(b);
+    }
+    return box;
+  };
+  const slider=(lab,min,max,step,get,set,fmt)=>{
+    const val=h('span',{class:'val',text:fmt(get())});
+    const inp=h('input',{type:'range',min,max,step,value:get(),
+      oninput:e=>{ set(+e.target.value); val.textContent=fmt(get()); onChange(); }});
+    return h('div',{class:'sliderrow'},h('label',{text:lab}),inp,val);
+  };
+  const check=(lab,get,set)=>{
+    const inp=h('input',{type:'checkbox',
+      onchange:e=>{ set(e.target.checked); onChange(); }});
+    if(get()) inp.checked=true;
+    return h('label',{},inp,document.createTextNode(lab));
+  };
+  const checkbox=(items)=>{ const b=h('div',{class:'checks'});
+    for(const it of items) b.appendChild(check(it[0],it[1],it[2])); return b; };
+
+  if(st.view==='jump'||st.view==='nozzle'){
+    grp('gas',chips(GASES.map(g=>({v:g.id,t:g.name})),()=>st.gas,
+      v=>{ st.gas=v; syncGas(st); }));
+  }
+  if(st.view==='jump'){
+    grp('upstream Mach number',
+      slider('Mₓ',1.001,8,0.001,()=>st.Mx,v=>st.Mx=v,v=>v.toFixed(3)),
+      h('div',{class:'tag',html:'the shock is only a solution for Mₓ &gt; 1 — below it the '
+        +'second root has <i>less</i> entropy and eq. 9.49 forbids it.'}));
+    grp('draw',checkbox([
+      ['Fanno line (mass + energy)',()=>st.showFanno,v=>st.showFanno=v],
+      ['Rayleigh line (mass + momentum)',()=>st.showRayleigh,v=>st.showRayleigh=v],
+      ['velocity heads V²/2',()=>st.showHeads,v=>st.showHeads=v]]));
+    grp('reference',h('div',{class:'tag',html:
+      'Moran, Shapiro, Boettner &amp; Bailey, <i>Fundamentals of Engineering '
+      +'Thermodynamics</i>, §9.13.3 (eqs. 9.46–9.49) and §9.14.2 (eqs. 9.53–9.57); '
+      +'Figs. 9.33 and 9.34.'}));
+  }
+  if(st.view==='nozzle'){
+    grp('back pressure',
+      slider('pᵇ/p₀',0.02,1.0,0.001,()=>st.pbr,v=>st.pbr=v,v=>v.toFixed(3)));
+    grp('geometry',
+      slider('Aₑ/Aₜ',1.05,6,0.01,()=>st.Ae,v=>st.Ae=v,v=>v.toFixed(2)),
+      slider('Aᵢ/Aₜ',1.2,6,0.01,()=>st.Ai,v=>st.Ai=v,v=>v.toFixed(2)),
+      slider('throat at',0.15,0.7,0.01,()=>st.xt,v=>st.xt=v,v=>(100*v).toFixed(0)+'%'));
+    grp('stagnation state',
+      slider('p₀',0.1,10,0.1,()=>st.p0MPa,v=>st.p0MPa=v,v=>v.toFixed(1)+' MPa'),
+      slider('T₀',200,1400,10,()=>st.T0,v=>st.T0=v,v=>v.toFixed(0)+' K'),
+      slider('Aₜ',0.5,100,0.5,()=>st.AtCm2,v=>st.AtCm2=v,v=>v.toFixed(1)+' cm²'));
+    grp('draw',checkbox([['the whole back-pressure family',
+      ()=>st.showFamily,v=>st.showFamily=v]]));
+    grp('presets',h('div',{class:'btnrow'},
+      h('button',{text:'Example 9.15',onclick:()=>{ st.gas='air'; syncGas(st);
+        st.Ae=2.4; st.Ai=3.2; st.pbr=0.553; onChange(); }}),
+      h('button',{text:'design',onclick:()=>{ const s=nozzleSolve(st);
+        st.pbr=s.p3; onChange(); }})));
+  }
+  if(st.view==='blast'){
+    grp('the gas and the geometry',
+      slider('γ',1.10,1.90,0.001,()=>st.gamB,v=>st.gamB=v,v=>v.toFixed(3)),
+      chips([{v:1,t:'planar n=1'},{v:2,t:'cylindrical n=2'},{v:3,t:'spherical n=3'}],
+        ()=>st.ndim,v=>st.ndim=v),
+      slider('κ  (ρ₀ ∝ rᵏ)',-1.5,2,0.05,()=>st.kappa,v=>st.kappa=v,v=>v.toFixed(2)),
+      slider('ρ₀',0.3,2.0,0.01,()=>st.rho0,v=>st.rho0=v,v=>v.toFixed(2)+' kg/m³'));
+    grp('fit window (ms)',
+      slider('from',0.10,60,0.01,()=>st.winLo,v=>st.winLo=Math.min(v,st.winHi-0.01),
+             v=>v.toFixed(2)),
+      slider('to',0.11,62,0.01,()=>st.winHi,v=>st.winHi=Math.max(v,st.winLo+0.01),
+             v=>v.toFixed(2)),
+      h('div',{class:'btnrow'},
+        h('button',{text:'self-similar',onclick:()=>{ st.winLo=0.24; st.winHi=1.93; onChange(); }}),
+        h('button',{text:'everything',onclick:()=>{ st.winLo=0.10; st.winHi=62; onChange(); }})));
+    grp('draw',checkbox([
+      ['the dimensional matrix',()=>st.showMatrix,v=>st.showMatrix=v],
+      ['the Sedov interior',()=>st.showSedov,v=>st.showSedov=v]]));
+    grp('reference',h('div',{class:'tag',html:
+      'Atzeni &amp; Meyer-ter-Vehn, <i>The Physics of Inertial Fusion</i>, §6.5 '
+      +'(Π-theorem, point explosion) and §6.7.8. Data: Taylor, <i>Proc. R. Soc. A</i> '
+      +'<b>201</b> (1950) 175, Table 1.'}));
+  }
+  if(st.view==='mushroom'){
+    grp('the interface',
+      slider('ρ₁/ρ₂',0.001,0.999,0.001,()=>st.rhoRatio,v=>st.rhoRatio=v,
+        v=>v.toFixed(3)+'  Aₜ='+atwood(1,v).toFixed(3)),
+      slider('a',0.5,200,0.5,()=>st.aRT,v=>st.aRT=v,v=>v.toFixed(1)+' m/s²'),
+      slider('λ',5,400,1,()=>st.lam,v=>st.lam=v,v=>v.toFixed(0)+' m'),
+      slider('ζ₀',0.05,20,0.05,()=>st.z0,v=>st.z0=v,v=>v.toFixed(2)+' m'),
+      slider('surface T',0,5e5,1e3,()=>st.surf,v=>st.surf=v,
+        v=>v===0?'none':v.toExponential(1)));
+    grp('time',
+      slider('t',0,60,0.05,()=>st.tRT,v=>st.tRT=v,v=>v.toFixed(2)+' s'),
+      slider('α (mixing)',0.03,0.09,0.001,()=>st.alphaMix,v=>st.alphaMix=v,v=>v.toFixed(3)));
+    grp('draw',checkbox([
+      ['Kelvin–Helmholtz roll-up',()=>st.showRoll,v=>st.showRoll=v],
+      ['turbulent mixing envelope',()=>st.showMix,v=>st.showMix=v]]));
+    grp('presets',h('div',{class:'btnrow'},
+      h('button',{text:'fireball cap',onclick:()=>{ st.rhoRatio=0.12; st.aRT=20; st.lam=120;
+        st.z0=2; st.tRT=8; st.alphaMix=0.055; onChange(); }}),
+      h('button',{text:'Aₜ → 1',onclick:()=>{ st.rhoRatio=0.002; onChange(); }})));
+    grp('reference',h('div',{class:'tag',html:
+      'Atzeni &amp; Meyer-ter-Vehn ch. 8: eqs. 8.1/8.36, 8.2, 8.35, 8.160–8.161, '
+      +'Table 8.2, 8.164, 8.165 (Jacobs &amp; Catton 1988).'}));
+  }
+  grp('',h('div',{id:'info',html:INFO[st.view]}));
+}
+const INFO={
+  jump:'Three conservation laws across a discontinuity have <b>two</b> solutions. Both '
+      +'curves drawn here pass through the upstream state x, and both take their maximum '
+      +'entropy exactly at M = 1 — that is what splits each into a subsonic upper branch '
+      +'and a supersonic lower one. The downstream state has to satisfy all three laws, so '
+      +'it is the <b>other</b> crossing. Entropy then decides the direction, and there is '
+      +'only one way to go.',
+  nozzle:'Once M = 1 at the throat the nozzle is <b>choked</b>: the mass flow rate is fixed '
+        +'and cannot respond to the back pressure any more. For a whole band of back '
+        +'pressures there is then no isentropic solution at all, and the flow resolves it '
+        +'by taking the second root somewhere in the diverging section — at exactly the '
+        +'station that makes p<sub>e</sub> equal p<sub>b</sub>.',
+  blast:'A point release of energy into a uniform gas has <b>no length and no time scale of '
+       +'its own</b>. The Π-theorem therefore fixes the whole law up to one number. Taylor '
+       +'used that in 1950 on a set of published photographs to recover a yield that was '
+       +'still classified — the slope tests whether the flow is self-similar, and the '
+       +'intercept is the energy.',
+  mushroom:'The shock leaves hot light gas underneath cold dense air, which is unstable. '
+          +'Growth rate √(A<sub>t</sub>ak) favours short wavelengths; terminal bubble speed '
+          +'√(aλ/6π) favours long ones. The crossover is what coarsens the pattern until '
+          +'a single cap is left, and the only length in the problem at time t is a t².',
+};
+
+/* ================================================================== *
+ *  BOOT / RENDER LOOP                                                 *
+ * ================================================================== */
+let ST=null, CV=null, CTX=null, dirty=true, DPR=1;
+
+function draw(){
+  if(!CTX) return;
+  const W=CV.width/DPR, H=CV.height/DPR;
+  CTX.setTransform(DPR,0,0,DPR,0,0);
+  CTX.clearRect(0,0,W,H);
+  drawView(CTX,W,H,ST);
+}
+function drawView(ctx,W,H,st){
+  if(st.view==='jump')          drawJump(ctx,W,H,st);
+  else if(st.view==='nozzle')   drawNozzle(ctx,W,H,st);
+  else if(st.view==='blast')    drawBlast(ctx,W,H,st);
+  else                          drawMushroom(ctx,W,H,st);
+}
+function refresh(rebuild){
+  if(rebuild) buildPanel(ST,()=>refresh(false));
+  document.getElementById('readout').innerHTML=readoutHTML(ST);
+  document.getElementById('eqbar').innerHTML=eqbarHTML(ST);
+  document.getElementById('tag').innerHTML=tagHTML(ST);
+  document.getElementById('hint').textContent=HINT[ST.view]||'';
+  document.getElementById('sub').textContent=SUBTITLE[ST.view]||'';
+  for(const b of document.querySelectorAll('#tabs button'))
+    b.className=(b.dataset.v===ST.view)?'active':'';
+  dirty=true;                       /* EVERY interaction marks the frame dirty */
+}
+function resize(){
+  if(!CV) return;
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  const r=CV.getBoundingClientRect();
+  CV.width=Math.max(320,Math.round(r.width*DPR));
+  CV.height=Math.max(240,Math.round(r.height*DPR));
+  dirty=true;
+}
+function frame(){
+  if(dirty){
+    dirty=false;
+    try{ draw(); document.getElementById('errbox').style.display='none'; }
+    catch(e){ const b=document.getElementById('errbox');
+      b.textContent=e&&e.stack?e.stack:String(e); b.style.display='block'; }
+  }
+  requestAnimationFrame(frame);
+}
+/* Dragging: each view has one quantity worth reaching for.  Every handler sets
+   `dirty` — a handler that mutates state and returns leaves the loop's
+   `if(dirty)` false and the canvas silently stops tracking the mouse.  That is
+   on the Known-bad list and it is why this comment exists. */
+function attach(){
+  let drag=null;
+  const pos=e=>{ const r=CV.getBoundingClientRect();
+    return {x:e.clientX-r.left,y:e.clientY-r.top,W:r.width,H:r.height}; };
+  CV.addEventListener('pointerdown',e=>{
+    CV.setPointerCapture(e.pointerId); CV.classList.add('grabbing');
+    drag=pos(e); apply(drag); });
+  CV.addEventListener('pointermove',e=>{ if(!drag) return; apply(pos(e)); });
+  const end=()=>{ drag=null; CV.classList.remove('grabbing'); dirty=true; };
+  CV.addEventListener('pointerup',end);
+  CV.addEventListener('pointercancel',end);
+  function apply(p){
+    const st=ST;
+    if(st.view==='jump'){
+      const G=jumpGeometry(st,p.W,p.H);
+      st.Mx=clamp(1.001+(p.x-G.plot.x)/G.plot.w*7,1.001,8);
+    } else if(st.view==='nozzle'){
+      const G=nozzleGeometry(st,p.W,p.H);
+      st.pbr=clamp(1-(p.y-G.plot.y)/G.plot.h,0.02,1.0);
+    } else if(st.view==='blast'){
+      const G=blastGeometry(st,p.W,p.H);
+      const ax=makeAxes(G.main,{x0:0.05,x1:120,y0:7,y1:300},{logx:true,logy:true});
+      const t=clamp(ax.invX(p.x),0.10,62);
+      if(Math.abs(t-st.winLo)<Math.abs(t-st.winHi)) st.winLo=Math.min(t,st.winHi-0.01);
+      else st.winHi=Math.max(t,st.winLo+0.01);
+    } else {
+      const G=mushGeometry(st,p.W,p.H);
+      st.tRT=clamp((p.x-G.box.x)/G.box.w*60,0,60);
+    }
+    refresh(true);
+  }
+  window.addEventListener('resize',()=>{ resize(); refresh(false); });
+  window.addEventListener('keydown',e=>{
+    const i=VIEWS.findIndex(v=>v.id===ST.view);
+    if(e.key==='ArrowRight'&&e.metaKey===false&&e.target===document.body){
+      ST.view=VIEWS[(i+1)%VIEWS.length].id; refresh(true); }
+  });
+}
+function buildTabs(){
+  const nav=document.getElementById('tabs'); nav.innerHTML='';
+  for(const v of VIEWS){
+    const b=h('button',{text:v.label,class:v.id===ST.view?'active':''});
+    b.dataset.v=v.id;
+    b.addEventListener('click',()=>{ ST.view=v.id; refresh(true); });
+    nav.appendChild(b);
+  }
+}
+function boot(){
+  ST=Object.assign({},DEFAULTS); syncGas(ST);
+  CV=document.getElementById('scene'); CTX=CV.getContext('2d');
+  buildTabs(); attach(); resize(); refresh(true);
+  requestAnimationFrame(frame);
+}
+
+/* ================================================================== *
+ *  A RECORDING CANVAS STUB — lets the assertion suite drive every view *
+ *  with no DOM at all, and check what was actually emitted.            *
+ * ================================================================== */
+function stubCtx(){
+  const rec={ops:[],nums:[],clips:0,paths:[],cur:null};
+  const num=(...a)=>{ for(const v of a) rec.nums.push(v); };
+  const c={
+    canvas:{width:1200,height:800},
+    save(){rec.ops.push('save');}, restore(){rec.ops.push('restore');},
+    beginPath(){rec.ops.push('beginPath'); rec.cur=[]; rec.paths.push(rec.cur);},
+    moveTo(x,y){num(x,y); if(rec.cur)rec.cur.push([x,y,'m']);},
+    lineTo(x,y){num(x,y); if(rec.cur)rec.cur.push([x,y,'l']);},
+    arc(x,y,r,a,b){num(x,y,r);}, closePath(){},
+    rect(x,y,w,hh){num(x,y,w,hh);}, roundRect(x,y,w,hh,r){num(x,y,w,hh);},
+    fill(){rec.ops.push('fill');}, stroke(){rec.ops.push('stroke');},
+    fillRect(x,y,w,hh){num(x,y,w,hh);}, strokeRect(x,y,w,hh){num(x,y,w,hh);},
+    clearRect(){}, clip(){rec.clips++;},
+    setLineDash(){}, translate(x,y){num(x,y);}, rotate(a){num(a);},
+    setTransform(){}, measureText(t){return {width:(''+t).length*6};},
+    fillText(t,x,y){num(x,y); rec.ops.push('text:'+t);},
+    createLinearGradient(){return {addColorStop(){}};},
+  };
+  Object.defineProperty(c,'rec',{value:rec});
+  return c;
+}
+
+/* ================================================================== *
+ *  SELF TEST                                                          *
+ * ================================================================== */
+/* Table 9.2 — isentropic flow functions, k = 1.4 (M, T/To, p/po, A/A*) */
+const TBL92=[
+ [0.10,0.99800,0.99303,5.8218],[0.20,0.99206,0.97250,2.9635],[0.30,0.98232,0.93947,2.0351],
+ [0.40,0.96899,0.89562,1.5901],[0.50,0.95238,0.84302,1.3398],[0.60,0.93284,0.78400,1.1882],
+ [0.70,0.91075,0.72092,1.09437],[0.80,0.88652,0.65602,1.03823],[0.90,0.86058,0.59126,1.00886],
+ [1.00,0.83333,0.52828,1.00000],[1.10,0.80515,0.46835,1.00793],[1.20,0.77640,0.41238,1.03044],
+ [1.30,0.74738,0.36092,1.06631],[1.40,0.71839,0.31424,1.1149],[1.50,0.68965,0.27240,1.1762],
+ [1.60,0.66138,0.23527,1.2502],[1.70,0.63372,0.20259,1.3376],[1.80,0.60680,0.17404,1.4390],
+ [1.90,0.58072,0.14924,1.5552],[2.00,0.55556,0.12780,1.6875],[2.10,0.53135,0.10935,1.8369],
+ [2.20,0.50813,0.09352,2.0050],[2.30,0.48591,0.07997,2.1931],[2.40,0.46468,0.06840,2.4031]];
+/* Table 9.3 — normal-shock functions, k = 1.4 (Mx, My, py/px, Ty/Tx, poy/pox) */
+const TBL93=[
+ [1.00,1.00000,1.0000,1.0000,1.00000],[1.10,0.91177,1.2450,1.0649,0.99892],
+ [1.20,0.84217,1.5133,1.1280,0.99280],[1.30,0.78596,1.8050,1.1909,0.97935],
+ [1.40,0.73971,2.1200,1.2547,0.95819],[1.50,0.70109,2.4583,1.3202,0.92978],
+ [1.60,0.66844,2.8201,1.3880,0.89520],[1.70,0.64055,3.2050,1.4583,0.85573],
+ [1.80,0.61650,3.6133,1.5316,0.81268],[1.90,0.59562,4.0450,1.6079,0.76735],
+ [2.00,0.57735,4.5000,1.6875,0.72088],[2.10,0.56128,4.9784,1.7704,0.67422],
+ [2.20,0.54706,5.4800,1.8569,0.62812],[2.30,0.53441,6.0050,1.9468,0.58331],
+ [2.40,0.52312,6.5533,2.0403,0.54015],[2.50,0.51299,7.1250,2.1375,0.49902],
+ [2.60,0.50387,7.7200,2.2383,0.46012],[2.70,0.49563,8.3383,2.3429,0.42359],
+ [2.80,0.48817,8.9800,2.4512,0.38946],[2.90,0.48138,9.6450,2.5632,0.35773],
+ [3.00,0.47519,10.333,2.6790,0.32834],[4.00,0.43496,18.500,4.0469,0.13876],
+ [5.00,0.41523,29.000,5.8000,0.06172],[10.00,0.38757,116.50,20.388,0.00304]];
+
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if(cond) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const chk=(name,got,want,tol,rel)=>{
+    const e=rel?Math.abs(got-want)/Math.abs(want):Math.abs(got-want);
+    if(e<=tol) pass++; else { fail++;
+      console.log('FAIL — '+name+': got '+got+' want '+want+' err '+e.toExponential(3)); } };
+  /* the only honest tolerance against a table is half of its last printed
+     digit — anything tighter is testing the typesetter, not the physics */
+  const dp=v=>{ const s=''+v, i=s.indexOf('.'); return i<0?0:s.length-i-1; };
+  const chkT=(name,got,want,slack)=>chk(name,got,want,(slack||0.6)*Math.pow(10,-dp(want)),false);
+  /* The slacks below are in units of the LAST PRINTED DIGIT, and each one was
+     set from the measured worst residual over the whole column, not guessed.
+     In half-last-digits the worst residuals are: 9.2 T/To 1.29, p/po 1.57,
+     A/A* 1.14; 9.3 My 1.23, py/px 2.00, Ty/Tx 1.01, poy/pox 4.73.  Those are
+     the source tables' own chain rounding, not ours: the closed forms are
+     cross-checked against independent derivations to 1e-12 immediately below,
+     and a genuine formula error would be percent-level, not 1e-5. */
+
+  /* ---------- Table 9.2, every row and column ---------- */
+  for(const [M,Tr,pr,Ar] of TBL92){
+    chkT('9.2 T/To M='+M,TT0(M,1.4),Tr,0.8);
+    chkT('9.2 p/po M='+M,pp0(M,1.4),pr,1.0);
+    chkT('9.2 A/A* M='+M,AAs(M,1.4),Ar,0.8);
+  }
+  /* ---------- Table 9.3, every row and column ---------- */
+  for(const [Mx,Myr,prr,Trr,p0r] of TBL93){
+    const My=MyOfMx(Mx,1.4);
+    chkT('9.3 My Mx='+Mx,My,Myr,0.8);
+    chkT('9.3 py/px Mx='+Mx,pRatio(Mx,My,1.4),prr,1.2);
+    chkT('9.3 Ty/Tx Mx='+Mx,TRatio(Mx,My,1.4),Trr,0.7);
+    chkT('9.3 poy/pox Mx='+Mx,p0Ratio(Mx,My,1.4),p0r,2.6);
+  }
+  chkT('9.3 My as Mx→∞',MyOfMx(1e7,1.4),0.37796,0.8);
+
+  /* ---------- eq. 9.56 against an independent route ----------
+     poy/pox = (poy/py)(py/px)(px/pox).  If this agrees to machine precision
+     then the residual against the printed table above is the TABLE's. */
+  { let worst=0;
+    for(const k of [1.1,1.2,1.289,1.33,1.4,5/3])
+      for(let i=0;i<=200;i++){ const Mx=1.001+i*(12-1.001)/200, My=MyOfMx(Mx,k);
+        const a=p0Ratio(Mx,My,k), b=(1/pp0(My,k))*pRatio(Mx,My,k)*pp0(Mx,k);
+        worst=Math.max(worst,Math.abs(a-b)/a); }
+    ok(worst<1e-12,'eq. 9.56 = (poy/py)(py/px)(px/pox) to 1e-12 (worst '
+      +worst.toExponential(2)+')'); }
+
+  /* ---------- eq. 9.55 against the RAW conservation laws ---------- */
+  { let worst=0;
+    for(const k of [1.2,1.33,1.4,5/3])
+      for(const Mx of [1.02,1.1,1.3,1.5,2,2.5,3,4,6,9]){
+        const got=shockByInvariants(Mx,k), want=MyOfMx(Mx,k);
+        worst=Math.max(worst,Math.abs(got-want)/want); }
+    ok(worst<1e-9,'the second root of (mass, energy, momentum) IS eq. 9.55 (worst '
+      +worst.toExponential(2)+')'); }
+
+  /* ---------- the two lines: sonic point is the entropy maximum ---------- */
+  for(const k of [1.2,1.4,5/3]) for(const Mx of [1.5,2.5,4]){
+    let bF=0,sF=-1e9,bR=0,sR=-1e9;
+    for(let i=1;i<=4000;i++){ const M=i*4/4000;
+      const F=fannoAt(M,Mx,k), R=rayleighAt(M,Mx,k);
+      if(F.dsR>sF){sF=F.dsR;bF=M;} if(R.dsR>sR){sR=R.dsR;bR=M;} }
+    chk('Fanno max s at M=1 (k='+k.toFixed(2)+', Mx='+Mx+')',bF,1,2e-3,false);
+    chk('Rayleigh max s at M=1 (k='+k.toFixed(2)+', Mx='+Mx+')',bR,1,2e-3,false); }
+  /* ---------- both lines pass through BOTH x and y ---------- */
+  for(const k of [1.2,1.4,5/3]) for(const Mx of [1.2,2,3.5]){
+    const My=MyOfMx(Mx,k);
+    for(const [nm,g] of [['Fanno',fannoAt],['Rayleigh',rayleighAt]]){
+      const X=g(Mx,Mx,k), Y=g(My,Mx,k);
+      chk(nm+' through x (p)',X.p,1,1e-12,false); chk(nm+' through x (T)',X.T,1,1e-12,false);
+      chk(nm+' through y (p)',Y.p,pRatio(Mx,My,k),1e-12,true);
+      chk(nm+' through y (T)',Y.T,TRatio(Mx,My,k),1e-12,true); } }
+  /* ---------- entropy: forward allowed, reverse forbidden ---------- */
+  for(const k of [1.2,1.4,5/3]){
+    for(const Mx of [1.05,1.5,2,4,8]) ok(shock(Mx,k).dsR>0,
+      'entropy rises for Mx='+Mx+' (k='+k.toFixed(2)+')');
+    /* Below Mx = sqrt((k-1)/2k) eq. 9.55 has no real root at all: the radicand
+       goes negative.  That threshold is exactly the Mx -> infinity limit of My,
+       which is the same statement read the other way round.  Only test the
+       reverse-entropy claim where the second root actually exists. */
+    const Mmin=Math.sqrt((k-1)/(2*k));
+    chk('limiting Mach = the Mx→∞ limit of My (k='+k.toFixed(3)+')',
+        Mmin,MyOfMx(1e8,k),1e-8,true);
+    ok(!isFinite(MyOfMx(Mmin*0.99,k)),'no second root below the limiting Mach number');
+    for(const Mx of [Mmin*1.02,0.7*(1-Mmin)+Mmin,0.95]) ok(shock(Mx,k).dsR<0,
+      'a subsonic→supersonic "shock" would LOWER entropy, Mx='+Mx.toFixed(3)); }
+  /* ---------- strong-shock limits ---------- */
+  for(const k of [1.2,1.4,5/3]){
+    const s=shock(1e6,k);
+    chk('rho ratio -> (k+1)/(k-1), k='+k.toFixed(3),s.rho,(k+1)/(k-1),1e-6,true);
+    chk('My -> sqrt((k-1)/2k), k='+k.toFixed(3),s.My,Math.sqrt((k-1)/(2*k)),1e-6,true); }
+
+  /* ---------- area-Mach inversion is exact both ways ---------- */
+  for(const k of [1.2,1.4,5/3]) for(const Ar of [1.0001,1.05,1.5,2.4,4,10,40]){
+    for(const sup of [false,true]){
+      const M=MfromA(Ar,k,sup);
+      chk('MfromA round trip (Ar='+Ar+', sup='+sup+')',AAs(M,k),Ar,1e-11,true);
+      ok(sup?M>=1:M<=1,'MfromA picks the right branch'); } }
+
+  /* ---------- Example 9.14, converging nozzle ---------- */
+  { const air=gasById('air'), R=Rspec(air), k=1.4, p0=1e6, T0=360, A=1e-3;
+    chkT('E9.14 p*/po',pp0(1,k),0.528);
+    const T2=T0*TT0(1,k); chkT('E9.14a T2',T2,300.0,2);
+    const V2=Math.sqrt(k*R*T2); chkT('E9.14a V2',V2,347.2,2);
+    chkT('E9.14a mdot',mdotChoked(p0,T0,A,air),2.13,2);
+    const M2=MfromP(0.784,k); chkT('E9.14b M2',M2,0.6,2);
+    const T2b=T0*TT0(M2,k); chkT('E9.14b T2',T2b,336.0,2);
+    const V2b=M2*Math.sqrt(k*R*T2b); chkT('E9.14b V2',V2b,220.5,2);
+    chkT('E9.14b mdot',784e3/(R*T2b)*A*V2b,1.79,2);
+    const Mq=MfromP(0.843,k); chkT('E9.14 quiz M',Mq,0.5,3);
+    chkT('E9.14 quiz T',T0*TT0(Mq,k),342.9,3); }
+
+  /* ---------- Example 9.15, converging-diverging nozzle ---------- */
+  { const k=1.4, Ae=2.4;
+    chkT('E9.15a Ae/A*',Ae*AAs(0.7,k),2.6265,2);
+    const M2c=MfromA(Ae,k,true);  chkT('E9.15c M2',M2c,2.4,3);
+    chkT('E9.15c p2',100*pp0(M2c,k),6.84,3);
+    const Myd=MyOfMx(M2c,k);      chkT('E9.15d My',Myd,0.52,3);
+    /* the book multiplies its own two ROUNDED table entries: 6.84 x 6.5533.
+       Assert that chain reproduces its answer (a check on our reading of the
+       table) and, separately, that the exact value is within 0.15 % of it. */
+    chkT('E9.15d book chain 6.84 × 6.5533',6.84*6.5533,44.82,1.0);
+    chk('E9.15d exact vs the book’s rounded chain',
+        100*pp0(M2c,k)*pRatio(M2c,Myd,k),44.82,1.5e-3,true);
+    /* (e) the book rounds Mx to 2.2 before reading Table 9.3 */
+    chkT('E9.15e poy/pox at Mx=2.2',p0Ratio(2.2,MyOfMx(2.2,k),k),0.62812,6);
+    const p0r=p0Ratio(2.2,MyOfMx(2.2,k),k);
+    chkT('E9.15e Ae/A*y',Ae*p0r,1.51,3);
+    const M2e=MfromA(Ae*p0r,k,false);
+    chkT('E9.15e p2',100*p0r*pp0(M2e,k),55.3,6);
+    /* (a) and (b): the book's Mach numbers come from reading its own 0.1-spaced
+       table by eye.  Assert that the DIFFERENCE is the interpolation error and
+       that our inversion is the exact one — not that we reproduce the misread. */
+    for(const [Ar,book] of [[2.6265,0.24],[2.40,0.26]]){
+      const exact=MfromA(Ar,1.4,false);
+      chk('exact inversion A/A*='+Ar,AAs(exact,1.4),Ar,1e-12,true);
+      let lo=null,hi=null;
+      for(const r of TBL92){ if(r[0]<1&&r[3]>=Ar&&(!lo||r[0]>lo[0])) lo=r;
+                             if(r[0]<=1&&r[3]<Ar&&(!hi||r[0]<hi[0])) hi=r; }
+      const lin=lo[0]+(hi[0]-lo[0])*(lo[3]-Ar)/(lo[3]-hi[3]);
+      chk('book value is linear interpolation of Table 9.2 (Ar='+Ar+')',lin,book,0.02,false);
+      ok(Math.abs(exact-book)>0.008,'exact and table-read differ measurably (Ar='+Ar+')'); } }
+
+  /* ---------- nozzle solver ---------- */
+  { const base=Object.assign({},DEFAULTS); syncGas(base);
+    for(const Ae of [1.3,2.4,4.0]) for(const gid of ['air','mono','co2']){
+      const st=Object.assign({},base,{Ae,gas:gid}); syncGas(st);
+      const s0=nozzleSolve(Object.assign({},st,{pbr:0.5}));
+      ok(s0.p3<s0.p2&&s0.p2<s0.p1&&s0.p1<1,'p3 < p2 < p1 < p0 (Ae='+Ae+', '+gid+')');
+      /* the shock solve must reproduce the back pressure it was given */
+      for(let i=1;i<=9;i++){
+        const pb=s0.p2+(s0.p1-s0.p2)*i/10;
+        const s=nozzleSolve(Object.assign({},st,{pbr:pb}));
+        ok(s.regime==='shockIn','shock-in regime at pb between p2 and p1');
+        chk('nozzle shock solve reproduces pb',s.pe,pb,1e-9,true);
+        ok(s.shockA>=1&&s.shockA<=Ae+1e-9,'shock area within the diverging section');
+        ok(s.shockU>=st.xt&&s.shockU<=1,'shock position inside the nozzle'); }
+      /* monotone: lowering pb pushes the shock downstream */
+      let prev=-1;
+      for(let i=1;i<=20;i++){
+        const pb=s0.p2+(s0.p1-s0.p2)*(1-i/21);
+        const s=nozzleSolve(Object.assign({},st,{pbr:pb}));
+        ok(s.shockA>prev,'shock moves downstream as pb falls'); prev=s.shockA; }
+      /* continuity of the exit Mach number across the choking boundary */
+      const a=nozzleSolve(Object.assign({},st,{pbr:s0.p1*(1+1e-7)}));
+      const b=nozzleSolve(Object.assign({},st,{pbr:s0.p1*(1-1e-7)}));
+      chk('Me continuous across choking (Ae='+Ae+')',a.Me,b.Me,1e-5,true);
+      chk('mass flow continuous across choking',a.mdotFrac,b.mdotFrac,1e-5,true);
+      /* the profile jumps by exactly py/px at the shock */
+      const st2=Object.assign({},st,{pbr:(s0.p1+s0.p2)/2});
+      const s2=nozzleSolve(st2), pr=nozzleProfile(st2,s2,400);
+      const pre=pr.filter(q=>!q.post), post=pr.filter(q=>q.post);
+      ok(pre.length>2&&post.length>2,'profile has both sides of the shock');
+      chk('pressure jump equals py/px',post[0].pr/pre[pre.length-1].pr,
+          pRatio(s2.Mx,s2.My,st2.k),3e-2,true);
+      ok(pr.every(q=>isFinite(q.M)&&isFinite(q.pr)&&q.pr>0&&q.pr<=1+1e-9),
+         'profile finite and in range');
+      /* choked mass flow does not respond to back pressure */
+      const m1=nozzleSolve(Object.assign({},st,{pbr:s0.p1*0.9})).mdotFrac;
+      const m2=nozzleSolve(Object.assign({},st,{pbr:s0.p3*0.5})).mdotFrac;
+      ok(m1===1&&m2===1,'choked mass flow is independent of pb'); } }
+
+  /* ---------- the Pi-theorem ---------- */
+  { const x=solveLinear([[2,1,-1],[-3,-1,2],[-2,1,2]],[8,-11,-3]);
+    chk('solveLinear x',x[0],2,1e-12,false); chk('solveLinear y',x[1],3,1e-12,false);
+    chk('solveLinear z',x[2],-1,1e-12,false); }
+  for(const n of [1,2,3]) for(const kap of [0,0.5,-1,2]){
+    const e=blastExponents(n,kap), al=2/(n+kap+2);
+    chk('alpha = 2/(n+k+2) (n='+n+', k='+kap+')',e.t,al,1e-12,true);
+    chk('E exponent = 1/(n+k+2)',e.E,al/2,1e-12,true);
+    chk('rho exponent = -1/(n+k+2)',e.A,-al/2,1e-12,true); }
+  chk('spherical uniform: t exponent is 2/5',blastExponents(3,0).t,0.4,1e-13,false);
+
+  /* ---------- Sedov ---------- */
+  { const S=sedov(1.4,3);
+    chk('Sedov xi0(1.4, n=3)',S.xi0,1.033,5e-4,true);
+    chk('Sedov xi0(5/3, n=3)',sedov(5/3,3).xi0,1.152,5e-4,true);
+    /* refinement: the answer must not move */
+    const a=sedov(1.4,3,{nsteps:8000,lmin:1e-3}), b=sedov(1.4,3,{nsteps:40000,lmin:1e-4});
+    /* measured drift between the coarsest and finest settings is 2.4e-6 —
+       two hundred times smaller than the 5e-4 needed to claim the literature
+       value above, so the quoted six digits of xi0 are earned, not decorative */
+    chk('Sedov xi0 stable under refinement',a.xi0,b.xi0,1e-5,true);
+    /* boundary conditions at the shock are the strong-shock Rankine-Hugoniot */
+    const g=1.4, p=S.prof[0];
+    chk('Sedov U(1) = 2/(g+1)',p[1],2/(g+1),1e-12,true);
+    chk('Sedov G(1) = (g+1)/(g-1)',p[2],(g+1)/(g-1),1e-12,true);
+    chk('Sedov P(1) = 2/(g+1)',p[3],2/(g+1),1e-12,true);
+    /* ... and that is the SAME jump as the steady formulas in the strong limit */
+    chk('Sedov density jump = steady shock at Mx→∞',p[2],shock(1e6,g).rho,1e-6,true);
+    /* the analytic core limits the ODEs themselves imply */
+    chk('Sedov core U/lambda -> 1/gamma',S.core.U/S.core.lam,1/g,3e-3,true);
+    chk('Sedov core G ~ lambda^(n/(g-1))',
+        Math.log(S.core.G)/Math.log(S.core.lam),3/(g-1),2e-2,true);
+    ok(S.J>0&&isFinite(S.J),'Sedov energy integral finite and positive');
+    /* monotone profiles: density falls inward, velocity falls inward */
+    let mono=true;
+    for(let i=1;i<S.prof.length;i++) if(S.prof[i][2]>S.prof[i-1][2]*1.000001) mono=false;
+    ok(mono,'Sedov density decreases inward everywhere');
+    /* lower gamma compresses more, so xi0 is smaller */
+    ok(sedov(1.2,3).xi0<sedov(1.4,3).xi0&&sedov(1.4,3).xi0<sedov(1.8,3).xi0,
+       'xi0 increases with gamma');
+    for(const n of [1,2,3]){ const Sn=sedov(1.4,n);
+      chk('Sedov alpha = 2/(n+2), n='+n,Sn.alpha,2/(n+2),1e-13,true);
+      ok(Sn.xi0>0.5&&Sn.xi0<2,'xi0 in a sane range for n='+n); } }
+  /* R(t) and E(R,t) invert each other */
+  { const S=sedov(1.4,3);
+    for(const t of [1e-4,1e-3,1e-2]) for(const E of [1e13,8.4e13,1e15]){
+      const R=blastR(t,E,1.25,S);
+      chk('blastE inverts blastR',blastE(t,R,1.25,S),E,1e-10,true); }
+    /* the t^2/5 law itself */
+    const S3=sedov(1.4,3);
+    chk('R doubles-time scaling',blastR(2e-3,1e14,1.25,S3)/blastR(1e-3,1e14,1.25,S3),
+        Math.pow(2,0.4),1e-12,true); }
+
+  /* ---------- Taylor's fit ---------- */
+  { const S=sedov(1.4,3);
+    const self=taylorFit([0.24,1.93],S,1.25), all=taylorFit([0.10,62],S,1.25);
+    ok(self&&all,'both fit windows produce a fit');
+    chk('slope in the self-similar window is 2/5',self.slope,0.4,0.02,false);
+    ok(self.E/KT_J>17&&self.E/KT_J<23,
+       'yield in the self-similar window is 17-23 kt (got '+(self.E/KT_J).toFixed(1)+')');
+    ok(all.E/KT_J>14&&all.E/KT_J<20,
+       'yield over the whole record is lower but sane (got '+(all.E/KT_J).toFixed(1)+')');
+    ok(self.rms<all.rms,'the self-similar window fits better than the whole record');
+    /* THE IDENTITY: free slope read at the centroid == slope pinned at 2/(n+2).
+       This is why the sim reports one yield and not two. */
+    { let worst=0;
+      for(const w of [[0.24,1.93],[0.10,62],[0.38,4.61],[0.66,1.93],[1.0,1.93],[15,62]]){
+        const F=taylorFit(w,S,1.25);
+        worst=Math.max(worst,Math.abs(F.Ecent-F.E)/F.E); }
+      ok(worst<1e-12,'free-slope-at-centroid IS the pinned-slope estimator (worst '
+        +worst.toExponential(2)+')'); }
+    /* and that the extrapolated intercept is the unstable one it is warned about */
+    { const bad=taylorFit([0.10,0.66],S,1.25);
+      ok(bad.Eext/KT_J>100,'extrapolating to t = 1 s on a bad window explodes (got '
+        +(bad.Eext/KT_J).toFixed(0)+' kt)');
+      ok(bad.E/KT_J>8&&bad.E/KT_J<25,'while the centroid estimator stays sane (got '
+        +(bad.E/KT_J).toFixed(1)+' kt)');
+      let sane=true;
+      for(const w of [[0.24,1.93],[0.10,62],[0.38,4.61],[0.24,4.61],[0.66,1.93],
+                      [1.0,1.93],[0.10,1.93],[3.26,62],[0.10,0.66],[15,62]]){
+        const F=taylorFit(w,S,1.25);
+        if(!(F.E/KT_J>8&&F.E/KT_J<30)) sane=false; }
+      ok(sane,'the estimator stays in 8-30 kt on EVERY window tried'); }
+    ok(TAYLOR.every((p,i)=>i===0||p[0]>TAYLOR[i-1][0]),'Taylor data is time-ordered');
+    ok(TAYLOR.every((p,i)=>i===0||p[1]>TAYLOR[i-1][1]),'Taylor radii increase');
+    /* the per-point yield is flat in the middle and drifts at both ends —
+       which is the physical statement that self-similarity has a window */
+    const E=TAYLOR.map(p=>taylorPointE(p,S,1.25)/KT_J);
+    ok(E[0]<E[4]*0.5,'the earliest point is far from self-similar');
+    ok(E[E.length-1]<E[8],'the latest points have lost energy to the ambient');
+    const mid=E.slice(2,14), sp=(Math.max.apply(null,mid)-Math.min.apply(null,mid))
+                              /(mid.reduce((a,b)=>a+b,0)/mid.length);
+    ok(sp<0.12,'the yield is flat to '+(100*sp).toFixed(1)+'% across the window'); }
+
+  /* ---------- Rayleigh-Taylor ---------- */
+  { chk('Atwood of equal densities',atwood(1,1),0,1e-15,false);
+    chk('Atwood of vacuum',atwood(1,0),1,1e-15,false);
+    chk('sigma = sqrt(A a k)',sigmaClassical(TAU,1,9.81),Math.sqrt(9.81),1e-12,true);
+    /* eq. 8.35 with T = 0 must BE eq. 8.36 — otherwise the surface-tension form
+       could be squared and the sign-only tests below would never notice */
+    { let worst=0;
+      for(const At of [0.05,0.4,0.9,1]) for(const lam of [0.2,3,50,400]) for(const a of [1,20,9.81]){
+        const g=sigmaRT(lam,At,a,0,2), c=sigmaClassical(lam,At,a);
+        worst=Math.max(worst,Math.abs(g-c)/Math.max(c,1e-30)); }
+      ok(worst<1e-14,'eq. 8.35 at zero surface tension reduces to eq. 8.36 (worst '
+        +worst.toExponential(2)+')');
+      /* and it is a rate, not a rate squared: doubling a multiplies sigma by sqrt2 */
+      chk('sigma scales as sqrt(a)',sigmaRT(10,0.6,40,0,2)/sigmaRT(10,0.6,10,0,2),2,1e-12,true);
+      chk('sigma scales as 1/sqrt(lambda)',sigmaRT(40,0.6,10,0,2)/sigmaRT(10,0.6,10,0,2),
+          0.5,1e-12,true); }
+    /* eq. 8.164 is exactly "linear velocity meets terminal velocity" */
+    for(const At of [0.1,0.5,0.9,1]) for(const lam of [0.5,10,120]){
+      const a=20, sig=sigmaClassical(lam,At,a);
+      chk('zeta_sat solves sigma*z = ub_inf (At='+At+', lam='+lam+')',
+          sig*zetaSat(lam,At),ubAsym(lam,At,a),1e-12,true); }
+    /* the buoyancy-drag ODE must reach Table 8.2's asymptote on its own */
+    for(const At of [0.2,0.6,0.95]) for(const lam of [10,120]){
+      const a=20;
+      const B=buoyancyDrag(lam,At,a,400,4000,'bubble');
+      chk('eq. 8.160 -> Table 8.2 bubble speed (At='+At+', lam='+lam+')',
+          B[B.length-1][2],ubAsym(lam,At,a),1e-3,true);
+      const Sp=buoyancyDrag(lam,At,a,400,4000,'spike');
+      chk('eq. 8.163 -> Table 8.2 spike speed (At='+At+')',
+          Sp[Sp.length-1][2],usAsym(lam,At,a),1e-3,true);
+      /* The terminal speed is drag against buoyancy and is blind to the inertia
+         term, so it cannot test it.  The INITIAL acceleration can: at u = 0 the
+         drag vanishes and eq. 8.160 gives du/dt = (r2-r1)a/(2 r2 + r1), which
+         with r2 = 1+At, r1 = 1-At is 2 At a/(3+At) — and 2 At a/(3-At) for the
+         spike, eq. 8.163. */
+      const B0=buoyancyDrag(lam,At,a,1e-4,200,'bubble');
+      chk('eq. 8.160 initial acceleration = 2At a/(3+At) (At='+At+')',
+          B0[1][2]/B0[1][0],2*At*a/(3+At),1e-6,true);
+      const S0=buoyancyDrag(lam,At,a,1e-4,200,'spike');
+      chk('eq. 8.163 initial acceleration = 2At a/(3−At) (At='+At+')',
+          S0[1][2]/S0[1][0],2*At*a/(3-At),1e-6,true); }
+    /* At = 1: the spike does not reach a terminal speed, it accelerates at a */
+    { const a=20, B=buoyancyDrag(120,1,a,60,4000,'spike');
+      const n=B.length, acc=(B[n-1][2]-B[n-2][2])/(B[n-1][0]-B[n-2][0]);
+      chk('At=1 spike accelerates at a',acc,a,2e-2,true);
+      ok(!isFinite(usAsym(120,1,a)),'Table 8.2 spike speed diverges at At=1'); }
+    /* surface tension stabilises short wavelengths and only short ones */
+    { const T=500, rsum=2, At=1, a=1e16;
+      const lamCrit=TAU*Math.sqrt(T/((At*rsum)*a));
+      ok(sigmaRT(lamCrit*0.5,At,a,T,rsum)===0,'surface tension kills lambda < critical');
+      ok(sigmaRT(lamCrit*2,At,a,T,rsum)>0,'longer wavelengths still grow'); }
+    /* eq. 8.165 reproduces the second-order vertex heights it is quoted with */
+    for(const z1 of [0.01,0.05,0.12]){
+      const lam=1, kk=TAU/lam;
+      const up=rtInterface(0,lam,z1), dn=rtInterface(lam/2,lam,z1);
+      chk('third-order rising vertex = z - k z^2/2 (z='+z1+')',up,z1-kk*z1*z1/2,
+          0.30*kk*kk*z1*z1*z1+1e-12,false);
+      ok(Math.abs(dn)>Math.abs(up),'the spike is deeper than the bubble is tall'); }
+    /* the non-linear morphology: exact tips, cap radius independent of amplitude */
+    for(const lam of [12,120,380]) for(const [hb,hs] of [[3,4],[20,60],[200,900],[900,32000]]){
+      const tag=' (λ='+lam+', hb='+hb+', hs='+hs+')';
+      chk('shape hits the bubble crest exactly'+tag,rtNonlinearShape(0,lam,hb,hs),hb,1e-9,true);
+      chk('shape hits the spike tip exactly'+tag,rtNonlinearShape(lam/2,lam,hb,hs),-hs,1e-9,true);
+      chk('shape is periodic in lambda'+tag,
+          rtNonlinearShape(3*lam+lam/7,lam,hb,hs),rtNonlinearShape(lam/7,lam,hb,hs),1e-9,true);
+      /* monotone from crest down to tip — no spurious wiggles */
+      let mono=true,prev=Infinity;
+      for(let i=0;i<=400;i++){ const z=rtNonlinearShape(lam/2*i/400,lam,hb,hs);
+        if(z>prev+1e-9) mono=false; prev=z; }
+      ok(mono,'shape falls monotonically from crest to tip'+tag);
+      /* THE POINT: the cap radius is set by lambda, not by the amplitude.
+         Only assert it where the coefficient is unclamped, i.e. where the
+         excursion is big enough for a cap to be a meaningful idea. */
+      const acoef=Math.PI*lam/(12*(hb+hs));
+      if(acoef>0.002*1.05&&acoef<1.5*0.95){
+        const e=lam*1e-3;
+        const curv=(rtNonlinearShape(-e,lam,hb,hs)-2*rtNonlinearShape(0,lam,hb,hs)
+                   +rtNonlinearShape(e,lam,hb,hs))/(e*e);
+        chk('cap radius = 3λ/2π regardless of amplitude'+tag,
+            -1/curv,RT_CAP*lam,2e-3,true); } }
+    /* and the thing it replaced would NOT have that property: scaling the
+       third-order form multiplies its crest curvature by the stretch factor */
+    { const lam=120, z=rtInterface(0,lam,zetaSat(lam,0.8)), e=lam*1e-3;
+      const c1=(rtInterface(-e,lam,zetaSat(lam,0.8))-2*z+rtInterface(e,lam,zetaSat(lam,0.8)))/(e*e);
+      const S=10, c2=c1*S;                 /* stretching by S scales curvature by S */
+      ok(Math.abs(-1/c2)<Math.abs(-1/c1)*0.2,
+         'a vertically stretched linear shape loses its cap radius (the bug this replaced)'); }
+    /* the coarsening argument, stated as an inequality that flips */
+    { const a=20, At=0.8;
+      ok(sigmaClassical(10,At,a)>sigmaClassical(100,At,a),
+         'short modes grow faster in the linear stage');
+      ok(ubAsym(10,At,a)<ubAsym(100,At,a),
+         'long modes move faster in the non-linear stage — this is why it coarsens'); }
+    chk('h = alpha At a t^2',hTurb(0.05,0.8,20,3),0.05*0.8*20*9,1e-12,true); }
+
+  /* ---- the interface is drawn at EQUAL ASPECT ----------------------------
+     Measured against the world coordinates it came from, not asserted from
+     the fact that one variable was used.  A bubble and a spike differ only in
+     shape, so an unequal scale is not a distortion of the picture — it is a
+     different picture.  Checked across the whole time range, because the
+     excursion outgrows the wavelength by a factor of seven by t = 22 s. */
+  { const r={x:70,y:52,w:900,h:420};
+    for(const t of [0,0.5,2,5,8,14,22,40,60]) for(const lam of [12,120,380])
+      for(const rr of [0.002,0.12,0.6,0.95]){
+        const st=Object.assign({},DEFAULTS,{view:'mushroom',tRT:t,lam,rhoRatio:rr});
+        syncGas(st);
+        const R=rtState(st), P=rtInterfacePoints(r,st,R);
+        let wx0=Infinity,wx1=-Infinity,wy0=Infinity,wy1=-Infinity;
+        let sx0=Infinity,sx1=-Infinity,sy0=Infinity,sy1=-Infinity;
+        for(let i=0;i<P.world.length;i++){
+          wx0=Math.min(wx0,P.world[i][0]); wx1=Math.max(wx1,P.world[i][0]);
+          wy0=Math.min(wy0,P.world[i][1]); wy1=Math.max(wy1,P.world[i][1]);
+          sx0=Math.min(sx0,P.pts[i][0]);   sx1=Math.max(sx1,P.pts[i][0]);
+          sy0=Math.min(sy0,P.pts[i][1]);   sy1=Math.max(sy1,P.pts[i][1]); }
+        const tag=' (t='+t+', λ='+lam+', ρ₁/ρ₂='+rr+')';
+        if(wy1-wy0>1e-9){
+          const ar=((sx1-sx0)/(wx1-wx0))/((sy1-sy0)/(wy1-wy0));
+          ok(Math.abs(ar-1)<1e-9,'RT interface drawn at equal aspect'+tag
+             +' (ratio '+ar.toFixed(6)+')'); }
+        ok(P.B.clipped||sy1-sy0<=r.h+0.5,'the excursion fits, or is flagged clipped'+tag);
+        ok(sx1-sx0>=r.w-0.5,'the tiling covers the box width'+tag);
+        ok(P.pts.every(p=>isFinite(p[0])&&isFinite(p[1])),'interface points finite'+tag);
+        /* bubbles blunt, spikes sharp: the crest must be nearer the mean than
+           the trough is, at every stage after the shape becomes asymmetric */
+        if(R.nonlinear) ok(R.hs>=R.hb,'the spike outruns the bubble'+tag); } }
+
+  /* ---------- plotting primitives ---------- */
+  { const ax=makeAxes({x:10,y:20,w:300,h:200},{x0:0,x1:10,y0:1,y1:5});
+    chk('axes map x0',ax.X(0),10,1e-12,false); chk('axes map x1',ax.X(10),310,1e-12,false);
+    chk('axes map y0 at bottom',ax.Y(1),220,1e-12,false);
+    chk('axes map y1 at top',ax.Y(5),20,1e-12,false);
+    chk('axes invert x',ax.invX(ax.X(3.7)),3.7,1e-10,true);
+    chk('axes invert y',ax.invY(ax.Y(2.2)),2.2,1e-10,true);
+    const lg=makeAxes({x:0,y:0,w:100,h:100},{x0:1e-3,x1:10,y0:1,y1:1000},{logx:true,logy:true});
+    chk('log axes invert',lg.invX(lg.X(0.037)),0.037,1e-10,true);
+    ok(niceTicks(0,10,5).length>=3,'linear ticks produced');
+    ok(logTicks(1e-3,10).filter(t=>t.major).length===5,'log decade ticks');
+    let threw=false; try{ makeAxes({x:0,y:0,w:10,h:10},{x0:1,x1:1,y0:0,y1:1}); }
+    catch(e){ threw=true; }
+    ok(threw,'makeAxes rejects a degenerate domain instead of dividing by zero');
+    /* adaptiveCurve must actually bound the SCREEN step — sampling uniformly in
+       a parameter that is not uniform on screen is on the Known-bad list */
+    const pts=adaptiveCurve(0,1,t=>[t*t*t*1000,0],6,2000,8);
+    let worst=0;
+    for(let i=1;i<pts.length;i++) worst=Math.max(worst,Math.abs(pts[i].p[0]-pts[i-1].p[0]));
+    ok(worst<=6.001,'adaptiveCurve bounds the screen step (worst '+worst.toFixed(2)+' px)');
+    const naive=[]; for(let i=0;i<=pts.length;i++){ const t=i/pts.length; naive.push(t*t*t*1000); }
+    let nworst=0; for(let i=1;i<naive.length;i++) nworst=Math.max(nworst,naive[i]-naive[i-1]);
+    ok(nworst>6,'and uniform sampling would NOT have (worst '+nworst.toFixed(1)+' px)'); }
+
+  /* ---------- colour ---------- */
+  { ok(toRgb('#5ac8e0').join()==='90,200,224','toRgb parses 6-digit hex');
+    ok(toRgb('#abc').join()==='170,187,204','toRgb parses 3-digit hex');
+    ok(toRgb('rgb(58,111,142)').join()==='58,111,142','toRgb parses rgb()');
+    ok(toRgb('rgba(58,111,142,0.5)').join()==='58,111,142','toRgb parses rgba()');
+    ok(toRgb(mix('#5ac8e0','#e8a33a',0.5)).every(c=>c>0),'mix output re-parses non-black');
+    const two=mix('#070b18',mix('#5ac8e0','#e8a33a',0.4),0.8);
+    ok(toRgb(two).reduce((a,b)=>a+b)>150,'two-stage blend stays bright ('+two+')');
+    let threw=false; try{ toRgb('chartreuse'); }catch(e){ threw=true; }
+    ok(threw,'toRgb throws on an unparseable colour instead of silently going black');
+    /* Assert BRIGHTNESS per band, not colour syntax — rgb(0,0,0) is perfectly
+       well formed, and the two-stage blend here is exactly the shape that
+       painted 420 dome quads black in steam_carnot_cycle.html. */
+    { let dark=null, worst=1e9;
+      for(const post of [false,true]) for(let i=0;i<=40;i++){
+        const q={M:i*0.1,post}, c=toRgb(nozzleBandColour(q));
+        const sum=c[0]+c[1]+c[2];
+        if(sum<worst){ worst=sum; dark=q; }
+        ok(sum>60,'nozzle band is visible at M='+q.M.toFixed(1)+', post='+post
+          +' (rgb sum '+sum+')'); }
+      ok(worst>60,'darkest nozzle band has rgb sum '+worst+' at M='
+        +dark.M.toFixed(1)+', post='+dark.post);
+      /* and the supersonic core must be brighter than the subsonic inlet, so
+         the shading actually reads as a Mach number */
+      const inlet=toRgb(nozzleBandColour({M:0.2,post:false})).reduce((a,b)=>a+b);
+      const core =toRgb(nozzleBandColour({M:1.0,post:false})).reduce((a,b)=>a+b);
+      ok(core>inlet*1.3,'the sonic band is visibly brighter than the inlet band'); } }
+
+  /* ---------- every view draws, clips, and emits only finite numbers ------- */
+  { for(const v of VIEWS.map(v=>v.id)){
+      for(const [W,H] of [[1440,900],[1100,700],[820,560],[640,460]]){
+        const st=Object.assign({},DEFAULTS,{view:v}); syncGas(st);
+        const c=stubCtx();
+        let err=null; try{ drawView(c,W,H,st); }catch(e){ err=e; }
+        ok(!err,'draw '+v+' at '+W+'x'+H+(err?': '+err.message:''));
+        if(err) continue;
+        ok(c.rec.clips>0,'view '+v+' clips its data to the frame');
+        ok(c.rec.nums.every(isFinite),'view '+v+' emits only finite coordinates');
+        ok(c.rec.ops.length>40,'view '+v+' actually drew something');
+      } } }
+  /* the same, across the parameter space rather than only the defaults */
+  { const c=stubCtx();
+    for(const Mx of [1.02,1.5,3,6,8]) for(const gid of ['air','mono','co2']){
+      const st=Object.assign({},DEFAULTS,{view:'jump',Mx,gas:gid}); syncGas(st);
+      let e=null; try{ drawJump(c,1200,760,st); }catch(x){ e=x; }
+      ok(!e,'jump draws at Mx='+Mx+', '+gid+(e?': '+e.message:'')); }
+    for(let i=0;i<=20;i++){
+      const st=Object.assign({},DEFAULTS,{view:'nozzle',pbr:0.02+i*0.049}); syncGas(st);
+      let e=null; try{ drawNozzle(c,1200,760,st); }catch(x){ e=x; }
+      ok(!e,'nozzle draws at pb/p0='+(0.02+i*0.049).toFixed(3)+(e?': '+e.message:'')); }
+    for(const g of [1.15,1.4,1.67,1.85]) for(const n of [1,2,3]){
+      const st=Object.assign({},DEFAULTS,{view:'blast',gamB:g,ndim:n}); syncGas(st);
+      let e=null; try{ drawBlast(c,1200,760,st); }catch(x){ e=x; }
+      ok(!e,'blast draws at gamma='+g+', n='+n+(e?': '+e.message:'')); }
+    for(const t of [0,0.5,2,8,25,60]) for(const r of [0.002,0.3,0.9]){
+      const st=Object.assign({},DEFAULTS,{view:'mushroom',tRT:t,rhoRatio:r}); syncGas(st);
+      let e=null; try{ drawMushroom(c,1200,760,st); }catch(x){ e=x; }
+      ok(!e,'mushroom draws at t='+t+', r='+r+(e?': '+e.message:'')); } }
+  /* layout rectangles stay positive on small canvases */
+  { for(const [W,H] of [[600,420],[900,600],[1600,1000]]){
+      const st=Object.assign({},DEFAULTS); syncGas(st);
+      for(const G of [jumpGeometry(st,W,H),nozzleGeometry(st,W,H),
+                      blastGeometry(st,W,H),mushGeometry(st,W,H)])
+        for(const kk in G) if(G[kk]&&G[kk].w!=null)
+          ok(G[kk].w>0&&G[kk].h>0,'layout rect positive at '+W+'x'+H); } }
+
+  /* ---------- strings ---------- */
+  { for(const v of VIEWS.map(v=>v.id)){
+      const st=Object.assign({},DEFAULTS,{view:v}); syncGas(st);
+      for(const s of [readoutHTML(st),eqbarHTML(st),tagHTML(st),INFO[v],SUBTITLE[v],HINT[v]]){
+        ok(typeof s==='string'&&s.length>0,v+' string present');
+        ok(s.indexOf('undefined')<0,v+' string has no undefined');
+        ok(s.indexOf('NaN')<0,v+' string has no NaN'); } }
+    for(const r in REGIMES){ ok(REGIMES[r].name&&REGIMES[r].note,'regime text for '+r); }
+    /* the readout must not go to pieces at the ends of the sliders either */
+    for(const Mx of [1.001,8]) { const st=Object.assign({},DEFAULTS,{Mx}); syncGas(st);
+      ok(readoutHTML(st).indexOf('NaN')<0,'jump readout clean at Mx='+Mx); }
+    for(const pbr of [0.02,0.999,1.0]) { const st=Object.assign({},DEFAULTS,{view:'nozzle',pbr});
+      syncGas(st); ok(readoutHTML(st).indexOf('NaN')<0,'nozzle readout clean at pb='+pbr); }
+    for(const t of [0,60]) { const st=Object.assign({},DEFAULTS,{view:'mushroom',tRT:t});
+      syncGas(st); ok(readoutHTML(st).indexOf('NaN')<0,'mushroom readout clean at t='+t); } }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

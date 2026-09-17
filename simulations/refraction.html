@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Refraction — Snell, Fresnel &amp; total internal reflection</title>
+<!--
+  Light crossing a boundary between two media of refractive index n1, n2.
+  One law does the geometry, one pair of laws does the energy, and one
+  inequality opens the trapdoor to total internal reflection.
+
+  INTERFACE view (the workhorse): a single flat boundary, medium 1 on top,
+  medium 2 below. Drag the incidence angle (or use the slider). The incident
+  ray splits into a reflected ray (angle = angle of incidence) and a refracted
+  ray bent by Snell's law
+        n1 sin(theta_i) = n2 sin(theta_t).
+  The brightness of each ray is its Fresnel share of the power:
+        r_s = (n1 cos i - n2 cos t)/(n1 cos i + n2 cos t)   (E out of plane)
+        r_p = (n2 cos i - n1 cos t)/(n2 cos i + n1 cos t)   (E in plane)
+        R = r^2,   T = 1 - R      (energy is conserved at every angle).
+  Two special angles are marked:
+    - Brewster  theta_B = atan(n2/n1): R_p -> 0, so the reflected beam is
+      100% s-polarized (reflected and refracted rays are perpendicular).
+    - Critical  theta_c = asin(n2/n1), only when n1 > n2: for theta_i >= theta_c
+      sin(theta_t) would exceed 1, there is NO refracted ray, R = 1 exactly,
+      and every photon reflects -> TOTAL INTERNAL REFLECTION. Swap the media
+      (or hit a "into a rarer medium" pair) and push past theta_c to see it.
+    Normal incidence reflectance ((n1-n2)/(n1+n2))^2 is 4% for air->glass,
+    2% for air->water, 17% for diamond->air (why cut diamonds are so bright).
+
+  WAVEFRONTS view: the same boundary, but drawn as the real scalar wave field
+  Re[psi] (s-polarization: the tangential field is continuous, so t = 1 + r).
+  The frequency is fixed across the boundary, so the wavelength rescales,
+        lambda_2 = lambda_1 * n1/n2       (v = c/n),
+  and the crests must line up along the interface (the tangential wavevector
+  k_x is conserved) -- that phase-matching IS Snell's law, drawn. Above the
+  boundary the incident and reflected waves interfere into a standing pattern;
+  below, the transmitted crests march off at theta_t. Past the critical angle
+  k_y in medium 2 turns imaginary: the field becomes an EVANESCENT wave that
+  clings to the surface and dies exponentially with depth, exp(-kappa*z),
+  carrying no power downward -- the wave-optics face of total reflection.
+  Amplitudes are the exact complex Fresnel coefficients (|r| = 1 under TIR).
+
+  STACK view (many media at once): a ray threads a pile of parallel layers,
+  refracting at each interface. Because k_x is conserved, n sin(theta) is
+  the SAME in every layer -- so a ray that survives to an identical top and
+  bottom medium leaves at the angle it entered, merely displaced sideways.
+  Presets: an aquarium (air/water/crown glass), an optical fibre (a high-index
+  core clad in low-index glass -- rays launched inside the acceptance cone
+  NA = sqrt(n_core^2 - n_clad^2) are trapped by TIR and zig-zag down the guide;
+  launch too steep and they leak out), a desert mirage (a smooth index
+  gradient near hot ground bends skylight back up into a shimmering "puddle"),
+  and a single slab (in and out parallel, shifted by t*sin(i-t)/cos t). Ray
+  brightness tracks the surviving power; faint stubs mark partial reflections.
+
+  FRESNEL view: the reflectance curves R_s, R_p, R_unpolarized and the
+  transmittance T = 1 - R plotted against the angle of incidence, with the
+  Brewster null and (for n1 > n2) the critical wall and its shaded
+  total-reflection plateau. A marker rides the curves at the current angle.
+
+  Indices are wavelength-dependent: constants for air/ethanol/glycerin, a
+  Cauchy fit for water, and full Sellmeier dispersion for the glasses,
+  sapphire and diamond -- so the wavelength slider moves n a little and paints
+  the ray in the true CIE colour of that wavelength (pipeline shared with
+  blackbody_radiation.html and scattering.html). n at the sodium-D line
+  (589.3 nm): water 1.333, fused silica 1.458, crown glass 1.517, flint 1.728,
+  sapphire 1.768, diamond 2.417.
+
+  Aesthetic matches the other sims in this collection: black stage,
+  Mathematica NeonColors accents, same chrome. Single file, no dependencies,
+  works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript refr_test.js
+  -- with `document` undefined it runs the assertion suite (Snell, Fresnel,
+  energy conservation, critical/Brewster angles, TIR, dispersion anchors,
+  wave-field phase-matching and |r|=1, and the stack Snell-invariant) instead
+  of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4; --warn:#f5d76b;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0;}
+  #wave{position:absolute; inset:0; width:100%; height:100%; display:block; cursor:crosshair;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #readout .sub.warn{color:var(--warn);}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #panel{width:288px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 22px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .chip.wide{border-radius:8px;}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:78px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:62px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  select.medsel{width:100%; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                border-radius:6px; padding:5px 8px; font-size:12.5px; cursor:pointer; outline:none;}
+  select.medsel:hover{border-color:var(--accent);}
+  .selrow{display:flex; align-items:center; gap:8px; margin:6px 0;}
+  .selrow .tag{font:11.5px "SF Mono", Menlo, monospace; width:26px; flex-shrink:0; color:var(--dim);}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #swatch{display:inline-block; width:13px; height:13px; border-radius:50%; border:1px solid #444;
+          vertical-align:-2px; margin-left:2px;}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  #info .k{color:var(--accent);}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Refraction</h1>
+  <span class="sub">Snell&rsquo;s law &middot; Fresnel reflection &amp; transmission &middot; total internal reflection &middot; Brewster&rsquo;s angle &middot; light through a stack of media</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="wave"></canvas>
+    <div id="hint"></div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span><span class="sub" id="roSub2"></span><span class="sub" id="roSub3"></span></div>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>view</h3>
+      <div class="chips">
+        <button class="chip on" id="viewI" title="one boundary: reflected + refracted rays, Fresnel shares, TIR">interface</button>
+        <button class="chip" id="viewW" title="the real wave field: why Snell holds, and the evanescent wave">wavefronts</button>
+        <button class="chip" id="viewS" title="a ray through many stacked layers">stack</button>
+        <button class="chip" id="viewF" title="reflectance vs angle: Brewster and the critical wall">Fresnel</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpPairs">
+      <h3>quick pairs</h3>
+      <div class="chips">
+        <button class="chip wide" id="pAW">air &rarr; water</button>
+        <button class="chip wide" id="pAG">air &rarr; glass</button>
+        <button class="chip wide" id="pWA" title="past the critical angle: total internal reflection">water &rarr; air</button>
+        <button class="chip wide" id="pDA" title="critical angle only 24.4&deg; -- why diamonds sparkle">diamond &rarr; air</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpMedia">
+      <h3>media</h3>
+      <div class="selrow"><span class="tag">n&#8321;</span><select class="medsel" id="selM1"></select></div>
+      <div class="selrow"><span class="tag">n&#8322;</span><select class="medsel" id="selM2"></select></div>
+      <div class="btnrow"><button id="swapBtn" title="exchange the two media -- flips the direction of the light">&#8645; swap media</button></div>
+    </div>
+
+    <div class="grp" id="grpPol">
+      <h3>polarization</h3>
+      <div class="chips">
+        <button class="chip" id="polS" title="E perpendicular to the plane of incidence (TE)">s</button>
+        <button class="chip" id="polP" title="E in the plane of incidence (TM) -- vanishes at Brewster">p</button>
+        <button class="chip on" id="polU">unpolarized</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpAngle">
+      <h3>geometry</h3>
+      <div class="sliderrow"><label for="eTheta">angle of inc.</label>
+        <input type="range" id="eTheta" min="0.5" max="89.5" step="0.5">
+        <span class="val" id="eThetaVal"></span></div>
+    </div>
+
+    <div class="grp" id="grpStack">
+      <h3>stack</h3>
+      <div class="chips" style="margin-bottom:8px;">
+        <button class="chip on" id="stAq">aquarium</button>
+        <button class="chip" id="stFib" title="high-index core clad in low-index glass: TIR guiding">fibre</button>
+        <button class="chip" id="stMir" title="hot-ground index gradient bends skylight back up">mirage</button>
+        <button class="chip" id="stSlab" title="one slab: in and out parallel, shifted sideways">slab</button>
+      </div>
+      <div class="sliderrow"><label for="eSAng" id="eSAngLbl">launch angle</label>
+        <input type="range" id="eSAng" min="0.5" max="88" step="0.5">
+        <span class="val" id="eSAngVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>light</h3>
+      <div class="sliderrow"><label for="eLam">wavelength</label>
+        <input type="range" id="eLam" min="380" max="740" step="1">
+        <span class="val" id="eLamVal"></span></div>
+      <div style="font-size:11.5px; color:var(--dim); margin-top:2px;">colour <span id="swatch"></span></div>
+    </div>
+
+    <div class="grp" id="grpAnim">
+      <h3>animation</h3>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0" max="3" step="0.1">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow"><button id="pauseBtn">pause</button></div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* =================== constants ================== */
+const PI = Math.PI, TAU = 2*PI;
+const C  = 2.99792458e8;                 // m/s
+const D2R = PI/180, R2D = 180/PI;
+
+/* ==================== media ======================================
+   n(lambda): Sellmeier n^2 = 1 + sum_i B_i x/(x - C_i), x = (lam_um)^2,
+   for the crystalline/glass media (coefficients from refractiveindex.info);
+   a two-term Cauchy for water; constants for air/ethanol/glycerin.
+   `tint` is a display colour; the layer wash gets denser with (n-1).      */
+const MEDIA = {
+  vacuum:   {label:'vacuum',       n:1.0,     tint:[0.02,0.02,0.03]},
+  air:      {label:'air',          n:1.0003,  tint:[0.05,0.07,0.10]},
+  water:    {label:'water',        cauchy:[1.32403,3088], tint:[0.10,0.30,0.40]},
+  ethanol:  {label:'ethanol',      n:1.361,   tint:[0.13,0.22,0.27]},
+  glycerin: {label:'glycerin',     n:1.473,   tint:[0.20,0.24,0.26]},
+  silica:   {label:'fused silica', sell:[[0.6961663,0.4079426,0.8974794],
+                                         [0.00467914826,0.0135120631,97.9340025]],
+             tint:[0.15,0.21,0.31]},
+  bk7:      {label:'crown glass',  sell:[[1.03961212,0.231792344,1.01046945],
+                                         [0.00600069867,0.0200179144,103.560653]],
+             tint:[0.14,0.23,0.36]},
+  flint:    {label:'flint glass',  sell:[[1.62153902,0.256287842,1.64447552],
+                                         [0.0122241457,0.0595736775,147.468793]],
+             tint:[0.24,0.19,0.36]},
+  sapphire: {label:'sapphire',     sell:[[1.4313493,0.65054713,5.3414021],
+                                         [0.00527992,0.01423826,325.017832]],
+             tint:[0.12,0.18,0.42]},
+  diamond:  {label:'diamond',      sell:[[0.3306,4.3356],[0.030625,0.011236]],
+             tint:[0.26,0.32,0.38]},
+};
+const MEDIA_ORDER = ['vacuum','air','water','ethanol','glycerin','silica','bk7','flint','sapphire','diamond'];
+
+function sellmeier(B,Cc,lamNm){
+  const x=(lamNm/1000)*(lamNm/1000); let s=1;
+  for (let i=0;i<B.length;i++) s+=B[i]*x/(x-Cc[i]);
+  return Math.sqrt(s);
+}
+function cauchy(A,Bc,lamNm){ return A + Bc/(lamNm*lamNm); }
+function nOf(m,lamNm){
+  const M=MEDIA[m];
+  if (M.sell)   return sellmeier(M.sell[0],M.sell[1],lamNm);
+  if (M.cauchy) return cauchy(M.cauchy[0],M.cauchy[1],lamNm);
+  return M.n;
+}
+
+/* ==================== Snell, Fresnel, TIR ========================= */
+function snellTheta2(n1,n2,th1){          // th1 in radians; {tir, th2}
+  const s2=n1/n2*Math.sin(th1);
+  if (s2>1) return {tir:true, th2:NaN};
+  return {tir:false, th2:Math.asin(s2)};
+}
+function criticalDeg(n1,n2){ return n1>n2 ? Math.asin(n2/n1)*R2D : null; }
+function brewsterDeg(n1,n2){ return Math.atan(n2/n1)*R2D; }
+
+/* Fresnel power coefficients for a real (non-absorbing) interface.
+   Under TIR every reflectance is exactly 1 and every transmittance 0.      */
+function fresnel(n1,n2,th1){
+  const ci=Math.cos(th1), si=Math.sin(th1);
+  const s2=n1/n2*si;
+  if (s2>1) return {tir:true, Rs:1,Rp:1,Ts:0,Tp:0,Runp:1,Tunp:0, rs:1,rp:-1, th2:NaN};
+  const ct=Math.sqrt(1-s2*s2);
+  const rs=(n1*ci-n2*ct)/(n1*ci+n2*ct);
+  const rp=(n2*ci-n1*ct)/(n2*ci+n1*ct);
+  const Rs=rs*rs, Rp=rp*rp;
+  return {tir:false, Rs:Rs, Rp:Rp, Ts:1-Rs, Tp:1-Rp,
+          Runp:(Rs+Rp)/2, Tunp:1-(Rs+Rp)/2, rs:rs, rp:rp, th2:Math.asin(s2)};
+}
+function reflOf(F,pol){ return pol==='s'?F.Rs : pol==='p'?F.Rp : F.Runp; }
+function transOf(F,pol){ return pol==='s'?F.Ts : pol==='p'?F.Tp : F.Tunp; }
+
+/* Amplitude transmittance cross-check: T_s = (n2 cos t)/(n1 cos i) * t_s^2.
+   Used only by the self-test to prove T = 1 - R independently.             */
+function transmittanceViaAmplitude(n1,n2,th1){
+  const ci=Math.cos(th1), s2=n1/n2*Math.sin(th1);
+  if (s2>1) return 0;
+  const ct=Math.sqrt(1-s2*s2);
+  const ts=2*n1*ci/(n1*ci+n2*ct);
+  return (n2*ct)/(n1*ci)*ts*ts;
+}
+
+/* Complex scalar (s-pol) Fresnel amplitudes in k-space, evanescent-aware.
+   k_x is conserved; k2y is real (propagating) or i*kappa (evanescent).
+   r = (k1y - k2y)/(k1y + k2y),  t = 1 + r.                                 */
+function waveCoeffs(n1,n2,th1,k0){
+  const k1=n1*k0, k2=n2*k0;
+  const k1x=k1*Math.sin(th1), k1y=k1*Math.cos(th1);
+  const k2y2=k2*k2-k1x*k1x;
+  if (k2y2>=0){
+    const k2y=Math.sqrt(k2y2), r=(k1y-k2y)/(k1y+k2y);
+    return {k1x:k1x,k1y:k1y,k2yRe:k2y,k2yIm:0,rRe:r,rIm:0,tRe:1+r,tIm:0,evan:false};
+  } else {
+    const kap=Math.sqrt(-k2y2), den=k1y*k1y+kap*kap;
+    const rRe=(k1y*k1y-kap*kap)/den, rIm=-2*k1y*kap/den;   // r=(k1y-i k)/(k1y+i k)
+    return {k1x:k1x,k1y:k1y,k2yRe:0,k2yIm:kap,rRe:rRe,rIm:rIm,tRe:1+rRe,tIm:rIm,evan:true};
+  }
+}
+
+/* ================= ray trace through stacked layers ===============
+   ifaces: ascending y positions of the K interfaces (screen coords, y down).
+   nreg:   n of each of the K+1 regions (region i sits between iface i-1, i).
+   Returns polyline segments {x0,y0,x1,y1,I} (I = surviving power fraction)
+   plus faint reflected stubs, and a count of TIR bounces. k_x = n*sin(th)
+   is conserved on transmission -> the Snell invariant, checked by the test. */
+function traceStack(ifaces, nreg, start, dir, box, maxSeg){
+  const segs=[], stubs=[];
+  let x=start.x, y=start.y, region=start.region;
+  let dx=dir.x, dy=dir.y;
+  const dm=Math.hypot(dx,dy)||1; dx/=dm; dy/=dm;
+  let I=1, tir=0;
+  for (let s=0;s<(maxSeg||60);s++){
+    let iy=null, other=-1;
+    if (dy>0 && region<ifaces.length){ iy=ifaces[region]; other=region+1; }
+    else if (dy<0 && region>0){ iy=ifaces[region-1]; other=region-1; }
+    // horizontal distance to the side walls, whichever comes first
+    const tWall = dx>0 ? (box.x1-x)/dx : dx<0 ? (box.x0-x)/dx : Infinity;
+    if (iy===null){
+      const tTop = dy<0 ? (box.y0-y)/dy : Infinity;
+      const tBot = dy>0 ? (box.y1-y)/dy : Infinity;
+      const t=Math.min(tWall,tTop,tBot);
+      segs.push({x0:x,y0:y,x1:x+dx*t,y1:y+dy*t,I:I}); break;
+    }
+    const tFace=(iy-y)/dy;
+    if (tWall<tFace){                                   // leaves the side first
+      segs.push({x0:x,y0:y,x1:x+dx*tWall,y1:y+dy*tWall,I:I}); break;
+    }
+    const nx=x+dx*tFace, ny=iy;
+    segs.push({x0:x,y0:y,x1:nx,y1:ny,I:I});
+    const nFrom=nreg[region], nTo=nreg[other];
+    const si=Math.min(1,Math.abs(dx));
+    const th1=Math.asin(si);
+    const F=fresnel(nFrom,nTo,th1);
+    if (F.tir){                                          // total internal reflection
+      tir++;
+      dy=-dy; x=nx; y=ny+dy*1e-4;
+    } else {
+      stubs.push({x:nx,y:ny,dx:dx,dy:-dy,I:I*F.Runp});   // partial reflection stub
+      const s2=nFrom/nTo*si, ct=Math.sqrt(1-s2*s2);
+      dx=(dx<0?-1:1)*s2; dy=(dy<0?-1:1)*ct;
+      const dn=Math.hypot(dx,dy)||1; dx/=dn; dy/=dn;
+      x=nx; y=ny+dy*1e-4; region=other; I*=F.Tunp;
+    }
+    if (I<0.015) break;
+  }
+  return {segs:segs, stubs:stubs, tir:tir};
+}
+
+/* ============ CIE colour (Wyman-Sloan-Shirley fit) ==============
+   Shared with blackbody_radiation.html / scattering.html.               */
+function lobe(x,mu,s1,s2){ const s=x<mu?s1:s2, d=(x-mu)/s; return Math.exp(-0.5*d*d); }
+function cieX(l){ return 1.056*lobe(l,599.8,37.9,31.0)+0.362*lobe(l,442.0,16.0,26.7)
+                       -0.065*lobe(l,501.1,20.4,26.2); }
+function cieY(l){ return 0.821*lobe(l,568.8,46.9,40.5)+0.286*lobe(l,530.9,16.3,31.1); }
+function cieZ(l){ return 1.217*lobe(l,437.0,11.8,36.0)+0.681*lobe(l,459.0,26.0,13.8); }
+function srgbGamma(v){ return v<=0.0031308 ? 12.92*v : 1.055*Math.pow(v,1/2.4)-0.055; }
+function xyzToRgb(X,Y,Z){
+  let r= 3.2406*X-1.5372*Y-0.4986*Z, g=-0.9689*X+1.8758*Y+0.0415*Z,
+      b= 0.0557*X-0.2040*Y+1.0570*Z;
+  const m=Math.max(r,g,b);
+  if (m<=0) return [0,0,0];
+  r=Math.max(0,r)/m; g=Math.max(0,g)/m; b=Math.max(0,b)/m;
+  return [srgbGamma(r),srgbGamma(g),srgbGamma(b)];
+}
+function spectralRgb(lnm){ if (lnm<380||lnm>780) return null; return xyzToRgb(cieX(lnm),cieY(lnm),cieZ(lnm)); }
+const IR_RGB=[0.34,0.16,0.11], UV_RGB=[0.30,0.20,0.46];
+function spectralRgbSafe(lnm){
+  if (lnm<380) return UV_RGB; if (lnm>750) return IR_RGB;
+  return spectralRgb(lnm)||IR_RGB;
+}
+function cssOf(rgb,a){ const r=Math.round(255*rgb[0]),g=Math.round(255*rgb[1]),b=Math.round(255*rgb[2]);
+  return a===undefined ? 'rgb('+r+','+g+','+b+')' : 'rgba('+r+','+g+','+b+','+a+')'; }
+function spectralCss(lnm,a){ return cssOf(spectralRgbSafe(lnm),a); }
+
+/* ======================== state and labels ======================= */
+const DEFAULTS={ view:'interface', m1:'air', m2:'water', theta:45, pol:'unpol',
+                 lam:589, speed:1, stack:'aquarium', sang:40 };
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,(+v||0)));
+  c.theta=f(c.theta,0.5,89.5); c.lam=f(c.lam,380,740);
+  c.speed=f(c.speed,0,3); c.sang=f(c.sang,0.5,88);
+  if (['interface','wavefronts','stack','fresnel'].indexOf(c.view)<0) c.view='interface';
+  if (!MEDIA[c.m1]) c.m1='air';
+  if (!MEDIA[c.m2]) c.m2='water';
+  if (['s','p','unpol'].indexOf(c.pol)<0) c.pol='unpol';
+  if (['aquarium','fibre','mirage','slab'].indexOf(c.stack)<0) c.stack='aquarium';
+  return c;
+}
+function fmtDeg(d){ return d.toFixed(1)+'°'; }
+function fmtPct(x){ const v=100*x; return (v>=9.95?v.toFixed(0):v.toFixed(1))+'%'; }
+function fmtN(n){ return n.toFixed(4); }
+function polLabel(p){ return p==='unpol'?'unpolarized':p; }
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('wave'), ctx=cv.getContext('2d');
+  if (!ctx) return;
+  const dpr=(typeof window!=='undefined' && window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let W=900, HGT=620, paused=false, phase=0;
+  let geom={};                              // hit-test info from the last draw
+  // offscreen field buffer for the wavefronts view
+  let off=null, offCtx=null, fieldA=null, fCols=0, fRows=0, fCell=3, fMeta='';
+  let geomField={};
+
+  /* ---------- shared frame ---------- */
+  function stageBox(){ return {x0:20, y0:22, x1:W-20, y1:HGT-20}; }
+  function layerFill(m){
+    const t=MEDIA[m].tint, n=nOf(m,state.lam);
+    const a=Math.min(0.60, 0.10+(n-1)*0.34);
+    return cssOf(t,a);
+  }
+  function clear(){ ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,HGT); }
+
+  function arrowHead(x,y,dx,dy,size,col){
+    const a=Math.atan2(dy,dx);
+    ctx.fillStyle=col;
+    ctx.beginPath();
+    ctx.moveTo(x,y);
+    ctx.lineTo(x-size*Math.cos(a-0.4), y-size*Math.sin(a-0.4));
+    ctx.lineTo(x-size*Math.cos(a+0.4), y-size*Math.sin(a+0.4));
+    ctx.closePath(); ctx.fill();
+  }
+  // glowing ray with an arrowhead; brightness in [0,1].
+  // a true zero (e.g. p-reflection at Brewster) vanishes; faint rays stay dim.
+  function ray(x0,y0,x1,y1,rgb,bright,head){
+    if (bright<=0.006) return;
+    ctx.lineCap='round';
+    ctx.strokeStyle=cssOf(rgb, 0.18*bright);
+    ctx.lineWidth=7; ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    ctx.strokeStyle=cssOf(rgb, Math.min(1,0.28+0.72*bright));
+    ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+    if (head){ const d=Math.hypot(x1-x0,y1-y0)||1;
+      arrowHead(x1,y1,(x1-x0)/d,(y1-y0)/d,9,cssOf(rgb,Math.min(1,0.32+0.68*bright))); }
+  }
+  function angleArc(cx,cy,r,a0,a1,col,label){
+    ctx.strokeStyle=col; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.arc(cx,cy,r,a0,a1); ctx.stroke();
+    if (label){
+      const am=(a0+a1)/2;
+      ctx.fillStyle=col; ctx.font='11px -apple-system, sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(label, cx+(r+13)*Math.cos(am), cy+(r+13)*Math.sin(am));
+    }
+  }
+
+  /* =================== INTERFACE view =================== */
+  function drawInterface(){
+    clear();
+    const b=stageBox();
+    const n1=nOf(state.m1,state.lam), n2=nOf(state.m2,state.lam);
+    const yI=Math.round(b.y0+(b.y1-b.y0)*0.46)+0.5;
+    const Ox=Math.round((b.x0+b.x1)*0.46), Oy=yI;
+    // media washes
+    ctx.fillStyle=layerFill(state.m1); ctx.fillRect(b.x0,b.y0,b.x1-b.x0,yI-b.y0);
+    ctx.fillStyle=layerFill(state.m2); ctx.fillRect(b.x0,yI,b.x1-b.x0,b.y1-yI);
+    // interface + normal
+    ctx.strokeStyle='rgba(255,255,255,.5)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(b.x0,yI); ctx.lineTo(b.x1,yI); ctx.stroke();
+    ctx.setLineDash([4,4]); ctx.strokeStyle='rgba(255,255,255,.28)';
+    ctx.beginPath(); ctx.moveTo(Ox,b.y0); ctx.lineTo(Ox,b.y1); ctx.stroke();
+    ctx.setLineDash([]);
+    // labels for the two media
+    ctx.font='12px -apple-system, sans-serif'; ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillStyle='rgba(255,255,255,.72)';
+    ctx.fillText(MEDIA[state.m1].label+'  n₁ = '+fmtN(n1), b.x0+8, b.y0+6);
+    ctx.textBaseline='bottom';
+    ctx.fillText(MEDIA[state.m2].label+'  n₂ = '+fmtN(n2), b.x0+8, b.y1-6);
+
+    const th1=state.theta*D2R;
+    const sn=snellTheta2(n1,n2,th1), F=fresnel(n1,n2,th1);
+    const R=reflOf(F,state.pol), T=1-R;
+    const rgb=spectralRgbSafe(state.lam);
+    const L=Math.min(b.x1-b.x0,b.y1-b.y0)*0.42;
+    // incident (down-right into O), reflected (up-right), refracted (down)
+    const inx=Ox-L*Math.sin(th1), iny=Oy-L*Math.cos(th1);
+    ray(inx,iny,Ox,Oy,rgb,1,true);
+    const rfx=Ox+L*Math.sin(th1), rfy=Oy-L*Math.cos(th1);
+    ray(Ox,Oy,rfx,rfy,rgb,R,true);
+    if (!sn.tir){
+      const tx=Ox+L*Math.sin(sn.th2), ty=Oy+L*Math.cos(sn.th2);
+      ray(Ox,Oy,tx,ty,rgb,T,true);
+    } else {
+      ctx.fillStyle=cssOf([0.96,0.84,0.42],0.9);
+      ctx.font='italic 13px Georgia, serif'; ctx.textAlign='left'; ctx.textBaseline='top';
+      ctx.fillText('total internal reflection', Ox+10, Oy+8);
+    }
+    // angle arcs (screen angles measured from +x axis; incident up-left, refracted down-right)
+    angleArc(Ox,Oy,30,-PI/2-th1,-PI/2,'rgba(255,255,255,.6)','θᵢ');
+    if (!sn.tir) angleArc(Ox,Oy,26, PI/2-sn.th2, PI/2,cssOf(rgb,0.85),'θₜ');
+
+    // critical & Brewster guide markers on the incident side
+    const thC=criticalDeg(n1,n2), thB=brewsterDeg(n1,n2);
+    function guide(deg,col,txt){
+      const t=deg*D2R, gx=Ox-L*1.02*Math.sin(t), gy=Oy-L*1.02*Math.cos(t);
+      ctx.setLineDash([2,5]); ctx.strokeStyle=col; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(Ox,Oy); ctx.lineTo(gx,gy); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle=col; ctx.font='10.5px -apple-system, sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText(txt, gx, gy-3);
+    }
+    if (thC!==null) guide(thC, cssOf([0.96,0.84,0.42],0.6), 'θc '+thC.toFixed(1)+'°');
+    guide(thB, cssOf([0.80,0.30,0.77],0.55), 'θB '+thB.toFixed(1)+'°');
+
+    // energy split bar (bottom-left)
+    drawEnergyBar(b.x0+8, b.y1-40, 190, R, T, sn.tir, rgb);
+
+    geom={view:'interface', Ox:Ox, Oy:Oy};
+    setReadoutInterface(n1,n2,th1,sn,F);
+  }
+  function drawEnergyBar(x,y,w,R,T,tir,rgb){
+    const h=12;
+    ctx.font='10.5px -apple-system, sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillStyle='rgba(255,255,255,.6)'; ctx.fillText('power split', x, y-4);
+    ctx.fillStyle='rgba(255,255,255,.10)'; ctx.fillRect(x,y,w,h);
+    const wr=Math.round(w*R);
+    ctx.fillStyle=cssOf([0.85,0.85,0.9],0.55); ctx.fillRect(x,y,wr,h);       // reflected
+    if (!tir){ ctx.fillStyle=cssOf(rgb,0.85); ctx.fillRect(x+wr,y,w-wr,h); } // transmitted
+    ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.lineWidth=1; ctx.strokeRect(x+0.5,y+0.5,w,h);
+    ctx.textBaseline='top'; ctx.fillStyle='rgba(255,255,255,.8)';
+    ctx.fillText('R '+fmtPct(R), x, y+h+3);
+    ctx.textAlign='right'; ctx.fillText(tir?'T 0%':'T '+fmtPct(T), x+w, y+h+3);
+  }
+
+  /* =================== WAVEFRONTS view =================== */
+  function ensureField(){
+    const b=stageBox();
+    const meta=[Math.round(W),Math.round(HGT),state.m1,state.m2,state.theta.toFixed(2),state.lam].join('|');
+    if (off && meta===fMeta && fieldA) return;
+    fMeta=meta;
+    fCols=Math.ceil(W/fCell); fRows=Math.ceil(HGT/fCell);
+    if (typeof document!=='undefined'){
+      off=document.createElement('canvas'); off.width=fCols; off.height=fRows;
+      offCtx=off.getContext('2d');
+    }
+    fieldA=new Float32Array(fCols*fRows*2);   // (Re, Im) spatial amplitude per cell
+    const n1=nOf(state.m1,state.lam), n2=nOf(state.m2,state.lam);
+    const yI=b.y0+(b.y1-b.y0)*0.46;
+    const lam0px=Math.max(26, Math.min(64, 30000/state.lam)); // vacuum wavelength in px
+    const k0=TAU/lam0px;
+    const th1=state.theta*D2R;
+    const wc=waveCoeffs(n1,n2,th1,k0);
+    geomField={yI:yI, wc:wc, n1:n1, n2:n2, th1:th1};
+    for (let j=0;j<fRows;j++){
+      const y=(j+0.5)*fCell;
+      for (let i=0;i<fCols;i++){
+        const x=(i+0.5)*fCell, idx=(j*fCols+i)*2;
+        let re, im;
+        if (y<yI){                                   // medium 1: incident + reflected
+          const pI=wc.k1x*x + wc.k1y*(y-yI);
+          const pR=wc.k1x*x - wc.k1y*(y-yI);
+          const cR=Math.cos(pR), sR=Math.sin(pR);
+          re=Math.cos(pI) + (wc.rRe*cR - wc.rIm*sR);
+          im=Math.sin(pI) + (wc.rRe*sR + wc.rIm*cR);
+        } else {                                     // medium 2: transmitted / evanescent
+          if (!wc.evan){
+            const pT=wc.k1x*x + wc.k2yRe*(y-yI);
+            const c=Math.cos(pT), s=Math.sin(pT);
+            re=wc.tRe*c - wc.tIm*s; im=wc.tRe*s + wc.tIm*c;
+          } else {
+            const decay=Math.exp(-wc.k2yIm*(y-yI));
+            const pT=wc.k1x*x;
+            const c=Math.cos(pT), s=Math.sin(pT);
+            re=(wc.tRe*c - wc.tIm*s)*decay; im=(wc.tRe*s + wc.tIm*c)*decay;
+          }
+        }
+        fieldA[idx]=re; fieldA[idx+1]=im;
+      }
+    }
+    const rmag=Math.hypot(wc.rRe,wc.rIm);
+    geomField.vnorm=1+rmag;
+  }
+  function drawWavefronts(){
+    ensureField();
+    const b=stageBox();
+    const rgb=spectralRgbSafe(state.lam);
+    const cph=Math.cos(phase), sph=Math.sin(phase);
+    const vnorm=geomField.vnorm||1.9;
+    const t1=MEDIA[state.m1].tint, t2=MEDIA[state.m2].tint;
+    const yIcell=geomField.yI/fCell;
+    const img=offCtx.createImageData(fCols,fRows);
+    const D=img.data;
+    for (let j=0;j<fRows;j++){
+      const inMed1=(j+0.5)<yIcell;
+      const bt=inMed1?t1:t2, ba=0.18;
+      const bR=bt[0]*ba*255, bG=bt[1]*ba*255, bB=bt[2]*ba*255;
+      for (let i=0;i<fCols;i++){
+        const idx=(j*fCols+i)*2;
+        let v=(fieldA[idx]*cph + fieldA[idx+1]*sph)/vnorm;   // Re[A e^{-i phase}]
+        if (v>1) v=1; else if (v<-1) v=-1;
+        let r=bR, g=bG, bl=bB;
+        if (v>=0){ r+=rgb[0]*v*255; g+=rgb[1]*v*255; bl+=rgb[2]*v*255; }
+        else { const a=-v; r+=0.28*a*255; g+=0.42*a*255; bl+=1.0*a*255; }
+        const p=(j*fCols+i)*4;
+        D[p]=r>255?255:r; D[p+1]=g>255?255:g; D[p+2]=bl>255?255:bl; D[p+3]=255;
+      }
+    }
+    offCtx.putImageData(img,0,0);
+    ctx.imageSmoothingEnabled=true;
+    ctx.drawImage(off,0,0,fCols,fRows,0,0,W,HGT);
+    // mask outside the stage box
+    ctx.fillStyle='#070b18';
+    ctx.fillRect(0,0,W,b.y0); ctx.fillRect(0,b.y1,W,HGT-b.y1);
+    ctx.fillRect(0,0,b.x0,HGT); ctx.fillRect(b.x1,0,W-b.x1,HGT);
+
+    // interface line + normal + labels
+    const yI=geomField.yI;
+    ctx.strokeStyle='rgba(255,255,255,.55)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(b.x0,yI); ctx.lineTo(b.x1,yI); ctx.stroke();
+    const n1=geomField.n1, n2=geomField.n2, wc=geomField.wc;
+    const th1=geomField.th1, sn=snellTheta2(n1,n2,th1);
+    const Ox=Math.round((b.x0+b.x1)*0.5);
+    ctx.setLineDash([4,4]); ctx.strokeStyle='rgba(255,255,255,.22)';
+    ctx.beginPath(); ctx.moveTo(Ox,b.y0); ctx.lineTo(Ox,b.y1); ctx.stroke(); ctx.setLineDash([]);
+    ctx.font='12px -apple-system, sans-serif'; ctx.textAlign='left';
+    ctx.textBaseline='top'; ctx.fillStyle='rgba(255,255,255,.8)';
+    const lam1=state.lam/n1, lam2=state.lam/n2;
+    ctx.fillText(MEDIA[state.m1].label+'  λ₁ = '+lam1.toFixed(0)+' nm', b.x0+8, b.y0+6);
+    ctx.textBaseline='bottom';
+    if (wc.evan){
+      ctx.fillStyle=cssOf([0.96,0.84,0.42],0.9);
+      ctx.fillText(MEDIA[state.m2].label+'  — evanescent wave (no power crosses)', b.x0+8, b.y1-6);
+    } else {
+      ctx.fillStyle='rgba(255,255,255,.8)';
+      ctx.fillText(MEDIA[state.m2].label+'  λ₂ = '+lam2.toFixed(0)+' nm', b.x0+8, b.y1-6);
+    }
+    geom={view:'wavefronts', Ox:Ox, Oy:yI};
+    setReadoutWave(n1,n2,th1,sn,wc,lam1,lam2);
+  }
+
+  /* =================== STACK view =================== */
+  function buildStack(){
+    const b=stageBox();
+    const H=b.y1-b.y0, lam=state.lam;
+    const nA=nOf('air',lam);
+    if (state.stack==='aquarium'){
+      const y1=b.y0+H*0.30, y2=b.y0+H*0.62;
+      const nreg=[nA, nOf('water',lam), nOf('bk7',lam), nA];
+      const th=state.sang*D2R;
+      return {ifaces:[y1,y2], nreg:nreg,
+              labels:[['air',b.y0,y1],['water',y1,y2],['bk7',y2,b.y1]],
+              start:{x:b.x0+70, y:b.y0+8, region:0},
+              dir:{x:Math.sin(th), y:Math.cos(th)},
+              title:'aquarium', angleLabel:'angle of inc.'};
+    }
+    if (state.stack==='slab'){
+      const y1=b.y0+H*0.34, y2=b.y0+H*0.66;
+      const nreg=[nA, nOf('diamond',lam), nA];
+      const th=state.sang*D2R;
+      return {ifaces:[y1,y2], nreg:nreg,
+              labels:[['air',b.y0,y1],['diamond',y1,y2],['air',y2,b.y1]],
+              start:{x:b.x0+60, y:b.y0+8, region:0},
+              dir:{x:Math.sin(th), y:Math.cos(th)},
+              title:'slab', angleLabel:'angle of inc.'};
+    }
+    if (state.stack==='fibre'){
+      const yc0=b.y0+H*0.445, yc1=b.y0+H*0.555;           // a thin core -> a clear zig-zag
+      const nclad=nOf('silica',lam), ncore=nclad+0.045;   // step-index guide
+      const nreg=[nclad, ncore, nclad];
+      const ax=state.sang*D2R;                            // launch angle from the core axis
+      return {ifaces:[yc0,yc1], nreg:nreg,
+              labels:[['silica',b.y0,yc0],['__core',yc0,yc1],['silica',yc1,b.y1]],
+              coreN:ncore,
+              start:{x:b.x0+4, y:(yc0+yc1)/2, region:1},
+              dir:{x:Math.cos(ax), y:Math.sin(ax)},
+              title:'optical fibre', angleLabel:'launch ∠ axis',
+              na:Math.sqrt(Math.max(0,ncore*ncore-nclad*nclad)),
+              guideMax:Math.acos(nclad/ncore)*R2D};
+    }
+    // mirage: smooth index gradient (hot ground -> low n below); Δn exaggerated
+    const K=120, ifaces=[], nreg=[];
+    const nTop=1.30, nBot=1.0;                             // ~1000x a real thermal gradient
+    for (let i=0;i<=K;i++){
+      const y=b.y0+H*(0.05+0.92*i/K);
+      if (i<K) ifaces.push(y);
+      nreg.push(nTop+(nBot-nTop)*(i/K));
+    }
+    const th=state.sang*D2R;
+    return {ifaces:ifaces, nreg:nreg, labels:null, grad:{nTop:nTop,nBot:nBot,y0:b.y0,y1:b.y1},
+            start:{x:b.x0+24, y:b.y0+H*0.07, region:0},
+            dir:{x:Math.sin(th), y:Math.cos(th)},
+            title:'desert mirage', angleLabel:'ray angle'};
+  }
+  function drawStack(){
+    clear();
+    const b=stageBox(), S=buildStack(), rgb=spectralRgbSafe(state.lam);
+    // layer washes
+    if (S.labels){
+      for (const [m,ya,yb] of S.labels){
+        if (m==='__core'){ ctx.fillStyle=cssOf([0.16,0.26,0.40],0.5); }
+        else ctx.fillStyle=layerFill(m);
+        ctx.fillRect(b.x0,ya,b.x1-b.x0,yb-ya);
+      }
+    } else if (S.grad){
+      for (let y=b.y0;y<b.y1;y+=2){
+        const f=(y-b.y0)/(b.y1-b.y0);
+        const n=S.grad.nTop+(S.grad.nBot-S.grad.nTop)*f;
+        const a=Math.min(0.5,(n-1)*1.4);
+        ctx.fillStyle=cssOf([0.30,0.34,0.55],a); ctx.fillRect(b.x0,y,b.x1-b.x0,2);
+      }
+    }
+    // interfaces + labels
+    ctx.strokeStyle='rgba(255,255,255,.3)'; ctx.lineWidth=1;
+    if (S.labels){
+      for (const y of S.ifaces){ ctx.beginPath(); ctx.moveTo(b.x0,y+0.5); ctx.lineTo(b.x1,y+0.5); ctx.stroke(); }
+      ctx.font='12px -apple-system, sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+      for (const [m,ya,yb] of S.labels){
+        ctx.fillStyle='rgba(255,255,255,.7)';
+        const lbl=(m==='__core')?('core  n='+fmtN(S.coreN)):(MEDIA[m].label+'  n='+fmtN(nOf(m,state.lam)));
+        ctx.fillText(lbl, b.x1-8, (ya+yb)/2);
+      }
+    } else {
+      ctx.font='12px -apple-system, sans-serif'; ctx.textAlign='right'; ctx.textBaseline='top';
+      ctx.fillStyle='rgba(255,255,255,.62)';
+      ctx.fillText('hot air near the ground: n falls toward 1', b.x1-8, b.y0+6);
+      ctx.textBaseline='bottom';
+      ctx.fillText('a shimmering "puddle" of reflected sky', b.x1-8, b.y1-6);
+    }
+    // trace and draw the ray
+    const tr=traceStack(S.ifaces,S.nreg,S.start,S.dir,b,80);
+    for (const st of tr.stubs){
+      if (st.I<0.02) continue;
+      const len=26;
+      ray(st.x,st.y,st.x+st.dx*len,st.y+st.dy*len,rgb,Math.min(0.5,st.I*0.7),false);
+    }
+    for (const sg of tr.segs) ray(sg.x0,sg.y0,sg.x1,sg.y1,rgb,sg.I,false);
+    if (tr.segs.length){
+      const s0=tr.segs[0], d=Math.hypot(s0.x1-s0.x0,s0.y1-s0.y0)||1;
+      arrowHead(s0.x0+(s0.x1-s0.x0)*0.18, s0.y0+(s0.y1-s0.y0)*0.18,
+                (s0.x1-s0.x0)/d,(s0.y1-s0.y0)/d,8,cssOf(rgb,0.9));
+    }
+    geom={view:'stack', box:b, S:S};
+    setReadoutStack(S,tr);
+  }
+
+  /* =================== FRESNEL view =================== */
+  function drawFresnel(){
+    clear();
+    const b=stageBox();
+    const px0=b.x0+52, py0=b.y0+18, px1=b.x1-16, py1=b.y1-40;
+    const pw=px1-px0, ph=py1-py0;
+    const n1=nOf(state.m1,state.lam), n2=nOf(state.m2,state.lam);
+    const thC=criticalDeg(n1,n2), thB=brewsterDeg(n1,n2);
+    const X=deg=>px0+pw*deg/90, Yv=v=>py1-ph*v;
+    // TIR shaded plateau
+    if (thC!==null){
+      ctx.fillStyle='rgba(245,215,107,.08)';
+      ctx.fillRect(X(thC),py0,X(90)-X(thC),ph);
+    }
+    // grid
+    ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1;
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillStyle='#888';
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    for (let d=0; d<=90; d+=15){
+      ctx.beginPath(); ctx.moveTo(X(d),py0); ctx.lineTo(X(d),py1); ctx.stroke();
+      ctx.fillText(d+'°', X(d), py1+6);
+    }
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    for (let v=0; v<=1.0001; v+=0.25){
+      ctx.strokeStyle='rgba(255,255,255,.10)';
+      ctx.beginPath(); ctx.moveTo(px0,Yv(v)); ctx.lineTo(px1,Yv(v)); ctx.stroke();
+      ctx.fillStyle='#888'; ctx.fillText(v.toFixed(2), px0-8, Yv(v));
+    }
+    ctx.fillStyle='rgba(255,255,255,.6)'; ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText('angle of incidence', (px0+px1)/2, HGT-6);
+    ctx.save(); ctx.translate(b.x0+12,(py0+py1)/2); ctx.rotate(-PI/2);
+    ctx.textBaseline='top'; ctx.fillText('reflectance / transmittance', 0, 0); ctx.restore();
+
+    // curves
+    function curve(fn,col,wdth,dash){
+      ctx.strokeStyle=col; ctx.lineWidth=wdth; if (dash) ctx.setLineDash(dash);
+      ctx.beginPath();
+      for (let i=0;i<=pw;i++){
+        const d=90*i/pw, v=fn(d*D2R);
+        const x=px0+i, y=Yv(Math.max(0,Math.min(1,v)));
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    curve(t=>fresnel(n1,n2,t).Tunp, cssOf([0.72,0.92,0.30]), 1.4, [5,4]);  // T
+    curve(t=>fresnel(n1,n2,t).Rs,   cssOf([0.345,0.769,0.867]), 1.8);      // R_s  accent
+    curve(t=>fresnel(n1,n2,t).Rp,   cssOf([0.80,0.30,0.77]), 1.8);         // R_p  neon-b
+    curve(t=>fresnel(n1,n2,t).Runp, 'rgba(255,255,255,.92)', 1.6);         // R    white
+
+    function vline(deg,col,txt,yfrac){
+      ctx.setLineDash([3,4]); ctx.strokeStyle=col; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(X(deg),py0); ctx.lineTo(X(deg),py1); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle=col; ctx.font='11px -apple-system, sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText(txt, X(deg), py0+ (yfrac||0)*ph + 12);
+    }
+    vline(thB, cssOf([0.80,0.30,0.77],0.9), 'θB '+thB.toFixed(1)+'°', 0.02);
+    if (thC!==null) vline(thC, cssOf([0.96,0.84,0.42],0.9), 'θc '+thC.toFixed(1)+'°', 0.10);
+
+    // operating point marker at current angle
+    const th=state.theta*D2R, F=fresnel(n1,n2,th);
+    ctx.setLineDash([2,3]); ctx.strokeStyle='rgba(255,255,255,.5)';
+    ctx.beginPath(); ctx.moveTo(X(state.theta),py0); ctx.lineTo(X(state.theta),py1); ctx.stroke(); ctx.setLineDash([]);
+    function dot(v,col){ ctx.fillStyle=col; ctx.beginPath();
+      ctx.arc(X(state.theta),Yv(Math.max(0,Math.min(1,v))),3.2,0,TAU); ctx.fill(); }
+    dot(F.Rs,cssOf([0.345,0.769,0.867])); dot(F.Rp,cssOf([0.80,0.30,0.77]));
+    dot(F.Runp,'#fff'); dot(F.Tunp,cssOf([0.72,0.92,0.30]));
+
+    // legend
+    ctx.font='11.5px -apple-system, sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+    const lg=[['Rₛ',cssOf([0.345,0.769,0.867])],['Rₚ',cssOf([0.80,0.30,0.77])],
+              ['R','#ffffff'],['T',cssOf([0.72,0.92,0.30])]];
+    let lx=px0+8, ly=py0+10;
+    for (const [t,c] of lg){
+      ctx.fillStyle=c; ctx.fillRect(lx,ly-4,14,3);
+      ctx.fillStyle='rgba(255,255,255,.8)'; ctx.fillText(t, lx+18, ly);
+      lx+=54;
+    }
+    geom={view:'fresnel', px0:px0, pw:pw};
+    setReadoutFresnel(n1,n2,th,thB,thC,F);
+  }
+
+  /* =================== readouts =================== */
+  function setReadoutInterface(n1,n2,th1,sn,F){
+    $('roMain').textContent='n₁ '+fmtN(n1)+'  →  n₂ '+fmtN(n2);
+    $('roSub').className='sub'; $('roSub').textContent='θᵢ = '+fmtDeg(state.theta);
+    const R=reflOf(F,state.pol);
+    if (sn.tir){
+      $('roSub2').className='sub warn';
+      $('roSub2').textContent='θₜ undefined — total internal reflection, R = 100%';
+      const thC=criticalDeg(n1,n2);
+      $('roSub3').className='sub';
+      $('roSub3').textContent='θc = '+(thC!==null?thC.toFixed(1)+'°':'—')+'   ('+polLabel(state.pol)+')';
+    } else {
+      $('roSub2').className='sub';
+      $('roSub2').textContent='θₜ = '+fmtDeg(sn.th2*R2D)+'   R = '+fmtPct(R)+'   T = '+fmtPct(1-R);
+      const thB=brewsterDeg(n1,n2);
+      $('roSub3').className='sub';
+      $('roSub3').textContent='Brewster θB = '+thB.toFixed(1)+'°  ('+polLabel(state.pol)+')';
+    }
+  }
+  function setReadoutWave(n1,n2,th1,sn,wc,lam1,lam2){
+    $('roMain').textContent='v₁/c = 1/'+n1.toFixed(3)+'   v₂/c = 1/'+n2.toFixed(3);
+    $('roSub').className='sub';
+    $('roSub').textContent='λ₁ = '+lam1.toFixed(0)+' nm   λ₂ = '+lam2.toFixed(0)+' nm';
+    if (wc.evan){
+      $('roSub2').className='sub warn';
+      $('roSub2').textContent='k₂y imaginary — evanescent, decays as e^(−κz)';
+    } else {
+      $('roSub2').className='sub';
+      $('roSub2').textContent='θᵢ = '+fmtDeg(state.theta)+'   θₜ = '+fmtDeg(sn.th2*R2D);
+    }
+    $('roSub3').className='sub';
+    $('roSub3').textContent='k_x conserved  ⇒  n₁ sinθ₁ = n₂ sinθ₂';
+  }
+  function setReadoutStack(S,tr){
+    $('roMain').textContent=S.title;
+    const dm=Math.hypot(S.dir.x,S.dir.y)||1;
+    const inv=S.nreg[S.start.region]*Math.abs(S.dir.x)/dm;
+    $('roSub').className='sub';
+    $('roSub').textContent=(S.angleLabel==='launch ∠ axis'?'launch angle ':'θᵢ ')+fmtDeg(state.sang);
+    $('roSub2').className='sub';
+    $('roSub2').textContent='n·sinθ = '+inv.toFixed(4)+'  (equal in every layer)';
+    if (S.na!==undefined){
+      const gm=S.guideMax;
+      $('roSub3').className=tr.tir>0?'sub warn':'sub';
+      $('roSub3').textContent=tr.tir>0?('guided by TIR: '+tr.tir+' bounces  ·  max '+gm.toFixed(1)+'° from axis, NA '+S.na.toFixed(2))
+                                      :('leaks out — under '+gm.toFixed(1)+'° from axis to guide');
+    } else {
+      $('roSub3').className=tr.tir>0?'sub warn':'sub';
+      $('roSub3').textContent=tr.tir>0?('total internal reflections: '+tr.tir):'no total internal reflection';
+    }
+  }
+  function setReadoutFresnel(n1,n2,th,thB,thC,F){
+    $('roMain').textContent='n₁ '+fmtN(n1)+'  →  n₂ '+fmtN(n2);
+    $('roSub').className='sub';
+    $('roSub').textContent='θᵢ = '+fmtDeg(state.theta)+'   Rₛ '+fmtPct(F.Rs)+'   Rₚ '+fmtPct(F.Rp);
+    $('roSub2').className='sub';
+    $('roSub2').textContent='Brewster θB = '+thB.toFixed(1)+'°  (Rₚ = 0)';
+    $('roSub3').className=thC!==null?'sub warn':'sub';
+    $('roSub3').textContent=thC!==null?('critical θc = '+thC.toFixed(1)+'° — TIR beyond'):'no critical angle (n₁ < n₂)';
+  }
+
+  /* =================== hint & notes =================== */
+  function updateHint(){
+    const h={
+      interface:'drag to aim the incident ray · swap media (or pick "water → air") and push past θc for total internal reflection',
+      wavefronts:'the crests must line up across the boundary — that is Snell’s law · past θc the wave goes evanescent',
+      stack:'one ray, many layers · n·sinθ is the same in each · try the fibre and mirage presets',
+      fresnel:'Rₚ dips to zero at Brewster · both jump to 1 past the critical angle (n₁ > n₂)'
+    };
+    $('hint').innerHTML=h[state.view]||'';
+  }
+  function updateInfo(){
+    const n1=nOf(state.m1,state.lam), n2=nOf(state.m2,state.lam);
+    const thC=criticalDeg(n1,n2), thB=brewsterDeg(n1,n2);
+    let s='';
+    s+='<b>n₁</b> = <span class="k">'+fmtN(n1)+'</span> ('+MEDIA[state.m1].label+')<br>';
+    s+='<b>n₂</b> = <span class="k">'+fmtN(n2)+'</span> ('+MEDIA[state.m2].label+')<br>';
+    s+='Snell: n₁ sinθ₁ = n₂ sinθ₂<br>';
+    s+='Brewster θB = <b>'+thB.toFixed(1)+'°</b><br>';
+    s+='critical θc = <b>'+(thC!==null?thC.toFixed(1)+'°':'none (n₁ &lt; n₂)')+'</b><br>';
+    const R0=Math.pow((n1-n2)/(n1+n2),2);
+    s+='normal-incidence R = <b>'+fmtPct(R0)+'</b>';
+    $('info').innerHTML=s;
+  }
+
+  /* =================== dispatch =================== */
+  function drawView(){
+    if (state.view==='interface') drawInterface();
+    else if (state.view==='wavefronts') drawWavefronts();
+    else if (state.view==='stack') drawStack();
+    else drawFresnel();
+  }
+
+  /* =================== controls =================== */
+  function syncControls(){
+    for (const [id,on] of [['viewI','interface'],['viewW','wavefronts'],['viewS','stack'],['viewF','fresnel']])
+      $(id).classList.toggle('on', state.view===on);
+    for (const [id,on] of [['polS','s'],['polP','p'],['polU','unpol']])
+      $(id).classList.toggle('on', state.pol===on);
+    for (const [id,on] of [['stAq','aquarium'],['stFib','fibre'],['stMir','mirage'],['stSlab','slab']])
+      $(id).classList.toggle('on', state.stack===on);
+    $('selM1').value=state.m1; $('selM2').value=state.m2;
+    $('eTheta').value=state.theta; $('eThetaVal').textContent=fmtDeg(state.theta);
+    $('eLam').value=state.lam; $('eLamVal').textContent=state.lam+' nm';
+    $('eSpeed').value=state.speed; $('eSpeedVal').textContent=state.speed.toFixed(1)+'×';
+    $('eSAng').value=state.sang; $('eSAngVal').textContent=fmtDeg(state.sang);
+    $('swatch').style.background=spectralCss(state.lam);
+    const v=state.view;
+    $('grpPairs').hidden = (v==='stack');
+    $('grpMedia').hidden = (v==='stack');
+    $('grpPol').hidden   = !(v==='interface'||v==='fresnel');
+    $('grpAngle').hidden = (v==='stack');
+    $('grpStack').hidden = (v!=='stack');
+    $('grpAnim').hidden  = (v!=='wavefronts');
+    $('eSAngLbl').textContent = (state.stack==='fibre') ? 'launch ∠ axis' : 'angle of inc.';
+  }
+  function applyChange(){ state=clampState(state); syncControls(); updateHint(); updateInfo(); }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  chip('viewI',()=>state.view='interface'); chip('viewW',()=>state.view='wavefronts');
+  chip('viewS',()=>state.view='stack');     chip('viewF',()=>state.view='fresnel');
+  chip('polS',()=>state.pol='s'); chip('polP',()=>state.pol='p'); chip('polU',()=>state.pol='unpol');
+  chip('stAq',()=>{state.stack='aquarium'; state.sang=40;}); chip('stFib',()=>{state.stack='fibre'; state.sang=11;});
+  chip('stMir',()=>{state.stack='mirage'; state.sang=55;}); chip('stSlab',()=>{state.stack='slab'; state.sang=55;});
+  function pair(id,a,bb,th){ $(id).addEventListener('click',()=>{
+    state.m1=a; state.m2=bb; if (th!==undefined) state.theta=th;
+    if (state.view==='stack') state.view='interface'; applyChange(); }); }
+  pair('pAW','air','water',45); pair('pAG','air','bk7',45);
+  pair('pWA','water','air',55); pair('pDA','diamond','air',35);
+  $('swapBtn').addEventListener('click',()=>{ const t=state.m1; state.m1=state.m2; state.m2=t; applyChange(); });
+  for (const sel of ['selM1','selM2']){
+    const el=$(sel);
+    for (const key of MEDIA_ORDER){
+      const o=document.createElement('option'); o.value=key; o.textContent=MEDIA[key].label; el.appendChild(o);
+    }
+    el.addEventListener('change',()=>{ state[sel==='selM1'?'m1':'m2']=el.value; applyChange(); });
+  }
+  function slider(id,key){ $(id).addEventListener('input',()=>{ state[key]=+$(id).value; applyChange(); }); }
+  slider('eTheta','theta'); slider('eLam','lam'); slider('eSAng','sang');
+  $('eSpeed').addEventListener('input',()=>{ state.speed=+$('eSpeed').value; syncControls(); });
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+
+  // dragging on the stage sets the relevant angle
+  function pointerAngle(ev){
+    const rect=cv.getBoundingClientRect();
+    const px=(ev.touches?ev.touches[0].clientX:ev.clientX)-rect.left;
+    const py=(ev.touches?ev.touches[0].clientY:ev.clientY)-rect.top;
+    if (state.view==='fresnel'){
+      if (geom.pw===undefined) return;
+      const d=(px-geom.px0)/geom.pw*90; state.theta=Math.max(0.5,Math.min(89.5,d)); applyChange(); return;
+    }
+    if (state.view==='stack'){
+      const S=geom.S; if (!S) return;
+      const dx=px-S.start.x, dy=py-S.start.y;
+      if (state.stack==='fibre'){ state.sang=Math.max(0.5,Math.min(88,Math.abs(Math.atan2(dy,Math.abs(dx)))*R2D)); }
+      else { state.sang=Math.max(0.5,Math.min(88,Math.atan2(Math.abs(dx),Math.abs(dy)+1e-6)*R2D)); }
+      applyChange(); return;
+    }
+    if (geom.Ox===undefined) return;
+    const dx=px-geom.Ox, dy=geom.Oy-py;               // up positive
+    const a=Math.atan2(Math.abs(dx),Math.abs(dy)+1e-6)*R2D;
+    state.theta=Math.max(0.5,Math.min(89.5,a)); applyChange();
+  }
+  let dragging=false;
+  cv.addEventListener('mousedown',e=>{ dragging=true; pointerAngle(e); });
+  window.addEventListener('mousemove',e=>{ if (dragging) pointerAngle(e); });
+  window.addEventListener('mouseup',()=>{ dragging=false; });
+  cv.addEventListener('touchstart',e=>{ dragging=true; pointerAngle(e); e.preventDefault(); },{passive:false});
+  cv.addEventListener('touchmove',e=>{ if (dragging){ pointerAngle(e); e.preventDefault(); } },{passive:false});
+  cv.addEventListener('touchend',()=>{ dragging=false; });
+
+  function resize(){
+    W=cv.clientWidth||900; HGT=cv.clientHeight||620;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(HGT*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+    fMeta='';
+  }
+  if (typeof window!=='undefined') window.addEventListener('resize',()=>resize());
+
+  /* ---------- main loop ---------- */
+  function frame(){
+    if (state.view==='wavefronts' && !paused) phase+=0.11*state.speed;
+    drawView();
+    requestAnimationFrame(frame);
+  }
+  resize(); syncControls(); updateHint(); updateInfo();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test =========================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const rel=(a,b)=>Math.abs(a/b-1);
+  const D=Math.PI/180;
+
+  /* --- dispersion anchors (sodium-D 589.3 nm) --- */
+  ok(rel(nOf('water',589.3),1.3330)<1e-3,'n(water) = 1.333');
+  ok(rel(nOf('silica',589.3),1.45845)<1e-3,'n(fused silica) = 1.4585 (Malitson)');
+  ok(rel(nOf('bk7',589.3),1.51680)<1e-3,'n(crown/BK7) = 1.5168');
+  ok(rel(nOf('flint',589.3),1.7268)<3e-3,'n(flint/SF10) ~ 1.727');
+  ok(rel(nOf('sapphire',589.3),1.7683)<2e-3,'n(sapphire, o-ray) = 1.768');
+  ok(rel(nOf('diamond',589.3),2.4173)<1e-3,'n(diamond) = 2.417');
+  { const nd=nOf('bk7',589.3), nF=nOf('bk7',486.1), nC=nOf('bk7',656.3);
+    ok(nF>nd&&nd>nC,'normal dispersion: n(blue) > n(yellow) > n(red)');
+    ok(rel((nd-1)/(nF-nC),64.17)<0.01,'BK7 Abbe number Vd = 64.2'); }
+  ok(nOf('diamond',450)>nOf('diamond',650),'diamond disperses (fire): n(450) > n(650)');
+
+  /* --- Snell's law --- */
+  { const s=snellTheta2(1.0,1.333,30*D);
+    ok(!s.tir && rel(s.th2*180/Math.PI,22.03)<1e-2,'air->water at 30deg: theta_t = 22.03deg'); }
+  { const s=snellTheta2(1.0,1.5,40*D);
+    ok(rel(s.th2*180/Math.PI,25.37)<1e-2,'air->glass at 40deg: theta_t = 25.37deg'); }
+  { const a=snellTheta2(1.0,1.5,50*D);
+    const bb=snellTheta2(1.5,1.0,a.th2);
+    ok(rel(bb.th2*180/Math.PI,50)<1e-6,'ray reversibility (n1->n2->n1) returns 50deg'); }
+
+  /* --- critical angle --- */
+  ok(rel(criticalDeg(1.333,1.0),48.607)<1e-2,'water->air critical angle 48.6deg');
+  ok(rel(criticalDeg(1.5,1.0),41.810)<1e-2,'glass(1.5)->air critical angle 41.8deg');
+  ok(rel(criticalDeg(2.4173,1.0),24.44)<1e-2,'diamond->air critical angle 24.4deg (why it sparkles)');
+  ok(criticalDeg(1.0,1.5)===null,'no critical angle going into a denser medium');
+
+  /* --- Brewster angle & the perpendicularity of the split beams --- */
+  ok(rel(brewsterDeg(1.0,1.333),53.12)<1e-2,'air->water Brewster 53.1deg');
+  ok(rel(brewsterDeg(1.0,1.5),56.31)<1e-2,'air->glass Brewster 56.3deg');
+  { const tB=brewsterDeg(1.0,1.5)*D, F=fresnel(1.0,1.5,tB);
+    ok(F.Rp<1e-12,'R_p = 0 exactly at Brewster (p-light fully transmitted)');
+    const tt=snellTheta2(1.0,1.5,tB).th2;
+    ok(rel((tB+tt)*180/Math.PI,90)<1e-9,'reflected _|_ refracted at Brewster (theta_B + theta_t = 90deg)');
+    ok(rel(F.Runp,F.Rs/2)<1e-12,'unpolarized reflectance at Brewster = R_s/2 (reflection polarizes light)'); }
+
+  /* --- Fresnel: normal incidence & the ((n1-n2)/(n1+n2))^2 law --- */
+  { const F=fresnel(1.0,1.5,1e-6);
+    ok(rel(F.Rs,0.04)<1e-3&&rel(F.Rp,0.04)<1e-3,'air->glass at normal: R = 4%');
+    ok(rel(F.Rs,Math.pow(0.5/2.5,2))<1e-6,'normal R = ((n1-n2)/(n1+n2))^2'); }
+  { const R=fresnel(1.0,1.333,1e-6).Rs;
+    ok(rel(R,Math.pow((1-1.333)/(1+1.333),2))<1e-9 && Math.abs(R-0.0204)<3e-4,'air->water at normal: R = 2.0%'); }
+  ok(rel(fresnel(2.4173,1.0,1e-6).Rs,0.1720)<1e-3,'diamond->air at normal: R = 17.2%');
+
+  /* --- energy conservation R + T = 1, and T via amplitude coeffs --- */
+  { let worst=0, worstA=0;
+    for (const pr of [[1.0,1.5],[1.333,1.0],[1.0,2.4173],[1.5,1.333]]){
+      const a=pr[0], c=pr[1], thc=criticalDeg(a,c);
+      for (let d=1; d<=85; d+=1){
+        if (thc!==null && d>=thc-0.5) continue;
+        const t=d*D, F=fresnel(a,c,t);
+        worst=Math.max(worst, Math.abs(F.Rs+F.Ts-1), Math.abs(F.Rp+F.Tp-1));
+        worstA=Math.max(worstA, Math.abs(F.Ts-transmittanceViaAmplitude(a,c,t)));
+      }
+    }
+    ok(worst<1e-12,'R + T = 1 at every sub-critical angle (both polarizations)');
+    ok(worstA<1e-12,'T from amplitude coeffs (n2 cos t / n1 cos i)*t^2 matches 1 - R'); }
+
+  /* --- total internal reflection --- */
+  { const F=fresnel(1.5,1.0,50*D);
+    ok(F.tir&&F.Rs===1&&F.Rp===1&&F.Ts===0&&F.Tp===0,'TIR: R = 1, T = 0 exactly beyond critical');
+    ok(snellTheta2(1.5,1.0,50*D).tir,'snellTheta2 flags TIR at 50deg glass->air'); }
+  ok(fresnel(1.5,1.0,41.810*D+1e-4).tir,'just past the critical angle is already TIR');
+  ok(fresnel(1.0,1.5,89*D).Runp>0.7,'grazing incidence -> most light reflects (R -> 1)');
+
+  /* --- wave field: phase-matching, |r| = 1 under TIR, t = 1 + r --- */
+  { const k0=0.1, wc=waveCoeffs(1.0,1.5,40*D,k0);
+    const k2=1.5*k0;
+    ok(rel(wc.k1x, 1.0*k0*Math.sin(40*D))<1e-12,'incident k_x = n1 k0 sin(theta_i)');
+    const tt=snellTheta2(1.0,1.5,40*D).th2;
+    ok(rel(wc.k1x, k2*Math.sin(tt))<1e-12,'k_x is conserved across the boundary (= k2 sin theta_t)');
+    ok(!wc.evan && rel(wc.tRe,1+wc.rRe)<1e-12 && Math.abs(wc.tIm)<1e-12,'scalar continuity t = 1 + r'); }
+  { const wc=waveCoeffs(1.5,1.0,60*D,0.1);
+    ok(wc.evan,'past critical the transmitted wave is evanescent (k2y imaginary)');
+    ok(rel(Math.hypot(wc.rRe,wc.rIm),1)<1e-12,'|r| = 1 under TIR (all power reflected)');
+    ok(rel(wc.tRe,1+wc.rRe)<1e-12 && rel(wc.tIm,wc.rIm)<1e-12,'t = 1 + r still holds (complex)');
+    ok(wc.k2yIm>0,'evanescent decay constant kappa > 0'); }
+  { const lam=589;
+    ok(rel((lam/1.5)/(lam/1.0), 1.0/1.5)<1e-12,'lambda_2/lambda_1 = n1/n2 (crests crowd in the dense medium)'); }
+
+  /* --- stack: the Snell invariant n sin(theta) is equal in every layer --- */
+  { const box={x0:0,y0:0,x1:1000,y1:600};
+    const ifaces=[150,300,450];
+    const nreg=[1.0,1.333,1.5168,1.0];
+    const th0=35*D;
+    const tr=traceStack(ifaces,nreg,{x:60,y:8,region:0},{x:Math.sin(th0),y:Math.cos(th0)},box,40);
+    ok(tr.segs.length>=4,'ray crosses all interfaces of the aquarium stack');
+    const inv=nreg[0]*Math.sin(th0);
+    const last=tr.segs[tr.segs.length-1];
+    const dx=last.x1-last.x0, dy=last.y1-last.y0, d=Math.hypot(dx,dy);
+    const sinExit=Math.abs(dx)/d;
+    ok(rel(nreg[3]*sinExit, inv)<1e-9,'n*sin(theta) equal across the whole stack (exit into air = entry angle)');
+    ok(rel(Math.asin(Math.min(1,sinExit))*180/Math.PI,35)<1e-6,'exit angle equals the 35deg entry angle (parallel-shifted)'); }
+  { const box={x0:0,y0:0,x1:2000,y1:600};
+    const nclad=1.4585, ncore=nclad+0.045;                // acceptance: acos(nclad/ncore)=14.05deg
+    const ax=11*D;
+    const tr=traceStack([250,350],[nclad,ncore,nclad],
+                        {x:2,y:300,region:1},{x:Math.cos(ax),y:Math.sin(ax)},box,80);
+    ok(tr.tir>=2,'shallow launch is guided: multiple total internal reflections in the core');
+    const tr2=traceStack([250,350],[nclad,ncore,nclad],
+                        {x:2,y:300,region:1},{x:Math.cos(40*D),y:Math.sin(40*D)},box,80);
+    ok(tr2.tir===0,'a too-steep launch (40deg > 14deg) leaks straight out of the core'); }
+  { const box={x0:0,y0:0,x1:4000,y1:600};
+    const K=120, ifaces=[], nreg=[];
+    for (let i=0;i<=K;i++){ if (i<K) ifaces.push(6+590*i/K); nreg.push(1.30+(1.0-1.30)*(i/K)); }
+    const th0=55*D;
+    const tr=traceStack(ifaces,nreg,{x:20,y:8,region:0},{x:Math.sin(th0),y:Math.cos(th0)},box,300);
+    ok(tr.tir>=1,'the mirage gradient reflects the ray back up (a bounce occurs)');
+    ok(nreg[0]*Math.sin(th0) > nreg[K],'invariant n0 sinθ0 exceeds n_min -> the ray must turn before the ground');
+    const up=tr.segs[tr.segs.length-1];
+    ok((up.y1-up.y0) < 0,'after the turn the ray is heading back up (dy < 0)'); }
+
+  /* --- colour pipeline sanity --- */
+  { const g=spectralRgb(550), b=spectralRgb(460), r=spectralRgb(660);
+    ok(g[1]>0.99,'CIE: 550 nm reads green'); ok(b[2]>0.99,'460 nm reads blue');
+    ok(r[0]>0.99,'660 nm reads red'); }
+
+  /* --- state clamp & formats --- */
+  { const st=clampState({view:'zz',m1:'xx',m2:'yy',theta:200,pol:'q',lam:50,speed:9,stack:'z',sang:200});
+    ok(st.view==='interface'&&st.m1==='air'&&st.m2==='water'&&st.theta===89.5&&st.pol==='unpol'&&
+       st.lam===380&&st.speed===3&&st.stack==='aquarium'&&st.sang===88,'clampState pins to sane state'); }
+  ok(fmtDeg(48.607)==='48.6°','fmtDeg'); ok(fmtPct(0.04)==='4.0%'&&fmtPct(0.172)==='17%','fmtPct');
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

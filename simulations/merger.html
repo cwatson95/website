@@ -1,0 +1,2191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binary merger — the chirp, the catalogue, and a tenth of a percent of the Planck luminosity</title>
+<!--
+  ===================================================================
+  BINARY MERGER
+  two black holes, the last second, and what a detector hears
+  ===================================================================
+
+  Built to the same house rules as steam_carnot_cycle.html, shock_flow.html,
+  turbojet.html, wind_tunnel.html, diffraction.html and pulsar.html: one flat
+  file, no build step, no network, works opened straight off the disk.
+
+  ------------------------------------------------------------------
+  WHAT THIS IS, AND WHAT IT IS NOT
+  ------------------------------------------------------------------
+  The todo line reads "Binary Merger / Einstein Toolkit".  This is NOT numerical
+  relativity and does not pretend to be: nothing here solves Einstein's
+  equations on a grid, and a file that runs in a browser without dependencies
+  never will.  What it does instead is put the three regimes side by side and
+  label which is which:
+
+    INSPIRAL   the leading-order (quadrupole / Newtonian-chirp) post-Newtonian
+               result.  Exact within its own approximation, and the source of
+               every closed form in this file.
+    MERGER     a phenomenological stitch between the inspiral and the ringdown,
+               drawn dashed and labelled on the canvas.  A real waveform here
+               comes from numerical relativity or from a calibrated
+               phenomenological family (IMRPhenom, SEOBNR); this is neither, and
+               the file says so wherever the merger is drawn.
+    RINGDOWN   the l = m = 2, n = 0 quasi-normal mode of the remnant Kerr hole,
+               from the Berti-Cardoso-Will fits to the Teukolsky spectrum.
+
+  The honest content is that the inspiral and the ringdown are computable in
+  closed form and agree with the catalogue, and that the loudest fraction of a
+  second in between is exactly the part you cannot get without a supercomputer.
+
+  ------------------------------------------------------------------
+  WHAT IS MEASURED
+  ------------------------------------------------------------------
+  All eleven confident events of GWTC-1, transcribed from the Gravitational Wave
+  Open Science Center's own catalogue table: component masses, chirp mass, final
+  mass, luminosity distance, redshift and network SNR, with the published
+  asymmetric uncertainties.
+
+  These are used as a CHECK, not as decoration.  The catalogue publishes both the
+  component masses and the chirp mass, and they are separate entries in a
+  parameter-estimation posterior, so recomputing
+
+      M_c = (m1 m2)^(3/5) / (m1 + m2)^(1/5)
+
+  from the published components and comparing it with the published chirp mass
+  tests the formula AND the transcription at once.  Every event agrees to better
+  than 1.3%, and selfTest asserts it for all eleven.  The same trick works on the
+  energy budget: m1 + m2 - M_final is the radiated mass, and it lands between
+  3.3% and 5.6% of the total for every binary black hole in the table.
+
+  ------------------------------------------------------------------
+  WHAT IS FITTED, AND SAID TO BE
+  ------------------------------------------------------------------
+  * The remnant.  For a catalogue event the published final mass is used.  For
+    masses you set yourself there is no published answer, so the file uses the
+    standard non-spinning polynomial in the symmetric mass ratio for the final
+    spin (0.6864 at equal mass, against the numerical-relativity value near
+    0.686) and an eta-scaling for the radiated fraction fitted here to the
+    catalogue itself: E_rad/M = 0.0452 (4 eta), mean residual 8%, worst 29% on
+    GW170729 — which is the event with the largest spin, and spin is exactly what
+    this fit leaves out.  The panel says "fitted" wherever these appear.
+  * The detector.  The noise curve is the standard analytic approximation to
+    Advanced LIGO's design sensitivity,
+        S_n(f) = 1e-49 [ x^-4.14 - 5 x^-2 + 111 (1 - x^2 + x^4/2)/(1 + x^2/2) ],
+        x = f / 215 Hz,
+    which bottoms out at 1.80e-24 / sqrt(Hz) at 228 Hz.  It is a fit to a design
+    curve, not a measured spectrum from any particular night.
+
+  ------------------------------------------------------------------
+  ON THE SIGNAL-TO-NOISE RATIO
+  ------------------------------------------------------------------
+  The SNR shown is the OPTIMAL single-detector value: face-on, directly
+  overhead, integrated from the chosen low-frequency cutoff to the innermost
+  stable circular orbit.  It comes out about twice the published network SNR for
+  a real event (56 against 25.2 for GW150914), and that is not a discrepancy —
+  a real source is at some sky position and inclination that the detector
+  antenna pattern penalises, and the published number is what was actually
+  measured through that penalty.  The file prints both and says which is which.
+
+  ------------------------------------------------------------------
+  WHAT IS NOT MODELLED
+  ------------------------------------------------------------------
+  Spin (precessing or aligned), eccentricity, higher-order modes, tidal
+  deformability — which is the whole reason GW170817 was interesting — matter
+  effects of any kind, cosmology beyond the published redshifts, the detector
+  antenna pattern, and any post-Newtonian order above leading.
+
+  ------------------------------------------------------------------
+  CAMERA / RENDERING
+  ------------------------------------------------------------------
+  Hand-rolled z-up orbit camera and perspective projection, painter's algorithm,
+  canvas 2-D — identical to lattice.html, steam_carnot_cycle.html and the rest.
+  Mathematica NeonColors (same NEON_STOPS table).  The inspiral view draws the
+  horizons to scale against the orbital separation; when that separation is a
+  couple of Schwarzschild radii the holes really are almost touching, and the
+  picture is allowed to say so.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --horizon:#12151d; --wave:#5ac8e0; --ring:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Binary merger</h1>
+  <span class="sub" id="sub">two black holes, the last second, and the loudest event ever recorded</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+
+/* ================================================================== *
+ *  constants (CODATA 2018 / IAU 2015 nominal)                         *
+ * ================================================================== */
+const C_LIGHT = 2.99792458e8;          /* m/s, exact                   */
+const G_NEWT  = 6.67430e-11;           /* m^3 kg^-1 s^-2               */
+const GM_SUN  = 1.32712440018e20;      /* m^3/s^2, IAU 2015 nominal    */
+const MPC     = 3.0856775814913673e22; /* m                            */
+const YR      = 3.15576e7;             /* s                            */
+/* the Planck luminosity c^5/G — the natural scale for a merger, and the
+   quantity the peak turns out to be a thousandth of */
+const L_PLANCK = Math.pow(C_LIGHT,5)/G_NEWT;
+/* one solar mass in joules of rest energy, via GM_sun/G so the poorly known
+   G and M_sun never appear separately in anything that matters */
+const MSUN_C2 = (GM_SUN/G_NEWT)*C_LIGHT*C_LIGHT;
+
+/* a mass in solar units, expressed as a time — the only sane unit for this */
+function tauM(M){ return GM_SUN*M/(C_LIGHT*C_LIGHT*C_LIGHT); }
+/* ... and as a length (half the Schwarzschild radius) */
+function lenM(M){ return GM_SUN*M/(C_LIGHT*C_LIGHT); }
+function schwarzschild(M){ return 2*lenM(M); }
+
+/* ================================================================== *
+ *  the catalogue — GWTC-1 confident detections                        *
+ *                                                                     *
+ *  MEASURED DATA, transcribed from the Gravitational Wave Open        *
+ *  Science Center's own GWTC-1-confident table.  m1, m2, Mc, Mf and   *
+ *  D are source-frame; unc arrays are the published +/- values.       *
+ *                                                                     *
+ *  Mc is stored ALONGSIDE m1 and m2 on purpose: they are separate     *
+ *  entries in a parameter-estimation posterior, so recomputing Mc      *
+ *  from m1, m2 and comparing is a real check on the formula and on    *
+ *  the transcription.  selfTest does exactly that for all eleven.     *
+ * ================================================================== */
+const EVENTS=[
+ {id:'GW150914', m1:35.6, m2:30.6, mc:28.6,  mf:63.1, D:440,  z:0.09, snr:25.2,
+  m1u:[4.7,3.1], m2u:[3.0,4.4], Du:[150,170], kind:'bbh',
+  note:'14 September 2015 — the first. Two holes of 36 and 31 suns, 1.3 billion light '
+      +'years away, radiating three solar masses in a fifth of a second.'},
+ {id:'GW151012', m1:23.2, m2:13.6, mc:15.2,  mf:35.6, D:1080, z:0.21, snr:10.0,
+  m1u:[14.9,5.5], m2u:[4.1,4.8], Du:[550,490], kind:'bbh',
+  note:'marginal in the first analysis, confident by the time GWTC-1 was published'},
+ {id:'GW151226', m1:13.7, m2:7.7,  mc:8.9,   mf:20.5, D:450,  z:0.09, snr:13.1,
+  m1u:[8.8,3.2], m2u:[2.2,2.5], Du:[180,190], kind:'bbh',
+  note:'lighter, so it chirped for a full second in band instead of a fifth of one'},
+ {id:'GW170104', m1:30.8, m2:20.0, mc:21.4,  mf:48.9, D:990,  z:0.20, snr:13.0,
+  m1u:[7.3,5.6], m2u:[4.9,4.6], Du:[440,430], kind:'bbh', note:'the first of the 2017 run'},
+ {id:'GW170608', m1:11.0, m2:7.6,  mc:7.9,   mf:17.8, D:320,  z:0.07, snr:15.4,
+  m1u:[5.5,1.7], m2u:[1.4,2.2], Du:[120,110], kind:'bbh',
+  note:'the lightest black-hole binary in this catalogue, and the nearest'},
+ {id:'GW170729', m1:50.2, m2:34.0, mc:35.4,  mf:79.5, D:2840, z:0.49, snr:10.8,
+  m1u:[16.2,10.2], m2u:[9.1,10.1], Du:[1400,1360], kind:'bbh',
+  note:'the heaviest and most distant here, and the one where the spin-free radiated-energy '
+      +'fit is worst — 29% out, because this is the event with the largest spin'},
+ {id:'GW170809', m1:35.0, m2:23.8, mc:24.9,  mf:56.3, D:1030, z:0.20, snr:12.4,
+  m1u:[8.3,5.9], m2u:[5.1,5.2], Du:[320,390], kind:'bbh', note:''},
+ {id:'GW170814', m1:30.6, m2:25.2, mc:24.1,  mf:53.2, D:600,  z:0.12, snr:17.2,
+  m1u:[5.6,3.0], m2u:[2.8,4.0], Du:[150,220], kind:'bbh',
+  note:'the first seen by three detectors, which is what made the sky localisation useful'},
+ {id:'GW170817', m1:1.46, m2:1.27, mc:1.186, mf:null, D:40,   z:0.01, snr:33.0,
+  m1u:[0.12,0.10], m2u:[0.09,0.09], Du:[7,15], kind:'bns',
+  note:'two neutron stars, 40 Mpc away — the loudest signal in the catalogue and the only one '
+      +'with a remnant the catalogue will not commit to. A gamma-ray burst followed 1.7 s later.'},
+ {id:'GW170818', m1:35.4, m2:26.7, mc:26.5,  mf:59.4, D:1060, z:0.21, snr:11.3,
+  m1u:[7.5,4.7], m2u:[4.3,5.2], Du:[420,380], kind:'bbh', note:''},
+ {id:'GW170823', m1:39.5, m2:29.0, mc:29.2,  mf:65.4, D:1940, z:0.35, snr:11.5,
+  m1u:[11.2,6.7], m2u:[6.7,7.8], Du:[970,900], kind:'bbh', note:''},
+];
+function eventById(id){ return EVENTS.find(e=>e.id===id)||EVENTS[0]; }
+
+/* ================================================================== *
+ *  the inspiral — leading-order post-Newtonian, all in f_gw = 2 f_orb *
+ * ================================================================== */
+/* The chirp mass is the ONLY mass combination the leading-order waveform
+   depends on, which is why it is measured so much better than either component. */
+function chirpMass(m1,m2){ return Math.pow(m1*m2,0.6)/Math.pow(m1+m2,0.2); }
+function symRatio(m1,m2){ const M=m1+m2; return m1*m2/(M*M); }
+
+/* time from a given GW frequency to coalescence */
+function timeToMerge(mc,f){
+  return (5/256)*Math.pow(tauM(mc),-5/3)*Math.pow(PI*f,-8/3);
+}
+/* ... and its inverse: the frequency t seconds BEFORE coalescence */
+function freqAtTime(mc,t){
+  if(!(t>0)) return Infinity;
+  return (1/PI)*Math.pow(tauM(mc),-5/8)*Math.pow(5/(256*t),3/8);
+}
+/* the chirp rate itself — this is what "chirp" names */
+function freqDot(mc,f){
+  return (96/5)*Math.pow(PI,8/3)*Math.pow(tauM(mc),5/3)*Math.pow(f,11/3);
+}
+/* strain amplitude, optimally oriented, at luminosity distance D (Mpc) */
+function strainAmp(mc,f,Dmpc){
+  return 4/(Dmpc*MPC)*Math.pow(lenM(mc),5/3)*Math.pow(PI*f/C_LIGHT,2/3);
+}
+/* the innermost stable circular orbit of a Schwarzschild hole of the total
+   mass, in GW frequency.  A useful landmark and a terrible approximation: by
+   the time a real binary is here it is already merging. */
+function fISCO(M){
+  return C_LIGHT*C_LIGHT*C_LIGHT/(Math.pow(6,1.5)*PI*GM_SUN*M);
+}
+/* Newtonian orbital separation at a given GW frequency */
+function separation(M,f){
+  return Math.pow(GM_SUN*M/(PI*f*PI*f),1/3);
+}
+/* accumulated GW cycles between two frequencies (dN/df = f / fdot) */
+function cyclesBetween(mc,f1,f2,n){
+  const N=Math.max(8,2*Math.ceil((n||400)/2));
+  let s=0;
+  for(let i=0;i<=N;i++){
+    const f=f1+(f2-f1)*i/N;
+    const w=(i===0||i===N)?1:(i%2?4:2);
+    s+=w*f/freqDot(mc,f);
+  }
+  return s*(f2-f1)/(3*N);
+}
+
+/* ================================================================== *
+ *  the remnant — FITTED, and labelled as such everywhere it appears   *
+ * ================================================================== */
+/* Final spin of a non-spinning equal-ish-mass merger: the standard polynomial
+   in the symmetric mass ratio.  Returns 0.6864 at eta = 1/4, against the
+   numerical-relativity value near 0.686, and 0.681 for GW150914's mass ratio
+   against the published 0.69. */
+function finalSpinFit(m1,m2){
+  const e=symRatio(m1,m2);
+  return clamp(3.4339*e-3.7988*e*e+5.7733*e*e*e-6.3780*e*e*e*e,0,0.998);
+}
+/* Radiated fraction, fitted HERE to the eleven catalogue events:
+   E_rad/M = K (4 eta).  Mean residual 8%, worst 29% (GW170729, the high-spin
+   one — spin is exactly what this leaves out). */
+const ERAD_K=0.045215;
+function radiatedFractionFit(m1,m2){ return ERAD_K*4*symRatio(m1,m2); }
+function finalMassFit(m1,m2){ return (m1+m2)*(1-radiatedFractionFit(m1,m2)); }
+
+/* ================================================================== *
+ *  the ringdown — Kerr quasi-normal mode, l = m = 2, n = 0            *
+ *                                                                     *
+ *  Berti, Cardoso & Will fits to the Teukolsky spectrum:              *
+ *      M omega_R = f1 + f2 (1-a)^f3 ,   Q = q1 + q2 (1-a)^q3          *
+ * ================================================================== */
+const QNM_F=[1.5251,-1.1568,0.1292];
+const QNM_Q=[0.7000, 1.4187,-0.4990];
+function qnmFreq(Mf,af){
+  const a=clamp(af,0,0.999);
+  const Mw=QNM_F[0]+QNM_F[1]*Math.pow(1-a,QNM_F[2]);
+  return Mw/(TAU*tauM(Mf));
+}
+function qnmQ(af){
+  const a=clamp(af,0,0.999);
+  return QNM_Q[0]+QNM_Q[1]*Math.pow(1-a,QNM_Q[2]);
+}
+function qnmTau(Mf,af){ return qnmQ(af)/(PI*qnmFreq(Mf,af)); }
+
+/* ================================================================== *
+ *  the waveform                                                       *
+ *                                                                     *
+ *  t < 0 is before coalescence.  The inspiral is carried analytically  *
+ *  down to a matching frequency, the ringdown is a damped sinusoid at  *
+ *  the QNM, and BETWEEN THEM is an interpolation that is not physics.  *
+ *  Every view that draws it marks that interval.                       *
+ * ================================================================== */
+/* the inspiral phase, integrated in closed form: Phi = -2 (5 M_c)^(-5/8) t^(5/8) */
+function inspiralPhase(mc,t){          /* t > 0 = time before coalescence */
+  return -2*Math.pow(5*tauM(mc),-5/8)*Math.pow(Math.max(t,1e-12),5/8);
+}
+function makeWaveform(W){
+  /* W: {m1,m2,D,mc,M,mf,af,fLow} */
+  const mc=W.mc, M=W.M;
+  const fMatch=fISCO(M);                         /* where the inspiral is cut */
+  const tMatch=timeToMerge(mc,fMatch);           /* ...how long before merger  */
+  const tStart=timeToMerge(mc,W.fLow);
+  const fRing=qnmFreq(W.mf,W.af), tRing=qnmTau(W.mf,W.af);
+  const hMatch=strainAmp(mc,fMatch,W.D);
+  /* the merger interval: from the end of the inspiral to the start of the
+     ringdown.  Its length is ~10 M, which is what numerical relativity says
+     and is the ONLY thing taken from that literature here. */
+  const tMerge=10*tauM(M);
+  const hPeak=hMatch*1.35;                       /* phenomenological, labelled */
+  return {mc,M,fMatch,tMatch,tStart,fRing,tRing,hMatch,tMerge,hPeak,
+          D:W.D,mf:W.mf,af:W.af,fLow:W.fLow};
+}
+/* strain at time t, measured from coalescence (t < 0 before, t > 0 after) */
+function strainAt(w,t){
+  if(t<-w.tMatch){                               /* inspiral */
+    const tb=-t;
+    const f=freqAtTime(w.mc,tb);
+    return {h:strainAmp(w.mc,f,w.D)*Math.cos(inspiralPhase(w.mc,tb)),
+            f, seg:'inspiral'};
+  }
+  if(t>w.tMerge*0.5){                            /* ringdown */
+    const td=t-w.tMerge*0.5;
+    return {h:w.hPeak*Math.exp(-td/w.tRing)*Math.cos(TAU*w.fRing*td),
+            f:w.fRing, seg:'ringdown'};
+  }
+  /* the stitch — NOT physics, and drawn as such */
+  const u=(t+w.tMatch)/(w.tMatch+w.tMerge*0.5);
+  const s=clamp(u,0,1);
+  const f=w.fMatch+(w.fRing-w.fMatch)*smoothstep(s);
+  const amp=w.hMatch+(w.hPeak-w.hMatch)*smoothstep(s);
+  const ph=inspiralPhase(w.mc,w.tMatch)-TAU*f*(t+w.tMatch);
+  return {h:amp*Math.cos(ph), f, seg:'merger'};
+}
+/* the instantaneous GW frequency track, for the spectrogram */
+function freqTrack(w,t){
+  if(t<-w.tMatch) return freqAtTime(w.mc,-t);
+  if(t>w.tMerge*0.5) return w.fRing;
+  const u=clamp((t+w.tMatch)/(w.tMatch+w.tMerge*0.5),0,1);
+  return w.fMatch+(w.fRing-w.fMatch)*smoothstep(u);
+}
+
+/* ================================================================== *
+ *  the detector                                                       *
+ *                                                                     *
+ *  The standard analytic approximation to Advanced LIGO's DESIGN       *
+ *  sensitivity.  A fit to a design curve, not a measured spectrum.     *
+ * ================================================================== */
+function noisePSD(f){
+  if(!(f>0)) return Infinity;
+  const x=f/215.0, x2=x*x;
+  const v=Math.pow(x,-4.14)-5/x2+111*(1-x2+0.5*x2*x2)/(1+0.5*x2);
+  return (v>0)?1e-49*v:Infinity;
+}
+function noiseASD(f){ return Math.sqrt(noisePSD(f)); }
+/* the frequency-domain inspiral amplitude, restricted post-Newtonian */
+function hTilde(mc,f,Dmpc){
+  return Math.sqrt(5/24)*Math.pow(PI,-2/3)*Math.pow(tauM(mc),5/6)
+         *C_LIGHT/(Dmpc*MPC)*Math.pow(f,-7/6);
+}
+/* characteristic strain, the quantity that makes the comparison fair:
+   h_c = 2 f |h~(f)| against sqrt(f S_n) */
+function charStrain(mc,f,Dmpc){ return 2*f*hTilde(mc,f,Dmpc); }
+function noiseStrain(f){ return Math.sqrt(f*noisePSD(f)); }
+/* OPTIMAL single-detector SNR: face-on, overhead, integrated to ISCO.
+   About twice the published network SNR of a real event, because a real source
+   sits somewhere the antenna pattern penalises.  Both are printed. */
+function snrOptimal(mc,M,Dmpc,fLow,n){
+  const fHi=fISCO(M);
+  if(!(fHi>fLow)) return 0;
+  const N=Math.max(16,2*Math.ceil((n||600)/2));
+  /* integrate in log f: the integrand spans decades and is peaked low */
+  const a=Math.log(fLow), b=Math.log(fHi);
+  let s=0;
+  for(let i=0;i<=N;i++){
+    const f=Math.exp(a+(b-a)*i/N);
+    const w=(i===0||i===N)?1:(i%2?4:2);
+    const S=noisePSD(f);
+    s+=w*(isFinite(S)?4*hTilde(mc,f,Dmpc)*hTilde(mc,f,Dmpc)/S*f:0);
+  }
+  return Math.sqrt(Math.max(s*(b-a)/(3*N),0));
+}
+/* the distance at which this binary would be seen at SNR 8 */
+function horizonDistance(mc,M,fLow,snrTarget){
+  const ref=snrOptimal(mc,M,100,fLow);          /* SNR ~ 1/D, so one call does it */
+  if(!(ref>0)) return 0;
+  return 100*ref/(snrTarget||8);
+}
+
+/* ================================================================== *
+ *  energy                                                             *
+ * ================================================================== */
+function radiatedEnergyJ(dM){ return dM*MSUN_C2; }
+/* the peak luminosity, as a fraction of c^5/G.  GW150914's published peak,
+   3.6e56 erg/s, is 0.00099 of the Planck luminosity — which is the real
+   headline: nothing in the universe radiates much harder than this. */
+function luminosityFraction(Lwatt){ return Lwatt/L_PLANCK; }
+
+/* ================================================================== *
+ *  state                                                              *
+ * ================================================================== */
+const DEFAULTS={
+  view:'inspiral',
+  event:'GW150914',
+  custom:false,
+  m1:35.6, m2:30.6, D:440,
+  fLow:20,
+  snrTarget:8,
+  showHorizons:true, showOrbit:true, showWave:true, showGrid:true,
+  showNames:true, showUnc:true, showNoise:true, showSegments:true,
+  logF:true,
+  anim:true, spin:false, speed:1.0,
+  nProf:900,
+};
+const VIEWS=[['inspiral','the inspiral'],['wave','the waveform'],
+             ['spectrogram','the chirp'],['catalogue','the catalogue'],
+             ['detector','the detector'],['ledger','the ledger']];
+
+/* ================================================================== *
+ *  formatting                                                         *
+ * ================================================================== */
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sup(k){
+  const m={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+  return String(k).split('').map(ch=>m[ch]||ch).join('');
+}
+function fmtExp(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  const e=Math.floor(Math.log10(Math.abs(x)));
+  return fmt(x/Math.pow(10,e),n===undefined?2:n)+'×10'+sup(e);
+}
+function fmtT(s){
+  if(!isFinite(s)) return '—';
+  const a=Math.abs(s);
+  if(a>=1)     return fmt(s,3)+' s';
+  if(a>=1e-3)  return fmt(s*1e3,2)+' ms';
+  if(a>=1e-6)  return fmt(s*1e6,2)+' µs';
+  return fmtExp(s,2)+' s';
+}
+function fmtLen(m){
+  if(!isFinite(m)) return '—';
+  const a=Math.abs(m);
+  if(a>=9.4607e15) return fmt(m/9.4607e15,3)+' ly';
+  if(a>=1e9) return fmt(m/1e9,3)+' Gm';
+  if(a>=1e3) return fmt(m/1e3,1)+' km';
+  return fmt(m,1)+' m';
+}
+function fmtD(mpc){
+  if(!isFinite(mpc)) return '—';
+  if(mpc>=1000) return fmt(mpc/1000,2)+' Gpc';
+  return fmt(mpc,0)+' Mpc';
+}
+function fmtGly(mpc){ return fmt(mpc*3.26156/1000,2)+' Gly'; }
+function pm(v,u){ return u?fmt(v,v<10?2:1)+' <span style="opacity:.55">+'+fmt(u[0],u[0]<10?2:0)
+                            +'/−'+fmt(u[1],u[1]<10?2:0)+'</span>':fmt(v,2); }
+
+/* ================================================================== *
+ *  the model                                                          *
+ * ================================================================== */
+function buildModel(st){
+  const ev=eventById(st.event);
+  const custom=!!st.custom;
+  const m1=custom?Math.max(st.m1,st.m2):ev.m1;
+  const m2=custom?Math.min(st.m1,st.m2):ev.m2;
+  const D =custom?st.D:ev.D;
+  const M=m1+m2, mc=chirpMass(m1,m2), eta=symRatio(m1,m2);
+  const mcPub=custom?null:ev.mc;
+  /* the remnant: published where the catalogue gives one, fitted otherwise */
+  const mfFit=finalMassFit(m1,m2);
+  const mfPub=(!custom&&ev.mf)?ev.mf:null;
+  const mf=mfPub!==null?mfPub:mfFit;
+  const af=finalSpinFit(m1,m2);
+  const eRad=M-mf;
+  const eRadFrac=eRad/M;
+
+  const fLow=clamp(st.fLow,5,200);
+  const fisco=fISCO(M);
+  const inBand=fisco>fLow;
+  const tStart=inBand?timeToMerge(mc,fLow):0;
+  const tISCO=timeToMerge(mc,fisco);
+  const nCyc=inBand?cyclesBetween(mc,fLow,fisco,300):0;
+  /* the frequency by which half the cycles have happened, and how little time
+     is left at that point.  For an UNBOUNDED inspiral this is exactly
+     2^(-8/5) = 0.330 of the time; the ISCO cutoff pushes it to about 0.40. */
+  let tHalfFrac=NaN;
+  if(inBand&&nCyc>0){
+    let lo=fLow, hi=fisco;
+    for(let i=0;i<40;i++){ const m=0.5*(lo+hi);
+      if(cyclesBetween(mc,fLow,m,120)<nCyc/2) lo=m; else hi=m; }
+    tHalfFrac=timeToMerge(mc,0.5*(lo+hi))/timeToMerge(mc,fLow);
+  }
+
+  const w=makeWaveform({m1,m2,D,mc,M,mf,af,fLow});
+  const fRing=w.fRing, tRing=w.tRing;
+
+  const snr=inBand?snrOptimal(mc,M,D,fLow,400):0;
+  const horiz=inBand?horizonDistance(mc,M,fLow,st.snrTarget):0;
+
+  /* instantaneous GW luminosity from the quadrupole formula — exact during the
+     inspiral, divergent past it, so it is only ever quoted AT a frequency */
+  const lumAt=f=>(32/5)*L_PLANCK*Math.pow(tauM(mc)*PI*f,10/3);
+  const lISCO=inBand?lumAt(fisco):0;
+
+  /* the profile, sampled once: t from -tStart to a few ringdown times */
+  const n=Math.max(101,Math.round(st.nProf));
+  const t0=-Math.min(tStart,Math.max(4*tISCO,0.05));
+  const t1=w.tMerge*0.5+6*tRing;
+  const ts=new Float64Array(n), hs=new Float64Array(n), fs=new Float64Array(n);
+  const segs=new Array(n);
+  let hmax=0;
+  for(let i=0;i<n;i++){
+    const t=t0+(t1-t0)*i/(n-1);
+    const r=strainAt(w,t);
+    ts[i]=t; hs[i]=r.h; fs[i]=r.f; segs[i]=r.seg;
+    if(Math.abs(r.h)>hmax) hmax=Math.abs(r.h);
+  }
+
+  return {st,ev,custom,m1,m2,D,M,mc,eta,mcPub,mf,mfPub,mfFit,af,eRad,eRadFrac,
+          fLow,fisco,inBand,tStart,tISCO,nCyc,tHalfFrac,w,fRing,tRing,
+          snr,horiz,lumAt,lISCO,
+          wave:{ts,hs,fs,segs,hmax,t0,t1},
+          eJ:radiatedEnergyJ(eRad)};
+}
+
+/* ================================================================== *
+ *  readout / equation bar / captions                                  *
+ * ================================================================== */
+function readoutHTML(M){
+  const st=M.st, ev=M.ev;
+  let s='';
+  const ttl=(function(){
+    if(st.view==='catalogue') return {t:'GWTC-1',s:'eleven confident detections'};
+    if(st.view==='detector')  return {t:'the detector',s:'Advanced LIGO at design sensitivity'};
+    if(st.view==='ledger')    return {t:'the ledger',s:fmt(M.eRad,2)+' M☉ into spacetime'};
+    if(st.view==='spectrogram')return {t:'the chirp',s:'frequency against time'};
+    if(st.view==='wave')      return {t:'the waveform',s:'inspiral · merger · ringdown'};
+    return {t:M.custom?'custom binary':ev.id,s:M.custom?fmt(M.m1,1)+' + '+fmt(M.m2,1)+' M☉'
+            :fmtD(M.D)+'  ·  '+fmtGly(M.D)};
+  })();
+  s+='<div class="rname">'+ttl.t+'<small>'+ttl.s+'</small></div><table>';
+  const row=(k,v,c)=>{ s+='<tr><td>'+k+'</td><td class="v'+(c?' '+c:'')+'">'+v+'</td></tr>'; };
+  const hd=t=>{ s+='<tr><td class="hd" colspan="2">'+t+'</td></tr>'; };
+
+  hd(M.custom?'set by you':'measured — GWOSC GWTC-1');
+  row('m₁', M.custom?fmt(M.m1,2)+' M☉':pm(ev.m1,st.showUnc?ev.m1u:null)+' M☉');
+  row('m₂', M.custom?fmt(M.m2,2)+' M☉':pm(ev.m2,st.showUnc?ev.m2u:null)+' M☉');
+  row('distance', M.custom?fmtD(M.D):pm(ev.D,st.showUnc?ev.Du:null)+' Mpc');
+  if(!M.custom){ row('redshift z', fmt(ev.z,2)); row('network SNR', fmt(ev.snr,1)); }
+
+  hd('computed from those');
+  row('total mass M', fmt(M.M,2)+' M☉');
+  row('chirp mass M_c', fmt(M.mc,4)+' M☉');
+  if(M.mcPub!==null)
+    row('  published M_c', fmt(M.mcPub,4)+' M☉  <span style="opacity:.6">('
+        +fmt(100*Math.abs(M.mc-M.mcPub)/M.mcPub,2)+'%)</span>',
+        Math.abs(M.mc-M.mcPub)/M.mcPub<0.02?'good':'bad');
+  row('mass ratio m₂/m₁', fmt(M.m2/M.m1,3));
+  row('symmetric η', fmt(M.eta,4));
+  row('Schwarzschild 2GM/c²', fmtLen(schwarzschild(M.M)));
+
+  hd('the remnant'+(M.mfPub===null?' — fitted':''));
+  row('final mass', fmt(M.mf,2)+' M☉'+(M.mfPub===null?'':' <span style="opacity:.6">(published)</span>'));
+  row('final spin a', fmt(M.af,3)+' <span style="opacity:.6">(fit)</span>');
+  row('radiated', fmt(M.eRad,2)+' M☉ = '+fmt(100*M.eRadFrac,2)+'%',
+      M.eRadFrac>0.02?'good':'');
+  row('  in joules', fmtExp(M.eJ,2)+' J');
+  row('ringdown f', fmt(M.fRing,1)+' Hz');
+  row('  damping τ', fmtT(M.tRing));
+
+  if(st.view==='wave'||st.view==='spectrogram'||st.view==='inspiral'){
+    hd('the last second');
+    row('f at ISCO', M.inBand?fmt(M.fisco,1)+' Hz':'below the band','');
+    row('in band from', fmt(M.fLow,0)+' Hz');
+    row('time in band', M.inBand?fmtT(M.tStart-M.tISCO):'—');
+    row('GW cycles', M.inBand?fmt(M.nCyc,1):'—');
+    row('separation at ISCO', fmtLen(separation(M.M,M.fisco)));
+    row('  in 2GM/c²', fmt(separation(M.M,M.fisco)/schwarzschild(M.M),2));
+  }
+  if(st.view==='detector'){
+    hd('advanced LIGO, design');
+    row('optimal SNR', fmt(M.snr,1), M.snr>8?'good':'bad');
+    if(!M.custom) row('  published network', fmt(ev.snr,1));
+    row('horizon at SNR '+fmt(st.snrTarget,0), fmtD(M.horiz));
+    row('best ASD', fmtExp(noiseASD(228.268),2)+' /√Hz');
+  }
+  if(st.view==='ledger'){
+    hd('luminosity');
+    row('L_GW at ISCO', fmtExp(M.lISCO*1e7,2)+' erg/s');
+    row('  as c⁵/G', fmtExp(luminosityFraction(M.lISCO),2));
+    row('c⁵/G', fmtExp(L_PLANCK*1e7,3)+' erg/s');
+    if(M.ev.id==='GW150914'&&!M.custom){
+      row('published peak', '3.6×10⁵⁶ erg/s');
+      row('  as c⁵/G', fmt(luminosityFraction(3.6e49),5));
+    }
+  }
+  s+='</table>';
+  s+='<div class="note">'+
+     (M.custom
+      ? '<b>Custom masses.</b> The final mass and spin are <b>fits</b>, not measurements — '
+        +'the η-scaling for the radiated fraction is calibrated to the eleven catalogue events '
+        +'and is worth about ±20%, because it leaves out spin.'
+      : '<b>Everything under “computed” is derived from m₁, m₂ and D alone.</b> The published '
+        +'chirp mass is a separate entry in the same posterior, so the agreement above is a real '
+        +'check on the formula and on the transcription — not a tautology.')
+     +'</div>';
+  if(!M.custom&&ev.note) s+='<div class="note"><b>'+ev.id+'.</b> '+ev.note+'</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const st=M.st;
+  if(st.view==='catalogue')
+    return '<span class="lhs">M<sub>c</sub> = (m₁m₂)<sup>3/5</sup>/(m₁+m₂)<sup>1/5</sup></span>'
+      +'<span class="sm">the only mass combination the leading-order waveform depends on — '
+      +'which is why the catalogue knows it to a part in a thousand and the individual masses '
+      +'only to twenty percent</span>';
+  if(st.view==='detector')
+    return '<span class="lhs">ρ² = 4∫ |h̃(f)|²/S<sub>n</sub>(f) df</span> &nbsp;&nbsp; '
+      +'h̃ ∝ M<sub>c</sub><sup>5/6</sup> f<sup>−7/6</sup>/D'
+      +'<span class="sm">plotted as characteristic strain 2f|h̃| against √(f S<sub>n</sub>), '
+      +'because that is the comparison in which area on the page really is signal-to-noise</span>';
+  if(st.view==='ledger')
+    return '<span class="lhs">L<sub>GW</sub> = (32/5)(c⁵/G)(GM<sub>c</sub>πf/c³)<sup>10/3</sup></span>'
+      +'<span class="sm">c⁵/G = <span class="hl">'+fmtExp(L_PLANCK*1e7,3)+'</span> erg/s is the '
+      +'only luminosity you can build from c and G alone, and the peak of a merger reaches a '
+      +'thousandth of it</span>';
+  if(st.view==='spectrogram'||st.view==='wave')
+    return '<span class="lhs">ḟ = (96/5)π<sup>8/3</sup>(GM<sub>c</sub>/c³)<sup>5/3</sup>f<sup>11/3</sup></span>'
+      +'<span class="sm">the chirp: measure f and ḟ and the chirp mass falls out with no other '
+      +'assumption — that single relation is what turned a wiggle into an astrophysical claim</span>';
+  return '<span class="lhs">f<sub>ISCO</sub> = c³/(6<sup>3/2</sup>πGM) = '
+    +'<span class="hl">'+fmt(M.fisco,1)+'</span> Hz</span>'
+    +'<span class="sm">separation there is '
+    +fmt(separation(M.M,M.fisco)/schwarzschild(M.M),2)+' Schwarzschild radii — by the time a '
+    +'binary reaches this frequency the two horizons are very nearly touching</span>';
+}
+
+function tagHTML(M){
+  const st=M.st;
+  if(st.view==='catalogue') return '<b>GWTC-1</b> — eleven events, all from the GWOSC table';
+  return '<b>'+(M.custom?fmt(M.m1,1)+' + '+fmt(M.m2,1)+' M☉':M.ev.id)+'</b> &nbsp; '
+    +'M<sub>c</sub> = '+fmt(M.mc,2)+' M☉ &nbsp; '+fmtD(M.D);
+}
+function eqbarText(M){
+  return (eqbarHTML(M)+' '+readoutHTML(M)+' '+tagHTML(M)).replace(/<[^>]*>/g,' ');
+}
+/* ================================================================== *
+ *  drawing helpers                                                    *
+ *                                                                     *
+ *  Text is wrapped on a MEASURED width, never on a character count —   *
+ *  a character budget overran the panel edge in wind_tunnel.html and   *
+ *  is on this project's Known-bad list.                                *
+ * ================================================================== */
+/* Canvas text is not HTML: fillText draws "&rsquo;" as seven characters on the
+   screen.  The readout and the info panel ARE HTML and use entities correctly,
+   and prose gets copied between the two, so rather than trusting nobody ever
+   pastes the wrong way, caption() decodes the handful this file uses. */
+const ENTS={'&rsquo;':'\u2019','&lsquo;':'\u2018','&mdash;':'\u2014','&ndash;':'\u2013',
+            '&times;':'\u00d7','&deg;':'\u00b0','&nbsp;':' ','&minus;':'\u2212',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'\u2026'};
+function plain(s){ return String(s).replace(/&[a-z]+;/g,m=>ENTS[m]!==undefined?ENTS[m]:m); }
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  const xt=o.xticks||ticksFor(xlo,xhi,6), yt=o.yticks||ticksFor(ylo,yhi,5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(o.xlab,b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(o.ylab,0,0); ctx.restore(); }
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(o.title,b.x,b.y-6); }
+  ctx.restore();
+}
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  let started=false;
+  const n=Math.min(xs.length,ys.length);
+  for(let i=0;i<n;i++){
+    const X=b.x+b.w*(xs[i]-xlo)/(xhi-xlo||1);
+    const Y=b.y1-b.h*(ys[i]-ylo)/(yhi-ylo||1);
+    if(!isFinite(X)||!isFinite(Y)) { started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else ctx.lineTo(X,Y);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view: the inspiral  (3-D)                                          *
+ *                                                                     *
+ *  Two scales, and both are printed.  The wave field is drawn in units *
+ *  of the gravitational wavelength lambda = c/f, because that is the   *
+ *  only scale on which a wave pattern is a picture at all.  The orbit  *
+ *  is ~18 times smaller than lambda for a stellar-mass binary, so at    *
+ *  that scale the source is a dot; it is therefore MAGNIFIED by a       *
+ *  stated factor, held fixed while the orbit shrinks so the shrinking   *
+ *  is real and not an artefact of a moving scale.                       *
+ * ================================================================== */
+/* The field radius is in wavelengths, and it is deliberately small.  The arms of
+   a quadrupole pattern wind by half a turn per radial wavelength, so a field
+   2.6 lambda across winds them 1.09 turns and the picture reads as concentric
+   rings — which is the opposite of what the caption claims.  (The display list
+   confirmed the structure was there: 816 cyan quads against 816 magenta, both
+   hues in ten of twelve radial bands.  It was drawn correctly and communicated
+   the wrong thing, which the text audit cannot catch and only looking can.)
+   At 1.55 lambda the arms wind ~0.57 turns and read as arms. */
+const WAVE_R=1.55;
+
+function inspiralState(M,frac){
+  /* frac 0..1 walks from the low-frequency edge of the band to ISCO */
+  const f=M.inBand?Math.exp(Math.log(M.fLow)+(Math.log(M.fisco)-Math.log(M.fLow))*clamp(frac,0,1))
+                  :M.fisco;
+  return {f, sep:separation(M.M,f), lam:C_LIGHT/f};
+}
+function drawInspiral(ctx,W,H,M,S){
+  const st=M.st, cam=S.cam;
+  cam.W=W; cam.H=H;
+  const B=camBasis(cam);
+  const P=p=>project(cam,B,p);
+
+  const at=inspiralState(M,S.insFrac);
+  const isco=inspiralState(M,1);
+  /* the magnification is fixed at the ISCO configuration */
+  const MAG=0.46/(isco.sep/isco.lam);
+  const rw=x=>x/at.lam;                  /* metres -> world (lambda units) */
+  const sepW=rw(at.sep)*MAG;
+  const r1=rw(schwarzschild(M.m1)/2)*MAG, r2=rw(schwarzschild(M.m2)/2)*MAG;
+  const a1=sepW*M.m2/M.M, a2=sepW*M.m1/M.M;
+  const phi=S.orbPhase;
+
+  /* ---- floor grid ---- */
+  if(st.showGrid){
+    ctx.save(); ctx.strokeStyle='#101522'; ctx.lineWidth=1;
+    for(let k=1;k<=5;k++){
+      const rr=WAVE_R*k/5;
+      ctx.beginPath(); let started=false;
+      for(let i=0;i<=72;i++){ const a=TAU*i/72, s=P([rr*Math.cos(a),rr*Math.sin(a),0]);
+        if(!s){started=false;continue;}
+        if(!started){ctx.moveTo(s.x,s.y);started=true;} else ctx.lineTo(s.x,s.y); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /* ---- the quadrupole wave field in the orbital plane ----
+     h ~ cos(2 phi_az - 2 Omega t_ret)/r with t_ret = t - r/c, which in these
+     units is simply a phase 2 pi r/lambda.  Two arms, because the source is a
+     QUADRUPOLE — that factor of two is the whole reason the wave frequency is
+     twice the orbital one, and the picture shows it directly. */
+  if(st.showWave){
+    const nr=30, na=96, quads=[];
+    const r0=0.50;
+    for(let i=0;i<nr;i++) for(let k=0;k<na;k++){
+      const ra=r0+(WAVE_R-r0)*i/nr, rb=r0+(WAVE_R-r0)*(i+1)/nr;
+      const aa=TAU*k/na, ab=TAU*(k+1)/na;
+      const rm=(ra+rb)/2, am=(aa+ab)/2;
+      const h=Math.cos(2*am-2*phi-TAU*rm)/rm;
+      const amp=clamp(Math.abs(h)*0.9,0,1);
+      if(amp<0.02) continue;
+      const col=h>0?mix('#070b18','#5ac8e0',amp):mix('#070b18','#cd35c4',amp);
+      const pts=[[ra*Math.cos(aa),ra*Math.sin(aa),0],[rb*Math.cos(aa),rb*Math.sin(aa),0],
+                 [rb*Math.cos(ab),rb*Math.sin(ab),0],[ra*Math.cos(ab),ra*Math.sin(ab),0]];
+      const ss=pts.map(P);
+      if(ss.some(s=>!s)) continue;
+      let d=0; for(const s of ss) d+=s.z; d/=4;
+      quads.push({ss,col,d});
+    }
+    quads.sort((p,q)=>q.d-p.d);
+    for(const q of quads){
+      ctx.beginPath(); ctx.moveTo(q.ss[0].x,q.ss[0].y);
+      for(let i=1;i<4;i++) ctx.lineTo(q.ss[i].x,q.ss[i].y);
+      ctx.closePath(); ctx.fillStyle=q.col; ctx.fill();
+    }
+  }
+
+  /* ---- the orbit, and the track already traced ---- */
+  if(st.showOrbit){
+    ctx.save();
+    ctx.strokeStyle=rgba('#8b93a6',0.32); ctx.lineWidth=1;
+    for(const a of [a1,a2]){
+      ctx.beginPath(); let started=false;
+      for(let i=0;i<=90;i++){ const th=TAU*i/90, s=P([a*Math.cos(th),a*Math.sin(th),0]);
+        if(!s){started=false;continue;}
+        if(!started){ctx.moveTo(s.x,s.y);started=true;} else ctx.lineTo(s.x,s.y); }
+      ctx.closePath(); ctx.stroke();
+    }
+    /* the inspiral track: where the heavier hole has been */
+    ctx.strokeStyle=rgba('#e8843a',0.55); ctx.lineWidth=1.2;
+    ctx.beginPath(); let started=false;
+    for(let i=0;i<=160;i++){
+      const fr=clamp(S.insFrac-0.30*(1-i/160),0,1);
+      const s2=inspiralState(M,fr);
+      const aw=rw(s2.sep)*MAG*M.m2/M.M*(at.lam/s2.lam===0?1:1);
+      const th=phi-6.0*(1-i/160);
+      const s=P([aw*Math.cos(th),aw*Math.sin(th),0]);
+      if(!s){started=false;continue;}
+      if(!started){ctx.moveTo(s.x,s.y);started=true;} else ctx.lineTo(s.x,s.y);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ---- the two horizons, to scale against the separation ---- */
+  if(st.showHorizons){
+    const bodies=[{a:a1,r:r1,m:M.m1,sgn:1},{a:a2,r:r2,m:M.m2,sgn:-1}];
+    const drawn=[];
+    for(const b of bodies){
+      const th=phi+(b.sgn>0?0:PI);
+      const c0=[b.a*Math.cos(th),b.a*Math.sin(th),0];
+      const s=P(c0); if(!s) continue;
+      drawn.push({s,b,d:s.z});
+    }
+    drawn.sort((p,q)=>q.d-p.d);
+    for(const o of drawn){
+      /* the horizon projects to a disc; its screen radius follows the same
+         perspective factor as the projection itself */
+      const edge=P([o.b.a*Math.cos(phi+(o.b.sgn>0?0:PI))+o.b.r,
+                    o.b.a*Math.sin(phi+(o.b.sgn>0?0:PI)),0]);
+      const rad=edge?Math.hypot(edge.x-o.s.x,edge.y-o.s.y):4;
+      ctx.beginPath(); ctx.arc(o.s.x,o.s.y,Math.max(rad,2),0,TAU);
+      ctx.fillStyle='#070b18'; ctx.fill();
+      ctx.strokeStyle=rgba('#cfd4de',0.65); ctx.lineWidth=1.3; ctx.stroke();
+      ctx.beginPath(); ctx.arc(o.s.x,o.s.y,Math.max(rad,2)*1.5,0,TAU);
+      ctx.strokeStyle=rgba('#e8843a',0.28); ctx.lineWidth=1; ctx.stroke();
+    }
+  }
+
+  /* ---- the state line ---- */
+  ctx.save();
+  ctx.font='11.5px -apple-system, sans-serif'; ctx.fillStyle='#8b93a6';
+  ctx.textAlign='right'; ctx.textBaseline='top';
+  const lines=[
+    'f = '+fmt(at.f,1)+' Hz',
+    'separation '+fmtLen(at.sep)+' = '+fmt(at.sep/schwarzschild(M.M),2)+' × 2GM/c²',
+    fmtT(timeToMerge(M.mc,at.f))+' to coalescence',
+    'λ = c/f = '+fmtLen(at.lam),
+  ];
+  for(let i=0;i<lines.length;i++) ctx.fillText(lines[i],W-360,54+i*16);
+  ctx.restore();
+
+  ctx.save();
+  caption(ctx,14,44,
+    'The wave field is drawn in units of the gravitational wavelength λ = c/f = '
+    +fmtLen(at.lam)+', which is the only scale on which a wave pattern is a picture. '
+    +'The orbit is '+fmt(at.lam/at.sep,0)+' times smaller than that, so it is magnified '
+    +'×'+fmt(MAG,1)+' — a fixed factor, so the shrinking you see is real. The horizons are '
+    +'to scale against the separation. Two arms, not one: the source is a quadrupole, which '
+    +'is exactly why the wave comes out at twice the orbital frequency.',
+    Math.max(240,Math.min(560,W-380)),'#6a7285');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view: the waveform                                                 *
+ * ================================================================== */
+function segColour(seg){
+  return seg==='inspiral'?'#5ac8e0':(seg==='ringdown'?'#b8ec4c':'#e8843a');
+}
+function drawWave(ctx,W,H,M,S){
+  const st=M.st, w=M.wave;
+  const padL=86, padR=330, padT=52, padB=124;
+  const bw=Math.max(200,W-padL-padR), availH=Math.max(200,H-padT-padB);
+  const gap=64, h1=Math.round((availH-gap)*0.58), h2=availH-gap-h1;
+  const hb=box(padL,padT,bw,h1);
+  const fb=box(padL,padT+h1+gap,bw,h2);
+
+  if(!M.inBand){
+    ctx.save();
+    ctx.fillStyle='#e8843a'; ctx.font='13px -apple-system, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('this binary reaches ISCO at '+fmt(M.fisco,1)
+                 +' Hz, below the '+fmt(M.fLow,0)+' Hz cutoff — there is no signal in band',
+                 padL+bw/2,padT+availH/2);
+    ctx.restore();
+    return;
+  }
+
+  const t0=w.t0*1e3, t1=w.t1*1e3;                /* milliseconds */
+  const hs=w.hmax*1.12;
+  axes(ctx,hb,t0,t1,-hs,hs,
+    {xfmt:t=>fmt(t,Math.abs(t1-t0)>200?0:1),yfmt:t=>fmtExp(t,1),
+     xlab:'time from coalescence, ms',ylab:'strain h',
+     title:'the waveform at '+fmtD(M.D)+' — optimally oriented'});
+  /* draw each segment in its own colour, so the stitch is visibly a stitch */
+  {
+    let i=0;
+    while(i<w.ts.length-1){
+      const seg=w.segs[i]; let j=i;
+      while(j<w.ts.length-1&&w.segs[j+1]===seg) j++;
+      const xs=[],ys=[];
+      for(let k=i;k<=Math.min(j+1,w.ts.length-1);k++){ xs.push(w.ts[k]*1e3); ys.push(w.hs[k]); }
+      polyline(ctx,hb,xs,ys,t0,t1,-hs,hs,segColour(seg),
+               seg==='merger'?1.5:1.8, seg==='merger'?[5,4]:null);
+      i=j+1;
+    }
+  }
+  /* the envelope, so the growth is readable through the oscillation */
+  if(st.showSegments){
+    for(const sgn of [1,-1]){
+      const xs=[],ys=[];
+      for(let k=0;k<w.ts.length;k++){
+        const t=w.ts[k];
+        if(t<-M.w.tMatch){ xs.push(t*1e3); ys.push(sgn*strainAmp(M.mc,freqAtTime(M.mc,-t),M.D)); }
+      }
+      if(xs.length>2) polyline(ctx,hb,xs,ys,t0,t1,-hs,hs,rgba('#5ac8e0',0.30),1,[3,4]);
+    }
+  }
+  /* the merger interval, marked */
+  {
+    const xa=hb.x+hb.w*(-M.w.tMatch*1e3-t0)/(t1-t0);
+    const xb=hb.x+hb.w*(M.w.tMerge*0.5*1e3-t0)/(t1-t0);
+    ctx.save();
+    ctx.fillStyle=rgba('#e8843a',0.07); ctx.fillRect(xa,hb.y,Math.max(xb-xa,1),hb.h);
+    ctx.strokeStyle=rgba('#e8843a',0.45); ctx.lineWidth=1; ctx.setLineDash([3,3]);
+    for(const X of [xa,xb]){ ctx.beginPath(); ctx.moveTo(X,hb.y); ctx.lineTo(X,hb.y1); ctx.stroke(); }
+    ctx.setLineDash([]);
+    ctx.fillStyle='#e8843a'; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='top';
+    if(xb-xa>60) ctx.fillText('past ISCO — interpolated, not physics',(xa+xb)/2,hb.y+5);
+    ctx.restore();
+  }
+  /* the live cursor */
+  {
+    const tc=lerp(w.t0,w.t1,S.wavePhase)*1e3;
+    const X=hb.x+hb.w*(tc-t0)/(t1-t0);
+    ctx.save(); ctx.strokeStyle=rgba('#ffffff',0.5); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(X,hb.y); ctx.lineTo(X,hb.y1); ctx.stroke(); ctx.restore();
+  }
+
+  /* ---- f(t) ---- */
+  const flo=Math.max(M.fLow*0.7,5), fhi=M.fRing*1.9;
+  const lg=st.logF;
+  const yv=v=>lg?Math.log10(clamp(v,flo,fhi*2)):clamp(v,flo,fhi*2);
+  axes(ctx,fb,t0,t1,yv(flo),yv(fhi),
+    {xfmt:t=>fmt(t,Math.abs(t1-t0)>200?0:1),
+     yfmt:t=>fmt(lg?Math.pow(10,t):t,0)+' Hz',
+     xlab:'time from coalescence, ms',ylab:'GW frequency',
+     title:'the chirp — ḟ ∝ f^(11/3), so it runs away at the end'});
+  {
+    let i=0;
+    while(i<w.ts.length-1){
+      const seg=w.segs[i]; let j=i;
+      while(j<w.ts.length-1&&w.segs[j+1]===seg) j++;
+      const xs=[],ys=[];
+      for(let k=i;k<=Math.min(j+1,w.ts.length-1);k++){ xs.push(w.ts[k]*1e3); ys.push(yv(w.fs[k])); }
+      polyline(ctx,fb,xs,ys,t0,t1,yv(flo),yv(fhi),segColour(seg),
+               seg==='merger'?1.5:1.9, seg==='merger'?[5,4]:null);
+      i=j+1;
+    }
+    /* ISCO and the ringdown frequency, as horizontal marks */
+    for(const [v,lab,c] of [[M.fisco,'f at ISCO','#8b93a6'],[M.fRing,'ringdown '+fmt(M.fRing,0)+' Hz','#b8ec4c']]){
+      const Y=fb.y1-fb.h*(yv(v)-yv(flo))/(yv(fhi)-yv(flo));
+      if(Y<fb.y||Y>fb.y1) continue;
+      ctx.save(); ctx.strokeStyle=rgba(c,0.4); ctx.setLineDash([4,4]); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(fb.x,Y); ctx.lineTo(fb.x1,Y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle=rgba(c,0.9); ctx.font='10px -apple-system, sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='bottom';
+      ctx.fillText(lab,fb.x+6,Y-3); ctx.restore();
+    }
+  }
+  ctx.save();
+  ctx.font='11px -apple-system, sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='left';
+  let lx=fb.x, ly=fb.y1+46;
+  const key=(c,l,d)=>{ ctx.strokeStyle=c; ctx.lineWidth=2.2; if(d) ctx.setLineDash(d);
+    ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+18,ly); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#8b93a6'; ctx.fillText(l,lx+24,ly);
+    lx+=24+ctx.measureText(l).width+22; };
+  key('#5ac8e0','inspiral — post-Newtonian, exact');
+  key('#e8843a','past ISCO — interpolated',[5,4]);
+  key('#b8ec4c','ringdown — Kerr quasi-normal mode');
+  caption(ctx,fb.x,ly+16,
+    'Everything blue is a closed form and everything green is a closed form; the dashed orange '
+    +'between them is a stitch, and it is also where most of the energy comes out — which is the '
+    +'reason numerical relativity exists. The cut is at the innermost stable orbit, where the '
+    +'orbital speed is already c/√6 and a leading-order expansion has no business being trusted; '
+    +'that is conservative, and it is why the dashed interval is '
+    +fmtT(M.tISCO+M.w.tMerge*0.5)+' rather than the few milliseconds the merger itself takes. '
+    +'The inspiral lasts '+fmtT(M.tStart-M.tISCO)+' from '+fmt(M.fLow,0)+' Hz and carries '
+    +fmt(M.nCyc,0)+' cycles; the ringdown is gone in '+fmtT(4*M.tRing)+'.',
+    fb.w,'#767e92');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view: the chirp — time against frequency                           *
+ * ================================================================== */
+function drawSpectrogram(ctx,W,H,M,S){
+  const st=M.st;
+  const padL=86, padR=330, padT=52, padB=120;
+  const b=box(padL,padT,Math.max(220,W-padL-padR),Math.max(180,H-padT-padB));
+  if(!M.inBand){
+    ctx.save(); ctx.fillStyle='#e8843a'; ctx.font='13px -apple-system, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('nothing in band for this binary',b.x+b.w/2,b.y+b.h/2); ctx.restore();
+    return;
+  }
+  const w=M.wave;
+  const t0=w.t0, t1=w.t1;
+  const flo=Math.max(M.fLow*0.6,5), fhi=M.fRing*2.2;
+  const ylo=Math.log10(flo), yhi=Math.log10(fhi);
+  axes(ctx,b,t0,t1,ylo,yhi,
+    {xfmt:t=>fmt(t,Math.abs(t1-t0)>0.4?2:3)+' s',yfmt:t=>fmt(Math.pow(10,t),0),
+     xlab:'time from coalescence',ylab:'frequency, Hz',
+     title:'the chirp track, over the detector noise'});
+
+  const nx=190, ny=110, dx=b.w/nx, dy=b.h/ny;
+  /* the amplitude spectral density of the signal against the noise: the tile
+     brightness is (roughly) the local signal-to-noise, which is why the track
+     fades out below 30 Hz and above the ringdown even though it is still there */
+  for(let i=0;i<nx;i++){
+    const t=t0+(t1-t0)*(i+0.5)/nx;
+    const ftr=freqTrack(M.w,t);
+    const amp=Math.abs(strainAt(M.w,t).h);
+    for(let k=0;k<ny;k++){
+      const yl=ylo+(yhi-ylo)*(k+0.5)/ny, f=Math.pow(10,yl);
+      const rel=(Math.log10(f)-Math.log10(ftr))/0.045;
+      let v=Math.exp(-rel*rel);
+      if(v<0.02) continue;
+      /* weight by how far the signal sits above the noise at that frequency */
+      const snrw=clamp(Math.log10(1+amp/(noiseASD(f)*Math.sqrt(f)))*0.9+0.35,0,1);
+      v=clamp(v*snrw,0,1);
+      if(v<0.02) continue;
+      ctx.fillStyle=neonCss(clamp(0.12+0.85*v,0,1));
+      ctx.fillRect(b.x+i*dx,b.y1-(k+1)*dy,dx+0.8,dy+0.8);
+    }
+  }
+  frame(ctx,b,'#2b3243');
+  /* the analytic track on top */
+  {
+    const xs=[],ys=[];
+    for(let i=0;i<w.ts.length;i++){ xs.push(w.ts[i]); ys.push(Math.log10(clamp(w.fs[i],flo,fhi))); }
+    polyline(ctx,b,xs,ys,t0,t1,ylo,yhi,rgba('#ffffff',0.45),1.2,[4,4]);
+  }
+  /* where the detector stops helping */
+  {
+    const Y=b.y1-b.h*(Math.log10(M.fLow)-ylo)/(yhi-ylo);
+    if(Y>b.y&&Y<b.y1){
+      ctx.save(); ctx.strokeStyle=rgba('#8b93a6',0.5); ctx.setLineDash([5,4]); ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle='#8b93a6'; ctx.font='10.5px -apple-system, sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='bottom';
+      ctx.fillText('low-frequency cutoff, '+fmt(M.fLow,0)+' Hz',b.x+6,Y-3); ctx.restore();
+    }
+  }
+  ctx.save();
+  caption(ctx,b.x,b.y1+44,
+    'This is the picture that gets published, and it is worth knowing what it is: not a '
+    +'measurement but a time-frequency decomposition, brightened here by how far the signal '
+    +'sits above the noise at each frequency. The track sweeps '+fmt(M.fLow,0)+' Hz to '
+    +fmt(M.fisco,0)+' Hz in '+fmtT(M.tStart-M.tISCO)+' and then leaves the model entirely. '
+    +'Because ḟ ∝ f^(11/3), half of those '+fmt(M.nCyc,0)+' cycles happen in the last '
+    +fmt(100*M.tHalfFrac,0)+'% of that time — '+fmtT(M.tStart*M.tHalfFrac)+'.',
+    b.w,'#767e92');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view: the catalogue                                                *
+ * ================================================================== */
+function drawCatalogue(ctx,W,H,M){
+  const st=M.st;
+  const padL=80, padR=330, padT=52, padB=124;
+  const b=box(padL,padT,Math.max(220,W-padL-padR),Math.max(180,H-padT-padB));
+  const xlo=0, xhi=58, ylo=0, yhi=40;
+  axes(ctx,b,xlo,xhi,ylo,yhi,{xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,0),
+    xlab:'primary mass m₁, solar masses',ylab:'secondary mass m₂',
+    title:'GWTC-1 — every confident detection of the first two observing runs'});
+
+  /* lines of constant chirp mass: the quantity actually measured */
+  {
+    ctx.save(); ctx.beginPath(); ctx.rect(b.x,b.y,b.w,b.h); ctx.clip();
+    for(const mcv of [5,10,15,20,25,30,35]){
+      const xs=[],ys=[];
+      for(let i=0;i<=90;i++){
+        const m1=xlo+(xhi-xlo)*i/90;
+        if(m1<=0) continue;
+        /* solve chirpMass(m1,m2) = mcv for m2 */
+        let lo=0.05,hi=m1;
+        if(chirpMass(m1,hi)<mcv) continue;
+        for(let k=0;k<50;k++){ const mid=0.5*(lo+hi);
+          if(chirpMass(m1,mid)<mcv) lo=mid; else hi=mid; }
+        const m2=0.5*(lo+hi);
+        if(m2>m1+1e-9) continue;
+        xs.push(m1); ys.push(m2);
+      }
+      if(xs.length>1) polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,rgba('#5f6a82',0.4),1,[3,4]);
+    }
+    /* the m2 = m1 boundary — by convention m1 >= m2, so nothing lives above it */
+    polyline(ctx,b,[xlo,xhi],[xlo,xhi],xlo,xhi,ylo,yhi,rgba('#8b93a6',0.35),1);
+    ctx.restore();
+  }
+
+  ctx.save();
+  ctx.font='10px -apple-system, sans-serif';
+  const placed=[];
+  for(const e of EVENTS){
+    const X=b.x+b.w*(e.m1-xlo)/(xhi-xlo), Y=b.y1-b.h*(e.m2-ylo)/(yhi-ylo);
+    if(X<b.x-6||X>b.x1+6||Y<b.y-6||Y>b.y1+6) continue;
+    const sel=(!M.custom&&e.id===st.event);
+    const col=e.kind==='bns'?'#cd35c4':'#5ac8e0';
+    if(st.showUnc){
+      /* CLIP: GW170729's published interval runs off the right edge and off the
+         top of the canvas entirely.  Same trap as the unclipped contour lines in
+         pulsar.html's P-Pdot diagram — anything drawn from data that can exceed
+         the axis range needs an explicit clip, and the text audit cannot see it. */
+      ctx.save(); ctx.beginPath(); ctx.rect(b.x,b.y,b.w,b.h); ctx.clip();
+      ctx.strokeStyle=rgba(col,0.32); ctx.lineWidth=1;
+      const xp=b.x+b.w*(e.m1+e.m1u[0]-xlo)/(xhi-xlo), xm=b.x+b.w*(e.m1-e.m1u[1]-xlo)/(xhi-xlo);
+      const yp=b.y1-b.h*(e.m2+e.m2u[0]-ylo)/(yhi-ylo), ym=b.y1-b.h*(e.m2-e.m2u[1]-ylo)/(yhi-ylo);
+      ctx.beginPath(); ctx.moveTo(xm,Y); ctx.lineTo(xp,Y);
+      ctx.moveTo(X,ym); ctx.lineTo(X,yp); ctx.stroke();
+      ctx.restore();
+    }
+    /* the marker area carries the SNR — the loud ones should look loud */
+    const r=clamp(2.4+e.snr*0.22,2.6,9);
+    ctx.beginPath(); ctx.arc(X,Y,sel?r+2.5:r,0,TAU);
+    ctx.fillStyle=sel?'#fff':rgba(col,0.9); ctx.fill();
+    if(sel){ ctx.strokeStyle=col; ctx.lineWidth=2.2; ctx.stroke(); }
+    if(st.showNames){
+      const lab=e.id.replace('GW','');
+      const wpx=ctx.measureText(lab).width;
+      let ly=Y-r-5, tries=0;
+      while(tries<6&&placed.some(q=>Math.abs(q.x-X)<(q.w+wpx)/2+4&&Math.abs(q.y-ly)<11)){
+        ly+=(tries%2?-1:1)*12*(1+Math.floor(tries/2)); tries++; }
+      placed.push({x:X,y:ly,w:wpx});
+      ctx.fillStyle=sel?'#fff':rgba(col,0.85);
+      ctx.textAlign='center'; ctx.textBaseline='bottom';
+      ctx.fillText(lab,X,ly);
+    }
+  }
+  ctx.restore();
+
+  ctx.save();
+  ctx.font='11px -apple-system, sans-serif'; ctx.textBaseline='middle'; ctx.textAlign='left';
+  let lx=b.x, ly=b.y1+46;
+  for(const [c,l] of [['#5ac8e0','black-hole binary'],['#cd35c4','neutron-star binary'],
+                      [rgba('#5f6a82',0.8),'constant chirp mass']]){
+    ctx.fillStyle=c; ctx.beginPath(); ctx.arc(lx+5,ly,4,0,TAU); ctx.fill();
+    ctx.fillStyle='#8b93a6'; ctx.fillText(l,lx+14,ly);
+    lx+=14+ctx.measureText(l).width+22;
+  }
+  ctx.fillStyle='#8b93a6'; ctx.fillText('marker area ∝ network SNR',lx,ly);
+  caption(ctx,b.x,ly+16,
+    'The dashed curves are lines of constant chirp mass, and every event sits on one far more '
+    +'tightly than it sits at a point — which is the honest summary of what a detection measures. '
+    +'The error bars are the published 90% intervals. GW170817 is the magenta point down at 1.5 '
+    +'and 1.3 solar masses: two neutron stars, and the only event here with an electromagnetic '
+    +'counterpart. Before 2015 not one of these objects was known to exist.',
+    b.w,'#767e92');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view: the detector                                                 *
+ * ================================================================== */
+function drawDetector(ctx,W,H,M){
+  const st=M.st;
+  const padL=88, padR=330, padT=52, padB=124;
+  const bw=Math.max(200,W-padL-padR), availH=Math.max(200,H-padT-padB);
+  const gap=64, h1=Math.round((availH-gap)*0.60), h2=availH-gap-h1;
+  const sb=box(padL,padT,bw,h1);
+  const hb=box(padL,padT+h1+gap,bw,h2);
+
+  /* ---- characteristic strain against the noise ---- */
+  const flo=8, fhi=3000;
+  const xlo=Math.log10(flo), xhi=Math.log10(fhi);
+  const ylo=-24.6, yhi=-19.6;
+  axes(ctx,sb,xlo,xhi,ylo,yhi,
+    {xfmt:t=>fmt(Math.pow(10,t),0),yfmt:t=>'10'+sup(Math.round(t)),
+     xlab:'frequency, Hz',ylab:'characteristic strain',
+     title:'signal against noise — the comparison that decides whether you see it'});
+  {
+    ctx.save(); ctx.beginPath(); ctx.rect(sb.x,sb.y,sb.w,sb.h); ctx.clip();
+    const nx=[],ny=[];
+    for(let i=0;i<=220;i++){
+      const f=Math.pow(10,xlo+(xhi-xlo)*i/220);
+      nx.push(Math.log10(f)); ny.push(Math.log10(noiseStrain(f)));
+    }
+    polyline(ctx,sb,nx,ny,xlo,xhi,ylo,yhi,'#8b93a6',1.8);
+    if(M.inBand){
+      const sx=[],sy=[];
+      for(let i=0;i<=220;i++){
+        const f=Math.pow(10,xlo+(xhi-xlo)*i/220);
+        if(f<M.fLow||f>M.fisco) continue;
+        sx.push(Math.log10(f)); sy.push(Math.log10(charStrain(M.mc,f,M.D)));
+      }
+      if(sx.length>1) polyline(ctx,sb,sx,sy,xlo,xhi,ylo,yhi,'#b8ec4c',2.2);
+    }
+    ctx.restore();
+  }
+  ctx.save();
+  ctx.font='10.5px -apple-system, sans-serif';
+  ctx.fillStyle='#8b93a6'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText('√(f S_n) — Advanced LIGO design (analytic fit)',sb.x+8,sb.y1-8);
+  if(M.inBand){
+    ctx.fillStyle='#b8ec4c';
+    ctx.fillText('2f|h̃(f)| — this binary at '+fmtD(M.D),sb.x+8,sb.y1-24);
+    ctx.textAlign='right'; ctx.textBaseline='top';
+    ctx.fillStyle=M.snr>8?'#b8ec4c':'#e8843a';
+    ctx.font='12px -apple-system, sans-serif';
+    ctx.fillText('optimal SNR '+fmt(M.snr,1)
+                 +(M.custom?'':'   ·   published network '+fmt(M.ev.snr,1)),sb.x1-8,sb.y+8);
+  }
+  ctx.restore();
+
+  /* ---- horizon distance against total mass ---- */
+  const mlo=Math.log10(2), mhi=Math.log10(400);
+  const hx=[],hy=[];
+  let hmax=0;
+  for(let i=0;i<=140;i++){
+    const Mt=Math.pow(10,mlo+(mhi-mlo)*i/140);
+    const mcq=chirpMass(Mt/2,Mt/2);
+    const d=(fISCO(Mt)>M.fLow)?horizonDistance(mcq,Mt,M.fLow,st.snrTarget):0;
+    hx.push(Math.log10(Mt)); hy.push(d/1000);
+    if(d/1000>hmax) hmax=d/1000;
+  }
+  axes(ctx,hb,mlo,mhi,0,Math.max(hmax*1.1,0.1),
+    {xfmt:t=>fmt(Math.pow(10,t),0),yfmt:t=>fmt(t,1),
+     xlab:'total mass of an equal-mass binary, M☉',ylab:'horizon, Gpc',
+     title:'how far it can be seen at SNR '+fmt(st.snrTarget,0)});
+  polyline(ctx,hb,hx,hy,mlo,mhi,0,Math.max(hmax*1.1,0.1),'#5ac8e0',2);
+  {
+    const X=hb.x+hb.w*(clamp(Math.log10(M.M),mlo,mhi)-mlo)/(mhi-mlo);
+    const Y=hb.y1-hb.h*clamp(M.horiz/1000,0,hmax*1.1)/Math.max(hmax*1.1,0.1);
+    ctx.save();
+    ctx.strokeStyle=rgba('#cd35c4',0.8); ctx.lineWidth=1.3;
+    ctx.beginPath(); ctx.moveTo(X,hb.y1); ctx.lineTo(X,Y); ctx.stroke();
+    ctx.fillStyle='#cd35c4'; ctx.beginPath(); ctx.arc(X,Y,4.5,0,TAU); ctx.fill();
+    ctx.font='10.5px -apple-system, sans-serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText('this binary: '+fmtD(M.horiz),X+7,Y-5);
+    ctx.restore();
+  }
+  ctx.save();
+  caption(ctx,hb.x,hb.y1+44,
+    'The horizon rises with mass — heavier binaries radiate more — and then falls off a cliff, '
+    +'because a heavy binary merges at a LOW frequency and drops out of the band before it gets '
+    +'loud. That turnover, not the sensitivity of the instrument, is why LIGO sees tens of solar '
+    +'masses and not thousands. The SNR quoted is optimal: face-on and overhead. A real source '
+    +'is somewhere the antenna pattern penalises, which is why the published network values are '
+    +'roughly half of these.',
+    hb.w,'#767e92');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view: the ledger                                                   *
+ * ================================================================== */
+function drawLedger(ctx,W,H,M){
+  const st=M.st;
+  const padL=92, padR=330, padT=52, padB=124;
+  const bw=Math.max(200,W-padL-padR), availH=Math.max(200,H-padT-padB);
+  const gap=64, h1=Math.round((availH-gap)*0.58), h2=availH-gap-h1;
+  const lb=box(padL,padT,bw,h1);
+  const eb=box(padL,padT+h1+gap,bw,h2);
+
+  /* ---- luminosity against frequency, against c^5/G ---- */
+  const flo=Math.max(M.fLow*0.7,5), fhi=M.fisco*1.6;
+  const xlo=Math.log10(flo), xhi=Math.log10(fhi);
+  const ylo=-9, yhi=0.4;
+  axes(ctx,lb,xlo,xhi,ylo,yhi,
+    {xfmt:t=>fmt(Math.pow(10,t),0),yfmt:t=>'10'+sup(Math.round(t)),
+     xlab:'GW frequency, Hz',ylab:'L / (c⁵/G)',
+     title:'the quadrupole luminosity, in units of the only one that exists'});
+  {
+    ctx.save(); ctx.beginPath(); ctx.rect(lb.x,lb.y,lb.w,lb.h); ctx.clip();
+    const xs=[],ys=[];
+    for(let i=0;i<=200;i++){
+      const f=Math.pow(10,xlo+(xhi-xlo)*i/200);
+      xs.push(Math.log10(f)); ys.push(Math.log10(Math.max(luminosityFraction(M.lumAt(f)),1e-12)));
+    }
+    polyline(ctx,lb,xs,ys,xlo,xhi,ylo,yhi,'#b8ec4c',2.1);
+    /* past ISCO the formula is not merely inaccurate, it is wrong */
+    const xI=lb.x+lb.w*(Math.log10(M.fisco)-xlo)/(xhi-xlo);
+    ctx.fillStyle=rgba('#e8843a',0.08); ctx.fillRect(xI,lb.y,lb.x1-xI,lb.h);
+    ctx.strokeStyle=rgba('#e8843a',0.5); ctx.setLineDash([4,4]); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(xI,lb.y); ctx.lineTo(xI,lb.y1); ctx.stroke(); ctx.setLineDash([]);
+    ctx.restore();
+    ctx.save();
+    ctx.fillStyle='#e8843a'; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='top';
+    if(lb.x1-xI>90) ctx.fillText('past ISCO — the formula diverges',xI+6,lb.y+6);
+    /* the published peak, where there is one */
+    if(!M.custom&&M.ev.id==='GW150914'){
+      const Y=lb.y1-lb.h*(Math.log10(luminosityFraction(3.6e49))-ylo)/(yhi-ylo);
+      if(Y>lb.y&&Y<lb.y1){
+        ctx.strokeStyle=rgba('#cd35c4',0.75); ctx.lineWidth=1.4; ctx.setLineDash([6,4]);
+        ctx.beginPath(); ctx.moveTo(lb.x,Y); ctx.lineTo(lb.x1,Y); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle='#cd35c4'; ctx.textAlign='right'; ctx.textBaseline='bottom';
+        ctx.fillText('published peak, 3.6×10⁵⁶ erg/s = 0.00099 c⁵/G',lb.x1-6,Y-4);
+      }
+    }
+    ctx.restore();
+  }
+
+  /* ---- the energy budget ---- */
+  axes(ctx,eb,0,1,0,1,{xfmt:()=>'',yfmt:()=>'',xlab:'',ylab:'',
+    title:'where the mass went'});
+  {
+    ctx.save();
+    const rows=[
+      ['m₁ + m₂ before', M.M, '#5ac8e0'],
+      ['final black hole', M.mf, '#8b93a6'],
+      ['radiated as gravitational waves', M.eRad, '#b8ec4c'],
+    ];
+    const barX=eb.x+240, barW=eb.w-260;
+    ctx.font='12px -apple-system, sans-serif';
+    for(let i=0;i<rows.length;i++){
+      const [lab,val,col]=rows[i];
+      const y=eb.y+26+i*Math.max(26,(eb.h-56)/3);
+      ctx.fillStyle='#8b93a6'; ctx.textAlign='left'; ctx.textBaseline='middle';
+      ctx.fillText(lab,eb.x+8,y);
+      const wpx=barW*clamp(val/M.M,0,1);
+      ctx.fillStyle=col; ctx.fillRect(barX,y-7,Math.max(wpx,1),14);
+      ctx.fillStyle='#cfd4de'; ctx.textAlign='left';
+      ctx.fillText(fmt(val,2)+' M☉',barX+Math.max(wpx,1)+8,y);
+    }
+    ctx.restore();
+  }
+  ctx.save();
+  caption(ctx,eb.x,eb.y1+30,
+    fmt(M.eRad,2)+' solar masses — '+fmtExp(M.eJ,2)+' joules — left the system as spacetime '
+    +'curvature in a few tenths of a second. For that moment the binary outshone every star in '
+    +'the observable universe put together, by a factor of tens, and it did it without emitting '
+    +'a single photon. The natural unit above is c⁵/G = '+fmtExp(L_PLANCK*1e7,2)+' erg/s: the '
+    +'only luminosity that can be built from c and G alone, and a bound nothing is known to '
+    +'exceed. A merger reaches about a thousandth of it.',
+    eb.w,'#767e92');
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view dispatch                                                      *
+ * ================================================================== */
+function drawView(ctx,W,H,M,S){
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  const v=M.st.view;
+  if(v==='inspiral')         return drawInspiral(ctx,W,H,M,S);
+  else if(v==='wave')        return drawWave(ctx,W,H,M,S);
+  else if(v==='spectrogram') return drawSpectrogram(ctx,W,H,M,S);
+  else if(v==='catalogue')   return drawCatalogue(ctx,W,H,M);
+  else if(v==='detector')    return drawDetector(ctx,W,H,M);
+  else if(v==='ledger')      return drawLedger(ctx,W,H,M);
+  return drawInspiral(ctx,W,H,M,S);
+}
+
+/* ================================================================== *
+ *  the scene                                                          *
+ * ================================================================== */
+function makeScene(canvas){
+  const st=Object.assign({},DEFAULTS);
+  const cam=makeCamera(-0.7,0.62,9.4,[0,0,0]);
+  let M=null;
+  const S={
+    st,cam,orbPhase:0,insFrac:0,wavePhase:0,
+    model(){ if(!M) S.rebuild(); return M; },
+    rebuild(){ M=buildModel(st); },
+    fit(){ cam.target=[0,0,0]; cam.dist=clamp(2.5*WAVE_R/(2*Math.tan(cam.fov/2))*1.30,3,60); },
+    resetView(){ cam.theta=-0.7; cam.phi=0.62; S.fit(); },
+    lookAxial(){ cam.theta=-0.7; cam.phi=1.42; S.fit(); },
+    pointer(kind,d){
+      if(kind!=='move') return;
+      cam.theta-=d.dx*0.006;
+      cam.phi=clamp(cam.phi+d.dy*0.006,-1.45,1.45);
+    },
+    wheel(dy){ cam.dist=clamp(cam.dist*Math.exp(dy*0.0012),2.5,200); },
+    step(dt){
+      if(!st.anim&&!st.spin) return;
+      if(st.anim){
+        S.orbPhase=(S.orbPhase+dt*st.speed*2.2)%TAU;
+        S.insFrac=(S.insFrac+dt*st.speed*0.12)%1;
+        S.wavePhase=(S.wavePhase+dt*st.speed*0.22)%1;
+      }
+      if(st.spin) cam.theta+=dt*st.speed*0.13;
+    },
+    draw(){
+      const ctx=canvas.getContext('2d');
+      const r=canvas.getBoundingClientRect?canvas.getBoundingClientRect():{width:cam.W,height:cam.H};
+      const Wd=r.width||cam.W, Hd=r.height||cam.H;
+      cam.W=Wd; cam.H=Hd;
+      if(!M) S.rebuild();
+      drawView(ctx,Wd,Hd,M,S);
+    },
+    readout(){ return readoutHTML(S.model()); },
+    eqbar(){ return eqbarHTML(S.model()); },
+    tag(){ return tagHTML(S.model()); },
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  UI                                                                 *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const subEl=document.getElementById('sub');
+  const S=makeScene(canvas), st=S.st;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  VIEWS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>{
+      st.view=k; [].forEach.call(tabsEl.children,(b,i)=>b.className=VIEWS[i][0]===k?'active':'');
+      S.rebuild(); syncPanel(); refresh(); }},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step,value:st[key]});
+    const val=h('span',{class:'val'});
+    const row=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); S.rebuild(); syncPanel(); refresh(); });
+    rows[key]={row,sync}; sync(); return row;
+  }
+  function checkbox(key,lab){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      S.rebuild(); syncPanel(); refresh(); });
+    return h('label',null,inp,lab);
+  }
+  function chipRow(list,idf,namef,pick,isOn){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(isOn(o)?' on':''),onclick:()=>{
+        pick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(isOn(list[i])?' on':''));
+        S.rebuild(); syncPanel(); refresh(); }},namef(o));
+      wrapEl.appendChild(c);
+    });
+    wrapEl._sync=()=>{ [].forEach.call(wrapEl.children,(b,i)=>
+      b.className='chip'+(isOn(list[i])?' on':'')); };
+    return wrapEl;
+  }
+
+  const gEv=h('div',{class:'grp'},h('h3',null,'the source'));
+  const evChips=chipRow(EVENTS,e=>e.id,e=>e.id.replace('GW',''),
+    e=>{ st.event=e.id; st.custom=false; },
+    e=>!st.custom&&st.event===e.id);
+  gEv.appendChild(evChips);
+  gEv.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ st.custom=true; S.rebuild(); syncChips(); syncPanel(); refresh(); }},
+      'custom masses')));
+  const evTag=h('div',{class:'src'}); gEv.appendChild(evTag);
+
+  const gM=h('div',{class:'grp'},h('h3',null,'the binary'));
+  gM.appendChild(slider('m1','m₁',1,150,0.1,v=>fmt(v,1)+' M☉'));
+  gM.appendChild(slider('m2','m₂',1,150,0.1,v=>fmt(v,1)+' M☉'));
+  gM.appendChild(slider('D','distance',10,8000,10,v=>fmtD(v)));
+  const mTag=h('div',{class:'tag'}); gM.appendChild(mTag);
+
+  const gDet=h('div',{class:'grp'},h('h3',null,'the instrument'));
+  gDet.appendChild(slider('fLow','low cutoff',5,100,1,v=>fmt(v,0)+' Hz'));
+  gDet.appendChild(slider('snrTarget','horizon at SNR',5,20,0.5,v=>fmt(v,1)));
+  const detTag=h('div',{class:'tag'}); gDet.appendChild(detTag);
+
+  const gShow=h('div',{class:'grp'},h('h3',null,'show'));
+  const schecks=h('div',{class:'checks'},
+    checkbox('showWave','the wave field'),
+    checkbox('showHorizons','the horizons'),
+    checkbox('showOrbit','the orbits'),
+    checkbox('showGrid','floor grid'),
+    checkbox('anim','animate'),
+    checkbox('spin','auto-orbit'));
+  gShow.appendChild(schecks);
+  gShow.appendChild(slider('speed','speed',0.1,4,0.1,v=>fmt(v,1)+'×'));
+  gShow.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ S.lookAxial(); dirty=true; refresh(); }},'look down the axis'),
+    h('button',{onclick:()=>{ S.resetView(); dirty=true; refresh(); }},'reset view')));
+
+  const gDisp=h('div',{class:'grp'},h('h3',null,'display'));
+  const dchecks=h('div',{class:'checks'},
+    checkbox('showNames','label the events'),
+    checkbox('showUnc','published uncertainties'),
+    checkbox('showSegments','strain envelope'),
+    checkbox('logF','logarithmic frequency'));
+  gDisp.appendChild(dchecks);
+  gDisp.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ Object.assign(st,DEFAULTS); S.rebuild(); S.resetView();
+                              syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}));
+  [gEv,gM,gDet,gShow,gDisp,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){ if(evChips._sync) evChips._sync(); }
+  function syncPanel(){
+    const v=st.view;
+    gEv.hidden   = false;
+    gM.hidden    = !st.custom;
+    gDet.hidden  = !(v==='detector'||v==='wave'||v==='spectrogram');
+    gShow.hidden = (v!=='inspiral');
+    gDisp.hidden = false;
+    rows.speed.row.hidden = !(st.anim||st.spin);
+    rows.snrTarget.row.hidden = (v!=='detector');
+    for(const k in rows) rows[k].sync();
+    [].forEach.call(schecks.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['showWave','showHorizons','showOrbit','showGrid','anim','spin'][i]]; });
+    [].forEach.call(dchecks.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['showNames','showUnc','showSegments','logF'][i]]; });
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=S.readout(); eqEl.innerHTML=S.eqbar(); tagEl.innerHTML=S.tag();
+      hintEl.textContent = (st.view==='inspiral')
+        ? 'drag to orbit · scroll to zoom · space stops the animation · r resets'
+        : st.view==='catalogue' ? 'pick an event from the panel to highlight it here'
+        : st.view==='detector' ? 'area between the two curves is signal-to-noise'
+        : st.view==='ledger' ? 'the shaded region is where the quadrupole formula stops being true'
+        : st.view==='wave' ? 'the dashed orange interval is the part no closed form gives you'
+        : 'the track leaves the model where the shading starts';
+      subEl.innerHTML = M.custom
+        ? fmt(M.m1,1)+' + '+fmt(M.m2,1)+' M☉ &mdash; M<sub>c</sub> = '+fmt(M.mc,2)
+          +' M☉, radiating '+fmt(M.eRad,2)+' M☉'
+        : M.ev.id+' &mdash; '+fmt(M.eRad,1)+' M☉ into spacetime, '+fmtGly(M.D)+' away';
+      evTag.innerHTML=M.custom
+        ? 'custom masses — the remnant is a <b>fit</b>, not a measurement'
+        : 'GWOSC GWTC-1, transcribed verbatim; M<sub>c</sub> is recomputed here and agrees to <b>'
+          +fmt(100*Math.abs(M.mc-M.mcPub)/M.mcPub,2)+'%</b>';
+      mTag.innerHTML='M<sub>c</sub> = <b>'+fmt(M.mc,3)+'</b> M☉ &nbsp; η = <b>'+fmt(M.eta,4)+'</b>'
+        +'<br>2GM/c² = <b>'+fmtLen(schwarzschild(M.M))+'</b>';
+      detTag.innerHTML=M.inBand
+        ? 'f<sub>ISCO</sub> = <b>'+fmt(M.fisco,1)+'</b> Hz &nbsp; SNR <b'
+          +(M.snr>8?' class="g"':' class="r"')+'>'+fmt(M.snr,1)+'</b>'
+          +'<br>in band for <b>'+fmtT(M.tStart-M.tISCO)+'</b>, <b>'+fmt(M.nCyc,0)+'</b> cycles'
+        : '<span class="r">ISCO at '+fmt(M.fisco,1)+' Hz is below the cutoff</span>';
+      infoEl.innerHTML=INFO[st.view]||INFO.inspiral;
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  /* Moving the camera is not the same as repainting it: the frame loop only
+     redraws while something is animating, so every interaction that touches the
+     camera must ask for a frame.  (steam_carnot_cycle.html Known-bad list.) */
+  let down=false,lx=0,ly=0,dirty=false;
+  canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId);
+    down=true; lx=e.clientX; ly=e.clientY; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove',e=>{ if(!down) return;
+    S.pointer('move',{dx:e.clientX-lx,dy:e.clientY-ly}); lx=e.clientX; ly=e.clientY;
+    dirty=true; });
+  const up=()=>{ down=false; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); S.wheel(e.deltaY); dirty=true; },
+    {passive:false});
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.anim=!st.anim; syncPanel(); refresh(); }
+    else if(e.key==='r'){ S.resetView(); dirty=true; refresh(); }
+    else if(e.key==='a'){ S.lookAxial(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<='6'){ st.view=VIEWS[+e.key-1][0];
+      [].forEach.call(tabsEl.children,(b,i)=>b.className=VIEWS[i][0]===st.view?'active':'');
+      S.rebuild(); syncPanel(); refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.cam.W=r.width; S.cam.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let last=0;
+  function frameLoop(tm){
+    const dt=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    S.step(dt);
+    const live=(st.anim&&(st.view==='inspiral'||st.view==='wave'))||(st.spin&&st.view==='inspiral');
+    if(live||dirty){ dirty=false; try{ S.draw(); }catch(e){ fail(e); } }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); S.fit(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+}
+
+const INFO={
+  inspiral:'Two black holes in orbit are a rotating mass quadrupole, and a rotating quadrupole '
+    +'radiates. The energy comes out of the orbit, the orbit shrinks, and the shrinking makes it '
+    +'radiate harder — a runaway that ends in a merger. The wave pattern has <b>two arms</b>, not '
+    +'one, and that is not decoration: a quadrupole looks the same after half a turn, which is '
+    +'exactly why the gravitational wave comes out at <b>twice</b> the orbital frequency. Watch '
+    +'the separation: by the last orbits the two horizons are a couple of Schwarzschild radii '
+    +'apart and moving at a good fraction of the speed of light.',
+  wave:'The signal, in three parts, and the middle one is honest about itself. The '
+    +'<b>inspiral</b> is a closed form — leading-order post-Newtonian, exact within its own '
+    +'approximation. The <b>ringdown</b> is a closed form too: the remnant is a Kerr hole and it '
+    +'rings at a frequency and damping time fixed entirely by its mass and spin. Between them is '
+    +'the <b>merger</b>, where the field is strong and dynamical and no expansion converges — '
+    +'that interval is drawn dashed here because getting it right needs numerical relativity, '
+    +'and it is also where most of the energy comes out.',
+  spectrogram:'The picture that gets published. Frequency against time, brightened by how far the '
+    +'signal sits above the noise. What makes it a <b>chirp</b> rather than a tone is that '
+    +'ḟ ∝ f<sup>11/3</sup>: the sweep accelerates into itself, so most of the cycles happen in the '
+    +'last fraction of the last second. And that single relation is the measurement — observe f '
+    +'and ḟ together and the <b>chirp mass</b> follows with no other assumption. That is how a '
+    +'wiggle in a strain channel becomes a statement about two black holes a billion light years '
+    +'away.',
+  catalogue:'Eleven events, and before 2015 not one of these objects was known to exist. The '
+    +'dashed curves are lines of constant chirp mass, and every event lies along one much more '
+    +'tightly than it sits at a point — which is the honest summary of what a detection measures: '
+    +'the chirp mass to a percent, the individual masses to tens of percent. The error bars are '
+    +'the published 90% intervals. Down at the bottom left, in magenta, is <b>GW170817</b> — two '
+    +'neutron stars, 40 Mpc away, followed 1.7 seconds later by a gamma-ray burst.',
+  detector:'Whether you see it is decided by the area between two curves. The grey one is the '
+    +'detector: √(f S<sub>n</sub>), an analytic fit to Advanced LIGO&rsquo;s design sensitivity. '
+    +'The green one is the signal in the same units. Plotting <b>characteristic strain</b> rather '
+    +'than raw amplitude is what makes this fair — in these coordinates the vertical gap really '
+    +'is signal-to-noise per logarithmic frequency bin. The horizon curve below shows why LIGO '
+    +'finds tens of solar masses and not thousands: a heavier binary radiates more but merges at '
+    +'a lower frequency, and eventually it merges below the band entirely.',
+  ledger:'A few tenths of a second, and a few solar masses of rest energy turned into curvature. '
+    +'The natural unit is <b>c⁵/G</b>, which is the only luminosity you can build out of c and G '
+    +'with no mass in it at all — and for that reason a bound nothing is known to exceed. A '
+    +'binary merger reaches about a <b>thousandth</b> of it, which is enough to briefly outshine '
+    +'the combined light of every star in the observable universe, with no photons involved. The '
+    +'shaded region is past the innermost stable orbit, where the quadrupole formula does not '
+    +'merely lose accuracy but diverges.'};
+
+/* ================================================================== *
+ *  self-test                                                          *
+ *                                                                     *
+ *  Values marked (scipy) were computed OUTSIDE this file.  The         *
+ *  catalogue check is the interesting one: GWOSC publishes m1, m2 AND  *
+ *  Mc as separate entries of the same posterior, so recomputing Mc     *
+ *  and comparing tests the formula and the transcription together.     *
+ * ================================================================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(c,n)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+n); } };
+  const close=(a,b,t,n)=>ok(Math.abs(a-b)<=t,n+'  (got '+a+', want '+b+', tol '+t+')');
+  const rel=(a,b,t,n)=>ok(Math.abs(a-b)<=t*Math.abs(b),
+    n+'  (got '+a+', want '+b+', rel tol '+t+')');
+
+  /* ---------- the catalogue checks itself ---------------------------- */
+  {
+    ok(EVENTS.length===11,'GWTC-1 has eleven confident events');
+    let worst=0, worstId='';
+    for(const e of EVENTS){
+      const mine=chirpMass(e.m1,e.m2);
+      const d=Math.abs(mine-e.mc)/e.mc;
+      if(d>worst){ worst=d; worstId=e.id; }
+      ok(d<0.02,'recomputed chirp mass matches the published one for '+e.id
+         +' ('+fmt(100*d,2)+'%)');
+    }
+    ok(worst<0.013,'and the worst disagreement over the catalogue is '+fmt(100*worst,2)
+       +'% ('+worstId+')');
+    /* the radiated fraction must be physical for every binary black hole */
+    for(const e of EVENTS){
+      if(e.mf===null) continue;
+      const fr=(e.m1+e.m2-e.mf)/(e.m1+e.m2);
+      ok(fr>0.02&&fr<0.08,'radiated fraction for '+e.id+' is '+fmt(100*fr,2)+'%, in 2–8%');
+      ok(e.mf<e.m1+e.m2,'and the remnant is lighter than the sum for '+e.id);
+      ok(e.m1>=e.m2,'m1 >= m2 by convention for '+e.id);
+    }
+    ok(EVENTS.filter(e=>e.mf===null).length===1,
+       'exactly one event has no published final mass (GW170817)');
+    ok(eventById('GW170817').kind==='bns','and it is the neutron-star binary');
+  }
+
+  /* ---------- chirp mass, exactly --------------------------------- */
+  {
+    rel(chirpMass(35.6,30.6),28.716496,1e-6,'Mc(35.6,30.6) = 28.7165 (scipy)');
+    rel(chirpMass(1.46,1.27),1.184844662948,1e-11,'Mc(1.46,1.27) = 1.1848447 (scipy)');
+    /* equal masses: Mc = M / 2^(6/5) exactly */
+    for(const m of [1.4,10,35,80]) rel(chirpMass(m,m),2*m/Math.pow(2,1.2),1e-14,
+      'equal masses give Mc = M/2^(6/5) at m='+m);
+    /* it is symmetric, and scales linearly */
+    rel(chirpMass(20,7),chirpMass(7,20),1e-15,'chirp mass is symmetric');
+    rel(chirpMass(60,20),3*chirpMass(20,20/3),1e-13,'and is homogeneous of degree one');
+    rel(symRatio(30,30),0.25,1e-15,'eta = 1/4 for equal masses');
+    ok(symRatio(50,5)<0.25,'and less than that otherwise');
+  }
+
+  /* ---------- the chirp, against scipy ----------------------------- */
+  {
+    const mc=chirpMass(35.6,30.6), M=66.2;
+    rel(timeToMerge(mc,20),0.815234,1e-5,'t to merge from 20 Hz = 0.8152 s (scipy)');
+    rel(timeToMerge(mc,35),0.183308,1e-5,'from 35 Hz = 0.1833 s (scipy)');
+    rel(timeToMerge(mc,150),3.782559058601e-3,1e-10,'from 150 Hz = 3.7826 ms (scipy)');
+    rel(freqDot(mc,100),3362.5508,1e-5,'fdot at 100 Hz = 3362.55 Hz/s (scipy)');
+    rel(strainAmp(mc,150,440),2.053712e-21,1e-5,'h at 150 Hz, 440 Mpc = 2.05e-21 (scipy)');
+    /* This one was asserted against 67.4157 in the first draft — a number that was
+       never actually read, because the terminal output carrying it had been
+       truncated.  The test caught it.  The value is 66.4226. */
+    rel(fISCO(M),66.422579457,1e-9,'f_ISCO for 66.2 M☉ = 66.4226 Hz (scipy)');
+    rel(separation(M,35),899038,1e-4,'separation at 35 Hz = 899 km (scipy)');
+    /* freqAtTime inverts timeToMerge */
+    for(const f of [15,35,80,200]) rel(freqAtTime(mc,timeToMerge(mc,f)),f,1e-9,
+      'freqAtTime inverts timeToMerge at f='+f);
+    /* the scaling laws that pin the exponents */
+    rel(timeToMerge(mc,2*35)/timeToMerge(mc,35),Math.pow(2,-8/3),1e-12,'t ∝ f^(−8/3)');
+    rel(freqDot(mc,2*35)/freqDot(mc,35),Math.pow(2,11/3),1e-12,'ḟ ∝ f^(11/3)');
+    rel(strainAmp(mc,2*35,440)/strainAmp(mc,35,440),Math.pow(2,2/3),1e-12,'h ∝ f^(2/3)');
+    rel(strainAmp(mc,35,880)/strainAmp(mc,35,440),0.5,1e-13,'and h ∝ 1/D');
+    rel(strainAmp(2*mc,35,440)/strainAmp(mc,35,440),Math.pow(2,5/3),1e-12,'h ∝ Mc^(5/3)');
+    rel(fISCO(2*M)/fISCO(M),0.5,1e-13,'f_ISCO ∝ 1/M — heavier binaries merge LOWER');
+    /* the Schwarzschild radius: nothing else pinned its factor of two */
+    rel(schwarzschild(1),2953.2500,1e-6,'2GM/c² for one solar mass is 2.9533 km');
+    rel(schwarzschild(2*M)/schwarzschild(M),2,1e-14,'and it is linear in mass');
+    rel(schwarzschild(M),2*lenM(M),1e-15,'with lenM half of it');
+    /* cycles: half of them happen in the last few percent of the time */
+    const nAll=cyclesBetween(mc,20,fISCO(M),600);
+    rel(nAll,22.55873,2e-3,'22.6 GW cycles from 20 Hz to ISCO (scipy)');
+    const fHalf=(function(){ let lo=20,hi=fISCO(M);
+      for(let i=0;i<60;i++){ const m=0.5*(lo+hi);
+        if(cyclesBetween(mc,20,m,200)<nAll/2) lo=m; else hi=m; }
+      return 0.5*(lo+hi); })();
+    const tHalf=timeToMerge(mc,fHalf);
+    const frac=tHalf/timeToMerge(mc,20);
+    /* for an UNBOUNDED inspiral the answer is exactly 2^(-8/5) = 0.3299; the ISCO
+       cutoff removes the last, fastest cycles and pushes it to 0.404 */
+    rel(frac,0.404118,2e-3,'half the cycles happen in the last 40% of the time (scipy)');
+    ok(frac>Math.pow(2,-8/5),'which is later than the unbounded-inspiral value 2^(-8/5)');
+  }
+
+  /* ---------- the ringdown ----------------------------------------- */
+  {
+    rel(qnmFreq(63.1,0.69),271.78517,1e-6,'QNM of a 63.1 M☉, a=0.69 remnant = 271.8 Hz (scipy)');
+    rel(qnmQ(0.69),3.24508,1e-5,'its quality factor is 3.245 (scipy)');
+    rel(qnmTau(63.1,0.69),0.003800577,1e-5,'and it decays in 3.80 ms (scipy)');
+    rel(qnmFreq(2.70,0.70),6402.02738,1e-6,'a 2.7 M☉ remnant rings at 6.4 kHz (scipy)');
+    /* the frequency scales as 1/M at fixed spin, exactly */
+    rel(qnmFreq(2*63.1,0.69)/qnmFreq(63.1,0.69),0.5,1e-13,'QNM frequency ∝ 1/M');
+    ok(qnmFreq(63.1,0.9)>qnmFreq(63.1,0.3),'a faster-spinning remnant rings higher');
+    ok(qnmQ(0.9)>qnmQ(0.3),'and rings for longer');
+    /* about one cycle of decay — the ringdown is over almost before it starts */
+    /* one cycle at moderate spin, and not many more even near extremal:
+       Q/pi is 0.76 at a=0.3, 1.03 at 0.69 and 1.65 at 0.9 */
+    for(const a of [0.3,0.69,0.9]) ok(qnmQ(a)/PI<2.0,
+       'the remnant rings for order one cycle, not many, at a='+a);
+    rel(qnmQ(0.9)/PI,1.647629,1e-4,'1.65 cycles at a = 0.9 (scipy)');
+    ok(qnmQ(0.3)/PI<1,'and under one cycle at a = 0.3');
+  }
+
+  /* ---------- the remnant fits, and their honesty ------------------- */
+  {
+    rel(finalSpinFit(30,30),0.6864,2e-3,'the final-spin fit gives 0.686 at equal mass');
+    rel(finalSpinFit(35.6,30.6),0.69,0.03,'and 0.68 for GW150914 against the published 0.69');
+    ok(finalSpinFit(100,1)<finalSpinFit(30,30),'an extreme mass ratio spins the remnant up less');
+    /* the eta-scaling for the radiated fraction, against the catalogue it was fitted to */
+    let worst=0;
+    for(const e of EVENTS){
+      if(e.mf===null) continue;
+      const pub=(e.m1+e.m2-e.mf)/(e.m1+e.m2);
+      const fit=radiatedFractionFit(e.m1,e.m2);
+      worst=Math.max(worst,Math.abs(fit-pub)/pub);
+    }
+    ok(worst<0.30,'the radiated-fraction fit is within 30% on every catalogue event ('
+       +fmt(100*worst,1)+'%)');
+    ok(worst>0.20,'and it is NOT better than 20% — it leaves out spin, and the file says so');
+    rel(finalMassFit(30,30)+ERAD_K*4*0.25*60,60,1e-12,'the final-mass fit conserves the budget');
+  }
+
+  /* ---------- the detector ----------------------------------------- */
+  {
+    rel(noiseASD(100),2.855036e-24,1e-5,'aLIGO fit at 100 Hz = 2.86e-24 /√Hz (scipy)');
+    rel(noiseASD(215),1.816590e-24,1e-5,'at 215 Hz = 1.82e-24 (scipy)');
+    rel(noiseASD(30),1.823862e-23,1e-5,'at 30 Hz = 1.82e-23 (scipy)');
+    /* the minimum is where it should be */
+    let fb=0,vb=Infinity;
+    for(let f=30;f<600;f+=0.05){ const v=noisePSD(f); if(v<vb){ vb=v; fb=f; } }
+    rel(fb,228.268,2e-3,'the curve bottoms out at 228 Hz (scipy)');
+    rel(Math.sqrt(vb),1.800389e-24,1e-4,'at 1.80e-24 /√Hz (scipy)');
+    ok(noiseASD(10)>10*noiseASD(200),'and it walls up steeply at low frequency');
+    /* SNR: scaling, then the absolute value */
+    const mc=chirpMass(35.6,30.6);
+    rel(snrOptimal(mc,66.2,880,20,800)/snrOptimal(mc,66.2,440,20,800),0.5,1e-6,'SNR ∝ 1/D');
+    rel(snrOptimal(mc,66.2,440,20,800),55.916,0.02,
+        'optimal single-detector SNR for GW150914 ≈ 56 (scipy)');
+    ok(snrOptimal(mc,66.2,440,20,800)>2*eventById('GW150914').snr*0.9,
+       'which is about twice the published network SNR, as an optimal orientation should be');
+    rel(horizonDistance(mc,66.2,20,8),snrOptimal(mc,66.2,440,20,800)/8*440,1e-3,
+        'the horizon is just the SNR scaled to threshold');
+    /* Characteristic strain exists so that AREA ON THE PAGE is signal-to-noise:
+         rho^2 = 4 INT |h~|^2/S_n df  ==  INT (2f|h~|)^2/(f S_n) d(ln f).
+       Recomputing the SNR the second way pins the factor of two in charStrain
+       and the definition of noiseStrain together — nothing else did, and the
+       mutation sweep found both. */
+    {
+      const D=440, fhi=fISCO(66.2), a=Math.log(20), b=Math.log(fhi);
+      const N=800; let s=0;
+      for(let i=0;i<=N;i++){
+        const f=Math.exp(a+(b-a)*i/N);
+        const w=(i===0||i===N)?1:(i%2?4:2);
+        const r=charStrain(mc,f,D)/noiseStrain(f);
+        s+=w*r*r;
+      }
+      const rhoLog=Math.sqrt(s*(b-a)/(3*N));
+      rel(rhoLog,snrOptimal(mc,66.2,D,20,800),2e-4,
+          'the characteristic-strain log-integral reproduces the SNR exactly');
+    }
+    rel(charStrain(mc,100,440),2*100*hTilde(mc,100,440),1e-15,'h_c is 2f|h̃| by definition');
+    rel(noiseStrain(100),Math.sqrt(100*noisePSD(100)),1e-15,'and h_n is √(f S_n)');
+    /* the horizon must turn over: a heavy enough binary merges below the band */
+    const hz=m=>fISCO(m)>20?horizonDistance(chirpMass(m/2,m/2),m,20,8):0;
+    let peakM=0,peakD=0;
+    for(let m=5;m<600;m*=1.05){ const d=hz(m); if(d>peakD){ peakD=d; peakM=m; } }
+    /* ~51 Msun for an INSPIRAL-ONLY horizon integrated to ISCO.  Real published
+       horizon curves peak higher because they count the merger and ringdown,
+       which this file does not have and does not pretend to. */
+    rel(peakM,50.663,0.06,'the horizon peaks near 51 M☉ for an inspiral-only SNR (scipy)');
+    ok(hz(1000)===0,'and a 1000 M☉ binary merges below the band entirely');
+    ok(hz(300)<peakD*0.6,'with the collapse well under way by 300 M☉');
+  }
+
+  /* ---------- energy and luminosity -------------------------------- */
+  {
+    rel(L_PLANCK,3.628254904e52,1e-9,'c⁵/G = 3.628e52 W (scipy)');
+    rel(MSUN_C2,1.787093669e47,1e-9,'one solar mass is 1.787e47 J (scipy)');
+    rel(radiatedEnergyJ(3.1),5.539990e47,1e-6,'GW150914 radiated 5.54e47 J (scipy)');
+    rel(luminosityFraction(3.6e49),0.00099221,1e-4,
+        'the published peak is 0.00099 c⁵/G — a thousandth of the Planck luminosity');
+    ok(luminosityFraction(3.6e49)<1,'which is, as it must be, below c⁵/G');
+    /* the quadrupole luminosity scaling */
+    const mc=chirpMass(35.6,30.6);
+    const L=f=>(32/5)*L_PLANCK*Math.pow(tauM(mc)*PI*f,10/3);
+    rel(L(2*40)/L(40),Math.pow(2,10/3),1e-12,'L ∝ f^(10/3)');
+    ok(L(fISCO(66.2))<3.6e49,'and at ISCO it is still below the merger peak, as it should be');
+  }
+
+  /* ---------- the waveform ----------------------------------------- */
+  {
+    const M=buildModel(Object.assign({},DEFAULTS,{nProf:401}));
+    ok(M.wave.hs.every(isFinite),'the strain series is finite everywhere');
+    ok(M.wave.fs.every(v=>isFinite(v)&&v>0),'and so is the frequency track');
+    ok(M.wave.hmax>0,'the waveform is not identically zero');
+    /* the three segments must all be present and in order */
+    const seen=[]; for(const s of M.wave.segs) if(seen[seen.length-1]!==s) seen.push(s);
+    ok(seen.length===3&&seen[0]==='inspiral'&&seen[1]==='merger'&&seen[2]==='ringdown',
+       'the waveform runs inspiral → merger → ringdown, in that order (got '+seen.join('→')+')');
+    /* the frequency must increase monotonically through inspiral and merger */
+    let mono=true;
+    for(let i=1;i<M.wave.fs.length;i++)
+      if(M.wave.segs[i]!=='ringdown'&&M.wave.fs[i]<M.wave.fs[i-1]-1e-9) mono=false;
+    ok(mono,'and the frequency never decreases before the ringdown');
+    /* the ringdown decays */
+    const rd=[]; for(let i=0;i<M.wave.ts.length;i++) if(M.wave.segs[i]==='ringdown')
+      rd.push(Math.abs(M.wave.hs[i]));
+    ok(rd.length>10&&Math.max.apply(null,rd.slice(-5))<Math.max.apply(null,rd.slice(0,5)),
+       'and the ringdown decays');
+    /* the inspiral amplitude must track the analytic envelope exactly */
+    let wenv=0;
+    for(let i=0;i<M.wave.ts.length;i++){
+      const t=M.wave.ts[i];
+      if(M.wave.segs[i]!=='inspiral') continue;
+      const env=strainAmp(M.mc,freqAtTime(M.mc,-t),M.D);
+      if(Math.abs(M.wave.hs[i])>env*(1+1e-9)) wenv=Math.max(wenv,Math.abs(M.wave.hs[i])/env-1);
+    }
+    ok(wenv<1e-9,'the inspiral never exceeds its own analytic envelope');
+  }
+
+  /* ---------- panels build clean ----------------------------------- */
+  for(const view of ['inspiral','wave','spectrogram','catalogue','detector','ledger']){
+    for(const id of ['GW150914','GW170817','GW170729','GW170608']){
+      const s=Object.assign({},DEFAULTS,{view,event:id,nProf:151});
+      const M=buildModel(s);
+      const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+      ok(html.length>200&&html.indexOf('NaN')<0&&html.indexOf('undefined')<0,
+         'panels build clean for '+view+' / '+id);
+      ok(eqbarText(M).indexOf('NaN')<0,'headless summary is clean for '+view+' / '+id);
+    }
+  }
+  {
+    let bad=0;
+    for(const e of EVENTS){
+      const M=buildModel(Object.assign({},DEFAULTS,{event:e.id,nProf:121}));
+      if(eqbarText(M).indexOf('NaN')>=0) bad++;
+      if(!M.wave.hs.every(isFinite)) bad++;
+    }
+    ok(bad===0,'every catalogue event renders a clean panel and a finite waveform');
+    /* the whole slider space, including binaries that never enter the band */
+    let bad2=0, outOfBand=0;
+    for(const m1 of [1,5,35,150]) for(const m2 of [1,5,35,150]) for(const fl of [5,20,100])
+      for(const D of [10,440,8000]){
+        const M=buildModel(Object.assign({},DEFAULTS,
+          {custom:true,m1,m2,D,fLow:fl,nProf:81}));
+        if(!M.wave.hs.every(isFinite)) bad2++;
+        if(!isFinite(M.mc)||!isFinite(M.snr)||!isFinite(M.horiz)) bad2++;
+        if(eqbarText(M).indexOf('NaN')>=0) bad2++;
+        if(!M.inBand) outOfBand++;
+      }
+    ok(bad2===0,'and no combination of masses, distance and cutoff produces a NaN');
+    ok(outOfBand>0,'including the heavy binaries that merge below the band entirely');
+  }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

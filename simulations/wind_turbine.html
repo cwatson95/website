@@ -1,0 +1,2572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wind tunnel — the walls are in the answer</title>
+<!--
+  A WIND TUNNEL DOES NOT MEASURE FREE AIR.
+
+  Put a rotor in a closed test section and the walls will not let its wake
+  expand.  The bypass flow between wake and wall must therefore accelerate, its
+  static pressure falls, and that suction pulls MORE mass through the disc than
+  the same rotor would swallow in the open.  The tunnel reads high.  Every
+  number a wind-tunnel rotor test produces is a number about the tunnel until
+  the blockage is taken out of it, and this sim is about that correction and
+  about the blade design it distorts.
+
+  THE RESULT THIS FILE IS BUILT AROUND.  For an actuator disc of area A in a
+  closed section of area C, with blockage B = A/C, the ceiling on the power
+  coefficient is not Betz's 16/27 but
+
+        CP_max(B)  =  (16/27) (1 - B)^-2                                  (*)
+
+  and the loading that achieves it is not a = 1/3 but
+
+        a*(B)      =  (1 + 3B) / (3 (1 + B))                              (**)
+
+  Both are EXACT, not small-B expansions, and both are derived here rather than
+  quoted.  Writing the duct momentum balance, the bypass Bernoulli and the two
+  continuity statements, eliminating the wake area and the bypass speed, and
+  deflating the trivial unloaded root w = 1 leaves one clean monic cubic in the
+  wake speed ratio w = U_wake/U_0:
+
+        w^3 + [1 - 2(1-a)(1+B)] w^2 + 3B(1-a)^2 w - B(1-a)^2  =  0        (***)
+
+  At B = 0 it degenerates to w^2 (w - (1-2a)) = 0 and hands back the classical
+  actuator disc, U_wake = U_0(1-2a), exactly.  selfTest solves (***) and checks
+  (*) and (**) against it over B = 0.001 .. 0.5 -- agreement is 1e-15 relative,
+  i.e. these are identities of the model and not fits.  It also checks that the
+  cubic's root satisfies the ORIGINAL momentum residual, so the algebra that
+  produced (***) is verified rather than trusted.
+
+  WHY IT MATTERS, IN THE ONE CASE EVERYONE CITES.  The NREL Phase VI rotor in
+  the NASA Ames 80 x 120 ft tunnel: rotor radius 5.029 m in a 24.4 x 36.6 m
+  section is B = 0.0890.  By (*) the Betz ceiling in that tunnel is 0.7140, not
+  0.5926 -- a 20.5 % inflation.  NASA Ames is the largest wind tunnel on earth
+  and the blockage is still a fifth of the answer.  That is the whole argument
+  for the correction, and it is why the sim defaults to that configuration.
+
+  WHAT IS MEASURED AND WHAT IS MODELLED -- read this before quoting a number.
+
+    MEASURED, cited, embedded as anchors (see AIRFOILS and RIG):
+      - NREL Phase VI geometry and test condition: 2 blades, R = 5.029 m, hub
+        0.508 m, 72 rpm, 19.8 kW rated, 3 deg tip pitch, S809 section t/c 0.21,
+        twist 18.074 deg (root) to -1.816 deg (tip), chord 0.737 m at 0.25R
+        tapering to 0.356 m at the tip, NASA Ames section 24.4 x 36.6 m,
+        blockage < 0.09.
+      - Airfoil polar ANCHORS ONLY -- zero-lift angle, lift slope, stall angle,
+        maximum lift, minimum drag -- at a stated Reynolds number, from the
+        stated source.  Two of them are the same section at two Reynolds
+        numbers (NACA 0012 at Re 5e5 and 6e6), which is what calibrates the
+        Reynolds trend.
+    MODELLED, and labelled as such wherever it is drawn:
+      - The polar BETWEEN the anchors: a C1 Hermite bend from the linear lift
+        line onto (alpha_stall, Cl_max), a quadratic drag bucket, and the
+        Viterna-Corrigan extrapolation past stall -- the published method
+        AeroDyn uses, not a fit to any table here.
+      - The reversed-flow branch beyond 90 deg is a flat-plate mirror.  It is a
+        convention, it is drawn dashed, and no claim is made for it.
+      - The Phase VI chord and twist BETWEEN the published endpoints.  The
+        endpoints are the NREL spec; the distribution between them is
+        reconstructed from the ideal-twist law and is NOT the NREL table.  The
+        preset says so on the canvas.
+
+    NOT CLAIMED AT ALL.  No digitised experimental polar and no digitised
+    measured power curve is embedded anywhere in this file.  The 1981 Sandia
+    scan (SAND80-2114) that tabulates NACA 0012 through 180 deg OCRs to
+    "o.oooo" and ".03~3"; reading numbers off Fig. 6 of a CFD paper is not
+    measurement either.  So the calibration here is: exact theory asserted to
+    machine precision, published closed forms, and cited scalar anchors.  Where
+    the sim would need a table it does not have, it says so instead of
+    inventing one.
+
+  THE REST OF THE PHYSICS.
+    - Blade element momentum, 60 annuli, with Prandtl tip AND hub loss, wake
+      rotation, and Buhl's empirical high-induction correction (NREL/TP-500-
+      36834).  The momentum side of each annulus is the DUCT relation (***),
+      not 4a(1-a), so the walls enter the blade loading and not merely the
+      final coefficient -- set blockage to zero and it is the textbook BEM.
+    - Glauert's optimum rotor WITH wake rotation, integrated in the induction
+      parameter, used as the reference ceiling on the CP-lambda plot.  It
+      reproduces Glauert's tabulated optimum at 6 of his 8 tabulated tip-speed
+      ratios to the table's own half-last-digit, and tends to 16/27; the two
+      that miss (lambda = 0.5 and 1.5) are named in selfTest rather than
+      absorbed into a loose tolerance.
+    - Axial velocity along the tunnel from the vortex-cylinder closed form
+      u(x)/U0 = 1 - a[1 + x/sqrt(x^2+R^2)], with the endpoints replaced by the
+      exact duct solution, and the streamtube radius from continuity.  The
+      bypass speed is then continuity against the wall, which is what makes the
+      3-D picture a wind tunnel rather than a rotor in a void.
+
+  WHAT IS NOT MODELLED.  Compressibility (tip Mach is ~0.1 here), tunnel
+  boundary-layer growth, the solid-blockage of the tower and nacelle, dynamic
+  stall, yaw, and radial (spanwise) flow -- which is exactly the thing that
+  makes real stall-regulated rotors deviate from BEM past stall, and is why the
+  post-stall part of any BEM power curve should be distrusted.  The sim says so
+  on the power view rather than quietly drawing a confident line.
+
+  Single file, no dependencies, works over file://.  All 3-D -- orbit camera,
+  perspective projection, painter's algorithm -- is hand-rolled on canvas 2D,
+  same z-up camera as lattice.html, steam_carnot_cycle.html, turbojet.html and
+  phase_optimization.html.  Mathematica NeonColors (same NEON_STOPS table).
+
+  Headless self-test: extract the script body (between the LAST script
+  open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript wind_tunnel_test.js
+  -- with `document` undefined it runs the assertion suite instead of booting
+  the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --wall:#3a4152; --tube:#5ac8e0; --wake:#cd35c4; --free:#b8ec4c;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:278px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:66px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Wind tunnel</h1>
+  <span class="sub" id="sub">the walls are in the answer &mdash; and the correction is exact</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* velocity ramp: fast = pale green (free stream), slow = magenta (deep wake).
+   Lightness is monotone in speed so it reads as a magnitude, not a category. */
+function speedCol(u){ return mix('#cd35c4','#d8f59a',clamp(u,0,1)); }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+
+/* ================================================================== *
+ *  AIR                                                                *
+ *  Sutherland's law for viscosity, ideal gas for density.  Both are   *
+ *  needed only to get the chord Reynolds number right, which is what  *
+ *  selects the polar — the aerodynamics below is incompressible.      *
+ * ================================================================== */
+const R_AIR=287.058;                     // J/(kg K)
+function airDensity(P,T){ return P/(R_AIR*T); }
+function airViscosity(T){                // Sutherland, mu_ref at 273.15 K
+  const mu0=1.716e-5, T0=273.15, S=110.4;
+  return mu0*Math.pow(T/T0,1.5)*(T0+S)/(T+S);
+}
+
+/* ================================================================== *
+ *  AIRFOIL SECTIONS                                                   *
+ *                                                                     *
+ *  Each entry carries ANCHORS ONLY, at a stated Reynolds number, from *
+ *  a stated source.  The curve between the anchors is the model       *
+ *  described in the header: a linear lift line, a C1 Hermite bend     *
+ *  onto (aStall, clMax), a quadratic drag bucket, then the published  *
+ *  Viterna-Corrigan extrapolation.  No digitised table is embedded.   *
+ *                                                                     *
+ *  The two NACA 0012 entries are the SAME SECTION at two Reynolds     *
+ *  numbers, an order of magnitude apart.  That pair is what calibrates *
+ *  the Reynolds trend used when "scale with Reynolds" is on, and it is *
+ *  itself a wind-tunnel result: stall is a viscous event, so both the  *
+ *  maximum lift and the angle at which it happens move with Re.        *
+ * ================================================================== */
+const AIRFOILS=[
+  {id:'s809', name:'S809', tc:0.21,
+   a0:-1.0, clAlpha:6.20, aStall:9.2, clMax:1.00, cd0:0.0065, cdStall:0.0190,
+   ReRef:1.0e6,
+   src:'Somers, Delft LSWT (NREL/SR-440-6918) — 21% laminar-flow section, '
+      +'restrained maximum lift, docile stall'},
+  {id:'n0012hi', name:'NACA 0012 @ Re 6e6', tc:0.12,
+   a0:0.0, clAlpha:6.28, aStall:16.0, clMax:1.60, cd0:0.0060, cdStall:0.0220,
+   ReRef:6.0e6,
+   src:'Ladson, NASA TM-4074 — Langley low-turbulence pressure tunnel'},
+  {id:'n0012lo', name:'NACA 0012 @ Re 5e5', tc:0.12,
+   a0:0.0, clAlpha:5.73, aStall:11.0, clMax:0.95, cd0:0.0100, cdStall:0.0300,
+   ReRef:5.0e5,
+   src:'Sheldahl & Klimas, SAND80-2114 — Cl_max 0.9–1.0, stall 10–12 deg'},
+  {id:'n4415', name:'NACA 4415', tc:0.15,
+   a0:-4.0, clAlpha:6.28, aStall:15.0, clMax:1.45, cd0:0.0070, cdStall:0.0250,
+   ReRef:3.0e6,
+   src:'Abbott & von Doenhoff, Theory of Wing Sections'},
+  {id:'plate', name:'flat plate', tc:0.02,
+   a0:0.0, clAlpha:6.28, aStall:8.0, clMax:0.80, cd0:0.0200, cdStall:0.0500,
+   ReRef:1.0e6,
+   src:'thin-plate reference — sharp leading edge, early separation'},
+];
+function airfoilById(id){ return AIRFOILS.find(f=>f.id===id)||AIRFOILS[0]; }
+
+/* Reynolds trend, calibrated on the NACA 0012 pair above and NOWHERE ELSE.
+   Cl_max 0.95 at Re 5e5 -> 1.60 at Re 6e6 and stall 11 deg -> 16 deg give the
+   two slopes per natural log of Re; cd0 uses the turbulent flat-plate exponent
+   Re^-0.2.  Clamped to the decade either side of the fitted range, because
+   extrapolating a two-point fit is how you get a lift coefficient of three. */
+const RE_SPAN=6.0e6/5.0e5;               // the factor actually spanned by the fit
+const RE_FIT={ lnSpan:Math.log(RE_SPAN),
+               dClMax:(1.60-0.95), dAStall:(16.0-11.0), base:0.95 };
+function reScale(f,Re){
+  if(!(Re>0)) return {clMax:f.clMax, aStall:f.aStall, cd0:f.cd0};
+  /* clamp to the span the fit was made over — one span either side of the
+     section's own reference — because extrapolating a two-point fit is how you
+     end up quoting a lift coefficient of three. */
+  const ReC=clamp(Re,f.ReRef/RE_SPAN,f.ReRef*RE_SPAN);
+  const u=Math.log(ReC/f.ReRef)/RE_FIT.lnSpan;         // in units of the fitted span
+  const kCl=RE_FIT.dClMax/RE_FIT.base;                  // fractional Cl_max per span
+  return { clMax: Math.max(0.15, f.clMax*(1+kCl*u)),
+           aStall: Math.max(3.0, f.aStall+RE_FIT.dAStall*u),
+           cd0:    Math.max(1e-4, f.cd0*Math.pow(ReC/f.ReRef,-0.2)) };
+}
+
+/* Viterna–Corrigan post-stall extrapolation (the method AeroDyn uses).
+   At alpha = 90 deg it gives Cl = 0 and Cd = cdMax exactly, which is the one
+   place the flat-plate limit is genuinely known: Sheldahl & Klimas measured
+   Cd(90 deg) = 1.80 for the NACA 0012, and cdMax is exposed so that value can
+   be dialled in and checked. */
+function viternaCoef(aStallRad,clS,cdS,cdMax){
+  const sa=Math.sin(aStallRad), ca=Math.cos(aStallRad);
+  const B1=cdMax, A1=B1/2;
+  const A2=(clS-cdMax*sa*ca)*sa/(ca*ca);
+  const B2=(cdS-cdMax*sa*sa)/ca;
+  return {A1,A2,B1,B2};
+}
+
+/* The polar.  alpha in DEGREES, returns {cl, cd, stalled, region}.
+   region: 'lin' | 'bend' | 'viterna' | 'reversed' — the canvas draws the last
+   one dashed because it is a convention, not a measurement. */
+function polar(f,alphaDeg,opts){
+  const o=opts||{};
+  const sc = o.reScale ? reScale(f,o.Re) : {clMax:f.clMax, aStall:f.aStall, cd0:f.cd0};
+  const cdMax = o.cdMax===undefined ? 2.0 : o.cdMax;
+  const revEff = o.revEff===undefined ? 0.80 : o.revEff;
+  const cd180 = o.cd180===undefined ? 0.025 : o.cd180;
+
+  /* fold into [-180,180], then work with the positive-alpha branch measured
+     from the zero-lift angle; negative alpha is the mirror image. */
+  let a=alphaDeg;
+  while(a>180) a-=360; while(a<-180) a+=360;
+  const sgn = (a-f.a0)>=0 ? 1 : -1;
+  let ae = Math.abs(a-f.a0);                 // effective angle from zero lift
+  let reversed=false;
+  if(ae>180){ ae=360-ae; }
+  if(ae>90){ ae=180-ae; reversed=true; }     // running backwards
+
+  /* Sources quote the stall angle geometrically; `ae` is measured from the
+     zero-lift angle, so shift it once here.  The negative-alpha branch is
+     taken as the mirror of the positive one, which is exact for the symmetric
+     sections and an approximation for the cambered ones — turbine blades do
+     not operate there, and the polar view draws both so the asymmetry that is
+     being neglected is visible rather than hidden. */
+  const aSt=Math.max(2, sc.aStall-f.a0);
+  const clMax=sc.clMax;
+
+  const bend=Math.min(5.0, 0.55*aSt);        // width of the C1 bend, degrees
+  const aLin=Math.max(0.5, aSt-bend);
+  const clLin=x=>f.clAlpha*(x*DEG);
+
+  let cl, cd, region;
+  if(ae<=aLin){
+    cl=clLin(ae); region='lin';
+  } else if(ae<=aSt){
+    /* cubic Hermite from (aLin, clLin(aLin), slope clAlpha) to (aSt, clMax, 0) */
+    const t=(ae-aLin)/(aSt-aLin), t2=t*t, t3=t2*t;
+    const h00=2*t3-3*t2+1, h10=t3-2*t2+t, h01=-2*t3+3*t2, h11=t3-t2;
+    const m0=f.clAlpha*DEG*(aSt-aLin);       // slope scaled to the interval
+    cl=h00*clLin(aLin)+h10*m0+h01*clMax+h11*0; region='bend';
+  } else {
+    const vc=viternaCoef(aSt*DEG, clMax, sc.cd0+(f.cdStall-f.cd0), cdMax);
+    const ar=ae*DEG, s=Math.sin(ar), c=Math.cos(ar);
+    cl=vc.A1*Math.sin(2*ar)+vc.A2*c*c/Math.max(s,1e-6);
+    region='viterna';
+  }
+  /* drag: quadratic bucket to the stall anchor, then Viterna */
+  if(ae<=aSt){
+    const q=(ae/aSt); cd=sc.cd0+(f.cdStall-f.cd0)*q*q;
+  } else {
+    const vc=viternaCoef(aSt*DEG, clMax, sc.cd0+(f.cdStall-f.cd0), cdMax);
+    const ar=ae*DEG, s=Math.sin(ar), c=Math.cos(ar);
+    cd=vc.B1*s*s+vc.B2*c;
+  }
+  if(reversed){ cl*=-revEff; region='reversed';
+    /* blend the drag onto the measured 180-degree anchor near alpha = 180 */
+    const w=clamp((90-ae)/90,0,1); cd=lerp(cd,cd180,w*w);
+  }
+  cd=Math.max(cd,1e-4);
+  return {cl:sgn*cl, cd, stalled:(ae>aSt), region};
+}
+
+/* ================================================================== *
+ *  THE CLOSED TEST SECTION — actuator disc between walls              *
+ *                                                                     *
+ *  Unknowns, normalised by the empty-tunnel speed U0:                 *
+ *     w    = U_wake/U0     be = U_bypass/U0     b = A_wake/C          *
+ *  Given blockage B = A/C and induction a (disc speed = U0(1-a)):     *
+ *                                                                     *
+ *     streamtube continuity   b  = B(1-a)/w            (k := B(1-a))  *
+ *     duct continuity         w b + be(1-b) = 1                       *
+ *     bypass Bernoulli        p0-p4 = rho U0^2 (be^2-1)/2             *
+ *     disc pressure jump      CT = be^2 - w^2                         *
+ *     duct momentum           (be^2-1)/2 - B CT/2 = w^2 b + be^2(1-b) - 1
+ *                                                                     *
+ *  Eliminating b and be and deflating the trivial root w = 1 leaves    *
+ *  the monic cubic (***) of the header.  Its coefficients are simple   *
+ *  enough to write down, so there is no root-finding fragility and no  *
+ *  special case at B = 0 — the cubic degenerates to w^2(w-(1-2a)) and  *
+ *  hands back the classical disc.                                      *
+ * ================================================================== */
+
+/* real roots of x^3 + c2 x^2 + c1 x + c0, trigonometric/Cardano form */
+function cubicRoots(c2,c1,c0){
+  const p=c1-c2*c2/3, q=2*c2*c2*c2/27-c2*c1/3+c0, sh=-c2/3;
+  const disc=q*q/4+p*p*p/27;
+  if(disc>0){
+    const s=Math.sqrt(disc);
+    const u=Math.cbrt(-q/2+s), v=Math.cbrt(-q/2-s);
+    return [u+v+sh];
+  }
+  if(Math.abs(p)<1e-300) return [sh,sh,sh];
+  const r=2*Math.sqrt(-p/3);
+  const cosArg=clamp(3*q/(p*r),-1,1);
+  const th=Math.acos(cosArg)/3;
+  return [ r*Math.cos(th)+sh,
+           r*Math.cos(th-TAU/3)+sh,
+           r*Math.cos(th-2*TAU/3)+sh ];
+}
+
+/* wake speed ratio w = U_wake/U0 for blockage B and induction a.
+
+   The closed-form cubic solution loses digits to cancellation, and at small B
+   the cubic is nearly degenerate (two roots collapse toward zero), so the
+   trigonometric root is POLISHED by Newton on the cubic itself.  Without the
+   polish the residual against the original momentum balance is ~4e-12 and the
+   B -> 0 limit only reproduces the classical disc to ~1e-5; with it, both are
+   at machine precision.  Three iterations are enough — Newton doubles the
+   correct digits each step and the starting point is already close. */
+function wakeSpeed(B,a){
+  if(B<=1e-12) return 1-2*a;
+  const om=1-a, k=B*om;
+  const c2=1-2*om*(1+B), c1=3*B*om*om, c0=-B*om*om;
+  const rts=cubicRoots(c2,c1,c0);
+  let best=NaN;
+  for(const r of rts){
+    if(!isFinite(r)) continue;
+    if(r>k-1e-13 && r<=1+1e-13){ if(!(best>=r)) best=r; }
+  }
+  if(!isFinite(best)) return best;
+  for(let i=0;i<3;i++){
+    const f=((best+c2)*best+c1)*best+c0;
+    const fp=(3*best+2*c2)*best+c1;
+    if(!isFinite(fp)||Math.abs(fp)<1e-300) break;
+    const step=f/fp;
+    if(!isFinite(step)) break;
+    best-=step;
+  }
+  return best;
+}
+/* the whole disc state.  CT and CP are referenced to the EMPTY-TUNNEL speed U0
+   and the disc area, which is what a tunnel balance actually reports. */
+function ductDisc(B,a){
+  const om=1-a;
+  if(B<=1e-12){
+    const w=1-2*a, CT=4*a*om;
+    return {w, be:1, b:0, CT, CP:CT*om, ok:true};
+  }
+  const w=wakeSpeed(B,a), k=B*om;
+  if(!isFinite(w)||w<=k){ return {w:NaN,be:NaN,b:NaN,CT:NaN,CP:NaN,ok:false}; }
+  const be=w*(1-k)/(w-k), b=k/w, CT=be*be-w*w;
+  return {w, be, b, CT, CP:CT*om, ok:true};
+}
+/* the two exact consequences, for the plots and for selfTest to check against */
+function betzInTunnel(B){ return (16/27)/((1-B)*(1-B)); }
+function aStarInTunnel(B){ return (1+3*B)/(3*(1+B)); }
+
+/* Buhl's empirical high-induction correction (NREL/TP-500-36834).  Momentum
+   theory stops being true once the wake turns over (a > ~0.4); Buhl replaces
+   CT(a) with a parabola matching 0.96F at a = 0.4 and CT = 2 at a = 1.
+   It is a FREE-AIR fit.  In a blocked section it is applied scaled by the duct
+   solution's own value at the match point, so it joins continuously — that
+   scaling is an engineering choice, is labelled as one, and is why the sim
+   warns when the operating point sits above the match. */
+const A_MATCH=0.4;
+function momentumCT(a,F,B){
+  if(a<=A_MATCH) return F*ductDisc(B,a).CT;
+  const scale = B<=1e-12 ? 1 : (ductDisc(B,A_MATCH).CT/(4*A_MATCH*(1-A_MATCH)));
+  return F*scale*(8/9+(4*F-40/9)*a+(50/9-4*F)*a*a);
+}
+/* invert CT -> a by bisection (momentumCT is increasing in a on [0,1]) */
+function inverseCT(CTt,F,B){
+  let lo=0, hi=0.99;
+  if(momentumCT(hi,F,B)<CTt) return hi;
+  for(let i=0;i<60;i++){ const m=0.5*(lo+hi);
+    if(momentumCT(m,F,B)<CTt) lo=m; else hi=m; }
+  return 0.5*(lo+hi);
+}
+
+/* ================================================================== *
+ *  BLADE GEOMETRY                                                     *
+ *                                                                     *
+ *  'phase6' reproduces the published Phase VI ENDPOINTS exactly and    *
+ *  reconstructs the distribution between them from the ideal-twist     *
+ *  law — it is not the NREL table, and the canvas says so.             *
+ *  'betz' is the design the sim optimises toward: Glauert's optimum    *
+ *  chord and twist for the current tip-speed ratio and design lift.    *
+ * ================================================================== */
+const RIG={                              // NREL Phase VI / NASA Ames 80 x 120
+  R:5.029, rHub:0.508, nB:2, rpm:72, pitch:3.0,
+  chordRoot:0.737, chordTip:0.356, rChordRoot:0.25,   // r/R at which 0.737 holds
+  twistRoot:18.074, twistTip:-1.816,
+  rated:19.8e3, tunnelW:24.4, tunnelH:36.6,
+  src:'NREL Phase VI, NASA Ames 80x120 ft, May 2000'
+};
+
+/* Flow angle of Glauert's optimum rotor WITH wake rotation (Manwell §3.11):
+       phi_opt(lam_r) = (2/3) arctan(1 / lam_r)
+   As lam_r grows this tends to arctan(2/(3 lam_r)), the flow angle at Betz
+   loading with no wake rotation — but at small lam_r the two differ badly
+   (60 deg against 90 deg at lam_r -> 0), and it is the wake-rotation form that
+   belongs with the chord law below. */
+function optFlowAngle(lr){ return (2/3)*Math.atan2(1,Math.max(lr,1e-9)); }
+function idealTwist(x,lam){              // x = r/R ; degrees
+  return optFlowAngle(lam*Math.max(x,1e-6))*RAD;
+}
+/* Chord of Glauert's optimum rotor, c = (8 pi r / (N Cl_des))(1 - cos phi).
+   This is only the optimum if Cl_des is the lift the section ACTUALLY makes at
+   the design angle — see bladeGeom, where it is read off the polar rather than
+   set independently.  With the two inconsistent the blade is under- or
+   over-solid and the induction misses 1/3, which is exactly the defect the
+   mutation sweep turned up. */
+function betzChord(x,lam,nB,R,clDes){
+  const lr=Math.max(lam*x,1e-6);
+  return (8*Math.PI*R*x)/(nB*Math.max(clDes,0.05))*(1-Math.cos(optFlowAngle(lr)));
+}
+
+function tipSpeedRatio(st){ return (st.rpm*TAU/60)*st.R/Math.max(st.U,0.05); }
+
+/* The design lift is NOT a free parameter: it is whatever the chosen section
+   actually produces at the design angle of attack.  Setting the two
+   independently (as an earlier version did) makes the "optimum" blade
+   under-solid — with the S809 at 6 deg the section makes Cl = 0.76, so asking
+   for 1.0 shrinks every chord by a quarter, the induction lands near 0.16
+   instead of 1/3, and the blade labelled optimum loses ~0.12 of CP to the
+   curve it is supposed to touch. */
+function designCl(st){
+  const f=airfoilById(st.foil);
+  return Math.max(0.05,polar(f,st.alphaDes,{}).cl);
+}
+
+function bladeGeom(st){
+  const R=st.R, rh=st.rHub, nB=st.nB;
+  const lam=(st.lamDesign!==undefined&&st.lamDesign>0)?st.lamDesign:tipSpeedRatio(st);
+  const kind=st.blade;
+  const clDes=designCl(st);
+  return function(r){
+    const x=clamp(r/R,1e-4,1);
+    let c,tw;
+    if(kind==='betz'){
+      /* The rig's tip pitch is added to every station's twist downstream
+         (alpha = phi - (twist + pitch)), so the optimum twist has to be defined
+         RELATIVE to it — otherwise turning the pitch knob silently de-tunes the
+         blade that is supposed to be optimal.  With the Phase VI default of 3
+         deg that cost the "optimum" blade about 0.06 of CP and pulled the
+         induction down to 0.24 from 1/3. */
+      c=betzChord(x,lam,nB,R,clDes);
+      tw=idealTwist(x,lam)-st.alphaDes-st.pitch;
+    } else if(kind==='phase6'){
+      /* endpoints are the NREL spec; the shape between is the ideal-twist law
+         rescaled to land on them — reconstruction, not the NREL table. */
+      const x0=RIG.rChordRoot;
+      c=lerp(RIG.chordRoot,RIG.chordTip,clamp((x-x0)/(1-x0),0,1));
+      const s0=idealTwist(x0,lam), s1=idealTwist(1,lam);
+      const u=(idealTwist(Math.max(x,x0),lam)-s1)/((s0-s1)||1);
+      tw=lerp(RIG.twistTip,RIG.twistRoot,clamp(u,0,1));
+    } else if(kind==='linear'){
+      c=lerp(st.cRoot,st.cTip,x);
+      tw=lerp(st.twRoot,st.twTip,x);
+    } else {                              // 'flat' — untapered, untwisted
+      c=st.cTip; tw=0;
+    }
+    return {c:Math.max(c,1e-3), twist:tw*st.twScale};
+  };
+}
+
+/* ================================================================== *
+ *  BLADE ELEMENT MOMENTUM                                             *
+ *                                                                     *
+ *  Standard BEM, except that the momentum side of every annulus is    *
+ *  the DUCT relation, so the walls change the blade loading and not   *
+ *  just the reported coefficient.  Set blockage to zero and this is   *
+ *  the textbook method.                                               *
+ * ================================================================== */
+function prandtlF(nB,r,R,rh,sinPhi,tip,hub){
+  let F=1;
+  const s=Math.max(Math.abs(sinPhi),1e-4);
+  if(tip){ const ft=nB*(R-r)/(2*r*s);
+    F*= (2/Math.PI)*Math.acos(clamp(Math.exp(-ft),-1,1)); }
+  if(hub){ const fh=nB*(r-rh)/(2*Math.max(rh,1e-4)*s);
+    F*= (2/Math.PI)*Math.acos(clamp(Math.exp(-fh),-1,1)); }
+  return clamp(F,1e-4,1);
+}
+
+function runBEM(st){
+  const R=st.R, rh=st.rHub, nB=st.nB, U=st.U, om=st.rpm*TAU/60;
+  const geom=bladeGeom(st), foil=airfoilById(st.foil);
+  const rho=airDensity(st.P*1000,st.T), mu=airViscosity(st.T), nu=mu/rho;
+  const A=Math.PI*R*R;
+  const Bk=st.tunnel==='free' ? 0 : A/(st.tw*st.th);
+  const n=st.nAnn||60;
+  const el=[]; let T=0,Q=0, worstA=0, anyStall=false, aboveMatch=false;
+  for(let i=0;i<n;i++){
+    const r=rh+(R-rh)*(i+0.5)/n, dr=(R-rh)/n;
+    const g=geom(r), c=g.c, tw=g.twist;
+    const sig=nB*c/(TAU*r);
+    let a=0.3, ap=0.0, phi=0.3, alpha=0, cl=0, cd=0, W=0, F=1, Re=0;
+    for(let it=0; it<220; it++){
+      const Un=U*(1-a), Ut=om*r*(1+ap);
+      phi=Math.atan2(Un,Ut);
+      const sp=Math.sin(phi), cp=Math.cos(phi);
+      alpha=(phi*RAD)-(tw+st.pitch);
+      W=Math.hypot(Un,Ut); Re=W*c/nu;
+      const pl=polar(foil,alpha,{reScale:st.reScale,Re,cdMax:st.cdMax});
+      cl=pl.cl; cd=st.drag?pl.cd:0;
+      if(pl.stalled) anyStall=true;
+      const Cn=cl*cp+cd*sp, Ct=cl*sp-cd*cp;
+      F=prandtlF(nB,r,R,rh,sp,st.tipLoss,st.hubLoss);
+      const CTb=sig*(1-a)*(1-a)*Cn/Math.max(sp*sp,1e-8);
+      let aNew=inverseCT(CTb,F,Bk);
+      let apNew=0;
+      if(st.wakeRot){
+        const den=4*F*sp*cp/Math.max(sig*Ct,1e-9)-1;
+        apNew = Math.abs(den)<1e-6 ? ap : 1/den;
+        apNew = clamp(apNew,-0.9,4);
+      }
+      const relax=0.30;
+      const da=Math.abs(aNew-a), dap=Math.abs(apNew-ap);
+      a+=relax*(aNew-a); ap+=relax*(apNew-ap);
+      a=clamp(a,-0.5,0.95);
+      if(da<1e-10&&dap<1e-10) break;
+    }
+    if(a>A_MATCH) aboveMatch=true;
+    worstA=Math.max(worstA,a);
+    const sp=Math.sin(phi), cp=Math.cos(phi);
+    const Cn=cl*cp+cd*sp, Ct=cl*sp-cd*cp;
+    const q=0.5*rho*W*W*c;
+    const dT=nB*q*Cn*dr, dQ=nB*q*Ct*r*dr;
+    T+=dT; Q+=dQ;
+    el.push({r,x:r/R,c,twist:tw,a,ap,phi,alpha,cl,cd,W,F,Re,dT:dT/dr,dQ:dQ/dr,
+             ld:cd>0?cl/cd:Infinity});
+  }
+  const P=Q*om;
+  const qInf=0.5*rho*U*U*A;
+  return {el,T,Q,P,rho,nu,A,B:Bk,om,
+          CT:T/qInf, CP:P/(qInf*U), CQ:Q/(qInf*R),
+          lam:om*R/U, worstA, anyStall, aboveMatch,
+          tipSpeed:om*R, tipMach:om*R/Math.sqrt(1.4*R_AIR*st.T)};
+}
+
+/* ================================================================== *
+ *  GLAUERT'S OPTIMUM ROTOR (with wake rotation)                       *
+ *                                                                     *
+ *    a' = (1-3a)/(4a-1),   lam_r^2 = (1-a)(4a-1)^2/(1-3a)             *
+ *    CP = (8/lam^2) INT lam_r^3 a'(1-a) d lam_r                       *
+ *                                                                     *
+ *  Integrated in the parameter a from 1/4 (the axis) to a_tip, with    *
+ *  the analytic d lam_r/da, so no root solving and no singular         *
+ *  endpoint.  Tends to 16/27; selfTest checks that and checks the      *
+ *  values Glauert tabulated.                                          *
+ * ================================================================== */
+function glauertLamR(a){
+  return Math.sqrt((1-a)*(4*a-1)*(4*a-1)/(1-3*a));
+}
+function glauertDLam(a){
+  return 0.5*glauertLamR(a)*(-1/(1-a)+8/(4*a-1)+3/(1-3*a));
+}
+function glauertAofLamR(lr){             // solve lam_r(a) = lr on (1/4, 1/3)
+  let lo=0.25, hi=1/3;
+  for(let i=0;i<90;i++){ const m=0.5*(lo+hi);
+    if(glauertLamR(m)<lr) lo=m; else hi=m; }
+  return 0.5*(lo+hi);
+}
+/* Integrating uniformly in `a` FAILS: as lambda grows, a_tip -> 1/3 and the
+   integrand behaves as (1-3a)^-2, so essentially all of the integral lives in
+   the last sliver of the interval and a uniform Simpson rule returns nonsense
+   (CP = 5.37 at lambda = 400, against a ceiling of 16/27).  Substituting
+   lam_r = lambda v moves the whole thing onto a fixed interval with a smooth
+   bounded integrand:
+
+       CP = 8 lambda^2  INT_0^1  v^3 a'(v) (1 - a(v))  dv
+
+   which costs one bisection per sample and is uniformly accurate in lambda.
+   selfTest cross-checks this quadrature against an independent one. */
+function glauertCP(lam,n){
+  if(!(lam>0)) return 0;
+  const N=Math.max(4,2*Math.ceil((n||200)/2));   // Simpson needs an even count
+  let s=0;
+  for(let i=0;i<=N;i++){
+    const v=i/N;
+    let f=0;
+    if(v>0){
+      const a=glauertAofLamR(lam*v);
+      const den=4*a-1;
+      f = den>1e-14 ? v*v*v*((1-3*a)/den)*(1-a) : 0;
+    }
+    const wgt=(i===0||i===N)?1:(i%2?4:2);
+    s+=wgt*(isFinite(f)?f:0);
+  }
+  s/=(3*N);
+  return 8*lam*lam*s;
+}
+/* An independent evaluation of the same integral, by the trapezoid rule in the
+   ORIGINAL variable a with the analytic d lam_r/da — different variable,
+   different rule, no shared code path beyond the parametrisation itself.  Only
+   used by selfTest, and only at moderate lambda where integrating in a is
+   still well conditioned. */
+function glauertCPalt(lam,n){
+  if(!(lam>0)) return 0;
+  const aT=glauertAofLamR(lam), a0=0.25, N=n||200000;
+  let s=0;
+  for(let i=0;i<=N;i++){
+    const a=a0+(aT-a0)*i/N;
+    const den=4*a-1;
+    const f = den>1e-14
+      ? Math.pow(glauertLamR(a),3)*((1-3*a)/den)*(1-a)*glauertDLam(a) : 0;
+    s+=(i===0||i===N?0.5:1)*(isFinite(f)?f:0);
+  }
+  s*=(aT-a0)/N;
+  return (8/(lam*lam))*s;
+}
+
+/* ================================================================== *
+ *  THE FLOW ALONG THE TUNNEL                                          *
+ *                                                                     *
+ *  Axial speed on the streamtube from the vortex-cylinder closed form  *
+ *      u(x)/U0 = 1 - a [ 1 + x / sqrt(x^2 + R^2) ]                     *
+ *  which is exact for a uniformly loaded disc in free air: it gives    *
+ *  U0 far upstream, U0(1-a) at the disc, U0(1-2a) far downstream.      *
+ *  In a tunnel the far-wake value is not U0(1-2a) but the duct         *
+ *  solution's w, so the profile is rescaled to land on the exact       *
+ *  endpoints while keeping the closed form's SHAPE.  That rescaling is *
+ *  drawing, not physics, and is labelled on the canvas.                *
+ *                                                                     *
+ *  The streamtube radius then follows from continuity alone, and the   *
+ *  bypass speed from continuity against the wall — which is the whole  *
+ *  point: the wall is what makes the bypass accelerate.                *
+ * ================================================================== */
+/* s(x) = 1 + x/sqrt(x^2+R^2) runs 0 -> 1 -> 2 from far upstream, through the
+   disc, to far downstream.  The free-air vortex-cylinder result is u = 1 - a s,
+   i.e. LINEAR in s.  To land on a different far-wake value without abandoning
+   that shape, take the smallest correction that still passes through all three
+   known points — a quadratic in s:
+
+       u(s) = 1 + c1 s + c2 s^2 ,   u(0)=1, u(1)=1-a, u(2)=wEnd
+
+   giving c1 = (1-4a-wEnd)/2 and c2 = (wEnd-1+2a)/2.  In free air wEnd = 1-2a,
+   c2 vanishes identically and this IS the vortex-cylinder form, so nothing is
+   distorted in the case where the closed form is exact.  selfTest checks both
+   the three anchors and the free-air reduction. */
+function axialProfile(x,R,a,wEnd){
+  const s=1+x/Math.sqrt(x*x+R*R);
+  const wE=(wEnd===undefined)?1-2*a:wEnd;
+  const c1=(1-4*a-wE)/2, c2=(wE-1+2*a)/2;
+  return 1+c1*s+c2*s*s;
+}
+function tubeRadius(uAtX,uDisc,Rdisc){
+  return Rdisc*Math.sqrt(Math.max(uDisc,1e-6)/Math.max(uAtX,1e-6));
+}
+
+/* ================================================================== *
+ *  formatting                                                         *
+ * ================================================================== */
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function fmtPct(x){ return isFinite(x)?(100*x).toFixed(1)+'%':'—'; }
+function fmtPow(W){
+  if(!isFinite(W)) return '—';
+  const a=Math.abs(W);
+  if(a>=1e6) return (W/1e6).toFixed(2)+' MW';
+  if(a>=1e3) return (W/1e3).toFixed(2)+' kW';
+  return W.toFixed(1)+' W';
+}
+function fmtRe(Re){
+  if(!isFinite(Re)||Re<=0) return '—';
+  const e=Math.floor(Math.log10(Re));
+  return (Re/Math.pow(10,e)).toFixed(2)+'×10'+sup(e);
+}
+function sup(n){
+  const M={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴',
+           '5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+  return String(n).split('').map(c=>M[c]||c).join('');
+}
+
+/* ================================================================== *
+ *  MODEL — everything the views read, computed once per refresh       *
+ * ================================================================== */
+function buildModel(st){
+  const bem=runBEM(st);
+  const A=bem.A, B=bem.B;
+  const free=st.tunnel==='free';
+
+  /* the same rotor read as if the walls were not there.  The standard tunnel
+     correction: find the equivalent free-stream Ue that a FREE-AIR disc would
+     need to produce the thrust actually measured, then re-reference. */
+  const aEq=(function(){
+    /* invert CT_free = 4a(1-a) for the measured CT (take the lower root) */
+    const CT=clamp(bem.CT,0,0.999);
+    return 0.5*(1-Math.sqrt(Math.max(1-CT,0)));
+  })();
+  const ductAtA=ductDisc(B,aEq);
+  /* velocity-equivalence correction (Glauert's form): the tunnel disc at the
+     same thrust behaves like a free disc in a stream of Ue > U0. */
+  const Ue = free ? st.U : st.U*Math.sqrt(Math.max(ductAtA.CT,1e-9)/Math.max(4*aEq*(1-aEq),1e-9));
+  const CPcorr = free ? bem.CP : bem.CP*Math.pow(st.U/Math.max(Ue,1e-6),3);
+  const CTcorr = free ? bem.CT : bem.CT*Math.pow(st.U/Math.max(Ue,1e-6),2);
+
+  const ceiling = free ? 16/27 : betzInTunnel(B);
+  const aStar   = free ? 1/3   : aStarInTunnel(B);
+
+  /* CP(lambda) sweep for the power view — the expensive one, so it is built
+     with a coarser annulus count and cached by the scene. */
+  /* The lambda sweep is the expensive part of a rebuild — one full BEM solve
+     per point.  Resolution follows the annulus count, so the interactive path
+     stays smooth while selfTest (which builds a dozen models at nAnn = 16) does
+     not spend a minute on curves it never draws. */
+  const NS = st.nAnn>=40 ? 44 : 14;
+  const sweep=[];
+  {
+    const s2=Object.assign({},st,{nAnn:Math.min(st.nAnn,26)});
+    for(let i=0;i<=NS;i++){
+      const lam=0.5+i*(16-0.5)/NS;
+      s2.rpm = lam*st.U*60/(TAU*st.R);
+      const r2=runBEM(s2);
+      sweep.push({lam, CP:r2.CP, CT:r2.CT, stall:r2.anyStall});
+    }
+  }
+  /* Glauert's optimum, and the blockage curves */
+  const glau=[]; for(let i=0;i<=NS;i++){ const lam=0.5+i*(16-0.5)/NS;
+    glau.push({lam, CP:glauertCP(lam,160)}); }
+  const blk=[]; for(let i=0;i<=60;i++){ const b=i*0.30/60;
+    blk.push({B:b, ceil:betzInTunnel(b), aStar:aStarInTunnel(b)}); }
+
+  /* disc-state curve CT(a), CP(a) at the current blockage */
+  const discCurve=[]; for(let i=0;i<=100;i++){ const a=i*0.6/100;
+    const d=ductDisc(B,a), f=ductDisc(0,a);
+    discCurve.push({a, CT:d.CT, CP:d.CP, CTf:f.CT, CPf:f.CP}); }
+
+  const foil=airfoilById(st.foil);
+  const stEl=bem.el[Math.min(bem.el.length-1,
+              Math.max(0,Math.round(st.station*(bem.el.length-1))))];
+
+  return {st,bem,A,B,free,Ue,CPcorr,CTcorr,ceiling,aStar,aEq,
+          sweep,glau,blk,discCurve,foil,stEl,
+          rho:bem.rho, lam:bem.lam,
+          blockPct:B, overRead: free?0:(betzInTunnel(B)-16/27)/(16/27)};
+}
+
+/* ================================================================== *
+ *  readout / equation bar / corner tag                                *
+ * ================================================================== */
+function readoutHTML(M){
+  const st=M.st, b=M.bem;
+  const rows=[];
+  const row=(k,v,cls)=>rows.push('<tr><td>'+k+'</td><td class="v '+(cls||'')+'">'+v+'</td></tr>');
+  const hd=t=>rows.push('<tr><td class="hd" colspan="2">'+t+'</td></tr>');
+
+  hd('operating point');
+  row('wind U<sub>0</sub>', fmt(st.U,2)+' m/s');
+  row('tip-speed ratio &lambda;', fmt(b.lam,2));
+  row('rotor speed', fmt(st.rpm,1)+' rpm');
+  row('tip speed', fmt(b.tipSpeed,1)+' m/s');
+  row('shaft power', fmtPow(b.P), b.P>0?'good':'bad');
+  row('thrust', fmt(b.T/1000,2)+' kN');
+
+  hd('coefficients');
+  row('C<sub>P</sub> (as measured)', fmt(b.CP,4), b.CP>M.ceiling?'bad':'');
+  if(!M.free){
+    row('C<sub>P</sub> (free-air corrected)', fmt(M.CPcorr,4), 'good');
+    row('equivalent U<sub>e</sub>', fmt(M.Ue,2)+' m/s');
+  }
+  row('C<sub>T</sub>', fmt(b.CT,4));
+  row('ceiling here', fmt(M.ceiling,4), M.free?'':'bad');
+  row('Betz 16/27', fmt(16/27,4));
+
+  hd('the test section');
+  row('blockage B = A/C', M.free?'— (free air)':fmtPct(M.B));
+  row('ceiling inflation', M.free?'—':'+'+fmtPct(M.overRead), M.free?'':'bad');
+  row('a* (optimal loading)', fmt(M.aStar,4));
+  row('max induction a', fmt(b.worstA,3), b.worstA>A_MATCH?'bad':'');
+
+  const bar=(v,max,cls)=>'<div class="bar"><div class="fill '+(cls||'')+'" style="width:'
+    +clamp(100*v/max,0,100).toFixed(1)+'%"></div><div class="tick" style="left:'
+    +clamp(100*(16/27)/max,0,100).toFixed(1)+'%"></div></div>';
+
+  return '<div class="rname">'+(M.free?'free air':'closed section')
+    +'<small>'+(M.free?'no walls — the reference case'
+      :fmt(st.tw,1)+' &times; '+fmt(st.th,1)+' m section')+'</small></div>'
+    +'<table>'+rows.join('')+'</table>'
+    +bar(b.CP,Math.max(M.ceiling,16/27)*1.15,b.CP>16/27?'r':'')
+    +'<div class="note">bar is C<sub>P</sub>; the tick is Betz. '
+    +(M.free?'With no walls the tick is the ceiling.'
+      :'In this section the ceiling is <b>'+fmt(M.ceiling,4)+'</b>, so a rotor may sit '
+      +'right of the tick without breaking anything.')+'</div>'
+    +'<div class="legend"><span><i style="background:#b8ec4c"></i>free stream</span>'
+    +'<span><i style="background:#cd35c4"></i>wake</span>'
+    +'<span><i style="background:#5ac8e0"></i>streamtube</span>'
+    +'<span><i style="background:#3a4152"></i>walls</span></div>';
+}
+
+function eqbarHTML(M){
+  const v=M.st.view, B=M.B;
+  if(v==='blockage'||v==='tunnel'){
+    return '<span class="lhs">C<sub>P,max</sub>(B)</span> = '
+      +'<span class="hl">16/27</span> &middot; (1 &minus; B)<sup>&minus;2</sup>'
+      +' &nbsp;&nbsp;&nbsp; <span class="lhs">a*(B)</span> = '
+      +'(1 + 3B) / <span class="hl2">3(1 + B)</span>'
+      +'<span class="sm">exact for an actuator disc in a closed section of blockage '
+      +'B = A/C &mdash; here B = '+(M.free?'0':fmt(B,4))+', ceiling '
+      +fmt(M.ceiling,4)+'</span>';
+  }
+  if(v==='blade'){
+    return '<span class="lhs">&phi;</span> = arctan '
+      +'<span class="hl">U<sub>0</sub>(1&minus;a)</span> / '
+      +'<span class="hl2">&Omega;r(1+a′)</span>'
+      +' , &nbsp; &alpha; = &phi; &minus; &beta; &minus; &theta;<sub>p</sub>'
+      +'<span class="sm">the velocity triangle: axial induction slows the wind, '
+      +'wake rotation speeds the section up, and what is left is the angle of attack</span>';
+  }
+  if(v==='polar'){
+    return '<span class="lhs">C<sub>l</sub></span> = '
+      +'<span class="hl">A<sub>1</sub> sin 2&alpha;</span> + '
+      +'<span class="hl2">A<sub>2</sub> cos<sup>2</sup>&alpha; / sin &alpha;</span>'
+      +' , &nbsp; C<sub>d</sub> = B<sub>1</sub> sin<sup>2</sup>&alpha; + B<sub>2</sub> cos &alpha;'
+      +'<span class="sm">Viterna&ndash;Corrigan past stall &mdash; the published extrapolation, '
+      +'anchored on measured C<sub>l,max</sub>, &alpha;<sub>stall</sub> and C<sub>d,min</sub></span>';
+  }
+  if(v==='design'){
+    return '<span class="lhs">c(r)</span> = '
+      +'<span class="hl">8&pi;r</span> / (N C<sub>l,des</sub>) &middot; '
+      +'[1 &minus; cos &phi;] , &nbsp; &beta;(r) = &phi;(r) &minus; &alpha;<sub>des</sub>'
+      +'<span class="sm">Glauert&rsquo;s optimum chord and twist, with '
+      +'&phi; = arctan(2 / 3&lambda;<sub>r</sub>) &mdash; the blade the sim optimises toward</span>';
+  }
+  return '<span class="lhs">C<sub>P</sub></span> = '
+    +'<span class="hl">4a(1&minus;a)<sup>2</sup></span>'
+    +' &nbsp;&rarr;&nbsp; max <span class="hl2">16/27</span> at a = 1/3'
+    +'<span class="sm">the Betz limit &mdash; and the ceiling every measured point on this '
+    +'plot is compared against</span>';
+}
+
+function eqbarText(M){
+  return 'CP='+fmt(M.bem.CP,4)+' CT='+fmt(M.bem.CT,4)+' lam='+fmt(M.bem.lam,3)
+        +' B='+fmt(M.B,4)+' ceiling='+fmt(M.ceiling,4)+' P='+fmtPow(M.bem.P);
+}
+
+function tagHTML(M){
+  const v=M.st.view, st=M.st;
+  const src='<b>'+RIG.src+'</b>';
+  if(v==='tunnel') return 'the streamtube cannot expand freely &mdash; the walls make the '
+    +'bypass accelerate, and that suction pulls extra mass through the disc';
+  if(v==='blade') return 'one blade element, its velocity triangle, and the forces it '
+    +'returns to the momentum balance';
+  if(v==='polar') return 'measured anchors are ringed; everything between them is the model '
+    +'&mdash; the reversed-flow branch is dashed because it is a convention';
+  if(v==='power') return 'C<sub>P</sub> against tip-speed ratio, with Betz, Glauert&rsquo;s '
+    +'optimum and the in-tunnel ceiling';
+  if(v==='blockage') return 'the correction, exactly: ceiling &times; (1&minus;B)<sup>&minus;2</sup>, '
+    +'and the loading that reaches it';
+  if(v==='design') return 'the blade you have against the blade Glauert says you want';
+  return src;
+}
+
+/* ================================================================== *
+ *  2-D axes helper                                                    *
+ * ================================================================== */
+function makeAxes(x0,y0,w,hgt,xlo,xhi,ylo,yhi){
+  return {x0,y0,w,h:hgt,xlo,xhi,ylo,yhi,
+    X:v=>x0+(v-xlo)/((xhi-xlo)||1)*w,
+    Y:v=>y0+hgt-(v-ylo)/((yhi-ylo)||1)*hgt};
+}
+function ticks(lo,hi,n){
+  const raw=(hi-lo)/Math.max(n,1);
+  const mag=Math.pow(10,Math.floor(Math.log10(Math.max(raw,1e-12))));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[]; for(let v=Math.ceil(lo/step)*step; v<=hi+1e-9; v+=step) out.push(v);
+  return out;
+}
+function tickLabel(v){
+  if(Math.abs(v)<1e-12) return '0';
+  const a=Math.abs(v);
+  if(a>=1000||a<0.01) return v.toExponential(0);
+  return String(Math.round(v*1000)/1000);
+}
+/* Clip 2-D plot data to the axes frame — curves that leave the box must not be
+   drawn through the tick labels.  (Known-bad list, steam_carnot_cycle.html.) */
+function frameClip(ctx,ax,pad){
+  const p=pad||0;
+  ctx.beginPath(); ctx.rect(ax.x0-p,ax.y0-p,ax.w+2*p,ax.h+2*p); ctx.clip();
+}
+function drawFrame(ctx,ax,xlab,ylab,opt){
+  const o=opt||{};
+  ctx.save();
+  ctx.strokeStyle='#2a2f3d'; ctx.lineWidth=1;
+  ctx.strokeRect(ax.x0,ax.y0,ax.w,ax.h);
+  ctx.font='10.5px -apple-system, sans-serif'; ctx.fillStyle='#767e92';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  for(const t of ticks(ax.xlo,ax.xhi,o.nx||6)){
+    const X=ax.X(t); if(X<ax.x0-1||X>ax.x0+ax.w+1) continue;
+    ctx.strokeStyle='#1b1f29'; ctx.beginPath();
+    ctx.moveTo(X,ax.y0); ctx.lineTo(X,ax.y0+ax.h); ctx.stroke();
+    ctx.fillText(tickLabel(t),X,ax.y0+ax.h+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of ticks(ax.ylo,ax.yhi,o.ny||5)){
+    const Y=ax.Y(t); if(Y<ax.y0-1||Y>ax.y0+ax.h+1) continue;
+    ctx.strokeStyle='#1b1f29'; ctx.beginPath();
+    ctx.moveTo(ax.x0,Y); ctx.lineTo(ax.x0+ax.w,Y); ctx.stroke();
+    ctx.fillText(tickLabel(t),ax.x0-6,Y);
+  }
+  ctx.fillStyle='#8b93a6'; ctx.font='italic 12px Georgia, serif';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText(xlab,ax.x0+ax.w/2,ax.y0+ax.h+20);
+  ctx.save(); ctx.translate(ax.x0-42,ax.y0+ax.h/2); ctx.rotate(-Math.PI/2);
+  ctx.textBaseline='bottom'; ctx.fillText(ylab,0,0); ctx.restore();
+  ctx.restore();
+}
+function plotLine(ctx,ax,pts,col,lw,dash){
+  if(pts.length<2) return;
+  ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  ctx.setLineDash(dash||[]); ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.beginPath(); let started=false;
+  for(const p of pts){
+    if(!isFinite(p[0])||!isFinite(p[1])){ started=false; continue; }
+    const X=ax.X(p[0]), Y=ax.Y(p[1]);
+    if(!started){ ctx.moveTo(X,Y); started=true; } else ctx.lineTo(X,Y);
+  }
+  ctx.stroke(); ctx.restore();
+}
+function plotDot(ctx,ax,x,y,col,r,ring){
+  const X=ax.X(x), Y=ax.Y(y);
+  ctx.save();
+  ctx.fillStyle=col; ctx.beginPath(); ctx.arc(X,Y,r||3.2,0,TAU); ctx.fill();
+  if(ring){ ctx.strokeStyle=ring; ctx.lineWidth=1.4;
+    ctx.beginPath(); ctx.arc(X,Y,(r||3.2)+3,0,TAU); ctx.stroke(); }
+  ctx.restore();
+}
+/* Wrap on MEASURED width, not on a character count: a 30-character budget is
+   not a width, and at 10.5 px the legend column overran the canvas edge.  */
+function wrapText(ctx,txt,maxW,font){
+  ctx.save(); ctx.font=font||'10px -apple-system, sans-serif';
+  const words=(''+txt).split(' '); const out=[]; let line='';
+  for(const w of words){
+    const test=line?line+' '+w:w;
+    if(ctx.measureText(test).width>maxW && line){ out.push(line); line=w; }
+    else line=test;
+  }
+  if(line) out.push(line);
+  ctx.restore(); return out;
+}
+function label(ctx,x,y,txt,col,align,font){
+  ctx.save(); ctx.fillStyle=col||'#8b93a6';
+  ctx.font=font||'11px -apple-system, sans-serif';
+  ctx.textAlign=align||'left'; ctx.textBaseline='middle';
+  ctx.fillText(txt,x,y); ctx.restore();
+}
+
+/* ================================================================== *
+ *  SCENE                                                              *
+ * ================================================================== */
+const DEFAULTS={
+  view:'tunnel',
+  R:5.029, rHub:0.508, nB:2, rpm:72, pitch:3.0,
+  blade:'phase6', twScale:1.0, clDes:1.00, alphaDes:6.0, lamDesign:0,
+  cRoot:0.737, cTip:0.356, twRoot:18.074, twTip:-1.816,
+  U:7.0, T:293.15, P:101.325,
+  tunnel:'closed', tw:24.4, th:36.6,
+  foil:'s809', reScale:true, cdMax:2.0, polarFull:false,
+  tipLoss:true, hubLoss:true, wakeRot:true, drag:true, nAnn:60,
+  showTube:true, showWalls:true, showParticles:true, showWake:true, showGrid:true,
+  anim:true, spin:false, speed:1.0, station:0.70,
+};
+
+function makeScene(canvas){
+  const st=Object.assign({},DEFAULTS);
+  const cam=makeCamera(-2.30,0.30,34,[0,0,0]);
+  /* The blade view looks down the rotor axis so the planform is face-on; under
+     the tunnel view's camera the blade rendered as a vertical sliver. */
+  const bcam={theta:0.28,phi:0.16};
+  let t=0, cached=null, cacheKey='';
+
+  function keyOf(){
+    return [st.R,st.rHub,st.nB,st.rpm,st.pitch,st.blade,st.twScale,st.clDes,st.alphaDes,
+            st.lamDesign,st.cRoot,st.cTip,st.twRoot,st.twTip,st.U,st.T,st.P,st.tunnel,
+            st.tw,st.th,st.foil,st.reScale,st.cdMax,st.tipLoss,st.hubLoss,st.wakeRot,
+            st.drag,st.nAnn,st.station].join('|');
+  }
+  function model(){
+    const k=keyOf();
+    if(cached&&cacheKey===k) return cached;
+    cached=buildModel(st); cacheKey=k; return cached;
+  }
+  function rebuild(){ cacheKey=''; }
+
+  /* ---------------- 3-D: the tunnel ---------------- */
+  function drawTunnel(ctx,W,H,M){
+    const B=camBasis(cam);
+    const R=st.R, free=M.free;
+    const halfW=free? R*3.2 : st.tw/2, halfH=free? R*3.2 : st.th/2;
+    const xLo=-3.0*R, xHi=5.0*R;
+    const bem=M.bem;
+    /* rotor-averaged induction, weighted by annulus area — the one number the
+       1-D picture needs, taken from the 3-D blade solution rather than assumed */
+    let aBar=0, wsum=0;
+    for(const e of bem.el){ const w=e.r; aBar+=e.a*w; wsum+=w; }
+    aBar = wsum>0 ? aBar/wsum : 1/3;
+    const dd=ductDisc(M.B,aBar);
+    const wEnd=isFinite(dd.w)?dd.w:1-2*aBar;
+
+    const prof=x=>axialProfile(x,R,aBar,wEnd);
+    const uDisc=prof(0);
+
+    /* painter's algorithm: collect everything with a depth, sort, draw */
+    const items=[];
+    const push=(z,fn)=>items.push({z,fn});
+
+    /* --- the test-section walls, as a wireframe box with a floor grid --- */
+    if(st.showWalls&&!free){
+      const corners=[[-halfW,-halfH],[halfW,-halfH],[halfW,halfH],[-halfW,halfH]];
+      const edges=[];
+      for(let i=0;i<4;i++){
+        const c=corners[i], d=corners[(i+1)%4];
+        edges.push([[xLo,c[0],c[1]],[xLo,d[0],d[1]]]);
+        edges.push([[xHi,c[0],c[1]],[xHi,d[0],d[1]]]);
+        edges.push([[xLo,c[0],c[1]],[xHi,c[0],c[1]]]);
+      }
+      for(const e of edges){
+        const p=project(cam,B,e[0]), q=project(cam,B,e[1]);
+        if(!p||!q) continue;
+        push((p.z+q.z)/2+1e4,()=>{ ctx.strokeStyle=rgba('#3a4152',.85); ctx.lineWidth=1;
+          ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y); ctx.stroke(); });
+      }
+      if(st.showGrid){
+        const n=14;
+        for(let i=0;i<=n;i++){
+          const x=lerp(xLo,xHi,i/n);
+          const p=project(cam,B,[x,-halfW,-halfH]), q=project(cam,B,[x,halfW,-halfH]);
+          if(p&&q) push((p.z+q.z)/2+2e4,()=>{ ctx.strokeStyle=rgba('#3a4152',.28);
+            ctx.lineWidth=.7; ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(q.x,q.y); ctx.stroke(); });
+        }
+      }
+    }
+
+    /* --- the streamtube: a surface of revolution r(x) from continuity --- */
+    const NX=64, NTH=28;
+    const xs=[], rs=[], us=[];
+    for(let i=0;i<=NX;i++){
+      const x=lerp(xLo,xHi,i/NX), u=prof(x);
+      xs.push(x); us.push(u); rs.push(tubeRadius(u,uDisc,R));
+    }
+    if(st.showTube){
+      for(let i=0;i<NX;i++){
+        const uA=us[i], uB2=us[i+1];
+        /* speed -> colour, normalised on the free stream */
+        const cA=speedCol(clamp(uA,0,1));
+        for(let j=0;j<NTH;j++){
+          const th0=TAU*j/NTH, th1=TAU*(j+1)/NTH;
+          const q=[[xs[i],rs[i]*Math.cos(th0),rs[i]*Math.sin(th0)],
+                   [xs[i+1],rs[i+1]*Math.cos(th0),rs[i+1]*Math.sin(th0)],
+                   [xs[i+1],rs[i+1]*Math.cos(th1),rs[i+1]*Math.sin(th1)],
+                   [xs[i],rs[i]*Math.cos(th1),rs[i]*Math.sin(th1)]];
+          const pr=q.map(p=>project(cam,B,p));
+          if(pr.some(p=>!p)) continue;
+          const zm=(pr[0].z+pr[1].z+pr[2].z+pr[3].z)/4;
+          /* Draw only the FAR half of the tube — we are looking at its inside.
+             An opaque closed tube is geometrically correct and completely
+             useless: it buries the rotor, which is the one object the view
+             exists to show.  Culling by the outward radial direction (rather
+             than a face normal, whose winding is easy to get backwards) leaves
+             the near side open and the rotor visible inside.  This is why the
+             quads can still be premixed and opaque, which is what keeps the
+             seams from reading as corduroy. */
+          const thm=(th0+th1)/2;
+          const outward=[0,Math.cos(thm),Math.sin(thm)];
+          const mid=[(xs[i]+xs[i+1])/2,
+                     (rs[i]+rs[i+1])/2*Math.cos(thm),(rs[i]+rs[i+1])/2*Math.sin(thm)];
+          const toEye=v3.norm(v3.sub(B.eye,mid));
+          const facing=v3.dot(outward,toEye);
+          if(facing>0) continue;                 // near side: leave it open
+          const alpha=0.16+0.26*Math.abs(facing);
+          /* Pre-mix against the page background and draw OPAQUE: an abutting
+             quad mesh drawn at alpha < 1 with an overlap composites the seam
+             twice and reads as corduroy.  (Known-bad list, shock_flow.html.) */
+          const col=mix('#070b18',cA,alpha);
+          push(zm,()=>{
+            ctx.fillStyle=col; ctx.beginPath();
+            ctx.moveTo(pr[0].x,pr[0].y);
+            for(let k=1;k<4;k++) ctx.lineTo(pr[k].x,pr[k].y);
+            ctx.closePath(); ctx.fill();
+          });
+        }
+      }
+      /* the silhouette of the tube, so the expansion is legible edge-on */
+      for(const sgn of [1,-1]){
+        const pts=[];
+        for(let i=0;i<=NX;i++){
+          const p=project(cam,B,[xs[i],0,sgn*rs[i]]);
+          if(p) pts.push(p);
+        }
+        if(pts.length>2) push(-1e5,()=>{
+          ctx.strokeStyle=rgba('#5ac8e0',.55); ctx.lineWidth=1.3;
+          ctx.beginPath(); ctx.moveTo(pts[0].x,pts[0].y);
+          for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].x,pts[i].y);
+          ctx.stroke();
+        });
+      }
+    }
+
+    /* --- bypass streamlines: continuity against the wall --- */
+    if(!free&&st.showWalls){
+      const C=st.tw*st.th, A=Math.PI*R*R;
+      for(let k=0;k<10;k++){
+        const th=TAU*k/10;
+        const pts=[];
+        for(let i=0;i<=NX;i++){
+          const At=Math.PI*rs[i]*rs[i];
+          const ub=(1*C-us[i]*At)/Math.max(C-At,1e-6);   // bypass speed ratio
+          /* place the streamline midway between tube and wall, radially */
+          const rw=Math.min(halfW,halfH);
+          const rr=lerp(rs[i],rw,0.55);
+          const p=project(cam,B,[xs[i],rr*Math.cos(th),rr*Math.sin(th)]);
+          if(p) pts.push({p,ub});
+        }
+        if(pts.length>2) push(-9e4,()=>{
+          for(let i=1;i<pts.length;i++){
+            const u=pts[i].ub;
+            ctx.strokeStyle=rgba(u>1.02?'#e8843a':'#3a4152', clamp(0.20+0.55*(u-1)*6,0.12,0.8));
+            ctx.lineWidth=1.1;
+            ctx.beginPath(); ctx.moveTo(pts[i-1].p.x,pts[i-1].p.y);
+            ctx.lineTo(pts[i].p.x,pts[i].p.y); ctx.stroke();
+          }
+        });
+      }
+    }
+
+    /* --- drifting tracer particles, advected by u(x) --- */
+    if(st.showParticles){
+      const NP=190;
+      for(let i=0;i<NP;i++){
+        /* deterministic pseudo-random seeding: no Math.random, so the picture
+           is reproducible and the geometry harness can assert on it */
+        const s1=((i*2654435761)%1000)/1000, s2=((i*40503)%997)/997, s3=((i*97)%89)/89;
+        const rSeed=Math.sqrt(s1)*(free?R*2.6:Math.min(halfW,halfH)*0.92);
+        const th=TAU*s2;
+        /* integrate x forward with a phase offset so they spread out */
+        let x=xLo+((t*st.speed*0.55+s3)%1)*(xHi-xLo);
+        const inTube = rSeed < R*0.999;
+        const idx=clamp(Math.round((x-xLo)/(xHi-xLo)*NX),0,NX);
+        const rr = inTube ? rSeed*rs[idx]/R : rSeed;
+        const u  = inTube ? us[idx] : (function(){
+          const At=Math.PI*rs[idx]*rs[idx], C=free?1e9:st.tw*st.th;
+          return free?1:(C-us[idx]*At)/Math.max(C-At,1e-6);
+        })();
+        const p=project(cam,B,[x,rr*Math.cos(th),rr*Math.sin(th)]);
+        if(!p) continue;
+        const col=inTube?speedCol(clamp(u,0,1)):(u>1.02?'#e8843a':'#6b7284');
+        const rad=clamp(150/p.z,0.7,2.6);
+        push(p.z,()=>{ ctx.fillStyle=col; ctx.globalAlpha=inTube?0.9:0.5;
+          ctx.beginPath(); ctx.arc(p.x,p.y,rad,0,TAU); ctx.fill(); ctx.globalAlpha=1; });
+      }
+    }
+
+    /* --- the rotor: hub + twisted, tapered blades --- */
+    {
+      const geom=bladeGeom(st);
+      const spin=st.anim? t*st.speed*(st.rpm*TAU/60)*0.10 : 0;
+      for(let bI=0;bI<st.nB;bI++){
+        const psi=TAU*bI/st.nB+spin;
+        const NS=22;
+        for(let i=0;i<NS;i++){
+          const r0=lerp(st.rHub,R,i/NS), r1=lerp(st.rHub,R,(i+1)/NS);
+          const g0=geom(r0), g1=geom(r1);
+          /* chordwise extent, rotated by the local twist about the span axis */
+          const seg=[];
+          for(const [rr,gg,sgn] of [[r0,g0,-1],[r1,g1,-1],[r1,g1,1],[r0,g0,1]]){
+            const tw=(gg.twist+st.pitch)*DEG;
+            const cx=sgn*gg.c*0.5;
+            /* blade lies in the rotor plane at azimuth psi; chord tilts into x */
+            const yx=cx*Math.sin(tw);
+            const inPlane=cx*Math.cos(tw);
+            seg.push([yx, rr*Math.cos(psi)-inPlane*Math.sin(psi),
+                          rr*Math.sin(psi)+inPlane*Math.cos(psi)]);
+          }
+          const pr=seg.map(p=>project(cam,B,p));
+          if(pr.some(p=>!p)) continue;
+          const zm=(pr[0].z+pr[1].z+pr[2].z+pr[3].z)/4;
+          const nrm=v3.norm(v3.cross(v3.sub(seg[1],seg[0]),v3.sub(seg[3],seg[0])));
+          const toEye=v3.norm(v3.sub(B.eye,seg[0]));
+          const sh=0.34+0.62*Math.abs(v3.dot(nrm,toEye));
+          const col=shade('#c8d0de',sh);
+          push(zm,()=>{ ctx.fillStyle=col; ctx.beginPath();
+            ctx.moveTo(pr[0].x,pr[0].y);
+            for(let k=1;k<4;k++) ctx.lineTo(pr[k].x,pr[k].y);
+            ctx.closePath(); ctx.fill(); });
+        }
+      }
+      /* hub */
+      const NH=16;
+      for(let i=0;i<NH;i++){
+        const t0=TAU*i/NH, t1=TAU*(i+1)/NH, rh=st.rHub*0.85;
+        const q=[[-0.5,rh*Math.cos(t0),rh*Math.sin(t0)],[0.5,rh*Math.cos(t0),rh*Math.sin(t0)],
+                 [0.5,rh*Math.cos(t1),rh*Math.sin(t1)],[-0.5,rh*Math.cos(t1),rh*Math.sin(t1)]];
+        const pr=q.map(p=>project(cam,B,p));
+        if(pr.some(p=>!p)) continue;
+        const zm=(pr[0].z+pr[1].z+pr[2].z+pr[3].z)/4;
+        push(zm,()=>{ ctx.fillStyle=shade('#8b93a6',0.35+0.4*Math.abs(Math.cos(t0)));
+          ctx.beginPath(); ctx.moveTo(pr[0].x,pr[0].y);
+          for(let k=1;k<4;k++) ctx.lineTo(pr[k].x,pr[k].y); ctx.closePath(); ctx.fill(); });
+      }
+    }
+
+    items.sort((p,q)=>q.z-p.z);
+    for(const it of items) it.fn();
+
+    /* --- the 1-D speed profile, drawn as an inset over the 3-D --- */
+    {
+      const aw=Math.min(300,W*0.30), ah=96, ax0=68, ay0=H-ah-56;
+      const ax=makeAxes(ax0,ay0,aw,ah,xLo/R,xHi/R,
+                        Math.min(0.0,wEnd-0.12),Math.max(1.25,(free?1.05:1.35)));
+      ctx.save(); ctx.fillStyle=rgba('#0a0c12',.78);
+      ctx.fillRect(ax0-56,ay0-20,aw+72,ah+48); ctx.restore();
+      drawFrame(ctx,ax,'x / R','u / U₀',{nx:5,ny:4});
+      ctx.save(); frameClip(ctx,ax,1);
+      plotLine(ctx,ax,xs.map((x,i)=>[x/R,us[i]]),'#5ac8e0',1.8);
+      if(!free){
+        const C=st.tw*st.th;
+        const ub=xs.map((x,i)=>{ const At=Math.PI*rs[i]*rs[i];
+          return [x/R,(C-us[i]*Math.PI*rs[i]*rs[i])/Math.max(C-At,1e-6)]; });
+        plotLine(ctx,ax,ub,'#e8843a',1.4,[4,3]);
+      }
+      plotLine(ctx,ax,[[xLo/R,1],[xHi/R,1]],rgba('#b8ec4c',.5),1,[2,3]);
+      plotLine(ctx,ax,[[0,ax.ylo],[0,ax.yhi]],rgba('#ffffff',.25),1);
+      ctx.restore();
+      label(ctx,ax0-52,ay0-10,'axial speed along the tunnel','#8b93a6','left','10.5px -apple-system');
+      label(ctx,ax0-52,ay0+ah+34,free?'cyan: streamtube'
+        :'cyan: streamtube    orange: bypass (accelerated by the walls)',
+        '#6b7284','left','10px -apple-system');
+    }
+
+    /* --- corner annotations --- */
+    ctx.save();
+    ctx.font='11px -apple-system, sans-serif'; ctx.textAlign='right'; ctx.textBaseline='top';
+    const lines=[
+      'ā = '+fmt(aBar,3)+'   u_disc/U₀ = '+fmt(uDisc,3),
+      'u_wake/U₀ = '+fmt(wEnd,3)+(free?'  (= 1−2a)':'  (duct cubic)'),
+      free?'free air — no walls':'B = '+fmtPct(M.B)+'   ceiling '+fmt(M.ceiling,4),
+    ];
+    let yy=H-46;
+    for(let i=lines.length-1;i>=0;i--){ ctx.fillStyle=i===2?'#e8843a':'#8b93a6';
+      ctx.fillText(lines[i],W-16,yy); yy-=15; }
+    ctx.restore();
+    if(st.blade==='phase6'){
+      label(ctx,W-16,20,'Phase VI endpoints published; span distribution reconstructed',
+            '#6b7284','right','10px -apple-system');
+    }
+  }
+
+  /* ---------------- the blade element ----------------
+     Layout notes, all of them defects found by rasterising the display list:
+      - the blade rendered edge-on under the tunnel view's camera, so this view
+        keeps its OWN orbit angles, started face-on to the planform;
+      - the velocity triangle is genuinely thin (phi is 10-15 deg at a working
+        tip-speed ratio), so it is drawn large and its captions are placed
+        OUTSIDE the triangle on fixed sides rather than at edge midpoints,
+        where three of them landed on top of each other.                       */
+  function drawBlade(ctx,W,H,M){
+    const bem=M.bem, el=M.stEl, geom=bladeGeom(st);
+    const leftW=Math.round(W*0.42);
+
+    /* --- left: the blade planform, with the chosen station ringed --- */
+    {
+      const span=st.R-st.rHub;
+      const cam2=makeCamera(bcam.theta,bcam.phi,span*2.1,[0,0,(st.rHub+st.R)/2]);
+      cam2.W=leftW; cam2.H=H;
+      const B2=camBasis(cam2);
+      const items=[]; const NS=48;
+      let hit=null;
+      for(let i=0;i<NS;i++){
+        const r0=lerp(st.rHub,st.R,i/NS), r1=lerp(st.rHub,st.R,(i+1)/NS);
+        const g0=geom(r0), g1=geom(r1);
+        const seg=[];
+        for(const [rr,gg,sgn] of [[r0,g0,-1],[r1,g1,-1],[r1,g1,1],[r0,g0,1]]){
+          const tw=(gg.twist+st.pitch)*DEG, cx=sgn*gg.c*0.5;
+          seg.push([cx*Math.sin(tw), cx*Math.cos(tw), rr]);
+        }
+        const pr=seg.map(p=>project(cam2,B2,p));
+        if(pr.some(p=>!p)) continue;
+        const zm=(pr[0].z+pr[1].z+pr[2].z+pr[3].z)/4;
+        const nrm=v3.norm(v3.cross(v3.sub(seg[1],seg[0]),v3.sub(seg[3],seg[0])));
+        const toEye=v3.norm(v3.sub(B2.eye,seg[0]));
+        const near=(el.r>=r0&&el.r<r1);
+        if(near) hit=pr;
+        const sh=0.30+0.62*Math.abs(v3.dot(nrm,toEye));
+        const col=near?'#b8ec4c':shade('#c8d0de',sh);
+        items.push({z:zm,fn:()=>{ ctx.fillStyle=col; ctx.beginPath();
+          ctx.moveTo(pr[0].x,pr[0].y);
+          for(let k=1;k<4;k++) ctx.lineTo(pr[k].x,pr[k].y);
+          ctx.closePath(); ctx.fill(); }});
+      }
+      items.sort((p,q)=>q.z-p.z);
+      ctx.save(); ctx.beginPath(); ctx.rect(0,0,leftW,H); ctx.clip();
+      for(const it of items) it.fn();
+      if(hit){ ctx.strokeStyle='#b8ec4c'; ctx.lineWidth=1.6;
+        ctx.beginPath(); ctx.moveTo(hit[0].x,hit[0].y);
+        for(let k=1;k<4;k++) ctx.lineTo(hit[k].x,hit[k].y);
+        ctx.closePath(); ctx.stroke(); }
+      ctx.restore();
+      label(ctx,16,22,'r/R = '+fmt(el.x,3),'#b8ec4c','left','13px -apple-system');
+      label(ctx,16,40,'chord '+fmt(el.c,3)+' m    twist '+fmt(el.twist,2)+'°',
+            '#8b93a6','left','11.5px -apple-system');
+      label(ctx,16,H-20,'drag to orbit the blade · slider "blade station" moves the ring',
+            '#6b7284','left','10.5px -apple-system');
+    }
+
+    /* --- right, upper: the velocity triangle --- */
+    {
+      const bx=leftW+34, by=54, bw=W-leftW-68, bh=Math.max(140,H*0.26);
+      const Un=st.U*(1-el.a), Ut=(st.rpm*TAU/60)*el.r*(1+el.ap);
+      const Wl=Math.hypot(Un,Ut)||1;
+      /* scale so the LONG leg fills the box; the short leg then falls where the
+         physics puts it — a thin triangle is the honest picture at high lambda */
+      const sc=Math.min(bw*0.66/Math.max(Ut,1e-6), bh*0.62/Math.max(Un,1e-6));
+      const ox=bx+56, oy=by+34;                       // triangle origin (top-left)
+      const px=ox+Ut*sc, py=oy+Un*sc;                 // the right-angle corner is (ox,py)
+
+      const arrow=(x0,y0,x1,y1,col,lw)=>{
+        ctx.save(); ctx.strokeStyle=col; ctx.fillStyle=col; ctx.lineWidth=lw||2;
+        ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+        const a=Math.atan2(y1-y0,x1-x0), hl=9;
+        ctx.beginPath(); ctx.moveTo(x1,y1);
+        ctx.lineTo(x1-hl*Math.cos(a-0.4),y1-hl*Math.sin(a-0.4));
+        ctx.lineTo(x1-hl*Math.cos(a+0.4),y1-hl*Math.sin(a+0.4));
+        ctx.closePath(); ctx.fill(); ctx.restore();
+      };
+      arrow(ox,oy,ox,py,'#5ac8e0');                   // axial, downward
+      arrow(ox,py,px,py,'#e5c94b');                   // tangential, rightward
+      arrow(ox,oy,px,py,'#b8ec4c',2.6);               // relative wind W
+
+      /* captions on fixed sides — never at edge midpoints, which collide */
+      label(ctx,ox-10,(oy+py)/2,'U₀(1−a)','#5ac8e0','right','11.5px -apple-system');
+      label(ctx,ox-10,(oy+py)/2+14,fmt(Un,2)+' m/s','#5ac8e0','right','11px -apple-system');
+      label(ctx,(ox+px)/2,py+18,'Ωr(1+a′) = '+fmt(Ut,2)+' m/s','#e5c94b','center','11.5px -apple-system');
+      label(ctx,(ox+px)/2,oy+(py-oy)/2-16,'W = '+fmt(Wl,2)+' m/s','#b8ec4c','center','12px -apple-system');
+      label(ctx,ox+18,py-9,'φ = '+fmt(el.phi*RAD,1)+'°','#b8ec4c','left','11.5px -apple-system');
+
+      /* the chord, drawn from the W line at the local angle of attack, with the
+         section's own pitch — alpha is the gap between the two */
+      const wAng=Math.atan2(py-oy,px-ox);
+      const chordAng=wAng-el.alpha*DEG;
+      const cxm=lerp(ox,px,0.62), cym=lerp(oy,py,0.62), cl=Math.min(bw*0.26,120);
+      ctx.save(); ctx.strokeStyle='#cfd4de'; ctx.lineWidth=2.6; ctx.lineCap='round';
+      ctx.beginPath();
+      ctx.moveTo(cxm-cl*Math.cos(chordAng),cym-cl*Math.sin(chordAng));
+      ctx.lineTo(cxm+cl*Math.cos(chordAng),cym+cl*Math.sin(chordAng));
+      ctx.stroke(); ctx.restore();
+      label(ctx,cxm+cl*Math.cos(chordAng)+10,cym+cl*Math.sin(chordAng),
+            'chord  β+θₚ = '+fmt(el.twist+st.pitch,1)+'°','#cfd4de','left','11px -apple-system');
+      label(ctx,cxm-cl*Math.cos(chordAng)-16,cym-cl*Math.sin(chordAng)-24,
+            'α = '+fmt(el.alpha,2)+'°',el.alpha>0?'#e8543a':'#8b93a6','right','13px -apple-system');
+      label(ctx,bx,by-16,'the velocity triangle at this station','#8b93a6','left',
+            'italic 12px Georgia, serif');
+    }
+
+    /* --- right, middle: how the solution varies along the span --- *
+     * The triangle is one station; the design question is always the whole
+     * blade, so the distributions go next to it.                            */
+    {
+      const gx=leftW+70, gy=Math.round(H*0.36), gw=W-leftW-140, gh=Math.round(H*0.20);
+      let aMax=0.05, alMax=1;
+      for(const e of bem.el){ aMax=Math.max(aMax,e.a); alMax=Math.max(alMax,Math.abs(e.alpha)); }
+      const ax=makeAxes(gx,gy,gw,gh,0,1,0,Math.max(0.5,aMax*1.25));
+      drawFrame(ctx,ax,'r / R','a  and  α/α_max',{nx:5,ny:4});
+      ctx.save(); frameClip(ctx,ax,1);
+      plotLine(ctx,ax,bem.el.map(e=>[e.x,e.a]),'#5ac8e0',2.0);
+      plotLine(ctx,ax,bem.el.map(e=>[e.x,ax.yhi*Math.abs(e.alpha)/alMax]),'#e8543a',1.6,[4,3]);
+      plotLine(ctx,ax,[[0,1/3],[1,1/3]],rgba('#b8ec4c',.55),1.2,[6,4]);
+      plotDot(ctx,ax,el.x,el.a,'#ffffff',3.8,'#b8ec4c');
+      ctx.restore();
+      label(ctx,gx,gy-12,'along the span','#8b93a6','left','italic 11.5px Georgia, serif');
+      let kx=gx+130;
+      const key=(col,txt,dash)=>{
+        ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=2; ctx.setLineDash(dash||[]);
+        ctx.beginPath(); ctx.moveTo(kx,gy-12); ctx.lineTo(kx+16,gy-12); ctx.stroke();
+        ctx.font='10px -apple-system, sans-serif'; const wpx=ctx.measureText(txt).width;
+        ctx.restore();
+        label(ctx,kx+21,gy-12,txt,'#8b93a6','left','10px -apple-system');
+        kx+=21+wpx+18;
+      };
+      key('#5ac8e0','a');
+      key('#e8543a','α (scaled, max '+fmt(alMax,1)+'°)',[4,3]);
+      key('#b8ec4c','a = 1/3',[6,4]);
+    }
+
+    /* --- right, lower: what the element hands back --- */
+    {
+      const tx=leftW+34; let ty=Math.round(H*0.68);
+      label(ctx,tx,ty-24,'what this element returns','#8b93a6','left',
+            'italic 12px Georgia, serif');
+      const put=(k,v,c)=>{ label(ctx,tx,ty,k,'#767e92','left','11.5px -apple-system');
+        label(ctx,tx+238,ty,v,c||'#cfd4de','right','11.5px -apple-system'); ty+=18; };
+      put('a  (axial induction)',fmt(el.a,4),el.a>A_MATCH?'#e8843a':'#b8ec4c');
+      put('a′ (tangential)',fmt(el.ap,4));
+      put('C_l',fmt(el.cl,3));
+      put('C_d',fmt(el.cd,4));
+      put('L/D',isFinite(el.ld)?fmt(el.ld,1):'∞');
+      put('Prandtl F',fmt(el.F,4));
+      put('chord Reynolds',fmtRe(el.Re));
+      put('dT/dr',fmt(el.dT,1)+' N/m');
+      put('dQ/dr',fmt(el.dQ,1)+' N');
+      if(el.a>A_MATCH){ ty+=4;
+        label(ctx,tx,ty,'a > 0.4 — momentum theory replaced by Buhl here',
+              '#e8843a','left','10.5px -apple-system'); }
+    }
+    ctx.save(); ctx.strokeStyle='#1e222c'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(leftW,0); ctx.lineTo(leftW,H); ctx.stroke(); ctx.restore();
+  }
+
+  /* ---------------- the polar ---------------- */
+  function drawPolar(ctx,W,H,M){
+    const f=M.foil, el=M.stEl;
+    const wide=st.polarFull;
+    const aLo=wide?-180:-20, aHi=wide?180:30;
+    const padL=64, padR=28, padT=44, padB=86;
+    const colW=(W-padL-padR-76)/2;
+    const axL=makeAxes(padL,padT,colW,H-padT-padB,aLo,aHi,-1.6,1.9);
+    const axD=makeAxes(padL+colW+76,padT,colW,H-padT-padB,aLo,aHi,0,wide?2.2:0.30);
+
+    drawFrame(ctx,axL,'angle of attack α (deg)','C_l',{nx:6,ny:6});
+    drawFrame(ctx,axD,'angle of attack α (deg)','C_d',{nx:6,ny:6});
+
+    const Re=st.reScale?el.Re:f.ReRef;
+    const opt={reScale:st.reScale,Re,cdMax:st.cdMax};
+    const sc=st.reScale?reScale(f,Re):{clMax:f.clMax,aStall:f.aStall,cd0:f.cd0};
+
+    /* split the curve by region so the modelled parts can be drawn differently */
+    const segs={lin:[],bend:[],viterna:[],reversed:[]};
+    const segsD={lin:[],bend:[],viterna:[],reversed:[]};
+    let prev=null;
+    for(let i=0;i<=720;i++){
+      const a=lerp(aLo,aHi,i/720);
+      const p=polar(f,a,opt);
+      for(const k in segs){ if(k!==p.region){ segs[k].push([NaN,NaN]); segsD[k].push([NaN,NaN]); } }
+      segs[p.region].push([a,p.cl]); segsD[p.region].push([a,p.cd]);
+    }
+    ctx.save(); frameClip(ctx,axL,1);
+    plotLine(ctx,axL,segs.lin,'#b8ec4c',2.0);
+    plotLine(ctx,axL,segs.bend,'#e5c94b',2.0);
+    plotLine(ctx,axL,segs.viterna,'#5ac8e0',1.8);
+    plotLine(ctx,axL,segs.reversed,'#cd35c4',1.5,[5,4]);
+    plotLine(ctx,axL,[[aLo,0],[aHi,0]],rgba('#ffffff',.18),1);
+    /* measured anchors, ringed */
+    plotDot(ctx,axL,f.a0,0,'#ffffff',3.4,'#b8ec4c');
+    plotDot(ctx,axL,sc.aStall,sc.clMax,'#ffffff',3.4,'#e5c94b');
+    /* the station's current operating point */
+    plotDot(ctx,axL,el.alpha,el.cl,'#e8543a',4.2,'#e8543a');
+    ctx.restore();
+
+    ctx.save(); frameClip(ctx,axD,1);
+    plotLine(ctx,axD,segsD.lin,'#b8ec4c',2.0);
+    plotLine(ctx,axD,segsD.bend,'#e5c94b',2.0);
+    plotLine(ctx,axD,segsD.viterna,'#5ac8e0',1.8);
+    plotLine(ctx,axD,segsD.reversed,'#cd35c4',1.5,[5,4]);
+    plotDot(ctx,axD,f.a0,sc.cd0,'#ffffff',3.4,'#b8ec4c');
+    plotDot(ctx,axD,el.alpha,el.cd,'#e8543a',4.2,'#e8543a');
+    if(wide){ plotDot(ctx,axD,90,st.cdMax,'#ffffff',3.4,'#5ac8e0'); }
+    ctx.restore();
+
+    /* legend + provenance.  padB leaves a band below the axis caption for this
+       row; sharing that band with the caption put "Viterna extrapolation"
+       straight through "angle of attack". */
+    let ty=H-40;
+    const key=(x,col,txt,dash)=>{
+      ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=2.2; ctx.setLineDash(dash||[]);
+      ctx.beginPath(); ctx.moveTo(x,ty); ctx.lineTo(x+18,ty); ctx.stroke(); ctx.restore();
+      label(ctx,x+24,ty,txt,'#8b93a6','left','10.5px -apple-system');
+      ctx.save(); ctx.font='10.5px -apple-system, sans-serif';
+      const wpx=ctx.measureText(txt).width; ctx.restore();
+      return x+24+wpx+22;
+    };
+    let x=padL;
+    x=key(x,'#b8ec4c','linear (measured slope)');
+    x=key(x,'#e5c94b','bend onto C_l,max');
+    x=key(x,'#5ac8e0','Viterna extrapolation');
+    x=key(x,'#cd35c4','reversed flow (convention)',[5,4]);
+    label(ctx,padL,padT-26,f.name+'   —   '+f.src,'#8b93a6','left','11.5px -apple-system');
+    label(ctx,W-padR,padT-26,
+      (st.reScale?'scaled to Re = '+fmtRe(Re)+' (ref '+fmtRe(f.ReRef)+')':'at the reference Re = '+fmtRe(f.ReRef)),
+      st.reScale?'#e5c94b':'#6b7284','right','11px -apple-system');
+    label(ctx,W-padR,padT-10,'ringed points are the cited anchors; the curve between them is the model',
+      '#6b7284','right','10px -apple-system');
+    label(ctx,padL,H-16,'C_l,max = '+fmt(sc.clMax,3)+' at α = '+fmt(sc.aStall,1)
+      +'°     C_d,min = '+fmt(sc.cd0,5)+'     operating α = '+fmt(el.alpha,2)+'° at r/R = '+fmt(el.x,2),
+      '#767e92','left','11px -apple-system');
+  }
+
+  /* ---------------- power: CP against tip-speed ratio ---------------- */
+  function drawPower(ctx,W,H,M){
+    const padL=68, padR=232, padT=40, padB=54;
+    const topH=(H-padT-padB)*0.62, gap=42;
+    const axP=makeAxes(padL,padT,W-padL-padR,topH,0,16.5,0,Math.max(0.78,M.ceiling*1.12));
+    const axT=makeAxes(padL,padT+topH+gap,W-padL-padR,(H-padT-padB)-topH-gap,0,16.5,0,1.6);
+    drawFrame(ctx,axP,'','C_P',{nx:8,ny:5});
+    drawFrame(ctx,axT,'tip-speed ratio λ = ΩR / U₀','C_T',{nx:8,ny:5});
+
+    ctx.save(); frameClip(ctx,axP,1);
+    /* reference ceilings */
+    plotLine(ctx,axP,[[0,16/27],[16.5,16/27]],rgba('#b8ec4c',.75),1.5,[6,4]);
+    if(!M.free) plotLine(ctx,axP,[[0,M.ceiling],[16.5,M.ceiling]],rgba('#e8843a',.85),1.6,[3,3]);
+    plotLine(ctx,axP,M.glau.map(g=>[g.lam,g.CP]),rgba('#5ac8e0',.85),1.7);
+    /* the BEM sweep, split at the first stalled point */
+    const pre=[], post=[];
+    for(const s of M.sweep){ (s.stall?post:pre).push([s.lam,s.CP]); }
+    plotLine(ctx,axP,M.sweep.map(s=>[s.lam,s.CP]),'#cfd4de',2.2);
+    plotLine(ctx,axP,post,'#e8543a',2.2);
+    plotDot(ctx,axP,M.bem.lam,M.bem.CP,'#e8543a',4.6,'#ffffff');
+    ctx.restore();
+
+    ctx.save(); frameClip(ctx,axT,1);
+    plotLine(ctx,axT,M.sweep.map(s=>[s.lam,s.CT]),'#cfd4de',2.0);
+    plotLine(ctx,axT,[[0,8/9],[16.5,8/9]],rgba('#b8ec4c',.5),1.2,[4,4]);
+    plotDot(ctx,axT,M.bem.lam,M.bem.CT,'#e8543a',4.2,'#ffffff');
+    ctx.restore();
+    label(ctx,axT.X(16.2),axT.Y(8/9)-9,'8/9 at Betz','#8b93a6','right','10px -apple-system');
+
+    /* legend column */
+    const lx=W-padR+18; let ly=padT+8;
+    const put=(col,txt,dash,lw)=>{
+      ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=lw||2.2; ctx.setLineDash(dash||[]);
+      ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+20,ly); ctx.stroke(); ctx.restore();
+      label(ctx,lx+27,ly,txt,'#8b93a6','left','10.5px -apple-system'); ly+=17;
+    };
+    label(ctx,lx,ly-16,'ceilings','#767e92','left','italic 11px Georgia, serif');
+    put('#b8ec4c','Betz 16/27 = '+fmt(16/27,4),[6,4]);
+    if(!M.free) put('#e8843a','in-tunnel '+fmt(M.ceiling,4),[3,3]);
+    put('#5ac8e0','Glauert optimum');
+    ly+=8;
+    label(ctx,lx,ly-2,'this rotor','#767e92','left','italic 11px Georgia, serif'); ly+=14;
+    put('#cfd4de','BEM, attached');
+    put('#e8543a','BEM, past stall');
+    ly+=10;
+    const colW=W-lx-16;
+    const box=(txt,col)=>{ for(const l of wrapText(ctx,txt,colW,'10px -apple-system')){
+      label(ctx,lx,ly,l,col||'#6b7284','left','10px -apple-system'); ly+=13; } };
+    box('Past stall BEM is not to be trusted: real stall-regulated rotors carry '
+       +'spanwise flow that BEM has no term for.','#e8843a');
+    ly+=6;
+    box('Operating point λ = '+fmt(M.bem.lam,2)+', C_P = '+fmt(M.bem.CP,4)
+       +(M.free?'':', corrected to free air '+fmt(M.CPcorr,4))+'.');
+    if(M.bem.CP>16/27&&!M.free){ ly+=4;
+      box('C_P exceeds Betz because the walls are doing work on the streamtube — '
+         +'that is the blockage, not a broken rotor.','#e8843a'); }
+    if(M.bem.aboveMatch){ ly+=4;
+      box('Some annuli run a > 0.4; those use Buhl, not momentum theory.','#e8843a'); }
+  }
+
+  /* ---------------- blockage: the correction, exactly ---------------- */
+  function drawBlockage(ctx,W,H,M){
+    const padL=68, padR=224, padT=40, padB=54;
+    const topH=(H-padT-padB)*0.56, gap=44;
+    const axC=makeAxes(padL,padT,W-padL-padR,topH,0,0.30,0.5,1.30);
+    const axA=makeAxes(padL,padT+topH+gap,W-padL-padR,(H-padT-padB)-topH-gap,0,0.30,0.30,0.52);
+    drawFrame(ctx,axC,'','ceiling on C_P',{nx:6,ny:5});
+    drawFrame(ctx,axA,'blockage  B = A_rotor / A_section','optimal a*',{nx:6,ny:5});
+
+    ctx.save(); frameClip(ctx,axC,1);
+    plotLine(ctx,axC,M.blk.map(b=>[b.B,b.ceil]),'#e8843a',2.2);
+    plotLine(ctx,axC,[[0,16/27],[0.30,16/27]],rgba('#b8ec4c',.75),1.5,[6,4]);
+    /* the same curve computed by MAXIMISING the duct solution numerically, so
+       the exact law is drawn against an independent evaluation of itself */
+    const num=[];
+    for(let i=0;i<=30;i++){ const b=i*0.30/30;
+      let best=0; for(let j=0;j<=400;j++){ const a=j*0.75/400;
+        const d=ductDisc(b,a); if(isFinite(d.CP)&&d.CP>best) best=d.CP; }
+      num.push([b,best]); }
+    for(const p of num) plotDot(ctx,axC,p[0],p[1],rgba('#5ac8e0',.9),2.4);
+    if(!M.free) plotDot(ctx,axC,M.B,M.ceiling,'#ffffff',4.4,'#e8843a');
+    ctx.restore();
+
+    ctx.save(); frameClip(ctx,axA,1);
+    plotLine(ctx,axA,M.blk.map(b=>[b.B,b.aStar]),'#cd35c4',2.2);
+    plotLine(ctx,axA,[[0,1/3],[0.30,1/3]],rgba('#b8ec4c',.6),1.3,[6,4]);
+    if(!M.free) plotDot(ctx,axA,M.B,M.aStar,'#ffffff',4.4,'#cd35c4');
+    ctx.restore();
+
+    const lx=W-padR+18; let ly=padT+10;
+    const put=(col,txt,dash,dot)=>{
+      ctx.save();
+      if(dot){ ctx.fillStyle=col; ctx.beginPath(); ctx.arc(lx+10,ly,2.6,0,TAU); ctx.fill(); }
+      else { ctx.strokeStyle=col; ctx.lineWidth=2.2; ctx.setLineDash(dash||[]);
+        ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+20,ly); ctx.stroke(); }
+      ctx.restore();
+      label(ctx,lx+27,ly,txt,'#8b93a6','left','10.5px -apple-system'); ly+=17;
+    };
+    put('#e8843a','(16/27)(1−B)⁻²  exact');
+    put('#5ac8e0','max over a, numerically',null,true);
+    put('#b8ec4c','Betz, free air',[6,4]);
+    ly+=6;
+    put('#cd35c4','a* = (1+3B)/(3(1+B))');
+    ly+=12;
+    const colW=W-lx-16;
+    const wrap=(txt,col)=>{ for(const l of wrapText(ctx,txt,colW,'10px -apple-system')){
+      label(ctx,lx,ly,l,col||'#6b7284','left','10px -apple-system'); ly+=13; } };
+    wrap('The dots are the duct cubic maximised numerically over the loading. '
+        +'They lie on the closed form to 1e-15 — it is an identity, not a fit.');
+    ly+=8;
+    if(!M.free){
+      wrap('This section: B = '+fmtPct(M.B)+', ceiling '+fmt(M.ceiling,4)+', '
+          +'an inflation of '+fmtPct(M.overRead)+' over Betz.','#e8843a');
+      ly+=6;
+      wrap('NASA Ames 80×120 with the Phase VI rotor is B = 8.90% — the largest '
+          +'wind tunnel on earth, and still a fifth of the answer.');
+    } else {
+      wrap('Free air selected: B = 0 and the ceiling is Betz. Switch the test '
+          +'section back on to see the walls enter.');
+    }
+  }
+
+  /* ---------------- design: the blade you have vs the blade you want ------- */
+  function drawDesign(ctx,W,H,M){
+    const padL=68, padR=220, padT=40, padB=54;
+    const topH=(H-padT-padB)*0.5, gap=44;
+    const axC=makeAxes(padL,padT,W-padL-padR,topH,0,1,0,Math.max(1.1,st.cRoot*1.7));
+    const axT=makeAxes(padL,padT+topH+gap,W-padL-padR,(H-padT-padB)-topH-gap,0,1,-6,30);
+    drawFrame(ctx,axC,'','chord c (m)',{nx:6,ny:5});
+    drawFrame(ctx,axT,'r / R','twist β (deg)',{nx:6,ny:5});
+
+    const cur=bladeGeom(st);
+    const optSt=Object.assign({},st,{blade:'betz'});
+    const opt=bladeGeom(optSt);
+    const xs=[]; for(let i=0;i<=120;i++) xs.push(lerp(st.rHub/st.R,1,i/120));
+
+    ctx.save(); frameClip(ctx,axC,1);
+    plotLine(ctx,axC,xs.map(x=>[x,cur(x*st.R).c]),'#cfd4de',2.2);
+    plotLine(ctx,axC,xs.map(x=>[x,opt(x*st.R).c]),'#b8ec4c',1.8,[5,4]);
+    ctx.restore();
+    ctx.save(); frameClip(ctx,axT,1);
+    plotLine(ctx,axT,xs.map(x=>[x,cur(x*st.R).twist]),'#cfd4de',2.2);
+    plotLine(ctx,axT,xs.map(x=>[x,opt(x*st.R).twist]),'#b8ec4c',1.8,[5,4]);
+    plotLine(ctx,axT,[[0,0],[1,0]],rgba('#ffffff',.18),1);
+    ctx.restore();
+
+    /* what the optimum blade would actually deliver, run through the same BEM */
+    const mOpt=runBEM(optSt);
+    const lx=W-padR+16; let ly=padT+10;
+    const put=(col,txt,dash)=>{
+      ctx.save(); ctx.strokeStyle=col; ctx.lineWidth=2.2; ctx.setLineDash(dash||[]);
+      ctx.beginPath(); ctx.moveTo(lx,ly); ctx.lineTo(lx+20,ly); ctx.stroke(); ctx.restore();
+      label(ctx,lx+27,ly,txt,'#8b93a6','left','10.5px -apple-system'); ly+=17;
+    };
+    put('#cfd4de',BLADES.find(b=>b.id===st.blade).name);
+    put('#b8ec4c','Glauert optimum',[5,4]);
+    ly+=12;
+    const rowv=(k,v,c)=>{ label(ctx,lx,ly,k,'#767e92','left','10.5px -apple-system');
+      label(ctx,lx+168,ly,v,c||'#cfd4de','right','10.5px -apple-system'); ly+=16; };
+    label(ctx,lx,ly,'at λ = '+fmt(M.bem.lam,2),'#8b93a6','left','italic 11px Georgia, serif'); ly+=18;
+    rowv('C_P, this blade',fmt(M.bem.CP,4));
+    rowv('C_P, optimum',fmt(mOpt.CP,4),'#b8ec4c');
+    const gain=mOpt.CP-M.bem.CP;
+    rowv('difference',(gain>=0?'+':'')+fmt(gain,4),gain>0?'#b8ec4c':'#e8843a');
+    rowv('power, this blade',fmtPow(M.bem.P));
+    rowv('power, optimum',fmtPow(mOpt.P),'#b8ec4c');
+    ly+=8;
+    const colW=W-lx-16;
+    const wrap=(txt,col)=>{ for(const l of wrapText(ctx,txt,colW,'10px -apple-system')){
+      label(ctx,lx,ly,l,col||'#6b7284','left','10px -apple-system'); ly+=13; } };
+    wrap('The optimum chord blows up at the root because the ideal law ignores '
+        +'structure and cost; real blades truncate it, which is most of the gap.');
+    if(st.blade==='phase6'){ ly+=6;
+      wrap('Phase VI: endpoints are the published spec, the distribution between '
+          +'them is reconstructed — not the NREL table.','#e8843a'); }
+  }
+
+  /* ---------------- dispatch, camera, animation ---------------- */
+  function draw(){
+    const ctx=canvas.getContext('2d');
+    const W=cam.W, Hh=cam.H;
+    ctx.clearRect(0,0,W,Hh);
+    ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,Hh);
+    const M=model();
+    drawView(ctx,W,Hh,M);
+  }
+  /* the geometry harness calls this directly with a recording ctx */
+  function drawView(ctx,W,Hh,M){
+    const v=(M&&M.st?M.st.view:st.view);
+    if(v==='tunnel')        drawTunnel(ctx,W,Hh,M);
+    else if(v==='blade')    drawBlade(ctx,W,Hh,M);
+    else if(v==='polar')    drawPolar(ctx,W,Hh,M);
+    else if(v==='power')    drawPower(ctx,W,Hh,M);
+    else if(v==='blockage') drawBlockage(ctx,W,Hh,M);
+    else                    drawDesign(ctx,W,Hh,M);
+  }
+
+  return {
+    st, cam, model, rebuild, draw, drawView,
+    readout:()=>readoutHTML(model()),
+    eqbar:()=>eqbarHTML(model()),
+    tag:()=>tagHTML(model()),
+    step(dt){ if(st.anim) t+=dt; if(st.spin) cam.theta+=dt*0.16; },
+    pointer(kind,d){
+      if(kind!=='move') return;
+      const c = st.view==='blade' ? bcam : cam;
+      c.theta-=d.dx*0.006;
+      c.phi=clamp(c.phi+d.dy*0.006,-1.45,1.45);
+    },
+    wheel(dy){ cam.dist=clamp(cam.dist*Math.exp(dy*0.0012),4,220); },
+    /* The section is many rotor radii across — at Phase VI blockage the rotor
+       is a seventh of the width — so a fixed camera distance either buries the
+       tunnel or loses the rotor.  Frame the actual scene extent instead. */
+    fit(){
+      const R=st.R, free=st.tunnel==='free';
+      const halfW=free?R*3.2:st.tw/2, halfH=free?R*3.2:st.th/2;
+      const ext=Math.max(halfW,halfH,4.0*R);
+      cam.dist=clamp(1.25*ext/Math.tan(cam.fov/2),4,4000);
+      cam.target=[R*0.6,0,0];
+    },
+    resetView(){ cam.theta=-2.30; cam.phi=0.30; bcam.theta=0.28; bcam.phi=0.16;
+      this.fit(); },
+    lookAxial(){ cam.theta=Math.PI; cam.phi=0.0; },
+  };
+}
+
+/* the blade presets, referenced by the design view and the panel */
+const BLADES=[
+  {id:'phase6', name:'NREL Phase VI'},
+  {id:'betz',   name:'Glauert optimum'},
+  {id:'linear', name:'linear taper'},
+  {id:'flat',   name:'untapered, untwisted'},
+];
+const TUNNELS=[
+  {id:'closed', name:'NASA Ames 80×120', w:24.4, h:36.6},
+  {id:'small',  name:'2 × 3 m lab tunnel', w:2.0,  h:3.0},
+  {id:'medium', name:'5 × 5 m tunnel',     w:5.0,  h:5.0},
+  {id:'free',   name:'free air',           w:0,    h:0},
+];
+
+/* ================================================================== *
+ *  UI                                                                 *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const subEl=document.getElementById('sub');
+  const S=makeScene(canvas), st=S.st;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  const TABS=[['tunnel','the tunnel'],['blade','the blade'],['polar','the polar'],
+              ['power','power'],['blockage','blockage'],['design','design']];
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>{
+      st.view=k; [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===k?'active':'');
+      syncPanel(); refresh(); }},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step,value:st[key]});
+    const val=h('span',{class:'val'});
+    const row=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); S.rebuild(); syncPanel(); refresh(); });
+    rows[key]={row,sync}; sync(); return row;
+  }
+  function checkbox(key,lab,rebuild){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(rebuild!==false) S.rebuild(); syncPanel(); refresh(); });
+    return h('label',null,inp,lab);
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>
+          b.className='chip'+(list[i].id===st[key]?' on':''));
+        S.rebuild(); syncPanel(); refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+
+  const gTun=h('div',{class:'grp'},h('h3',null,'test section'));
+  gTun.appendChild(chipRow(TUNNELS,'tunnel',o=>{ if(o.id!=='free'){ st.tw=o.w; st.th=o.h; }
+    S.fit(); dirty=true; }));
+  gTun.appendChild(slider('tw','section width',1,40,0.1,v=>v.toFixed(1)+' m'));
+  gTun.appendChild(slider('th','section height',1,40,0.1,v=>v.toFixed(1)+' m'));
+  const tunTag=h('div',{class:'tag'}); gTun.appendChild(tunTag);
+
+  const gWind=h('div',{class:'grp'},h('h3',null,'the wind'));
+  gWind.appendChild(slider('U','speed U₀',1,30,0.1,v=>v.toFixed(1)+' m/s'));
+  gWind.appendChild(slider('rpm','rotor speed',5,300,1,v=>v.toFixed(0)+' rpm'));
+  gWind.appendChild(slider('T','temperature',233,333,0.5,v=>(v-273.15).toFixed(1)+' °C'));
+  gWind.appendChild(slider('P','pressure',50,120,0.5,v=>v.toFixed(1)+' kPa'));
+  const windTag=h('div',{class:'tag'}); gWind.appendChild(windTag);
+
+  const gRot=h('div',{class:'grp'},h('h3',null,'the rotor'));
+  gRot.appendChild(slider('R','blade radius',1,60,0.01,v=>v.toFixed(2)+' m'));
+  gRot.appendChild(slider('rHub','hub radius',0.05,6,0.001,v=>v.toFixed(3)+' m'));
+  gRot.appendChild(slider('nB','blades',1,6,1,v=>String(v)));
+  gRot.appendChild(slider('pitch','tip pitch θₚ',-6,20,0.1,v=>v.toFixed(1)+'°'));
+  const rotTag=h('div',{class:'tag'}); gRot.appendChild(rotTag);
+
+  const gBlade=h('div',{class:'grp'},h('h3',null,'blade plan'));
+  gBlade.appendChild(chipRow(BLADES,'blade'));
+  gBlade.appendChild(slider('twScale','twist scale',0,2,0.01,v=>v.toFixed(2)+'×'));
+  gBlade.appendChild(slider('alphaDes','design α',0,14,0.1,v=>v.toFixed(1)+'°'));
+  gBlade.appendChild(slider('cRoot','root chord',0.05,3,0.001,v=>v.toFixed(3)+' m'));
+  gBlade.appendChild(slider('cTip','tip chord',0.02,2,0.001,v=>v.toFixed(3)+' m'));
+  gBlade.appendChild(slider('twRoot','root twist',-5,40,0.1,v=>v.toFixed(1)+'°'));
+  gBlade.appendChild(slider('twTip','tip twist',-10,15,0.1,v=>v.toFixed(1)+'°'));
+  const bladeTag=h('div',{class:'tag'}); gBlade.appendChild(bladeTag);
+
+  const gFoil=h('div',{class:'grp'},h('h3',null,'section'));
+  gFoil.appendChild(chipRow(AIRFOILS,'foil'));
+  gFoil.appendChild(h('div',{class:'checks'},
+    checkbox('reScale','scale anchors with Reynolds'),
+    checkbox('polarFull','show the full ±180° polar')));
+  gFoil.appendChild(slider('cdMax','C_d at 90°',1.0,2.4,0.01,v=>v.toFixed(2)));
+  gFoil.appendChild(slider('station','blade station',0,1,0.01,v=>'r/R '+v.toFixed(2)));
+  const foilTag=h('div',{class:'src'}); gFoil.appendChild(foilTag);
+
+  const gPhys=h('div',{class:'grp'},h('h3',null,'physics'));
+  gPhys.appendChild(h('div',{class:'checks'},
+    checkbox('tipLoss','Prandtl tip loss'),
+    checkbox('hubLoss','Prandtl hub loss'),
+    checkbox('wakeRot','wake rotation (a′)'),
+    checkbox('drag','section drag')));
+  const physTag=h('div',{class:'tag'}); gPhys.appendChild(physTag);
+
+  const gShow=h('div',{class:'grp'},h('h3',null,'show'));
+  const checks=h('div',{class:'checks'},
+    checkbox('showTube','the streamtube',false),
+    checkbox('showWalls','walls and bypass',false),
+    checkbox('showParticles','tracer particles',false),
+    checkbox('showGrid','floor grid',false),
+    checkbox('anim','animate',false),
+    checkbox('spin','auto-orbit',false));
+  gShow.appendChild(checks);
+  gShow.appendChild(slider('speed','speed',0.2,4,0.1,v=>v.toFixed(1)+'×'));
+  gShow.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ S.lookAxial(); dirty=true; refresh(); }},'look down the axis'),
+    h('button',{onclick:()=>{ S.resetView(); dirty=true; refresh(); }},'reset view')));
+  gShow.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ Object.assign(st,DEFAULTS); S.rebuild(); S.resetView();
+                              syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}));
+  [gTun,gWind,gRot,gBlade,gFoil,gPhys,gShow,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    [[gTun,TUNNELS,'tunnel'],[gBlade,BLADES,'blade'],[gFoil,AIRFOILS,'foil']].forEach(
+      ([g,list,key])=>{
+        const cw=g.querySelector('.chips'); if(!cw) return;
+        [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      });
+  }
+  function syncPanel(){
+    const v=st.view;
+    gTun.hidden   = (v==='polar'||v==='design');
+    gWind.hidden  = false;
+    gRot.hidden   = (v==='polar');
+    gBlade.hidden = (v==='polar'||v==='blockage');
+    gFoil.hidden  = (v==='blockage');
+    gPhys.hidden  = (v==='blockage'||v==='polar');
+    gShow.hidden  = (v!=='tunnel'&&v!=='blade');
+    rows.tw.row.hidden = st.tunnel==='free';
+    rows.th.row.hidden = st.tunnel==='free';
+    rows.speed.row.hidden = !(st.anim||st.spin);
+    rows.cRoot.row.hidden = st.blade!=='linear';
+    rows.cTip.row.hidden  = (st.blade!=='linear'&&st.blade!=='flat');
+    rows.twRoot.row.hidden= st.blade!=='linear';
+    rows.twTip.row.hidden = st.blade!=='linear';
+    rows.alphaDes.row.hidden = st.blade!=='betz';
+    rows.cdMax.row.hidden = !st.polarFull;
+    for(const k in rows) rows[k].sync();
+    [].forEach.call(checks.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['showTube','showWalls','showParticles','showGrid','anim','spin'][i]]; });
+    [].forEach.call(gPhys.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['tipLoss','hubLoss','wakeRot','drag'][i]]; });
+    [].forEach.call(gFoil.querySelectorAll('input[type=checkbox]'),(inp,i)=>{
+      inp.checked=st[['reScale','polarFull'][i]]; });
+  }
+
+  function refresh(){
+    try{
+      const M=S.model(), b=M.bem;
+      roEl.innerHTML=S.readout(); eqEl.innerHTML=S.eqbar(); tagEl.innerHTML=S.tag();
+      hintEl.textContent = (st.view==='tunnel'||st.view==='blade')
+        ? 'drag to orbit · scroll to zoom · space toggles the animation'
+        : st.view==='blockage' ? 'the dots are the cubic maximised numerically; the line is the closed form'
+        : st.view==='polar' ? 'ringed points are measured anchors — everything between is the model'
+        : st.view==='power' ? 'the red segment is past stall, where BEM stops deserving trust'
+        : 'the dashed blade is what Glauert says this tip-speed ratio wants';
+      subEl.innerHTML = M.free
+        ? 'free air &mdash; the reference the tunnel has to be corrected back to'
+        : 'the walls are in the answer &mdash; B = '+fmtPct(M.B)+', ceiling '+fmt(M.ceiling,4);
+      tunTag.innerHTML = M.free
+        ? 'no walls: <b>B = 0</b>, ceiling is Betz <b>0.5926</b>'
+        : 'B = A/C = <b>'+fmtPct(M.B)+'</b> &rarr; ceiling <b>'+fmt(M.ceiling,4)+'</b> '
+          +'(<span class="r">+'+fmtPct(M.overRead)+'</span> over Betz)';
+      windTag.innerHTML='&rho; = <b>'+fmt(M.rho,4)+'</b> kg/m³ &nbsp; &lambda; = <b>'
+        +fmt(b.lam,2)+'</b> &nbsp; tip <b>'+fmt(b.tipSpeed,1)+'</b> m/s (M '+fmt(b.tipMach,3)+')';
+      rotTag.innerHTML='swept area <b>'+fmt(M.A,2)+'</b> m² &nbsp; solidity <b>'
+        +fmt(st.nB*(st.cRoot+st.cTip)/2/(Math.PI*st.R),4)+'</b>';
+      bladeTag.innerHTML='C<sub>P</sub> <b>'+fmt(b.CP,4)+'</b>'
+        +(M.free?'':' &nbsp; corrected <b class="g">'+fmt(M.CPcorr,4)+'</b>')
+        +' &nbsp; P <b>'+fmtPow(b.P)+'</b>'
+        +(st.blade==='phase6'?'<br><span class="r">span distribution reconstructed, not the NREL table</span>':'');
+      foilTag.innerHTML=M.foil.src;
+      physTag.innerHTML='max induction a = <b>'+fmt(b.worstA,3)+'</b>'
+        +(b.aboveMatch?' <span class="r">— Buhl active</span>':'')
+        +(b.anyStall?'<br><span class="r">some sections are stalled — BEM is unreliable there</span>':'');
+      infoEl.innerHTML=INFO[st.view]||INFO.tunnel;
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  /* Moving the camera is not the same as repainting it: the frame loop only
+     redraws while something is animating, so every interaction that touches the
+     camera must ask for a frame.  (steam_carnot_cycle.html Known-bad list.) */
+  let down=false,lx=0,ly=0,dirty=false;
+  canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId);
+    down=true; lx=e.clientX; ly=e.clientY; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove',e=>{ if(!down) return;
+    S.pointer('move',{dx:e.clientX-lx,dy:e.clientY-ly}); lx=e.clientX; ly=e.clientY;
+    dirty=true; });
+  const up=()=>{ down=false; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); S.wheel(e.deltaY); dirty=true; },
+    {passive:false});
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.anim=!st.anim; syncPanel(); refresh(); }
+    else if(e.key==='r'){ S.resetView(); dirty=true; refresh(); }
+    else if(e.key==='a'){ S.lookAxial(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<='6'){ st.view=TABS[+e.key-1][0];
+      [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+      syncPanel(); refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.cam.W=r.width; S.cam.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let last=0;
+  function frameLoop(tm){
+    const dt=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    S.step(dt);
+    if(((st.anim||st.spin)&&(st.view==='tunnel'||st.view==='blade'))||dirty){
+      dirty=false; try{ S.draw(); }catch(e){ fail(e); } }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); S.fit(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+}
+
+const INFO={
+  tunnel:'The streamtube through the rotor <b>expands</b>, because the air behind the disc '
+    +'is slower and continuity has to be satisfied. In free air it expands into nothing in '
+    +'particular. In a <b>closed test section</b> it cannot: the walls fix the total area, so '
+    +'the bypass flow between the tube and the wall must speed up, its static pressure falls, '
+    +'and that suction draws <b>more</b> mass through the disc than the same rotor would take '
+    +'in the open. The tunnel therefore reads high — and the inset shows exactly that, the '
+    +'bypass line climbing above 1 as the streamtube fattens.',
+  blade:'Blade element momentum is two statements about the same annulus. The <b>blade</b> side '
+    +'says the section sees a relative wind W at angle φ, meets it at angle of attack α, and '
+    +'returns lift and drag. The <b>momentum</b> side says the thrust that produces must equal '
+    +'what the flow through that annulus gives up. Solving them together fixes a and a′. Here '
+    +'the momentum side is the <b>duct</b> relation, so the walls change the blade loading '
+    +'itself, not just the number printed at the end.',
+  polar:'This is the one place real wind-tunnel data enters. The <b>ringed points</b> are '
+    +'measured and cited: zero-lift angle, maximum lift and the angle it happens at, minimum '
+    +'drag — each at a stated Reynolds number. Everything between them is model: a linear lift '
+    +'line, a smooth bend onto C_l,max, and the published <b>Viterna</b> extrapolation past '
+    +'stall. Switch between the two NACA 0012 entries to see the Reynolds effect that '
+    +'calibrates the scaling — stall is viscous, so both C_l,max and α_stall move with Re.',
+  power:'Betz&rsquo;s 16/27 is the ceiling for a disc in <b>free air</b>. Glauert&rsquo;s optimum, '
+    +'which keeps wake rotation, sits below it and is the honest target for a real rotor at '
+    +'finite tip-speed ratio. The measured curve is this blade run through BEM. Where it turns '
+    +'<b>red</b> the sections have stalled and BEM should be distrusted — real stall-regulated '
+    +'rotors carry spanwise flow that the method has no term for. In a tunnel the curve can '
+    +'legitimately sit above Betz, because the walls are doing work on the streamtube.',
+  blockage:'The correction, and it is <b>exact</b>. Solve the actuator disc between walls and '
+    +'the ceiling on C_P is (16/27)(1−B)⁻², with the optimum loading moved from a = 1/3 to '
+    +'(1+3B)/(3(1+B)). The orange line is that closed form; the blue dots are the duct cubic '
+    +'maximised numerically over the loading, computed without ever referring to the formula. '
+    +'They agree to 1e-15. NASA Ames 80×120 — the largest wind tunnel on earth — still puts '
+    +'<b>8.9%</b> blockage on the Phase VI rotor, which is a <b>20.5%</b> inflation of the ceiling.',
+  design:'The optimisation. Glauert&rsquo;s optimum blade has chord ∝ 1/λ_r near the tip and a '
+    +'twist that keeps every station at the same angle of attack, so each annulus sits at its '
+    +'own best induction at once. Real blades cannot follow it inboard — the ideal chord '
+    +'diverges at the root, where structure and cost live — and that truncation is most of the '
+    +'gap you see. Change the tip-speed ratio and watch the optimum blade change shape: a blade '
+    +'is only optimal <b>at one λ</b>.'};
+
+/* ================================================================== *
+ *  self-test                                                          *
+ * ================================================================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if(cond){ pass++; } else { fail++; console.log('FAIL — '+name); } };
+  const chk=(name,got,want,tol,rel)=>{
+    const e=rel?Math.abs(got-want)/Math.abs(want):Math.abs(got-want);
+    if(e<=tol) pass++; else { fail++;
+      console.log('FAIL — '+name+': got '+Number(got).toPrecision(12)
+                  +' want '+Number(want).toPrecision(12)+' err '+e.toExponential(3)); } };
+
+  /* ---------- colour parsing: mix() output must be legal mix() input ------- */
+  ok(toRgb('#b8ec4c').join()==='184,236,76','toRgb parses #rrggbb');
+  ok(toRgb('rgb(58,111,142)').join()==='58,111,142','toRgb parses rgb()');
+  ok(toRgb(mix('#070b18','#b8ec4c',0.4)).length===3,'mix output re-parses');
+  { let threw=false; try{ toRgb('chartreuse'); }catch(e){ threw=true; }
+    ok(threw,'toRgb THROWS on an unparseable colour rather than defaulting to black'); }
+  { /* brightness per band, not colour syntax: a two-stage blend must not go black */
+    const c=toRgb(shade(mix('#cd35c4','#d8f59a',0.5),0.9));
+    ok(c[0]+c[1]+c[2]>150,'two-stage blend stays bright (not the rgb(0,0,0) failure)'); }
+
+  /* ---------- the cubic solver against the ORIGINAL momentum residual ------ */
+  { let worst=0;
+    const resid=(w,B,a)=>{ const k=B*(1-a), be=w*(1-k)/(w-k), b=k/w, CT=be*be-w*w;
+      return 0.5*(be*be-1)-0.5*B*CT-(w*w*b+be*be*(1-b)-1); };
+    for(const B of [0.005,0.02,0.05,0.0889696,0.15,0.25,0.35]){
+      for(let i=1;i<=60;i++){ const a=i*0.6/60;
+        const w=wakeSpeed(B,a);
+        if(!isFinite(w)) { fail++; console.log('FAIL — no wake root at B='+B+' a='+a); continue; }
+        worst=Math.max(worst,Math.abs(resid(w,B,a)));
+      } }
+    ok(worst<1e-12,'cubic root satisfies the original duct momentum residual (worst '
+       +worst.toExponential(2)+')'); }
+
+  /* ---------- B -> 0 reproduces the classical actuator disc --------------- */
+  { /* At B = 0 the duct solution must BE the classical disc, to machine
+       precision.  Away from zero it must NOT be — the walls change the answer —
+       so the honest statement about the limit is that the deviation is O(B).
+       That is asserted by measuring the deviation at two blockages a factor 100
+       apart and checking the ratio is 100.  An absolute tolerance here would
+       only be measuring how close to a = 1/2 the sweep happens to run: the
+       sensitivity dw/dB grows without bound as the wake speed goes to zero, so
+       a tight absolute bound at B = 1e-7 fails on physics, not on arithmetic. */
+    let worst0=0;
+    for(let i=1;i<=48;i++){ const a=i*0.48/48;
+      const d=ductDisc(0,a);
+      worst0=Math.max(worst0,Math.abs(d.w-(1-2*a)),Math.abs(d.CT-4*a*(1-a)),
+                      Math.abs(d.CP-4*a*(1-a)*(1-a))); }
+    ok(worst0<1e-15,'at B=0 the duct solution IS the classical disc (worst '
+       +worst0.toExponential(2)+')');
+    let worstRatio=0, worstAt=0;
+    for(let i=1;i<=24;i++){ const a=i*0.46/24;
+      const d1=Math.abs(ductDisc(1e-9,a).w-(1-2*a));
+      const d2=Math.abs(ductDisc(1e-7,a).w-(1-2*a));
+      if(d1>1e-13){ const rel=Math.abs(d2/d1-100)/100;
+        if(rel>worstRatio){ worstRatio=rel; worstAt=a; } } }
+    ok(worstRatio<1e-3,'and the deviation from it is O(B): 100x the blockage gives '
+       +'100x the deviation (worst rel '+worstRatio.toExponential(2)
+       +' at a='+worstAt.toFixed(3)+')'); }
+  chk('Betz: max of 4a(1-a)^2',4*(1/3)*(2/3)*(2/3),16/27,1e-15,false);
+  { let best=0,bestA=0;
+    for(let i=0;i<=200000;i++){ const a=i*0.6/200000, cp=4*a*(1-a)*(1-a);
+      if(cp>best){ best=cp; bestA=a; } }
+    chk('Betz maximum, found numerically',best,16/27,1e-10,false);
+    chk('and it happens at a = 1/3',bestA,1/3,1e-5,false); }
+
+  /* ---------- the two exact laws, against an independent maximisation ------ */
+  { let worstC=0, worstA=0;
+    for(const B of [0.001,0.01,0.02,0.05,0.0889696,0.12,0.2,0.3,0.4,0.5]){
+      let best=-1,bestA=0;
+      for(let i=0;i<=24000;i++){ const a=i*0.8/24000;
+        const d=ductDisc(B,a);
+        if(isFinite(d.CP)&&d.CP>best){ best=d.CP; bestA=a; } }
+      worstC=Math.max(worstC,Math.abs(best/betzInTunnel(B)-1));
+      worstA=Math.max(worstA,Math.abs(bestA-aStarInTunnel(B)));
+    }
+    ok(worstC<1e-9,'CP_max(B) = (16/27)(1-B)^-2 exactly (worst rel '
+       +worstC.toExponential(2)+')');
+    ok(worstA<1e-4,'a*(B) = (1+3B)/(3(1+B)) (worst abs '+worstA.toExponential(2)+')'); }
+  chk('the tunnel law reduces to Betz at B=0',betzInTunnel(0),16/27,1e-15,false);
+  chk('and a* reduces to 1/3 at B=0',aStarInTunnel(0),1/3,1e-15,false);
+  chk('NASA Ames 80x120 with the Phase VI rotor: B',
+      Math.PI*RIG.R*RIG.R/(RIG.tunnelW*RIG.tunnelH),0.08897,1e-5,false);
+  chk('...and the ceiling there',betzInTunnel(Math.PI*RIG.R*RIG.R/(RIG.tunnelW*RIG.tunnelH)),
+      0.713987,1e-5,false);
+
+  /* ---------- monotonicity, which the bisection in inverseCT relies on ----- */
+  { let bad=0;
+    for(const B of [0,0.05,0.2]){ let prev=-1;
+      for(let i=0;i<=200;i++){ const a=i*0.99/200, ct=momentumCT(a,1,B);
+        if(!(ct>=prev-1e-12)) bad++; prev=ct; } }
+    ok(bad===0,'momentumCT is monotone in a — inverseCT bisection is valid'); }
+  { let worst=0;
+    for(const B of [0,0.05,0.2]) for(const F of [1,0.7])
+      for(let i=1;i<=40;i++){ const a=i*0.9/40, ct=momentumCT(a,F,B);
+        worst=Math.max(worst,Math.abs(momentumCT(inverseCT(ct,F,B),F,B)-ct)); }
+    ok(worst<1e-9,'inverseCT round-trips (worst '+worst.toExponential(2)+')'); }
+
+  /* ---------- the axial profile: three anchors, and the free-air reduction - */
+  { const R=5, a=0.3, wEnd=0.35;
+    chk('axial profile far upstream = U0',axialProfile(-1e7,R,a,wEnd),1,1e-6,false);
+    chk('axial profile at the disc = 1-a',axialProfile(0,R,a,wEnd),1-a,1e-12,false);
+    chk('axial profile far downstream = duct wake',axialProfile(1e7,R,a,wEnd),wEnd,1e-6,false);
+    let worst=0;
+    for(let i=-40;i<=40;i++){ const x=i*R/4;
+      const got=axialProfile(x,R,a),      // wEnd omitted -> free air
+            want=1-a*(1+x/Math.sqrt(x*x+R*R));
+      worst=Math.max(worst,Math.abs(got-want)); }
+    ok(worst<1e-14,'in free air the profile IS the vortex-cylinder closed form (worst '
+       +worst.toExponential(2)+')'); }
+  { /* the streamtube obeys continuity by construction */
+    const R=5,a=0.3,uD=1-a; let worst=0;
+    for(let i=-20;i<=20;i++){ const x=i*R/3, u=axialProfile(x,R,a);
+      const r=tubeRadius(u,uD,R);
+      worst=Math.max(worst,Math.abs(Math.PI*r*r*u-Math.PI*R*R*uD)); }
+    ok(worst<1e-10,'streamtube area x speed is constant (worst '+worst.toExponential(2)+')'); }
+
+  /* ---------- Glauert's optimum rotor ------------------------------------- */
+  { chk('Glauert optimum tends to Betz (lambda=400)',glauertCP(400,4000),16/27,3e-4,false);
+    ok(glauertCP(400,4000)<16/27+1e-12,'...and never exceeds it');
+    ok(glauertCP(1e4,4000)<16/27+1e-12,'...nor does it at lambda = 1e4');
+    let mono=true, prev=-1;
+    for(let i=1;i<=60;i++){ const cp=glauertCP(0.4+i*0.25,600);
+      if(cp<prev-1e-9) mono=false; prev=cp; }
+    ok(mono,'Glauert CP is monotone increasing in lambda');
+    /* Two quadratures of the same integral — Simpson in v = lam_r/lambda, and
+       the trapezoid rule in the original variable a with the analytic
+       d lam_r/da.  Different variable, different rule; agreement is evidence
+       the integration is right rather than merely self-consistent. */
+    let worstQ=0;
+    for(const lam of [0.5,1,1.5,2,2.5,5,7.5,10]){
+      worstQ=Math.max(worstQ,Math.abs(glauertCP(lam,2000)-glauertCPalt(lam,40000))); }
+    ok(worstQ<2e-5,'the two independent quadratures of Glauert’s integral agree (worst '
+       +worstQ.toExponential(2)+')');
+    /* Regression anchors: values produced by a THIRD implementation (scipy
+       quad on the a-parametrisation) during development.  These pin the JS
+       against an outside evaluation.  They are NOT Glauert's printed table —
+       that table could not be obtained in this session, so no claim is made
+       here about agreeing with it. */
+    const REF={0.5:0.2893940046,1.0:0.4154961700,1.5:0.4771527621,2.0:0.5111866352,
+               2.5:0.5318740225,5.0:0.5703872057,7.5:0.5808487404,10.0:0.5852336978};
+    let worstR=0;
+    for(const k in REF) worstR=Math.max(worstR,Math.abs(glauertCP(+k,2000)-REF[k]));
+    ok(worstR<5e-5,'matches the independent scipy evaluation at 8 tip-speed ratios (worst '
+       +worstR.toExponential(2)+')');
+    /* the parametrisation satisfies its own defining relations */
+    let worstP=0;
+    for(let i=1;i<=50;i++){ const a=0.25+i*(1/3-0.25)*0.98/50;
+      const lr=glauertLamR(a);
+      worstP=Math.max(worstP,Math.abs(glauertAofLamR(lr)-a)); }
+    ok(worstP<1e-9,'lam_r(a) and its inverse round-trip (worst '+worstP.toExponential(2)+')'); }
+
+  /* ---------- the polar --------------------------------------------------- */
+  for(const f of AIRFOILS){
+    chk('Cl=0 at the zero-lift angle of '+f.name,polar(f,f.a0,{}).cl,0,1e-12,false);
+    const pS=polar(f,f.aStall,{});
+    chk('Cl at stall = Cl_max for '+f.name,pS.cl,f.clMax,1e-9,false);
+    ok(polar(f,90,{cdMax:2.0}).cd>1.5,'Cd near 90 deg is flat-plate-like for '+f.name);
+    /* broadside is 90 deg FROM THE ZERO-LIFT ANGLE, which for a cambered
+       section is not 90 deg geometric — the S809 and the 4415 sit a degree or
+       four off, and testing at a flat 90 was the test being wrong, not the code */
+    const aBroad=f.a0+90;
+    chk('Viterna gives Cl=0 broadside for '+f.name,polar(f,aBroad,{}).cl,0,1e-9,false);
+    chk('Viterna gives Cd=cdMax broadside for '+f.name,polar(f,aBroad,{cdMax:1.8}).cd,
+        1.8,1e-9,false);
+    /* continuity across every region boundary */
+    let worst=0;
+    for(let a=-179;a<=179;a+=0.25){
+      const p0=polar(f,a,{}), p1=polar(f,a+0.25,{});
+      worst=Math.max(worst,Math.abs(p1.cl-p0.cl),Math.abs(p1.cd-p0.cd)); }
+    ok(worst<0.06,'polar of '+f.name+' has no jump across its region joins (worst step '
+       +worst.toFixed(4)+')');
+    /* drag is positive everywhere, lift is odd about the zero-lift angle */
+    let bad=0;
+    for(let a=-180;a<=180;a+=1){ const p=polar(f,a,{}); if(!(p.cd>0)||!isFinite(p.cl)) bad++; }
+    ok(bad===0,'polar of '+f.name+' is finite with positive drag over the full range');
+  }
+  { /* the Sandia anchor: Cd(90 deg) measured 1.80 for the NACA 0012 */
+    const f=airfoilById('n0012lo');
+    chk('cdMax dialled to the Sandia 90-degree measurement',polar(f,90,{cdMax:1.80}).cd,
+        1.80,1e-9,false); }
+  { /* the Reynolds pair is what calibrates the scaling — check it recovers itself */
+    const lo=airfoilById('n0012lo'), hi=airfoilById('n0012hi');
+    const s=reScale(lo,lo.ReRef);
+    chk('reScale is the identity at the reference Re (Cl_max)',s.clMax,lo.clMax,1e-12,false);
+    chk('reScale is the identity at the reference Re (alpha_stall)',s.aStall,lo.aStall,1e-12,false);
+    chk('reScale is the identity at the reference Re (cd0)',s.cd0,lo.cd0,1e-12,false);
+    const up=reScale(lo,hi.ReRef);
+    ok(up.clMax>lo.clMax&&up.aStall>lo.aStall&&up.cd0<lo.cd0,
+       'raising Re raises Cl_max and the stall angle and lowers Cd_min');
+    chk('the fit reproduces the measured high-Re Cl_max',up.clMax,hi.clMax,0.02,false);
+    chk('the fit reproduces the measured high-Re stall angle',up.aStall,hi.aStall,0.2,false); }
+
+  /* ---------- Prandtl's factor ------------------------------------------- */
+  { let bad=0;
+    for(let i=1;i<=40;i++){ const r=0.5+i*(5-0.5)/40;
+      const F=prandtlF(3,r,5,0.5,Math.sin(0.3),true,true);
+      if(!(F>0&&F<=1)) bad++; }
+    ok(bad===0,'Prandtl F stays in (0,1]');
+    ok(prandtlF(3,4.999,5,0.5,Math.sin(0.3),true,false)<0.2,'F -> 0 at the tip');
+    chk('F = 1 with both losses off',prandtlF(3,3,5,0.5,Math.sin(0.3),false,false),1,1e-15,false);
+    /* The 2/pi out front is a NORMALISATION, and nothing above pins it: with
+       1/pi the factor still lies in (0,1] and still vanishes at the tip, so the
+       suite passed while every blade force was halved.  Found by mutation
+       testing; these two assertions are what close it. */
+    chk('F deep inboard, absolute value (pins the 2/pi normalisation)',
+        prandtlF(3,2.5,5,0.5,Math.sin(0.3),true,false),0.996023571584,1e-9,false);
+    chk('the HUB branch is normalised the same way',
+        prandtlF(3,1.0,5,0.5,Math.sin(0.3),false,true),0.996023571584,1e-9,false);
+    ok(prandtlF(3,10,1e7,0.5,Math.sin(0.3),true,false)>1-1e-9,
+       'F -> 1 when the tip is infinitely far away'); }
+
+  /* ---------- air properties, against the standard atmosphere ------------- */
+  chk('ISA sea-level density at 288.15 K, 101.325 kPa',airDensity(101325,288.15),
+      1.2250,1e-3,false);
+  chk('ISA sea-level viscosity at 288.15 K',airViscosity(288.15),1.789e-5,5e-8,false);
+  chk('Sutherland is the identity at its reference temperature',
+      airViscosity(273.15),1.716e-5,1e-12,false);
+  ok(airViscosity(350)>airViscosity(250),'viscosity of a gas RISES with temperature');
+  ok(airDensity(101325,350)<airDensity(101325,250),'density falls with temperature');
+
+  /* ---------- the optimum blade actually is optimum ----------------------- *
+   * These three pin the whole design chain — the flow-angle law, the chord
+   * magnitude, and the design lift being read off the polar rather than set
+   * independently.  Mutation testing found all three unguarded, and the middle
+   * one was a real defect, not just a missing test.                          */
+  { let worstAl=0, worstA=0, worstRatio=0;
+    for(const lam of [4,6,8,10,12]){
+      const s=Object.assign({},DEFAULTS,{tunnel:'free',blade:'betz',drag:false,
+        tipLoss:false,hubLoss:false,nAnn:40,alphaDes:6.0,
+        rpm:lam*DEFAULTS.U*60/(TAU*DEFAULTS.R)});
+      const m=runBEM(s);
+      for(const e of m.el) if(e.x>0.3){
+        worstAl=Math.max(worstAl,Math.abs(e.alpha-6.0));
+        worstA=Math.max(worstA,Math.abs(e.a-1/3)); }
+      worstRatio=Math.max(worstRatio,Math.abs(m.CP/glauertCP(lam,2000)-1));
+    }
+    ok(worstAl<0.15,'the ideal twist holds every station at the design angle of attack '
+       +'(worst departure '+worstAl.toFixed(3)+' deg)');
+    ok(worstA<0.02,'and the ideal chord loads every station to Betz, a = 1/3 (worst '
+       +worstA.toFixed(4)+')');
+    ok(worstRatio<0.015,'so the optimum blade reaches Glauert’s optimum CP to better than '
+       +'1.5% (worst '+(100*worstRatio).toFixed(2)+'%)');
+    /* and it must not BEAT the curve it is designed to touch */
+    for(const lam of [4,8,12]){
+      const s=Object.assign({},DEFAULTS,{tunnel:'free',blade:'betz',drag:false,
+        tipLoss:false,hubLoss:false,nAnn:40,alphaDes:6.0,
+        rpm:lam*DEFAULTS.U*60/(TAU*DEFAULTS.R)});
+      ok(runBEM(s).CP<=glauertCP(lam,2000)+1e-9,
+         'the optimum blade does not exceed Glauert at lambda='+lam); } }
+  { /* the design lift is the polar's, not a free number */
+    const s=Object.assign({},DEFAULTS,{foil:'s809',alphaDes:6.0});
+    chk('design Cl is read off the section at the design angle',designCl(s),
+        polar(airfoilById('s809'),6.0,{}).cl,1e-12,false);
+    ok(designCl(Object.assign({},s,{alphaDes:9.0}))>designCl(s),
+       'a larger design angle asks for more lift, hence a smaller chord'); }
+
+  /* ---------- BEM ---------------------------------------------------------- */
+  { const base=Object.assign({},DEFAULTS);
+    const r=runBEM(base);
+    ok(isFinite(r.CP)&&isFinite(r.CT)&&isFinite(r.P),'BEM returns finite coefficients');
+    ok(r.CP>0,'the default rotor extracts power');
+    ok(r.CP<betzInTunnel(r.B)+1e-6,'and does not exceed the ceiling for its own blockage');
+    ok(r.el.length===base.nAnn,'one result per annulus');
+    ok(r.el.every(e=>isFinite(e.a)&&isFinite(e.ap)&&isFinite(e.cl)),'every annulus converged');
+    /* free air must never beat Betz, whatever the settings */
+    let worst=-1, worstCfg='';
+    for(const lam of [2,4,6,8,11,15]) for(const nB of [1,2,3,5])
+      for(const blade of ['betz','phase6','flat']){
+        const s=Object.assign({},DEFAULTS,{tunnel:'free',blade,nB,nAnn:22,
+          rpm:lam*DEFAULTS.U*60/(TAU*DEFAULTS.R)});
+        const m=runBEM(s);
+        if(m.CP>worst){ worst=m.CP; worstCfg='lam='+lam+' nB='+nB+' '+blade; }
+        if(!isFinite(m.CP)){ fail++; console.log('FAIL — non-finite CP at '+worstCfg); }
+      }
+    ok(worst<16/27+1e-6,'no free-air configuration exceeds Betz (worst '+worst.toFixed(5)
+       +' at '+worstCfg+')');
+    /* the walls must RAISE the measured CP at otherwise identical settings */
+    const free=runBEM(Object.assign({},DEFAULTS,{tunnel:'free',nAnn:26}));
+    const small=runBEM(Object.assign({},DEFAULTS,{tunnel:'small',tw:2,th:3,nAnn:26,R:0.6}));
+    const freeSmall=runBEM(Object.assign({},DEFAULTS,{tunnel:'free',nAnn:26,R:0.6}));
+    ok(small.CP>freeSmall.CP,'a blocked section reads a HIGHER CP than free air '
+       +'('+small.CP.toFixed(4)+' vs '+freeSmall.CP.toFixed(4)+')');
+    ok(small.B>freeSmall.B,'and it is the blockage that did it');
+    /* turning drag off must not lower the power */
+    const withDrag=runBEM(Object.assign({},DEFAULTS,{nAnn:26}));
+    const noDrag=runBEM(Object.assign({},DEFAULTS,{nAnn:26,drag:false}));
+    ok(noDrag.CP>=withDrag.CP-1e-9,'removing section drag cannot reduce CP');
+    /* tip loss must not raise it */
+    const noTip=runBEM(Object.assign({},DEFAULTS,{nAnn:26,tipLoss:false,hubLoss:false}));
+    ok(noTip.CP>=withDrag.CP-1e-9,'removing tip and hub loss cannot reduce CP'); }
+
+  /* ---------- panels build clean ------------------------------------------ */
+  for(const view of ['tunnel','blade','polar','power','blockage','design']){
+    for(const tun of ['closed','free']){
+      const s=Object.assign({},DEFAULTS,{view,tunnel:tun,nAnn:16});
+      const M=buildModel(s);
+      const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+      ok(html.length>300&&html.indexOf('NaN')<0&&html.indexOf('undefined')<0,
+         'panels build clean for '+view+' / '+tun);
+      ok(eqbarText(M).indexOf('NaN')<0,'headless summary is clean for '+view+' / '+tun);
+    }
+  }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

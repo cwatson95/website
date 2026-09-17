@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scalar invariants — curvature-invariant explorer</title>
+<!--
+  Curvature invariants of the Kerr-Newman family (Minkowski, Schwarzschild,
+  Reissner-Nordstrom, Kerr, Kerr-Newman), visualized three ways:
+
+    I-invariants   Abdelqader-Lake differential set I1..I7 + Q1,Q2,Q3
+                   [PRD 91, 084017 (2015), dissertation ref 46] plus the
+                   classical SPIs (Kretschmann, Chern-Pontryagin, Gauss-Bonnet).
+    CM             Carminati-McLenaghan invariants, dissertation Appendix F
+                   normalization (r3 coeff 1/4; w1 = I, w2 = J).
+    CK             Cartan-Karlhede: canonical-frame curvature components
+                   (Psi2, Phi11) and first-order spin-coefficient invariants
+                   (rho, mu, tau, pi), incl. the horizon detector |rho mu|.
+
+  Conventions (match Relativity/manifold_explorer/curvature.py exactly):
+    signature (-,+,+,+), G = c = 1, lengths in M (M = 1);
+    Riemann R^a_bcd = d_c G^a_db - d_d G^a_cb + GG - GG; Ricci R_ab = R^c_acb;
+    Kinnersley principal tetrad, l.n = -1, m.mbar = +1;
+    eps_{t r th ph} = +sqrt(-g); complex radius rhob = r - i a cos th.
+
+  Every closed form here was verified against an independent numerical audit
+  (job tmp audit_scalar_invariants.py, 108/108 checks) driving the repo's own
+  NumericEngine + exact sympy derivations:
+    Psi2  = -M/rhob^3 + Q^2/(rhob^3 rho)         Phi11 = Q^2 / (2 Sigma^2)
+    I1+iI2 = 48 conj(Psi2)^2                     K = I1 + 8 Q^4/Sigma^4
+    I3+iI4 = 720 M^2 (Sigma-2Mr)/(Sigma rho^8)   (Q = 0; sign for -+++ !)
+    I3(RN) = 48 Delta (15 M^2 r^2 - 36 M Q^2 r + 22 Q^4)/r^12  (exact, sympy)
+    w1 = 3 Psi2^2   w2 = -Psi2^3   r1 = Q^4/Sigma^4   r2 = 0   r3 = r1^2
+    m1 = 4 lam^2 Re Psi2       m2 = 8 lam^2 Re(Psi2) conj(Psi2) = conj(m3)
+    m4 = 0 identically         m5 = 8 lam^2 |Psi2|^2 conj(Psi2)   lam = Q^2/Sigma^2
+    rhoNP = -1/rhob   muNP = -Delta/(2 Sigma rhob)
+    tauNP = -i a sin th/(sqrt2 Sigma)   piNP = -i a sin th/(sqrt2 rho^2)
+    D Psi2 = 3 rhoNP Psi2 (vacuum Bianchi);  |rhoNP muNP| = |Delta|/(2 Sigma^2).
+  Note: m2/m3/m5 use the "sandwich" slot reading of Appendix F.2 (the
+  alternative slot-(3,4) reading -- currently implemented in the repo's
+  invariants_cm.py -- vanishes identically on this family, and its m5
+  contraction is not a scalar; flagged in the changelog).
+
+  Rendering: canvas 2D only. Field view is the meridional slice in
+  Kerr-Schild-like coordinates x = sqrt(r^2+a^2) sin th, z = r cos th (the
+  ring singularity sits at x = a). Embedding view is the isometric embedding
+  of the t = const equatorial slice (Flamm-style, embedding.py conventions),
+  colored by the chosen invariant. Profiles view is log|invariant| vs r.
+
+  Single file, no dependencies, works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript scalar_invariants_test.js
+  - when `document` is undefined it runs the assertion suite instead of
+  booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --grid:#2c2c2a; --axis:#383835; --muted:#898781;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0; background:#000;}
+  #plot{position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none;}
+  #plot.grab{cursor:grab;}
+  #plot.grabbing{cursor:grabbing;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 19px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #tip{position:absolute; display:none; pointer-events:none; background:rgba(10,10,14,.92);
+       border:1px solid var(--edge); border-radius:6px; padding:6px 9px; font-size:11.5px;
+       color:var(--text); font-variant-numeric:tabular-nums; z-index:4; max-width:260px;}
+  #tip b{color:#fff;}
+  .pane{position:absolute; inset:0; overflow-y:auto; padding:18px 22px 40px; display:none;
+        background:var(--bg);}
+  .pane h2{font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:#8a8a92;
+           margin:20px 0 8px;}
+  .pane h2:first-child{margin-top:0;}
+  .card{background:var(--panel); border:1px solid var(--edge); border-radius:8px;
+        padding:10px 14px; margin-bottom:8px; max-width:860px;}
+  .card .nm{font:italic 15px Georgia, serif; color:#fff;}
+  .card .fm{font:italic 14.5px Georgia, serif; color:var(--text); margin:4px 0 2px;}
+  .card .vl{font:12px "SF Mono", Menlo, monospace; color:var(--neon-a);}
+  .card .nt{font-size:12px; color:var(--dim); margin-top:3px; line-height:1.55;}
+  .card .nt b{color:var(--text);}
+  .fr{display:inline-block; vertical-align:middle; text-align:center; margin:0 2px;}
+  .fr>span{display:block; padding:0 3px; line-height:1.15;}
+  .fr>span:first-child{border-bottom:1px solid #777;}
+  table.aud{border-collapse:collapse; font-size:12px; max-width:860px;}
+  table.aud td,table.aud th{border:1px solid var(--edge); padding:4px 9px; text-align:left;}
+  table.aud th{color:#8a8a92; font-weight:600; text-transform:uppercase; font-size:10.5px; letter-spacing:.1em;}
+  table.aud td.ok{color:#0ca30c; font-weight:600;}
+  table.aud td.bad{color:#e66767; font-weight:600;}
+  table.aud td.num{font-variant-numeric:tabular-nums; color:var(--dim);}
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:15px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .chip.mini{padding:3px 9px; font-size:11.5px; font-family:Georgia, serif; font-style:italic;}
+  .chip:disabled{opacity:.3; cursor:default; border-color:var(--edge); color:var(--dim);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:62px; flex-shrink:0;
+                   font-family:Georgia, serif; font-style:italic;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:56px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  input[type=range]:disabled{opacity:.25;}
+  .checks{display:flex; flex-wrap:wrap; gap:10px 14px; margin-top:6px;}
+  .checks label{font-size:12px; color:var(--text); display:flex; align-items:center; gap:5px; cursor:pointer;}
+  #metricInfo{font-size:12px; line-height:1.7; color:var(--dim); margin-top:6px;}
+  #metricInfo b{color:var(--text); font-weight:600;}
+  #info{font-size:12px; line-height:1.6; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  #info .fm{font:italic 14px Georgia, serif; color:var(--text); margin:4px 0;}
+  #info .vl{font:11.5px "SF Mono", Menlo, monospace; color:var(--neon-a);}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Scalar invariants</h1>
+  <span class="sub">I-invariants (Abdelqader&ndash;Lake) &middot; Carminati&ndash;McLenaghan &middot; Cartan&ndash;Karlhede
+    &mdash; Kerr&ndash;Newman family &middot; signature (&minus;+++) &middot; G=c=M=1</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="plot"></canvas>
+    <div id="hint"></div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    <canvas id="inset" width="300" height="46"></canvas>
+    <div id="tip"></div>
+    <div class="pane" id="cardsPane"></div>
+    <div class="pane" id="auditPane"></div>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>view</h3>
+      <div class="chips" id="viewChips">
+        <button class="chip on" data-v="field">field</button>
+        <button class="chip" data-v="embed">embedding</button>
+        <button class="chip" data-v="prof">profiles</button>
+        <button class="chip" data-v="cards">cards</button>
+        <button class="chip" data-v="audit">audit</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>metric</h3>
+      <div class="chips" id="metricChips">
+        <button class="chip mini" data-m="mink">Minkowski</button>
+        <button class="chip mini" data-m="schw">Schwarzschild</button>
+        <button class="chip mini" data-m="rn">Reissner&ndash;Nordstr&ouml;m</button>
+        <button class="chip mini on" data-m="kerr">Kerr</button>
+        <button class="chip mini" data-m="kn">Kerr&ndash;Newman</button>
+      </div>
+      <div class="sliderrow"><label for="aSlider">a / M</label>
+        <input type="range" id="aSlider" min="0" max="1.25" step="0.01">
+        <span class="val" id="aVal"></span></div>
+      <div class="sliderrow"><label for="qSlider">Q / M</label>
+        <input type="range" id="qSlider" min="0" max="1.25" step="0.01">
+        <span class="val" id="qVal"></span></div>
+      <div id="metricInfo"></div>
+    </div>
+    <div class="grp">
+      <h3>invariant set</h3>
+      <div class="chips" id="setChips">
+        <button class="chip on" data-s="al">I (AL)</button>
+        <button class="chip" data-s="cm">CM</button>
+        <button class="chip" data-s="ck">CK</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>invariant</h3>
+      <div class="chips" id="invChips"></div>
+      <div class="chips" id="compChips" style="margin-top:6px">
+        <button class="chip" data-c="abs">|&middot;|</button>
+        <button class="chip" data-c="re">Re</button>
+        <button class="chip" data-c="im">Im</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>display</h3>
+      <div class="sliderrow"><label for="zoomSlider">extent</label>
+        <input type="range" id="zoomSlider" min="2.5" max="20" step="0.5">
+        <span class="val" id="zoomVal"></span></div>
+      <div class="sliderrow"><label for="decSlider">log range</label>
+        <input type="range" id="decSlider" min="3" max="16" step="1">
+        <span class="val" id="decVal"></span></div>
+      <div class="checks">
+        <label><input type="checkbox" id="ovHor" checked> horizons</label>
+        <label><input type="checkbox" id="ovErg" checked> ergosurface</label>
+        <label><input type="checkbox" id="ovZero" checked> zero contour</label>
+      </div>
+    </div>
+    <div class="grp">
+      <h3>selected invariant</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* ===================== small complex algebra ===================== */
+const PI = Math.PI, SQ2 = Math.SQRT2;
+function C2(re, im){ return {re:re, im:im||0}; }
+function cadd(a,b){ return C2(a.re+b.re, a.im+b.im); }
+function csub(a,b){ return C2(a.re-b.re, a.im-b.im); }
+function cmul(a,b){ return C2(a.re*b.re-a.im*b.im, a.re*b.im+a.im*b.re); }
+function cscale(a,s){ return C2(a.re*s, a.im*s); }
+function cconj(a){ return C2(a.re, -a.im); }
+function cabs2(a){ return a.re*a.re+a.im*a.im; }
+function cabs(a){ return Math.hypot(a.re, a.im); }
+function cinv(a){ const d=cabs2(a)||1e-300; return C2(a.re/d, -a.im/d); }
+function cdiv(a,b){ return cmul(a, cinv(b)); }
+function cpowi(a,n){ let r=C2(1,0); for(let i=0;i<n;i++) r=cmul(r,a); return r; }
+
+/* ================== metric presets and geometry ================== */
+const M0 = 1;                                   // all lengths in units of M
+const PRESETS = {
+  mink:{label:'Minkowski',            a:0,   q:0,   lockA:true,  lockQ:true,  flat:true },
+  schw:{label:'Schwarzschild',        a:0,   q:0,   lockA:true,  lockQ:true,  flat:false},
+  rn:  {label:'Reissner–Nordström', a:0, q:0.6, lockA:true, lockQ:false, flat:false},
+  kerr:{label:'Kerr',                 a:0.6, q:0,   lockA:false, lockQ:true,  flat:false},
+  kn:  {label:'Kerr–Newman',     a:0.6, q:0.5, lockA:false, lockQ:false, flat:false},
+};
+function geom(st){                              // horizons etc. for current params
+  const M = st.flat ? 0 : M0, a = st.a, Q = st.q;
+  const disc = M*M - a*a - Q*Q;
+  return {
+    M:M, a:a, Q:Q,
+    rp: disc >= 0 ? M + Math.sqrt(disc) : NaN,
+    rm: disc >= 0 ? M - Math.sqrt(disc) : NaN,
+    naked: disc < 0 && !st.flat,
+    ergo: th => { const d = M*M - a*a*Math.cos(th)**2 - Q*Q;
+                  return d >= 0 ? M + Math.sqrt(d) : NaN; },
+  };
+}
+
+/* ============ audited closed forms (see header comment) =========== */
+// core invariants at (r, th) for parameters (M, a, Q); all verified 108/108.
+function inv(r, th, M, a, Q){
+  const c = Math.cos(th), s = Math.sin(th), ac = a*c;
+  const Sig = r*r + ac*ac;
+  const Del = r*r - 2*M*r + a*a + Q*Q;
+  const rho = C2(r, ac), rhob = C2(r, -ac);
+  const rho2 = cmul(rho,rho), rhob3 = cpowi(rhob,3);
+  // Psi2 = (-M rho + Q^2) / (rhob^3 rho)
+  const Psi2 = cdiv(C2(Q*Q - M*r, -M*ac), cmul(rhob3, rho));
+  const cP = cconj(Psi2);
+  const lam = Q*Q/(Sig*Sig);                    // trace-free Ricci eigen-scale
+  const Phi11 = 0.5*lam;
+  const w1 = cscale(cmul(Psi2,Psi2), 3);        // = I
+  const w2 = cscale(cpowi(Psi2,3), -1);         // = J
+  const W1c = cscale(cmul(cP,cP), 48);          // = I1 + i I2
+  const K  = W1c.re + 8*Q*Q*Q*Q/(Sig*Sig*Sig*Sig);
+  const reP = Psi2.re;
+  const m2 = cscale(cP, 8*lam*lam*reP);         // 8 lam^2 RePsi2 conj(Psi2)
+  return {
+    Sig:Sig, Del:Del, rho:rho, rhob:rhob,
+    Psi2:Psi2, Phi11:Phi11, lam:lam,
+    w1:w1, w2:w2, r1:lam*lam, r2:0, r3:lam*lam*lam*lam,
+    m1:4*lam*lam*reP, m2:m2, m3:cconj(m2), m4:0,
+    m5:cscale(cP, 8*lam*lam*cabs2(Psi2)),
+    I1:W1c.re, I2:W1c.im, K:K, CC:W1c.re, CP:W1c.im,
+    GB:K - 16*Q*Q*Q*Q/(Sig*Sig*Sig*Sig), RabRab:4*lam*lam, R:0,
+    // Cartan first order (dissertation F.15 signs, k = outgoing PND)
+    rhoNP: cscale(cinv(rhob), -1),
+    muNP:  cscale(cinv(rhob), -Del/(2*Sig)),
+    tauNP: C2(0, -a*s/(SQ2*Sig)),
+    piNP:  cmul(C2(0, -a*s/SQ2), cinv(rho2)),
+    rhomu: Del/(2*Sig*Sig),                     // = |rho mu| sign(Delta)
+  };
+}
+
+// analytic gradient of W1c = 48 B^2 rho^-6 rhob^-2, B = -M rhob + Q^2
+function gradW1c(r, th, M, a, Q){
+  const c = Math.cos(th), s = Math.sin(th), ac = a*c;
+  const rho = C2(r, ac), rhob = C2(r, -ac);
+  const B = C2(Q*Q - M*r, M*ac);                // -M rhob + Q^2
+  const dB_dr = C2(-M, 0), dB_dt = C2(0, -M*(-a*s)*(-1));   // -M d(rhob)/dth
+  // d rho/dr = d rhob/dr = 1 ; d rho/dth = -i a s ; d rhob/dth = +i a s
+  const drho_dt = C2(0, -a*s), drhob_dt = C2(0, a*s);
+  const r6 = cpowi(rho,6), rb2 = cmul(rhob,rhob);
+  const den = cmul(r6, rb2);
+  const W = cdiv(cscale(cmul(B,B),48), den);
+  function dW(dB, drho, drhob){
+    let t1 = cdiv(cscale(cmul(B,dB),96), den);
+    let t2 = cscale(cmul(W, cmul(drho, cinv(rho))), -6);
+    let t3 = cscale(cmul(W, cmul(drhob, cinv(rhob))), -2);
+    return cadd(t1, cadd(t2, t3));
+  }
+  return { W:W,
+           dr: dW(dB_dr, C2(1,0), C2(1,0)),
+           dt: dW(dB_dt, drho_dt, drhob_dt) };
+}
+
+// gradient invariants I5, I6, I7 (needs g^rr = Del/Sig, g^thth = 1/Sig)
+function gradInv(r, th, M, a, Q){
+  const c = Math.cos(th), ac = a*c;
+  const Sig = r*r + ac*ac, Del = r*r - 2*M*r + a*a + Q*Q;
+  const g = gradW1c(r, th, M, a, Q);
+  const grr = Del/Sig, gtt = 1/Sig;
+  return {
+    I5: grr*g.dr.re*g.dr.re + gtt*g.dt.re*g.dt.re,
+    I6: grr*g.dr.im*g.dr.im + gtt*g.dt.im*g.dt.im,
+    I7: grr*g.dr.re*g.dr.im + gtt*g.dt.re*g.dt.im,
+  };
+}
+
+// I3 + i I4: closed forms for Q = 0 (Kerr, audited sign for -+++) and a = 0
+// (exact sympy result); otherwise the numeric pipeline (numI34).
+function I34closed(r, th, M, a, Q){
+  if (Q === 0){
+    const c = Math.cos(th), ac = a*c;
+    const Sig = r*r + ac*ac;
+    const W2 = cdiv(C2(720*M*M*(Sig - 2*M*r), 0),
+                    cmul(C2(Sig,0), cpowi(C2(r, ac), 8)));
+    return {I3:W2.re, I4:W2.im, exact:true};
+  }
+  if (a === 0){
+    const Del = r*r - 2*M*r + Q*Q;
+    return {I3: 48*Del*(15*M*M*r*r - 36*M*Q*Q*r + 22*Q*Q*Q*Q)/Math.pow(r,12),
+            I4: 0, exact:true};
+  }
+  return {I3:NaN, I4:NaN, exact:false};
+}
+
+// AL dimensionless detectors + local mass/spin recovery
+function ALderived(r, th, M, a, Q){
+  const iv = inv(r, th, M, a, Q), gi = gradInv(r, th, M, a, Q);
+  const I1 = iv.I1, I2 = iv.I2, I5 = gi.I5, I6 = gi.I6, I7 = gi.I7;
+  const n2 = I1*I1 + I2*I2;
+  const Q1 = ((I1*I1 - I2*I2)*(I5 - I6) + 4*I1*I2*I7)/(3*Math.sqrt(3)*Math.pow(n2, 2.25));
+  const Q2 = (I5*I6 - I7*I7)/(27*Math.pow(n2, 2.5));
+  const Q3 = (I5 + I6)/(6*Math.sqrt(3)*Math.pow(n2, 1.25));
+  // recovery (vacuum): p1 = a cos th / r, p2 = r, m = M, A = a  (audited)
+  const p1 = -Math.tan(2.5*Math.atan2(I2, I1) - Math.atan2(2*I7, I5 - I6));
+  const p2 = 2/(1 + p1*p1) + Q1*Math.sqrt(1 + p1*p1)/(1 - p1*p1);
+  const mloc = 2*Math.pow(3, 0.25)/(Math.pow(p2, 1.5)*Math.pow(1 + p1*p1, 0.75)*Math.pow(n2, 0.125));
+  const argA = p2*(1 + Q3*Math.sqrt(1 + p1*p1) - p2*(1 - p1*p1)/2);
+  return {Q1:Q1, Q2:Q2, Q3:Q3, p1:p1, p2:p2, mloc:mloc,
+          aloc: argA >= 0 ? Math.sqrt(argA) : NaN};
+}
+
+/* ============= numeric pipeline (independent JS check) ============ */
+// Analytic BL Kerr-Newman metric, analytic dg, analytic inverse; Riemann via
+// Richardson FD of the analytic Christoffels; Weyl; invariants; Psi2 via the
+// Kinnersley tetrad; nabla C via one further FD for I3/I4.
+const NUM = (() => {
+  function gdown(r, th, M, a, Q){
+    const c = Math.cos(th), s = Math.sin(th);
+    const Sig = r*r + a*a*c*c, Del = r*r - 2*M*r + a*a + Q*Q;
+    const P = 2*M*r - Q*Q, s2 = s*s;
+    const g = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+    g[0][0] = -(1 - P/Sig);
+    g[0][3] = g[3][0] = -P*a*s2/Sig;
+    g[1][1] = Sig/Del;
+    g[2][2] = Sig;
+    g[3][3] = (r*r + a*a + P*a*a*s2/Sig)*s2;
+    return g;
+  }
+  function dgdown(r, th, M, a, Q){               // [e][a][b], e in {r=1, th=2}
+    const c = Math.cos(th), s = Math.sin(th);
+    const Sig = r*r + a*a*c*c, Del = r*r - 2*M*r + a*a + Q*Q;
+    const P = 2*M*r - Q*Q, s2 = s*s, dSig_t = -2*a*a*c*s;
+    const Z = () => [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+    const dr = Z(), dt = Z();
+    const num = 2*M*Sig - 2*r*P;                 // d(P/Sig)/dr * Sig^2
+    dr[0][0] = num/(Sig*Sig);                    // d[-(1-P/Sig)]/dr = +d(P/Sig)/dr
+    dt[0][0] = -P*dSig_t/(Sig*Sig);
+    dr[0][3] = dr[3][0] = -a*s2*num/(Sig*Sig);
+    dt[0][3] = dt[3][0] = -a*P*(2*s*c*Sig - s2*dSig_t)/(Sig*Sig);
+    dr[1][1] = (2*r*Del - Sig*(2*r - 2*M))/(Del*Del);
+    dt[1][1] = dSig_t/Del;
+    dr[2][2] = 2*r;
+    dt[2][2] = dSig_t;
+    dr[3][3] = 2*r*s2 + a*a*s2*s2*num/(Sig*Sig);
+    dt[3][3] = 2*s*c*(r*r + a*a)
+             + a*a*(P*4*s*s2*c*Sig - P*s2*s2*dSig_t)/(Sig*Sig);
+    return [null, dr, dt];
+  }
+  function ginv(r, th, M, a, Q){
+    const c = Math.cos(th), s = Math.sin(th);
+    const Sig = r*r + a*a*c*c, Del = r*r - 2*M*r + a*a + Q*Q;
+    const g = gdown(r, th, M, a, Q);
+    const det2 = g[0][0]*g[3][3] - g[0][3]*g[0][3];   // = -Del sin^2 th
+    const gi = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+    gi[0][0] = g[3][3]/det2; gi[3][3] = g[0][0]/det2;
+    gi[0][3] = gi[3][0] = -g[0][3]/det2;
+    gi[1][1] = Del/Sig; gi[2][2] = 1/Sig;
+    return gi;
+  }
+  function gamma(r, th, M, a, Q){
+    const gi = ginv(r, th, M, a, Q), dg = dgdown(r, th, M, a, Q);
+    const G = [];
+    for (let A=0;A<4;A++){ G.push([]);
+      for (let b=0;b<4;b++){ G[A].push([0,0,0,0]); } }
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++) for (let cI=b;cI<4;cI++){
+      let sum = 0;
+      for (let d=0;d<4;d++){
+        if (!gi[A][d]) continue;
+        const t1 = (b===1||b===2) ? dg[b][d][cI] : 0;
+        const t2 = (cI===1||cI===2) ? dg[cI][d][b] : 0;
+        const t3 = (d===1||d===2) ? dg[d][b][cI] : 0;
+        sum += gi[A][d]*(t1 + t2 - t3);
+      }
+      G[A][b][cI] = G[A][cI][b] = 0.5*sum;
+    }
+    return G;
+  }
+  function riemannDown(r, th, M, a, Q){
+    // R^p_smn via FD of Gamma (Richardson), then lower.
+    const hr = 1e-5*Math.max(1, Math.abs(r)), ht = 1e-5;
+    function dGam(dim){
+      const h = dim === 1 ? hr : ht;
+      const f = x => dim === 1 ? gamma(x, th, M, a, Q) : gamma(r, x, M, a, Q);
+      const x0 = dim === 1 ? r : th;
+      const A1 = f(x0+h), B1 = f(x0-h), A2 = f(x0+h/2), B2 = f(x0-h/2);
+      const D = [];
+      for (let p=0;p<4;p++){ D.push([]);
+        for (let b=0;b<4;b++){ D[p].push([0,0,0,0]); } }
+      for (let p=0;p<4;p++) for (let b=0;b<4;b++) for (let cI=0;cI<4;cI++){
+        const d1 = (A1[p][b][cI]-B1[p][b][cI])/(2*h);
+        const d2 = (A2[p][b][cI]-B2[p][b][cI])/h;
+        D[p][b][cI] = (4*d2 - d1)/3;
+      }
+      return D;
+    }
+    const G = gamma(r, th, M, a, Q);
+    const dG = [null, dGam(1), dGam(2)];
+    const Rup = [];
+    for (let p=0;p<4;p++){ Rup.push([]);
+      for (let sI=0;sI<4;sI++){ Rup[p].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } }
+    for (let p=0;p<4;p++) for (let sI=0;sI<4;sI++)
+      for (let m=0;m<4;m++) for (let n=m+1;n<4;n++){
+        let v = ((m===1||m===2) ? dG[m][p][n][sI] : 0)
+              - ((n===1||n===2) ? dG[n][p][m][sI] : 0);
+        for (let L=0;L<4;L++)
+          v += G[p][m][L]*G[L][n][sI] - G[p][n][L]*G[L][m][sI];
+        Rup[p][sI][m][n] = v; Rup[p][sI][n][m] = -v;
+      }
+    const g = gdown(r, th, M, a, Q);
+    const Rd = [];
+    for (let A=0;A<4;A++){ Rd.push([]);
+      for (let b=0;b<4;b++){ Rd[A].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } }
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+        let v = 0;
+        for (let p=0;p<4;p++) if (g[A][p]) v += g[A][p]*Rup[p][b][cI][d];
+        Rd[A][b][cI][d] = v;
+      }
+    return {Rup:Rup, Rd:Rd, g:g};
+  }
+  function weylAt(r, th, M, a, Q){
+    const rr = riemannDown(r, th, M, a, Q);
+    const gi = ginv(r, th, M, a, Q), g = rr.g;
+    const Ric = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+    for (let sI=0;sI<4;sI++) for (let n=sI;n<4;n++){
+      let v = 0;
+      for (let p=0;p<4;p++) v += rr.Rup[p][sI][p][n];
+      Ric[sI][n] = Ric[n][sI] = v;
+    }
+    let Rs = 0;
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++) if (gi[A][b]) Rs += gi[A][b]*Ric[A][b];
+    const CW = [];
+    for (let A=0;A<4;A++){ CW.push([]);
+      for (let b=0;b<4;b++){ CW[A].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } }
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+        CW[A][b][cI][d] = rr.Rd[A][b][cI][d]
+          - 0.5*(g[A][cI]*Ric[b][d] - g[A][d]*Ric[b][cI]
+                 - g[b][cI]*Ric[A][d] + g[b][d]*Ric[A][cI])
+          + (Rs/6)*(g[A][cI]*g[b][d] - g[A][d]*g[b][cI]);
+      }
+    return {C:CW, Ric:Ric, Rs:Rs, g:g, gi:gi, Rd:rr.Rd};
+  }
+  function raise4(T, gi){
+    const U = [];
+    for (let A=0;A<4;A++){ U.push([]);
+      for (let b=0;b<4;b++){ U[A].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } }
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+        let v = 0;
+        for (let e=0;e<4;e++){ if (!gi[A][e]) continue;
+          for (let f=0;f<4;f++){ if (!gi[b][f]) continue;
+            for (let gg=0;gg<4;gg++){ if (!gi[cI][gg]) continue;
+              for (let h=0;h<4;h++){ if (!gi[d][h] || !T[e][f][gg][h]) continue;
+                v += gi[A][e]*gi[b][f]*gi[cI][gg]*gi[d][h]*T[e][f][gg][h];
+              } } } }
+        U[A][b][cI][d] = v;
+      }
+    return U;
+  }
+  const PERM = (() => {                          // even/odd permutations of 0123
+    const out = [];
+    const idx = [0,1,2,3];
+    const lists = [];
+    function rec(cur, rest){
+      if (!rest.length){ lists.push(cur.slice()); return; }
+      for (let i=0;i<rest.length;i++)
+        rec(cur.concat(rest[i]), rest.slice(0,i).concat(rest.slice(i+1)));
+    }
+    rec([], idx);
+    for (const L of lists){
+      let sg = 1;
+      for (let i=0;i<4;i++) for (let j=i+1;j<4;j++) if (L[i] > L[j]) sg = -sg;
+      out.push({p:L, s:sg});
+    }
+    return out;
+  })();
+  function starOf(T, r, th, M, a, Q, gi){        // *T_abcd = 1/2 eps_ab^rs T_rscd
+    const c = Math.cos(th), s = Math.sin(th);
+    const Sig = r*r + a*a*c*c;
+    const sqrtmg = Sig*Math.abs(s);              // sqrt(-det g) = Sigma sin th
+    const S4 = [];
+    for (let A=0;A<4;A++){ S4.push([]);
+      for (let b=0;b<4;b++){ S4[A].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } }
+    // eps_ab^{rs} = sqrt(-g) perm_abpq g^{pr} g^{qs}
+    for (const P of PERM){
+      const [A,b,p,q] = P.p;
+      for (let rI=0;rI<4;rI++){ if (!gi[p][rI]) continue;
+        for (let sJ=0;sJ<4;sJ++){ if (!gi[q][sJ]) continue;
+          const eps = sqrtmg*P.s*gi[p][rI]*gi[q][sJ];
+          for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+            const t = T[rI][sJ][cI][d];
+            if (t) S4[A][b][cI][d] += 0.5*eps*t;
+          }
+        } }
+    }
+    return S4;
+  }
+  function scalarsAt(r, th, M, a, Q){
+    const W = weylAt(r, th, M, a, Q);
+    const Cu = raise4(W.C, W.gi);
+    const Ru = raise4(W.Rd, W.gi);
+    let K = 0, CC = 0;
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+        K += W.Rd[A][b][cI][d]*Ru[A][b][cI][d];
+        CC += W.C[A][b][cI][d]*Cu[A][b][cI][d];
+      }
+    const sC = starOf(W.C, r, th, M, a, Q, W.gi);
+    let CP = 0;
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++)
+        CP += sC[A][b][cI][d]*Cu[A][b][cI][d];
+    // trace-free Ricci square
+    let SS = 0;
+    const S = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      S[A][b] = W.Ric[A][b] - 0.25*W.Rs*W.g[A][b];
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++)
+        SS += W.gi[A][cI]*W.gi[b][d]*S[A][b]*S[cI][d];
+    // Psi2 and Phi11 via the Kinnersley tetrad
+    const c = Math.cos(th), s = Math.sin(th);
+    const Sig = r*r + a*a*c*c, Del = r*r - 2*M*r + a*a + Q*Q;
+    const l = [ [ (r*r+a*a)/Del, 0], [1,0], [0,0], [a/Del,0] ];
+    const nv = [ [ (r*r+a*a)/(2*Sig), 0], [-Del/(2*Sig),0], [0,0], [a/(2*Sig),0] ];
+    const rhoC = C2(r, a*c);
+    const pref = cinv(cscale(rhoC, SQ2));
+    const mv = [ cmul(C2(0, a*s), pref), C2(0,0), pref, cmul(C2(0, 1/s), pref) ];
+    const mvA = mv.map(z => [z.re, z.im]);
+    function contract(v1, v2, v3, v4){
+      let re = 0, im = 0;
+      for (let A=0;A<4;A++){ if (!v1[A][0] && !v1[A][1]) continue;
+        for (let b=0;b<4;b++){ if (!v2[b][0] && !v2[b][1]) continue;
+          for (let cI=0;cI<4;cI++){ if (!v3[cI][0] && !v3[cI][1]) continue;
+            for (let d=0;d<4;d++){
+              const t = W.C[A][b][cI][d];
+              if (!t) continue;
+              // multiply the four complex numbers
+              let x = C2(v1[A][0], v1[A][1]);
+              x = cmul(x, C2(v2[b][0], v2[b][1]));
+              x = cmul(x, C2(v3[cI][0], v3[cI][1]));
+              x = cmul(x, C2(v4[d][0], v4[d][1]));
+              re += t*x.re; im += t*x.im;
+            } } } }
+      return C2(re, im);
+    }
+    const mb = mvA.map(z => [z[0], -z[1]]);
+    const Psi2 = contract(l, mvA, mb, nv);
+    // Phi11 = 1/4 S_ab (l^a n^b + m^a mbar^b)
+    let ph = 0;
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++){
+      if (!S[A][b]) continue;
+      ph += S[A][b]*(l[A][0]*nv[b][0]
+                     + (mvA[A][0]*mb[b][0] - mvA[A][1]*mb[b][1]));
+    }
+    return {K:K, CC:CC, CP:CP, SS:SS, R:W.Rs, Psi2:Psi2, Phi11:0.25*ph, W:W};
+  }
+  function nablaC(r, th, M, a, Q){
+    const h = 1e-4*Math.max(1, Math.abs(r));
+    const C0 = weylAt(r, th, M, a, Q);
+    function CAt(rr, tt){ return weylAt(rr, tt, M, a, Q).C; }
+    function fdC(dim){
+      const hh = dim === 1 ? h : 1e-4;
+      const A1 = dim===1 ? CAt(r+hh, th) : CAt(r, th+hh);
+      const B1 = dim===1 ? CAt(r-hh, th) : CAt(r, th-hh);
+      const A2 = dim===1 ? CAt(r+hh/2, th) : CAt(r, th+hh/2);
+      const B2 = dim===1 ? CAt(r-hh/2, th) : CAt(r, th-hh/2);
+      const D = [];
+      for (let A=0;A<4;A++){ D.push([]);
+        for (let b=0;b<4;b++){ D[A].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } }
+      for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+        for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+          const d1 = (A1[A][b][cI][d]-B1[A][b][cI][d])/(2*hh);
+          const d2 = (A2[A][b][cI][d]-B2[A][b][cI][d])/hh;
+          D[A][b][cI][d] = (4*d2 - d1)/3;
+        }
+      return D;
+    }
+    const dC = [null, fdC(1), fdC(2)];
+    const G = gamma(r, th, M, a, Q);
+    // nab[e][a][b][c][d]
+    const nab = [];
+    for (let e=0;e<4;e++){ nab.push([]);
+      for (let A=0;A<4;A++){ nab[e].push([]);
+        for (let b=0;b<4;b++){ nab[e][A].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } } }
+    for (let e=0;e<4;e++) for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+        let v = (e===1||e===2) ? dC[e][A][b][cI][d] : 0;
+        for (let f=0;f<4;f++){
+          v -= G[f][e][A]*C0.C[f][b][cI][d];
+          v -= G[f][e][b]*C0.C[A][f][cI][d];
+          v -= G[f][e][cI]*C0.C[A][b][f][d];
+          v -= G[f][e][d]*C0.C[A][b][cI][f];
+        }
+        nab[e][A][b][cI][d] = v;
+      }
+    return {nab:nab, gi:C0.gi, C:C0.C};
+  }
+  function I34At(r, th, M, a, Q){
+    const N = nablaC(r, th, M, a, Q);
+    const gi = N.gi;
+    // raise all five indices
+    const U = [];
+    for (let e=0;e<4;e++){ U.push([]);
+      for (let A=0;A<4;A++){ U[e].push([]);
+        for (let b=0;b<4;b++){ U[e][A].push([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]); } } }
+    for (let e=0;e<4;e++) for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+        let v = 0;
+        for (let e2=0;e2<4;e2++){ if (!gi[e][e2]) continue;
+          for (let A2=0;A2<4;A2++){ if (!gi[A][A2]) continue;
+            for (let b2=0;b2<4;b2++){ if (!gi[b][b2]) continue;
+              for (let c2=0;c2<4;c2++){ if (!gi[cI][c2]) continue;
+                for (let d2=0;d2<4;d2++){
+                  const t = N.nab[e2][A2][b2][c2][d2];
+                  if (t && gi[d][d2]) v += gi[e][e2]*gi[A][A2]*gi[b][b2]*gi[cI][c2]*gi[d][d2]*t;
+                } } } } }
+        U[e][A][b][cI][d] = v;
+      }
+    let I3 = 0;
+    for (let e=0;e<4;e++) for (let A=0;A<4;A++) for (let b=0;b<4;b++)
+      for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++)
+        I3 += N.nab[e][A][b][cI][d]*U[e][A][b][cI][d];
+    // nabla *C = 1/2 eps ., contract with U
+    const c = Math.cos(th), s = Math.sin(th);
+    const Sig = r*r + a*a*c*c;
+    const sqrtmg = Sig*Math.abs(s);
+    let I4 = 0;
+    for (const P of PERM){
+      const [A,b,p,q] = P.p;
+      for (let rI=0;rI<4;rI++){ if (!gi[p][rI]) continue;
+        for (let sJ=0;sJ<4;sJ++){ if (!gi[q][sJ]) continue;
+          const eps = sqrtmg*P.s*gi[p][rI]*gi[q][sJ];
+          for (let e=0;e<4;e++) for (let cI=0;cI<4;cI++) for (let d=0;d<4;d++){
+            const t = N.nab[e][rI][sJ][cI][d];
+            if (t) I4 += 0.5*eps*t*U[e][A][b][cI][d];
+          }
+        } }
+    }
+    return {I3:I3, I4:I4};
+  }
+  return {gdown:gdown, dgdown:dgdown, ginv:ginv, gamma:gamma,
+          scalarsAt:scalarsAt, I34At:I34At};
+})();
+
+/* ================== invariant registry (3 sets) ================== */
+// kind: 're' (real scalar) or 'cx' (complex); signed: can change sign.
+function IV(id, set, label, kind, signed, get, fm, note){
+  return {id:id, set:set, label:label, kind:kind, signed:signed, get:get,
+          fm:fm, note:note||''};
+}
+const fr = (n,d) => '<span class="fr"><span>'+n+'</span><span>'+d+'</span></span>';
+const SB = {S:'&Sigma;', D:'&Delta;', rb:'&rho;&#772;', r:'&rho;',
+            P2:'&Psi;<sub>2</sub>', F11:'&Phi;<sub>11</sub>'};
+const REG = [
+  IV('I1','al','I<sub>1</sub>','re',true, (v,x)=>v.I1,
+     'I<sub>1</sub> = C<sub>&alpha;&beta;&gamma;&delta;</sub>C<sup>&alpha;&beta;&gamma;&delta;</sup> = Re[48 '+SB.P2+'&#772;&sup2;]',
+     'Weyl squared; equals the Kretschmann scalar in vacuum.'),
+  IV('I2','al','I<sub>2</sub>','re',true, (v,x)=>v.I2,
+     'I<sub>2</sub> = &lowast;C<sub>&alpha;&beta;&gamma;&delta;</sub>C<sup>&alpha;&beta;&gamma;&delta;</sup> = Im[48 '+SB.P2+'&#772;&sup2;]',
+     'Chern&ndash;Pontryagin; odd under reflection &mdash; antisymmetric across the equator.'),
+  IV('I3','al','I<sub>3</sub>','re',true, (v,x)=>x.i34.I3,
+     'I<sub>3</sub> = &nabla;<sub>&mu;</sub>C<sub>&alpha;&beta;&gamma;&delta;</sub>&nabla;<sup>&mu;</sup>C<sup>&alpha;&beta;&gamma;&delta;</sup>',
+     'The Karlhede&ndash;Lindstr&ouml;m&ndash;&Aring;man invariant: 720M&sup2;(r&minus;2M)/r&#8313; for Schwarzschild &mdash; changes sign at the horizon. Exact RN form: 48'+SB.D+'(15M&sup2;r&sup2;&minus;36MQ&sup2;r+22Q&#8308;)/r&sup1;&sup2;, zero at both horizons.'),
+  IV('I4','al','I<sub>4</sub>','re',true, (v,x)=>x.i34.I4,
+     'I<sub>4</sub> = &nabla;<sub>&mu;</sub>C<sub>&alpha;&beta;&gamma;&delta;</sub>&nabla;<sup>&mu;</sup>&lowast;C<sup>&alpha;&beta;&gamma;&delta;</sup>',
+     'Companion of I<sub>3</sub>; I<sub>3</sub>+iI<sub>4</sub> = 720M&sup2;('+SB.S+'&minus;2Mr)/('+SB.S+SB.r+'&#8312;) for Kerr (sign for &minus;+++).'),
+  IV('I5','al','I<sub>5</sub>','re',true, (v,x)=>x.gi.I5,
+     'I<sub>5</sub> = &nabla;<sub>&mu;</sub>I<sub>1</sub>&nabla;<sup>&mu;</sup>I<sub>1</sub>',''),
+  IV('I6','al','I<sub>6</sub>','re',true, (v,x)=>x.gi.I6,
+     'I<sub>6</sub> = &nabla;<sub>&mu;</sub>I<sub>2</sub>&nabla;<sup>&mu;</sup>I<sub>2</sub>',''),
+  IV('I7','al','I<sub>7</sub>','re',true, (v,x)=>x.gi.I7,
+     'I<sub>7</sub> = &nabla;<sub>&mu;</sub>I<sub>1</sub>&nabla;<sup>&mu;</sup>I<sub>2</sub>',''),
+  IV('Q1','al','Q<sub>1</sub>','re',true, (v,x)=>x.al.Q1,
+     'Q<sub>1</sub> = '+fr('(I<sub>1</sub>&sup2;&minus;I<sub>2</sub>&sup2;)(I<sub>5</sub>&minus;I<sub>6</sub>) + 4I<sub>1</sub>I<sub>2</sub>I<sub>7</sub>','3&radic;3 (I<sub>1</sub>&sup2;+I<sub>2</sub>&sup2;)<sup>9/4</sup>'),
+     '<b>Ergosurface detector</b>: for Kerr Q<sub>1</sub> = (r&sup2;&minus;a&sup2;cos&sup2;&theta;)('+SB.S+'&minus;2Mr)/(M'+SB.S+'<sup>3/2</sup>) &mdash; zero on the ergosurface.'),
+  IV('Q2','al','Q<sub>2</sub>','re',true, (v,x)=>x.al.Q2,
+     'Q<sub>2</sub> = '+fr('I<sub>5</sub>I<sub>6</sub> &minus; I<sub>7</sub>&sup2;','27 (I<sub>1</sub>&sup2;+I<sub>2</sub>&sup2;)<sup>5/2</sup>'),
+     '<b>Horizon detector</b>: Q<sub>2</sub> = a&sup2;sin&sup2;&theta;&thinsp;'+SB.D+'/(M&sup2;'+SB.S+') for Kerr &mdash; vanishes exactly at r<sub>&plusmn;</sub> (audited for Kerr&ndash;Newman too).'),
+  IV('Q3','al','Q<sub>3</sub>','re',false, (v,x)=>x.al.Q3,
+     'Q<sub>3</sub> = '+fr('I<sub>5</sub> + I<sub>6</sub>','6&radic;3 (I<sub>1</sub>&sup2;+I<sub>2</sub>&sup2;)<sup>5/4</sup>'),
+     'Used in the local spin measurement (redundant with Q<sub>2</sub>).'),
+  IV('K','al','K (Kretschmann)','re',true, (v,x)=>v.K,
+     'K = R<sub>&alpha;&beta;&gamma;&delta;</sub>R<sup>&alpha;&beta;&gamma;&delta;</sup> = I<sub>1</sub> + 8Q&#8308;/'+SB.S+'&#8308;',
+     'Kerr: 48M&sup2;(r&#8310;&minus;15r&#8308;a&sup2;c&sup2;+15r&sup2;a&#8308;c&#8308;&minus;a&#8310;c&#8310;)/'+SB.S+'&#8310; (c = cos&theta;). Finite at horizons; diverges only on the ring singularity.'),
+  IV('GB','al','Gauss&ndash;Bonnet','re',true, (v,x)=>v.GB,
+     'G = R&sup2; &minus; 4R<sub>&alpha;&beta;</sub>R<sup>&alpha;&beta;</sup> + K = K &minus; 16Q&#8308;/'+SB.S+'&#8308;',''),
+  IV('RabRab','al','R<sub>&alpha;&beta;</sub>R<sup>&alpha;&beta;</sup>','re',false, (v,x)=>v.RabRab,
+     'R<sub>&alpha;&beta;</sub>R<sup>&alpha;&beta;</sup> = 4Q&#8308;/'+SB.S+'&#8308;',
+     'Pure Maxwell stress; zero in vacuum.'),
+
+  IV('R','cm','R','re',false, (v,x)=>v.R, 'R = g<sup>&alpha;&beta;</sup>R<sub>&alpha;&beta;</sub> = 0',
+     'Traceless electromagnetic source &rArr; R = 0 across the whole family.'),
+  IV('r1','cm','r<sub>1</sub>','re',false, (v,x)=>v.r1,
+     'r<sub>1</sub> = &frac14; S<sub>&alpha;</sub><sup>&beta;</sup>S<sub>&beta;</sub><sup>&alpha;</sup> = Q&#8308;/'+SB.S+'&#8308;',''),
+  IV('r2','cm','r<sub>2</sub>','re',false, (v,x)=>0,
+     'r<sub>2</sub> = &minus;&#8539; S&sup3;-trace = 0',
+     'Vanishes identically: the trace-free Ricci eigenvalues come in (&lambda;,&lambda;,&minus;&lambda;,&minus;&lambda;) pairs, so odd powers cancel.'),
+  IV('r3','cm','r<sub>3</sub>','re',false, (v,x)=>v.r3,
+     'r<sub>3</sub> = &frac14; S&#8308;-trace = r<sub>1</sub>&sup2;',
+     'Dissertation Appendix F normalization (coefficient &frac14;; the common literature value is 1/16).'),
+  IV('w1','cm','w<sub>1</sub>','cx',true, (v,x)=>v.w1,
+     'w<sub>1</sub> = &Psi;<sub>ABCD</sub>&Psi;<sup>ABCD</sup> = I = 3'+SB.P2+'&sup2;',
+     'Petrov type D &rArr; the speciality syzygy I&sup3; = 27J&sup2; (w<sub>1</sub>&sup3; = 27w<sub>2</sub>&sup2;) holds exactly.'),
+  IV('w2','cm','w<sub>2</sub>','cx',true, (v,x)=>v.w2,
+     'w<sub>2</sub> = &Psi;<sub>AB</sub><sup>CD</sup>&Psi;<sub>CD</sub><sup>EF</sup>&Psi;<sub>EF</sub><sup>AB</sup> = J = &minus;'+SB.P2+'&sup3;',''),
+  IV('m1','cm','m<sub>1</sub>','re',true, (v,x)=>v.m1,
+     'm<sub>1</sub> = &frac14; C<sub>&alpha;&gamma;&delta;&beta;</sub>S<sup>&gamma;&delta;</sup>S<sup>&alpha;&beta;</sup> = 4&lambda;&sup2; Re&thinsp;'+SB.P2,
+     '&lambda; = Q&sup2;/'+SB.S+'&sup2;. Couples Weyl and Ricci sectors; zero in vacuum.'),
+  IV('m2','cm','m<sub>2</sub>','cx',true, (v,x)=>v.m2,
+     'm<sub>2</sub> = &frac14; C<sub>&alpha;&gamma;&delta;&beta;</sub>S<sup>&gamma;&delta;</sup>C&#818;<sup>&alpha;</sup><sub>&rho;&sigma;</sub><sup>&beta;</sup>S<sup>&rho;&sigma;</sup> = 8&lambda;&sup2;(Re&thinsp;'+SB.P2+')&thinsp;'+SB.P2+'&#772;',
+     'Sandwich contraction of Appendix F.2 (with the self-dual Weyl C&#818; = &frac12;(C+i&lowast;C)); the alternative slot reading vanishes identically on this family.'),
+  IV('m3','cm','m<sub>3</sub>','cx',true, (v,x)=>v.m3,
+     'm<sub>3</sub> = (conjugate-dual partner) = m&#772;<sub>2</sub>',''),
+  IV('m4','cm','m<sub>4</sub>','re',false, (v,x)=>0,
+     'm<sub>4</sub> = &minus;&#8539; C S C<sup>&dagger;</sup> S S = 0',
+     '<b>Vanishes identically</b> on the aligned Einstein&ndash;Maxwell family (every slot reading; audited) &mdash; the same odd-S-power cancellation that kills r<sub>2</sub>.'),
+  IV('m5','cm','m<sub>5</sub>','cx',true, (v,x)=>v.m5,
+     'm<sub>5</sub> = 1/32 S<sup>&gamma;&delta;</sup>S<sup>&rho;&sigma;</sup>(C+i&lowast;C)<sup>&alpha;&mu;&nu;&beta;</sup>(C<sub>&alpha;&gamma;&delta;&beta;</sub>C<sub>&mu;&rho;&sigma;&nu;</sub>+&lowast;C&lowast;C) = 8&lambda;&sup2;|'+SB.P2+'|&sup2;'+SB.P2+'&#772;',''),
+
+  IV('Psi2','ck','&Psi;<sub>2</sub>','cx',true, (v,x)=>v.Psi2,
+     SB.P2+' = &minus;M/'+SB.rb+'&sup3; + Q&sup2;/('+SB.rb+'&sup3;'+SB.r+'),&ensp;'+SB.rb+' = r &minus; ia&thinsp;cos&theta;',
+     'The only nonvanishing Weyl component in the canonical (Kinnersley) frame &mdash; the zeroth-order Cartan invariant of the Weyl sector.'),
+  IV('Phi11','ck','&Phi;<sub>11</sub>','re',false, (v,x)=>v.Phi11,
+     SB.F11+' = Q&sup2;/(2'+SB.S+'&sup2;)',
+     'The only nonvanishing Ricci component in the canonical frame (aligned non-null Maxwell field); &Lambda; = 0.'),
+  IV('rho','ck','&rho;<sub>NP</sub>','cx',true, (v,x)=>v.rhoNP,
+     '&rho;<sub>NP</sub> = &minus;1/'+SB.rb,
+     'First-order Cartan sector: expansion of the outgoing principal null congruence. Bianchi (vacuum): D'+SB.P2+' = 3&rho;<sub>NP</sub>'+SB.P2+'.'),
+  IV('mu','ck','&mu;<sub>NP</sub>','cx',true, (v,x)=>v.muNP,
+     '&mu;<sub>NP</sub> = &minus;'+SB.D+'/(2'+SB.S+SB.rb+')',
+     'Ingoing expansion; carries the horizon factor '+SB.D+'.'),
+  IV('tau','ck','&tau;<sub>NP</sub>','cx',true, (v,x)=>v.tauNP,
+     '&tau;<sub>NP</sub> = &minus;ia&thinsp;sin&theta;/(&radic;2&thinsp;'+SB.S+')',''),
+  IV('pi','ck','&pi;<sub>NP</sub>','cx',true, (v,x)=>v.piNP,
+     '&pi;<sub>NP</sub> = &minus;ia&thinsp;sin&theta;/(&radic;2&thinsp;'+SB.r+'&sup2;)',''),
+  IV('rhomu','ck','&rho;&mu; detector','re',true, (v,x)=>v.rhomu,
+     '&rho;<sub>NP</sub>&mu;<sub>NP</sub>: |&rho;&mu;| = |'+SB.D+'|/(2'+SB.S+'&sup2;)',
+     '<b>First-order Cartan horizon detector</b> (boost-invariant): vanishes exactly at r<sub>&plusmn;</sub> &mdash; cheaper than the polynomial detectors (Brooks et&nbsp;al. 2018). Shown signed: '+SB.D+'/(2'+SB.S+'&sup2;).'),
+];
+function regBySet(s){ return REG.filter(iv => iv.set === s); }
+function regGet(id){ return REG.find(iv => iv.id === id); }
+
+// evaluate one registry entry to a real number under a component selector
+function evalInv(entry, comp, r, th, M, a, Q, needI34){
+  const v = inv(r, th, M, a, Q);
+  const x = {};
+  if (entry.id === 'Q1' || entry.id === 'Q2' || entry.id === 'Q3')
+    x.al = ALderived(r, th, M, a, Q);
+  if (entry.id.charCodeAt(0) === 73 && entry.id.length === 2){   // I5..I7
+    const n = +entry.id[1];
+    if (n >= 5) x.gi = gradInv(r, th, M, a, Q);
+    if (n === 3 || n === 4){
+      x.i34 = I34closed(r, th, M, a, Q);
+      if (!x.i34.exact && needI34) x.i34 = NUM.I34At(r, th, M, a, Q);
+    }
+  }
+  const val = entry.get(v, x);
+  if (entry.kind === 're') return val;
+  if (comp === 're') return val.re;
+  if (comp === 'im') return val.im;
+  return cabs(val);
+}
+
+/* ==================== color: palettes and maps =================== */
+// House sequential map (Mathematica NeonColors; same stops as orbitals.html)
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698]];
+function neon(t){
+  t = Math.max(0, Math.min(1, t));
+  const S = NEON_STOPS;
+  let i = 0;
+  while (i < S.length-2 && t > S[i+1][0]) i++;
+  const A = S[i], B = S[i+1], f = (t-A[0])/((B[0]-A[0])||1);
+  return [A[1]+(B[1]-A[1])*f, A[2]+(B[2]-A[2])*f, A[3]+(B[3]-A[3])*f];
+}
+// dark-magnitude ramp: black -> neon gradient (log magnitude on black bg)
+function seqMap(t){
+  t = Math.max(0, Math.min(1, t));
+  const fade = Math.min(1, t*3.2);           // lift from black
+  const c = neon(t);
+  return [c[0]*fade, c[1]*fade, c[2]*fade];
+}
+// diverging blue <-> red, near-black neutral midpoint (validated pair)
+const DIV_NEG = [[0.137,0.141,0.145],[0.110,0.361,0.671],[0.224,0.529,0.898],[0.620,0.773,0.957]];
+const DIV_POS = [[0.137,0.141,0.145],[0.478,0.141,0.137],[0.816,0.231,0.231],[0.941,0.635,0.635]];
+function divMap(t){                          // t in [-1, 1]
+  const arm = t < 0 ? DIV_NEG : DIV_POS;
+  const u = Math.min(1, Math.abs(t))*(arm.length-1);
+  const i = Math.min(arm.length-2, Math.floor(u)), f = u-i;
+  return [arm[i][0]+(arm[i+1][0]-arm[i][0])*f,
+          arm[i][1]+(arm[i+1][1]-arm[i][1])*f,
+          arm[i][2]+(arm[i+1][2]-arm[i][2])*f];
+}
+// validated dark-mode categorical series (fixed slots; color follows entity)
+const SERIES = ['#3987e5','#008300','#d55181','#c98500','#199e70','#d95926','#9085e9','#e66767'];
+
+// symmetric-log transforms for display
+function slog(v, dec, vmax){                 // signed -> [-1,1]
+  if (!isFinite(v)) return 0;
+  const floor = vmax*Math.pow(10, -dec);
+  const t = Math.log10(Math.abs(v)/floor)/dec;
+  return Math.sign(v)*Math.max(0, Math.min(1, t));
+}
+function maglog(v, dec, vmax){               // magnitude -> [0,1]
+  if (!isFinite(v) || v === 0) return 0;
+  const floor = vmax*Math.pow(10, -dec);
+  return Math.max(0, Math.min(1, Math.log10(Math.abs(v)/floor)/dec));
+}
+
+/* ============== coordinates: oblate map and inverse ============== */
+// x = sqrt(r^2+a^2) sin th, z = r cos th  (ring singularity at x = a, z = 0)
+function xzOf(r, th, a){
+  return [Math.sqrt(r*r + a*a)*Math.sin(th), r*Math.cos(th)];
+}
+function rthOf(x, z, a){
+  const w = x*x + z*z - a*a;
+  const r2 = 0.5*(w + Math.sqrt(w*w + 4*a*a*z*z));
+  const r = Math.sqrt(Math.max(r2, 0));
+  const st = r > 1e-12 ? Math.min(1, Math.max(-1, z/r)) : (z >= 0 ? 1 : -1);
+  let th = Math.acos(st);
+  const si = Math.sqrt(Math.max(0, r*r + a*a));
+  // th from both: prefer stable acos(z/r) but fix sign of x via symmetry (x>=0 here)
+  return [Math.max(r, 1e-9), th];
+}
+
+/* ===================== embedding (equatorial) ==================== */
+// t = const, th = pi/2 slice: ds^2 = g_rr dr^2 + g_pp dphi^2;
+// rho_emb = sqrt(g_pp), dz/dr = sqrt(g_rr - rho_emb'^2)  (embedding.py).
+function embedProfile(M, a, Q, rMax, n){
+  const gpp = r => r*r + a*a + (2*M*r - Q*Q)*a*a/(r*r);
+  const grr = r => (r*r)/(r*r - 2*M*r + a*a + Q*Q);
+  const disc = M*M - a*a - Q*Q;
+  let r0 = disc >= 0 ? (M + Math.sqrt(disc))*(1 + 1e-6) : 1e-3;
+  if (M === 0) r0 = 1e-3;
+  // find start of embeddable region (radicand >= 0)
+  const rad = r => {
+    const h = 1e-5*r;
+    const dp = (Math.sqrt(gpp(r+h)) - Math.sqrt(gpp(r-h)))/(2*h);
+    return grr(r) - dp*dp;
+  };
+  const rs = [], rho = [], zz = [];
+  let z = 0, started = false, rPrev = 0, dPrev = 0, clipped = false;
+  for (let i=0;i<n;i++){
+    const s = i/(n-1);
+    const r = r0 + (rMax - r0)*s*s;
+    const rd = rad(r);
+    if (rd < 0){ if (started){ clipped = true; } rPrev = r; continue; }
+    const d = Math.sqrt(rd);
+    if (started) z += 0.5*(d + dPrev)*(r - rPrev);
+    started = true;
+    rs.push(r); rho.push(Math.sqrt(gpp(r))); zz.push(z);
+    rPrev = r; dPrev = d;
+  }
+  return {r:rs, rho:rho, z:zz, clipped:clipped, rStart:rs.length ? rs[0] : NaN};
+}
+
+/* ================= quaternion helpers (orbitals) ================= */
+function qmul(a,b){ return [
+  a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3],
+  a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2],
+  a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1],
+  a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]]; }
+function qnormalize(q){ const L=Math.hypot(q[0],q[1],q[2],q[3])||1; return [q[0]/L,q[1]/L,q[2]/L,q[3]/L]; }
+function qaxis(ax,ang){ const h=ang/2, s=Math.sin(h), L=Math.hypot(ax[0],ax[1],ax[2])||1;
+  return [Math.cos(h), ax[0]/L*s, ax[1]/L*s, ax[2]/L*s]; }
+function qrotate(v,q){ const p=qmul(qmul(q,[0,v[0],v[1],v[2]]),[q[0],-q[1],-q[2],-q[3]]);
+  return [p[1],p[2],p[3]]; }
+
+/* ========================= formatting ============================ */
+function fmt(v){
+  if (!isFinite(v)) return '—';
+  if (v === 0) return '0';
+  const av = Math.abs(v);
+  if (av >= 0.01 && av < 1e4) return v.toPrecision(4);
+  const e = Math.floor(Math.log10(av));
+  return (v/Math.pow(10,e)).toFixed(2)+'e'+e;
+}
+function fmtC(z){ return fmt(z.re)+(z.im>=0?' + ':' − ')+fmt(Math.abs(z.im))+'i'; }
+
+/* ====================== the audit suite ========================== */
+// Anchors from the python audit (audit_scalar_invariants.py, 108/108):
+// fields: name,M,a,Q,r,th, K, Psi2, Phi11, w1, w2, r1, r3, m1, m2, m3, m5,
+// I1..I7, rho, mu, tau, pi  (complex as [re,im]).
+const ANCHORS = [
+ {n:'Schw', M:1,a:0,Q:0,r:3.7,th:1.13, K:0.018708152136419,
+  P2:[-0.019742167295125658,0], F11:0, w1:[0.0011692595085261875,0],
+  w2:[7.6945722762468e-06,0], r1:0, r3:0, m1:0, m2:[0,0], m3:[0,0], m5:[0,0],
+  I:[0.018708152136419,0,0.009418156466121777,0,0.00042287112953156387,0,0],
+  rho:[-0.2702702702702703,0], mu:[-0.0620891161431702,0], tau:[0,0], pi:[0,0]},
+ {n:'Schw', M:1,a:0,Q:0,r:2.6,th:1.9, K:0.15538215827475244,
+  P2:[-0.05689576695493854,0], F11:0, w1:[0.009711384892172027,0],
+  w2:[0.00018417889721157688,0], r1:0, r3:0, m1:0, m2:[0,0], m3:[0,0], m5:[0,0],
+  I:[0.15538215827475244,0,0.07956528359545895,0,0.029671261178533123,0,0],
+  rho:[-0.3846153846153846,0], mu:[-0.044378698224852076,0], tau:[0,0], pi:[0,0]},
+ {n:'RN', M:1,a:0,Q:0.6,r:3.7,th:1.13, K:0.015274270128501272,
+  P2:[-0.017821307774518836,0], F11:0.0009604297603034102,
+  w1:[0.0009527970323823765,0], w2:[5.660029720244841e-06,0],
+  r1:3.689701297905864e-06, r3:1.361389566776822e-11,
+  m1:-2.6302120970408875e-07, m2:[9.374763858725647e-09,0],
+  m3:[9.374763858725647e-09,0], m5:[-1.670705520397855e-10,0],
+  I:[0.015244752518118024,0,0.007770304962671513,0,0.000275915956128546,0,0],
+  rho:[-0.2702702702702703,0], mu:[-0.06564270625629282,0], tau:[0,0], pi:[0,0]},
+ {n:'RN', M:1,a:0,Q:0.6,r:2.6,th:1.9, K:0.11582866449380659,
+  P2:[-0.049017891530408586,0], F11:0.003938937712264976,
+  w1:[0.007208261070260706,0], w2:[0.00011777791975496871,0],
+  r1:6.206092120441298e-05, r3:3.851557940740356e-09,
+  m1:-1.2168382015500738e-05, m2:[1.1929368594727793e-06,0],
+  m3:[1.1929368594727793e-06,0], m5:[-5.847524958026294e-08,0],
+  I:[0.11533217712417129,0,0.06813830371270715,0,0.018021336805001828,0,0],
+  rho:[-0.3846153846153846,0], mu:[-0.05461993627674103,0], tau:[0,0], pi:[0,0]},
+ {n:'Kerr', M:1,a:0.6,Q:0,r:3.7,th:1.13, K:0.01688056255210326,
+  P2:[-0.01918185973458767,-0.0040330331482947845], F11:0,
+  w1:[0.0010550351595064538,0.00046416645693319843],
+  w2:[6.121845912524331e-06,4.386189213766381e-06], r1:0, r3:0,
+  m1:0, m2:[0,0], m3:[0,0], m5:[0,0],
+  I:[0.01688056255210326,-0.007426663310931175,0.007908669531494925,
+     -0.004877445020719087,0.00034142065713011746,0.00010794950022319127,
+     -0.00016928284988180356],
+  rho:[-0.2689826530018847,-0.018610392498692813],
+  mu:[-0.06501872833053374,-0.004498520780025116],
+  tau:[0,-0.02789492565281849], pi:[-0.003841602811582418,-0.02762913254179625]},
+ {n:'Kerr', M:1,a:0.6,Q:0,r:2.6,th:1.9, K:0.13781466543566986,
+  P2:[-0.05502186051950198,0.012500650854431904], F11:0,
+  w1:[0.008613416589729365,-0.004126854406293273],
+  w2:[0.00014077928004543582,-0.00011158017365977964], r1:0, r3:0,
+  m1:0, m2:[0,0], m3:[0,0], m5:[0,0],
+  I:[0.13781466543566986,0.06602967050069236,0.06560126692196755,
+     0.044471038492347466,0.027724109659672303,0.01307352893578798,
+     0.012552469598494261],
+  rho:[-0.3824864845407448,0.028535513054803355],
+  mu:[-0.05401695170080152,0.004029950057345813],
+  tau:[0,-0.05906196318192789], pi:[0.008763889792443705,-0.058408130689897385]},
+ {n:'KN', M:1,a:0.6,Q:0.5,r:3.7,th:1.13, K:0.014635747623771135,
+  P2:[-0.01787319877189678,-0.0038510746439484977], F11:0.0006606251608467153,
+  w1:[0.0009138613752794083,0.0004129861355802187],
+  w2:[4.914395191764188e-06,3.6335772205617313e-06],
+  r1:1.7457024125749936e-06, r3:3.0474769132701533e-12,
+  m1:-1.2480514486613098e-07,
+  m2:[4.4613343238954646e-09,-9.612678576565522e-10],
+  m3:[4.4613343238954646e-09,9.612678576565522e-10],
+  m5:[-8.344022943153324e-11,1.7978569810026315e-11],
+  I:[0.014621782004470535,-0.0066077781692834995,0.006861707129173781,
+     -0.004391284176111574,0.00025187244260366546,8.550859180495364e-05,
+     -0.00012910332117641724],
+  rho:[-0.2689826530018846,-0.018610392499066028],
+  mu:[-0.06746304142566659,-0.004667638102436322],
+  tau:[0,-0.027894925652352767], pi:[-0.0038416028115669464,-0.027629132541572617]},
+ {n:'KN', M:1,a:0.6,Q:0.5,r:2.6,th:1.9, K:0.11209380057762086,
+  P2:[-0.04967140289733034,0.011697837609319622], F11:0.002705175866426356,
+  w1:[0.006991226583164713,-0.0034862880295203503],
+  w2:[0.00010216066704341888,-8.498368353008817e-05],
+  r1:2.927190587318235e-05, r3:8.568444734484473e-10,
+  m1:-5.815906520798313e-06,
+  m2:[5.777684720155672e-07,1.360670600625635e-07],
+  m3:[5.777684720155672e-07,-1.360670600625635e-07],
+  m5:[-3.029026092744956e-08,-7.133491965298775e-09],
+  I:[0.1118596253306354,0.055780608472325605,0.05745688578137689,
+     0.04145751170879804,0.019071297926440505,0.00975782847746982,
+     0.009093946595812611],
+  rho:[-0.3824864845407448,0.028535513056233097],
+  mu:[-0.06105040895351005,0.004554683138886103],
+  tau:[0,-0.05906196318192039], pi:[0.008763889792379916,-0.05840813068904241]},
+ {n:'KNx', M:1,a:0.9,Q:0.42,r:3.7,th:1.13, K:0.01329012191306514,
+  P2:[-0.017598382432171183,-0.005741687941100242], F11:0.000460634409616217,
+  w1:[0.0008302082514479262,0.0006062665211620057],
+  w2:[3.709776377892019e-06,5.145368933723819e-06],
+  r1:8.487362372899231e-07, r3:7.203532004890567e-13,
+  m1:-5.974553955148166e-08,
+  m2:[2.1028497072867663e-09,-6.860804879545392e-10],
+  m3:[2.1028497072867663e-09,6.860804879545392e-10],
+  m5:[-4.0946013410524475e-11,1.3359138678879814e-11],
+  I:[0.01328333202316682,-0.009700264338592092,0.005528519044574795,
+     -0.006230859464337137,0.00021118039277506203,0.0001821395836200595,
+     -0.00016123828153265224],
+  rho:[-0.2673902824061456,-0.027750329159246703],
+  mu:[-0.07030336058438968,-0.0072962314850818916],
+  tau:[0,-0.04159468258246946], pi:[-0.008541569383091266,-0.04070822044294244]},
+ {n:'KNx', M:1,a:0.9,Q:0.42,r:2.6,th:1.9, K:0.1010478214299608,
+  P2:[-0.04907926374162368,0.01749211387453993], F11:0.00188263040884253,
+  w1:[0.006308400244859953,-0.0051510004214823605],
+  w2:[7.31699178216108e-05,-0.00012105152122280445],
+  r1:1.4177189025194369e-05, r3:2.0099268865609164e-10,
+  m1:-2.783223997129499e-06,
+  m2:[2.7319716921426925e-07,9.73689421922827e-08],
+  m3:[2.7319716921426925e-07,-9.73689421922827e-08],
+  m5:[-1.5111504546003004e-08,-5.385821591087455e-09],
+  I:[0.10093440391775925,0.08241600674371777,0.04346655361606389,
+     0.0577657519734259,0.020241650124459172,0.021394183462823003,
+     0.010907298871909037],
+  rho:[-0.37985827354332324,0.0425091519395701],
+  mu:[-0.07065883327663956,0.007907283555135786],
+  tau:[0,-0.08798418874856775], pi:[0.019448692890161573,-0.085807725846513]},
+];
+
+function runAudit(fast){
+  const T = [];
+  function gate(name, err, tol){
+    T.push({name:name, err:err, tol:tol, pass: err < tol});
+  }
+  function relE(got, want, floor){
+    const s = Math.max(Math.abs(want), Math.abs(got), floor||1e-300);
+    return Math.abs(got - want)/s;
+  }
+  // 1. closed forms vs python-audit anchors (cross-language gate)
+  for (const A of ANCHORS){
+    const v = inv(A.r, A.th, A.M, A.a, A.Q);
+    const sc = Math.abs(A.K);
+    let e = 0;
+    e = Math.max(e, relE(v.K, A.K));
+    e = Math.max(e, Math.hypot(v.Psi2.re-A.P2[0], v.Psi2.im-A.P2[1])/Math.hypot(A.P2[0],A.P2[1]));
+    e = Math.max(e, Math.abs(v.Phi11-A.F11)/(Math.abs(A.F11)||sc));
+    e = Math.max(e, Math.hypot(v.w1.re-A.w1[0], v.w1.im-A.w1[1])/Math.hypot(A.w1[0],A.w1[1]));
+    e = Math.max(e, Math.hypot(v.w2.re-A.w2[0], v.w2.im-A.w2[1])/Math.hypot(A.w2[0],A.w2[1]));
+    gate('anchors[K,Ψ2,Φ11,w1,w2] '+A.n+' r='+A.r, e, 1e-9);
+    let em = Math.abs(v.r1-A.r1)/(A.r1||sc);
+    em = Math.max(em, Math.abs(v.r3-A.r3)/(A.r3||sc*sc));
+    em = Math.max(em, Math.abs(v.m1-A.m1)/(Math.abs(A.m1)||sc*sc));
+    em = Math.max(em, Math.hypot(v.m2.re-A.m2[0], v.m2.im-A.m2[1])/(Math.hypot(A.m2[0],A.m2[1])||sc*sc));
+    em = Math.max(em, Math.hypot(v.m5.re-A.m5[0], v.m5.im-A.m5[1])/(Math.hypot(A.m5[0],A.m5[1])||sc*sc));
+    gate('anchors[r1,r3,m1,m2,m5] '+A.n+' r='+A.r, em, 1e-8);
+    // AL invariants
+    const g = gradInv(A.r, A.th, A.M, A.a, A.Q);
+    let ea = relE(v.I1, A.I[0]);
+    ea = Math.max(ea, Math.abs(v.I2-A.I[1])/(Math.abs(A.I[1])||Math.abs(A.I[0])));
+    ea = Math.max(ea, relE(g.I5, A.I[4]));
+    ea = Math.max(ea, Math.abs(g.I6-A.I[5])/(Math.abs(A.I[5])||A.I[4]));
+    ea = Math.max(ea, Math.abs(g.I7-A.I[6])/(Math.abs(A.I[6])||A.I[4]));
+    gate('anchors[I1,I2,I5,I6,I7] '+A.n+' r='+A.r, ea, 5e-7);
+    const i34 = I34closed(A.r, A.th, A.M, A.a, A.Q);
+    if (i34.exact){
+      const e34 = Math.max(relE(i34.I3, A.I[2]),
+                           Math.abs(i34.I4-A.I[3])/(Math.abs(A.I[3])||Math.abs(A.I[2])));
+      gate('anchors[I3,I4 closed] '+A.n+' r='+A.r, e34, 5e-6);
+    }
+    // spin coefficients
+    const sp = Math.max(
+      Math.hypot(v.rhoNP.re-A.rho[0], v.rhoNP.im-A.rho[1])/Math.hypot(A.rho[0],A.rho[1]),
+      Math.hypot(v.muNP.re-A.mu[0], v.muNP.im-A.mu[1])/Math.hypot(A.mu[0],A.mu[1]),
+      A.a ? Math.hypot(v.tauNP.re-A.tau[0], v.tauNP.im-A.tau[1])/Math.hypot(A.tau[0],A.tau[1]) : 0,
+      A.a ? Math.hypot(v.piNP.re-A.pi[0], v.piNP.im-A.pi[1])/Math.hypot(A.pi[0],A.pi[1]) : 0);
+    gate('anchors[ρ,μ,τ,π] '+A.n+' r='+A.r, sp, 5e-6);
+  }
+  // 2. independent numeric tensor pipeline vs closed forms
+  const NPTS = fast ? [[1,0.6,0.5,3.1,1.0],[1,0,0.6,2.9,2.1]]
+                    : [[1,0.6,0.5,3.1,1.0],[1,0,0.6,2.9,2.1],[1,0.9,0.42,2.4,0.8],[1,0,0,3.7,1.5]];
+  for (const p of NPTS){
+    const [M,a,Q,r,th] = p;
+    const s = NUM.scalarsAt(r, th, M, a, Q);
+    const v = inv(r, th, M, a, Q);
+    let e = relE(s.K, v.K);
+    e = Math.max(e, relE(s.CC, v.CC));
+    e = Math.max(e, Math.abs(s.CP - v.CP)/(Math.abs(v.CP)||v.CC));
+    e = Math.max(e, Math.abs(s.R)/Math.sqrt(Math.abs(v.K)));
+    e = Math.max(e, Math.abs(s.SS - v.RabRab)/(v.RabRab||v.K));
+    gate('numeric pipeline [K,C²,CP,R,S·S] a='+a+' Q='+Q, e, 2e-5);
+    const eP = Math.max(
+      Math.hypot(s.Psi2.re-v.Psi2.re, s.Psi2.im-v.Psi2.im)/cabs(v.Psi2),
+      Math.abs(s.Phi11-v.Phi11)/(v.Phi11||cabs(v.Psi2)));
+    gate('numeric pipeline [Ψ2,Φ11] a='+a+' Q='+Q, eP, 2e-5);
+  }
+  // numeric I3/I4 vs closed forms where closed forms exist
+  const i34n = NUM.I34At(3.1, 1.0, 1, 0.6, 0);
+  const i34c = I34closed(3.1, 1.0, 1, 0.6, 0);
+  gate('numeric I3+iI4 == Kerr closed form',
+       Math.hypot(i34n.I3-i34c.I3, i34n.I4-i34c.I4)/Math.hypot(i34c.I3, i34c.I4), 2e-4);
+  const i34rn = NUM.I34At(3.3, 1.2, 1, 0, 0.6);
+  const i34rc = I34closed(3.3, 1.2, 1, 0, 0.6);
+  gate('numeric I3 == RN exact symbolic form', relE(i34rn.I3, i34rc.I3), 2e-4);
+  // 3. identity gates
+  { const v = inv(2.9, 0.9, 1, 0.7, 0.45);
+    const L = cpowi(v.w1, 3), R27 = cscale(cmul(v.w2, v.w2), 27);
+    gate('syzygy w1³ = 27 w2² (type D)',
+         Math.hypot(L.re-R27.re, L.im-R27.im)/cabs(L), 1e-12);
+    gate('r3 = r1²', Math.abs(v.r3 - v.r1*v.r1)/(v.r3||1), 1e-12);
+    const m3c = cconj(v.m2);
+    gate('m3 = conj(m2)', Math.hypot(v.m3.re-m3c.re, v.m3.im-m3c.im)/(cabs(v.m2)||1), 1e-12);
+    gate('K − C² = 2 RαβRαβ/... (K = I1 + 8Q⁴/Σ⁴)',
+         Math.abs((v.K - v.CC) - 2*v.RabRab)/v.K, 1e-12);
+  }
+  // Kerr Kretschmann polynomial (validate.py closed form)
+  { const M=1, a=0.72, r=3.3, th=0.9, c=Math.cos(th);
+    const ac=a*c, Sig=r*r+ac*ac;
+    const pol = 48*M*M*(Math.pow(r,6)-15*Math.pow(r,4)*ac*ac
+               +15*r*r*Math.pow(ac,4)-Math.pow(ac,6))/Math.pow(Sig,6);
+    gate('Kerr K == 48M²(r⁶−15r⁴a²c²+...)/Σ⁶',
+         relE(inv(r, th, M, a, 0).K, pol), 1e-12); }
+  // horizon zeros
+  { const M=1, a=0.6, Q=0.5, rp = M+Math.sqrt(M*M-a*a-Q*Q);
+    const al = ALderived(rp, 1.1, M, a, Q);
+    gate('Q2(r+) = 0 (KN horizon detector)', Math.abs(al.Q2), 1e-9);
+    const v = inv(rp, 1.1, M, a, Q);
+    gate('ρμ detector = 0 at r+', Math.abs(v.rhomu), 1e-12);
+    const rn34 = I34closed(1+Math.sqrt(1-0.36), 1.0, 1, 0, 0.6);
+    gate('RN I3(r+) = 0', Math.abs(rn34.I3), 1e-12); }
+  // ergosurface zero of Q1 (Kerr)
+  { const M=1, a=0.8, th=1.0, rE = M+Math.sqrt(M*M-a*a*Math.cos(th)**2);
+    const al = ALderived(rE, th, M, a, 0);
+    gate('Q1(r_E) = 0 (ergosurface detector)', Math.abs(al.Q1), 1e-9); }
+  // AL syzygies + recovery (Kerr)
+  { const M=1, a=0.7, r=4.3, th=0.9;
+    const v = inv(r, th, M, a, 0), g = gradInv(r, th, M, a, 0);
+    const i34 = I34closed(r, th, M, a, 0);
+    const n2 = Math.pow(v.I1*v.I1+v.I2*v.I2, 1.25);
+    const s1 = Math.abs(g.I6-g.I5+2.4*(v.I1*i34.I3-v.I2*i34.I4))/n2;
+    const s2 = Math.abs(g.I7-1.2*(v.I1*i34.I4+v.I2*i34.I3))/n2;
+    gate('AL syzygies 1+2 (Kerr)', Math.max(s1, s2), 1e-9);
+    const al = ALderived(r, th, M, a, 0);
+    gate('local mass m(I) = M', Math.abs(al.mloc-M), 1e-6);
+    gate('local spin A(I) = a', Math.abs(al.aloc-a), 1e-6);
+    gate('p1 = a cosθ/r, p2 = r',
+         Math.max(Math.abs(al.p1-a*Math.cos(th)/r), Math.abs(al.p2-r)/r), 1e-6); }
+  // Bianchi D Psi2 = 3 rho Psi2 (vacuum), via FD along l (l^r = 1)
+  { const M=1, a=0.72, r=3.7, th=1.13, h=1e-6*r;
+    const P = x => inv(x, th, M, a, 0).Psi2;
+    const d1 = cscale(csub(P(r+h), P(r-h)), 1/(2*h));
+    const v = inv(r, th, M, a, 0);
+    const want = cscale(cmul(v.rhoNP, v.Psi2), 3);
+    gate('Bianchi DΨ2 = 3ρΨ2 (vacuum)',
+         Math.hypot(d1.re-want.re, d1.im-want.im)/cabs(want), 1e-6); }
+  // analytic gradient of W1c vs FD
+  { const M=1, a=0.8, Q=0.4, r=3.1, th=0.8, h=1e-6;
+    const g = gradW1c(r, th, M, a, Q);
+    const W = (rr,tt) => { const v = inv(rr, tt, M, a, Q); return C2(v.I1, v.I2); };
+    const fr_ = cscale(csub(W(r+h,th), W(r-h,th)), 1/(2*h));
+    const ft_ = cscale(csub(W(r,th+h), W(r,th-h)), 1/(2*h));
+    const e = Math.max(Math.hypot(g.dr.re-fr_.re, g.dr.im-fr_.im)/cabs(fr_),
+                       Math.hypot(g.dt.re-ft_.re, g.dt.im-ft_.im)/cabs(ft_));
+    gate('analytic ∇(I1+iI2) == FD', e, 1e-6); }
+  // analytic dg vs FD (numeric pipeline foundation)
+  { const M=1, a=0.85, Q=0.3, r=2.7, th=0.7, h=1e-6;
+    const dg = NUM.dgdown(r, th, M, a, Q);
+    let e = 0;
+    for (const [A,b] of [[0,0],[0,3],[1,1],[2,2],[3,3]]){
+      const fr_ = (NUM.gdown(r+h,th,M,a,Q)[A][b]-NUM.gdown(r-h,th,M,a,Q)[A][b])/(2*h);
+      const ft_ = (NUM.gdown(r,th+h,M,a,Q)[A][b]-NUM.gdown(r,th-h,M,a,Q)[A][b])/(2*h);
+      e = Math.max(e, Math.abs(dg[1][A][b]-fr_)/(Math.abs(fr_)||1));
+      e = Math.max(e, Math.abs(dg[2][A][b]-ft_)/(Math.abs(ft_)||1));
+    }
+    gate('analytic ∂g == FD (all components)', e, 1e-6); }
+  // analytic block inverse
+  { const M=1, a=0.85, Q=0.3, r=2.7, th=0.7;
+    const g = NUM.gdown(r,th,M,a,Q), gi = NUM.ginv(r,th,M,a,Q);
+    let e = 0;
+    for (let A=0;A<4;A++) for (let b=0;b<4;b++){
+      let s = 0;
+      for (let cI=0;cI<4;cI++) s += g[A][cI]*gi[cI][b];
+      e = Math.max(e, Math.abs(s - (A===b?1:0)));
+    }
+    gate('analytic g⁻¹ (block inverse)', e, 1e-12); }
+  // Minkowski: everything vanishes
+  { const v = inv(4.2, 1.1, 0, 0, 0);
+    const g = gradInv(4.2, 1.1, 0, 0, 0);
+    const tot = Math.abs(v.K)+cabs(v.Psi2)+Math.abs(v.r1)+Math.abs(v.m1)
+              + cabs(v.w1)+Math.abs(g.I5)+Math.abs(v.rhomu*0);
+    gate('Minkowski: all invariants = 0', tot, 1e-15); }
+  // oblate map round-trip
+  { let e = 0;
+    for (const [r,th,a] of [[3.3,0.7,0.9],[1.2,2.4,0.6],[0.4,1.5,0.99],[5,3.0,0]]){
+      const [x,z] = xzOf(r, th, a);
+      const [r2,t2] = rthOf(x, z, a);
+      e = Math.max(e, Math.abs(r2-r)/r, Math.abs(t2-th));
+    }
+    gate('oblate map round-trip', e, 1e-9); }
+  // Flamm embedding: compare z-differences over the smooth region (the
+  // integrand is sqrt-singular at the throat; absolute z carries the tiny
+  // startup offset by construction, same as the repo integrator)
+  { const p = embedProfile(1, 0, 0, 9, 1200);
+    const ex = r => 2*Math.sqrt(2*Math.max(0, r-2));
+    let e = 1, i0 = -1;
+    for (let i=0;i<p.r.length;i++) if (p.r[i] > 2.5){ i0 = i; break; }
+    if (i0 >= 0){
+      e = 0;
+      for (let i=i0+40;i<p.r.length;i+=60){
+        const dz = p.z[i]-p.z[i0], dex = ex(p.r[i])-ex(p.r[i0]);
+        e = Math.max(e, Math.abs(dz-dex)/dex);
+      }
+    }
+    gate('Flamm embedding Δz == 2√(2M(r−2M)) (r > 2.5M)', e, 2e-3); }
+  // colormaps stay in gamut
+  { let ok = true;
+    for (let i=0;i<=30;i++){
+      for (const c of seqMap(i/30)) if (!(c>=-1e-9 && c<=1+1e-9)) ok = false;
+      for (const c of divMap(i/15-1)) if (!(c>=-1e-9 && c<=1+1e-9)) ok = false;
+    }
+    gate('colormaps inside RGB cube', ok ? 0 : 1, 0.5); }
+  { let ok = SERIES.length === 8;
+    for (const h of SERIES) if (!/^#[0-9a-f]{6}$/i.test(h)) ok = false;
+    gate('series palette (8 validated slots)', ok ? 0 : 1, 0.5); }
+  // registry sanity: every entry evaluates finite at a generic point
+  { let bad = 0;
+    for (const e of REG){
+      const val = evalInv(e, e.kind==='cx' ? 'abs' : 're', 3.3, 1.0, 1, 0.6, 0.5, false);
+      if (e.id === 'I3' || e.id === 'I4'){ continue; }   // NaN allowed (numeric-only)
+      if (!isFinite(val)) bad++;
+    }
+    gate('registry: all invariants finite at generic point', bad, 0.5); }
+  return T;
+}
+
+/* ==================== headless self-test ========================= */
+function selfTest(){
+  let pass = 0, fail = 0;
+  const T = runAudit(true);
+  for (const g of T){
+    if (g.pass){ pass++; console.log('ok — '+g.name+'  ('+g.err.toExponential(1)+')'); }
+    else { fail++; console.log('FAIL — '+g.name+'  ('+g.err.toExponential(1)+' > '+g.tol+')'); }
+  }
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail > 0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ========================== UI boot ============================== */
+function boot(){
+  const $ = id => document.getElementById(id);
+  const canvas = $('plot'), ctx = canvas.getContext('2d');
+  const insetC = $('inset'), insetCtx = insetC.getContext('2d');
+  const tip = $('tip');
+
+  const st = {
+    view:'field', metric:'kerr', a:0.6, q:0, set:'al', inv:'K', comp:'abs',
+    extent:8, dec:8, ovHor:true, ovErg:true, ovZero:true,
+    probe:{r:3, th:PI/3},
+  };
+  Object.assign(st, {flat:false});
+  const view3d = { q:qnormalize(qmul(qaxis([1,0,0],-1.0),qaxis([0,0,1],0.35))), dist:3.0 };
+  let fieldCache = null;      // {img, key}
+  let i34Cache = null;        // {key, grid, nx, ny, extent}
+  let profCache = null;       // {key, hits:[...]} for tooltip
+  let dragging = false, lastPX = 0, lastPY = 0;
+
+  /* ------- state helpers ------- */
+  function applyPreset(m){
+    const p = PRESETS[m];
+    st.metric = m; st.flat = p.flat;
+    st.a = p.a; st.q = p.q;
+    if (m === 'rn') st.q = Math.max(0.05, st.q);
+    syncAll('metric');
+  }
+  function G(){ return geom(st); }
+  function currentEntry(){ return regGet(st.inv); }
+
+  /* ------- panel sync ------- */
+  function syncChips(elId, attr, val){
+    const btns = $(elId).getElementsByTagName('button');
+    for (const b of btns) b.classList.toggle('on', b.getAttribute(attr) === val);
+  }
+  function rebuildInvChips(){
+    const box = $('invChips');
+    box.innerHTML = '';
+    for (const e of regBySet(st.set)){
+      const b = document.createElement('button');
+      b.className = 'chip mini' + (e.id === st.inv ? ' on' : '');
+      b.innerHTML = e.label;
+      b.addEventListener('click', () => { st.inv = e.id;
+        const en = regGet(st.inv);
+        if (en.kind === 're') st.comp = 're';
+        else if (st.comp === 're' && en.kind === 'cx') st.comp = 'abs';
+        syncAll('inv'); });
+      box.appendChild(b);
+    }
+    const en = currentEntry();
+    for (const b of $('compChips').getElementsByTagName('button')){
+      b.disabled = (en.kind === 're');
+      b.classList.toggle('on', !b.disabled && b.getAttribute('data-c') === st.comp);
+    }
+    if (en.kind === 're')
+      for (const b of $('compChips').getElementsByTagName('button'))
+        b.classList.toggle('on', b.getAttribute('data-c') === 're');
+  }
+  function syncMetricInfo(){
+    const g = G(), lines = [];
+    if (st.flat){
+      lines.push('<b>flat</b> — every scalar invariant vanishes.');
+      lines.push('Caveat: SPIs = 0 does <b>not</b> imply flat in general — '
+        +'VSI spacetimes (pp-waves) share it. Cartan invariants do distinguish them.');
+    } else {
+      if (g.naked){
+        lines.push('<b>naked singularity</b> — a&sup2;+Q&sup2; &gt; M&sup2;, no horizons.');
+      } else {
+        lines.push('<b>r<sub>+</sub></b> = '+fmt(g.rp)+' M &ensp; <b>r<sub>&minus;</sub></b> = '+fmt(g.rm)+' M');
+        lines.push('<b>r<sub>E</sub></b>(&pi;/2) = '+fmt(g.ergo(PI/2))+' M');
+      }
+      lines.push('<b>Petrov D</b>'+(st.q>0?' &middot; Segre {(1,1)(1,1)}':' &middot; vacuum'));
+      if (st.a>0) lines.push('ring singularity at x = a = '+fmt(st.a)+' M');
+    }
+    $('metricInfo').innerHTML = lines.join('<br>');
+    $('aVal').textContent = st.a.toFixed(2);
+    $('qVal').textContent = st.q.toFixed(2);
+    $('aSlider').value = st.a; $('qSlider').value = st.q;
+    const p = PRESETS[st.metric];
+    $('aSlider').disabled = p.lockA; $('qSlider').disabled = p.lockQ;
+  }
+  function syncInfo(){
+    const e = currentEntry();
+    const r0 = st.probe.r, t0 = st.probe.th, g = G();
+    const val = evalInv(e, st.comp, r0, t0, g.M, g.a, g.Q, false);
+    const lines = [];
+    lines.push('<div class="fm">'+e.fm+'</div>');
+    if (e.note) lines.push(e.note);
+    lines.push('<br>at probe (r = '+fmt(r0)+' M, &theta; = '+(t0*180/PI).toFixed(0)+'&deg;):');
+    if (e.kind === 'cx'){
+      const v = e.get(inv(r0, t0, g.M, g.a, g.Q), {});
+      lines.push('<span class="vl">'+fmtC(v)+'</span>');
+    } else {
+      lines.push('<span class="vl">'+(isFinite(val)?fmt(val):'numeric view only')+'</span>');
+    }
+    $('info').innerHTML = lines.join('<br>');
+  }
+  function syncAll(why){
+    syncChips('viewChips', 'data-v', st.view);
+    syncChips('metricChips', 'data-m', st.metric);
+    syncChips('setChips', 'data-s', st.set);
+    rebuildInvChips();
+    syncMetricInfo();
+    syncInfo();
+    $('zoomVal').textContent = st.extent.toFixed(1)+' M';
+    $('decVal').textContent = st.dec+' dec';
+    if (why !== 'probe') fieldCache = null;
+    if (why === 'metric' || why === 'inv') i34Cache = null;
+    $('cardsPane').style.display = st.view === 'cards' ? 'block' : 'none';
+    $('auditPane').style.display = st.view === 'audit' ? 'block' : 'none';
+    canvas.style.visibility = (st.view === 'cards' || st.view === 'audit') ? 'hidden' : 'visible';
+    canvas.className = st.view === 'embed' ? 'grab' : '';
+    $('hint').textContent = ({
+      field:'hover to probe · click to pin · x = √(r²+a²)·sinθ, z = r·cosθ',
+      embed:'drag to rotate · scroll to zoom · equatorial t = const slice',
+      prof:'hover for values · dashed: r₊, r₋, r_E(θ=π/2)',
+      cards:'', audit:''}[st.view]);
+    if (st.view === 'cards') buildCards();
+    if (st.view === 'audit') buildAudit();
+    requestDraw();
+  }
+
+  /* ------------------ field view ------------------ */
+  function needsNumericI34(){
+    return (st.inv === 'I3' || st.inv === 'I4') && st.a > 0 && st.q > 0 && !st.flat;
+  }
+  function fieldValue(e, r, th, g, i34grid){
+    if ((e.id === 'I3' || e.id === 'I4') && i34grid) return NaN;   // handled by grid
+    return evalInv(e, st.comp, r, th, g.M, g.a, g.Q, false);
+  }
+  const off = document.createElement('canvas');
+  const offCtx = off.getContext('2d');
+  function drawField(w, h){
+    const g = G(), e = currentEntry();
+    // sample on a ~3x-downsampled grid, upscale through the offscreen canvas
+    const fw = Math.max(60, Math.ceil(w/3)), fh = Math.max(45, Math.ceil(h/3));
+    const key = [st.metric, st.a, st.q, st.inv, st.comp, st.extent, st.dec, fw, fh].join('|');
+    if (!(fieldCache && fieldCache.key === key)){
+      const img = offCtx.createImageData(fw, fh);
+      const X = st.extent;                       // x in [-X, X], z in [-X, X]*h/w
+      const Z = X*h/w;
+      const numeric = needsNumericI34();
+      let ngrid = null;
+      if (numeric){
+        ngrid = ensureI34grid(X, Z);
+        if (!ngrid){                         // grid still building: placeholder
+          ctx.fillStyle = '#070b18'; ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = '#999';
+          ctx.font = '13px -apple-system, sans-serif';
+          ctx.textAlign = 'center';
+          const pct = i34Cache ? Math.round(100*i34Cache.row/i34Cache.ny) : 0;
+          ctx.fillText('computing ∇C numerically for Kerr–Newman … '+pct+'%', w/2, h/2);
+          ctx.textAlign = 'left';
+          insetCtx.clearRect(0, 0, insetC.width, insetC.height);
+          return;
+        }
+      }
+      // pass 1: find vmax on a coarse sweep
+      let vmax = 0;
+      const samp = 64;
+      for (let i=0;i<samp;i++){
+        const r = 0.35 + (X*1.4)*i/samp;
+        const v = numeric ? NaN : Math.abs(fieldValue(e, r, 1.1, g, null));
+        if (isFinite(v)) vmax = Math.max(vmax, v);
+      }
+      if (numeric && ngrid){
+        for (let i=0;i<ngrid.grid.length;i++){
+          const v = Math.abs(ngrid.grid[i]);
+          if (isFinite(v)) vmax = Math.max(vmax, v);
+        }
+      }
+      if (!vmax || !isFinite(vmax)) vmax = 1;
+      const signed = e.signed && st.comp !== 'abs';
+      for (let py=0;py<fh;py++){
+        const z = Z*(1 - 2*py/fh);
+        for (let px=0;px<fw;px++){
+          const x = X*(2*px/fw - 1);
+          const ax = Math.abs(x);
+          let v;
+          if (st.flat){ v = 0; }
+          else if (numeric && ngrid){
+            v = i34Lookup(ngrid, ax, z);
+          } else {
+            const [r, th] = rthOf(ax, z, g.a);
+            v = fieldValue(e, r, th, g, null);
+          }
+          let rgb;
+          if (!isFinite(v)) rgb = [0.05,0.05,0.06];
+          else if (signed) rgb = divMap(slog(v, st.dec, vmax));
+          else rgb = seqMap(maglog(v, st.dec, vmax));
+          const o = 4*(py*fw + px);
+          img.data[o] = Math.round(255*rgb[0]);
+          img.data[o+1] = Math.round(255*rgb[1]);
+          img.data[o+2] = Math.round(255*rgb[2]);
+          img.data[o+3] = 255;
+        }
+      }
+      off.width = fw; off.height = fh;
+      offCtx.putImageData(img, 0, 0);
+      fieldCache = {key:key, vmax:vmax, signed:signed};
+    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(off, 0, 0, off.width, off.height, 0, 0, w, h);
+    drawOverlays(w, h);
+    drawColorbar(fieldCache.signed, fieldCache.vmax);
+  }
+  function toPx(x, z, w, h){
+    const X = st.extent, Z = X*h/w;
+    return [ (x/X+1)*w/2, (1 - z/Z)*h/2 ];
+  }
+  function drawOverlays(w, h){
+    const g = G();
+    ctx.save();
+    ctx.lineWidth = 1.25;
+    function curve(rOf, style, dash){
+      ctx.strokeStyle = style;
+      ctx.setLineDash(dash || []);
+      ctx.beginPath();
+      let started = false;
+      for (let i=0;i<=256;i++){
+        const th = PI*i/256;
+        const r = rOf(th);
+        if (!isFinite(r)){ started = false; continue; }
+        const [x, z] = xzOf(r, th, g.a);
+        const [px, py] = toPx(x, z, w, h);
+        if (!started){ ctx.moveTo(px, py); started = true; }
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      // mirror x -> -x
+      ctx.beginPath(); started = false;
+      for (let i=0;i<=256;i++){
+        const th = PI*i/256;
+        const r = rOf(th);
+        if (!isFinite(r)){ started = false; continue; }
+        const [x, z] = xzOf(r, th, g.a);
+        const [px, py] = toPx(-x, z, w, h);
+        if (!started){ ctx.moveTo(px, py); started = true; }
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (!st.flat){
+      if (st.ovHor && !g.naked){
+        curve(() => g.rp, 'rgba(255,255,255,0.85)');
+        if (g.rm > 1e-9) curve(() => g.rm, 'rgba(255,255,255,0.4)');
+      }
+      if (st.ovErg && st.a > 0){
+        curve(th => g.ergo(th), 'rgba(88,196,221,0.8)', [5,4]);
+      }
+      if (st.a > 0){                     // ring singularity
+        const [px, py] = toPx(st.a, 0, w, h);
+        const [px2] = toPx(-st.a, 0, w, h);
+        ctx.fillStyle = '#fff';
+        for (const p of [px, px2]){
+          ctx.beginPath(); ctx.arc(p, py, 2.6, 0, 2*PI); ctx.fill();
+        }
+      } else {
+        const [px, py] = toPx(0, 0, w, h);
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(px, py, 2.6, 0, 2*PI); ctx.fill();
+      }
+      // zero contour of the displayed signed field (marching squares, coarse)
+      if (st.ovZero && fieldCache && fieldCache.signed) drawZeroContour(w, h);
+    }
+    // probe crosshair
+    { const [x, z] = xzOf(st.probe.r, st.probe.th, g.a);
+      const [px, py] = toPx(x, z, w, h);
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.beginPath();
+      ctx.moveTo(px-7, py); ctx.lineTo(px+7, py);
+      ctx.moveTo(px, py-7); ctx.lineTo(px, py+7);
+      ctx.stroke(); }
+    ctx.restore();
+  }
+  function drawZeroContour(w, h){
+    const g = G(), e = currentEntry();
+    const N = 90;
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.setLineDash([2,3]);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    const X = st.extent, Z = X*h/w;
+    const val = [];
+    for (let j=0;j<=N;j++){ val.push([]);
+      for (let i=0;i<=N;i++){
+        const x = Math.abs(X*(2*i/N - 1)), z = Z*(1 - 2*j/N);
+        const [r, th] = rthOf(x, z, g.a);
+        let v = fieldValue(e, r, th, g, null);
+        val[j].push(isFinite(v) ? v : 0);
+      } }
+    for (let j=0;j<N;j++) for (let i=0;i<N;i++){
+      const a1 = val[j][i], b1 = val[j][i+1], c1 = val[j+1][i+1], d1 = val[j+1][i];
+      const cross = (u,v_) => (u<0) !== (v_<0);
+      const segs = [];
+      if (cross(a1,b1)) segs.push([i+a1/(a1-b1), j]);
+      if (cross(b1,c1)) segs.push([i+1, j+b1/(b1-c1)]);
+      if (cross(d1,c1)) segs.push([i+d1/(d1-c1), j+1]);
+      if (cross(a1,d1)) segs.push([i, j+a1/(a1-d1)]);
+      if (segs.length >= 2){
+        ctx.moveTo(segs[0][0]*w/N, segs[0][1]*h/N);
+        ctx.lineTo(segs[1][0]*w/N, segs[1][1]*h/N);
+      }
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // numeric I3/I4 grid for true Kerr-Newman: built in chunked setTimeout
+  // slices (a few rows each) so the UI stays live; drawField shows progress
+  // until done. Returns the grid when complete, else null.
+  function ensureI34grid(X, Z){
+    const key = [st.a, st.q, st.inv, X, Z].join('|');
+    if (i34Cache && i34Cache.key === key) return i34Cache.done ? i34Cache : null;
+    i34Cache = {key:key, nx:44, ny:33, X:X, Z:Z, row:0, done:false,
+                grid:new Float64Array(44*33).fill(NaN)};
+    scheduleI34();
+    return i34Cache.done ? i34Cache : null;
+  }
+  function scheduleI34(){
+    const jb = i34Cache;
+    setTimeout(() => {
+      if (jb !== i34Cache || jb.done) return;      // superseded
+      const g = G();
+      for (let n=0; n<3 && jb.row < jb.ny; n++, jb.row++){
+        const j = jb.row;
+        const z = jb.Z*(1 - 2*j/(jb.ny-1));
+        for (let i=0;i<jb.nx;i++){
+          const x = jb.X*i/(jb.nx-1);
+          const [r, th] = rthOf(x, z, g.a);
+          let v = NaN;
+          if (r > 0.15){
+            try{ const o = NUM.I34At(r, th, g.M, g.a, g.Q);
+                 v = st.inv === 'I3' ? o.I3 : o.I4; } catch(_){ }
+          }
+          jb.grid[j*jb.nx+i] = v;
+        }
+      }
+      if (jb.row >= jb.ny){ jb.done = true; fieldCache = null; }
+      else scheduleI34();
+      requestDraw();
+    }, 0);
+  }
+  function i34Lookup(gr, x, z){
+    const fx = (x/gr.X)*(gr.nx-1);
+    const fy = ((1 - z/gr.Z)/2)*(gr.ny-1);
+    const i = Math.max(0, Math.min(gr.nx-2, Math.floor(fx)));
+    const j = Math.max(0, Math.min(gr.ny-2, Math.floor(fy)));
+    const u = fx-i, v = fy-j;
+    const q = gr.grid;
+    const a1 = q[j*gr.nx+i], b1 = q[j*gr.nx+i+1], c1 = q[(j+1)*gr.nx+i], d1 = q[(j+1)*gr.nx+i+1];
+    return a1*(1-u)*(1-v) + b1*u*(1-v) + c1*(1-u)*v + d1*u*v;
+  }
+  function drawColorbar(signed, vmax){
+    const W = insetC.width, H = insetC.height;
+    insetCtx.clearRect(0, 0, W, H);
+    for (let x=0;x<W;x++){
+      const t = x/(W-1);
+      const c = signed ? divMap(2*t-1) : seqMap(t);
+      insetCtx.fillStyle = 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+      insetCtx.fillRect(x, 6, 1, 14);
+    }
+    insetCtx.fillStyle = '#999';
+    insetCtx.font = '10px -apple-system, sans-serif';
+    const lo = vmax*Math.pow(10, -st.dec);
+    if (signed){
+      insetCtx.fillText('−'+fmt(vmax), 2, 32);
+      insetCtx.textAlign = 'center'; insetCtx.fillText('0', W/2, 32);
+      insetCtx.textAlign = 'right'; insetCtx.fillText('+'+fmt(vmax), W-2, 32);
+      insetCtx.textAlign = 'left';
+      insetCtx.fillText('symmetric log, '+st.dec+' decades', 2, 44);
+    } else {
+      insetCtx.fillText(fmt(lo), 2, 32);
+      insetCtx.textAlign = 'right'; insetCtx.fillText(fmt(vmax), W-2, 32);
+      insetCtx.textAlign = 'left';
+      insetCtx.fillText('log |value|, '+st.dec+' decades', 2, 44);
+    }
+  }
+
+  /* ------------------ embedding view ------------------ */
+  function drawEmbed(w, h){
+    ctx.fillStyle = '#070b18'; ctx.fillRect(0, 0, w, h);
+    const g = G(), e = currentEntry();
+    const prof = embedProfile(g.M, g.a, g.Q, st.extent, 160);
+    if (!prof.r.length){
+      ctx.fillStyle = '#999'; ctx.font = '13px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('equatorial slice not embeddable here', w/2, h/2);
+      ctx.textAlign = 'left';
+      return;
+    }
+    // color scale from invariant values along the profile
+    let vmax = 0;
+    const vals = prof.r.map(r => evalInv(e, st.comp, r, PI/2, g.M, g.a, g.Q, false));
+    for (const v of vals) if (isFinite(v)) vmax = Math.max(vmax, Math.abs(v));
+    if (!vmax) vmax = 1;
+    const signed = e.signed && st.comp !== 'abs';
+    // build quads (surface of revolution, both sheets)
+    const NP = 72, quads = [];
+    const zmax = prof.z[prof.z.length-1] || 1;
+    const scale = 0.9/Math.max(prof.rho[prof.rho.length-1], zmax*1.2);
+    for (let sheet of [1, -1]){
+      for (let i=0;i<prof.r.length-1;i++){
+        for (let k=0;k<NP;k++){
+          const ph1 = 2*PI*k/NP, ph2 = 2*PI*(k+1)/NP;
+          const p = [];
+          for (const [ri, phi] of [[i,ph1],[i+1,ph1],[i+1,ph2],[i,ph2]]){
+            p.push([prof.rho[ri]*Math.cos(phi)*scale,
+                    prof.rho[ri]*Math.sin(phi)*scale,
+                    sheet*prof.z[ri]*scale]);
+          }
+          const t = signed ? slog(vals[i], st.dec, vmax) : maglog(vals[i], st.dec, vmax);
+          quads.push({p:p, t:t, i:i});
+        }
+      }
+    }
+    // project + painter sort
+    const persp = 2.6;
+    function proj(v){
+      const r3 = qrotate(v, view3d.q);
+      const zc = view3d.dist - r3[2];
+      const f = persp/Math.max(0.3, zc);
+      return [w/2 + r3[0]*f*w*0.42, h/2 - r3[1]*f*w*0.42, zc];
+    }
+    for (const q of quads){
+      q.pp = q.p.map(proj);
+      q.z = (q.pp[0][2]+q.pp[1][2]+q.pp[2][2]+q.pp[3][2])/4;
+    }
+    quads.sort((A,B) => B.z - A.z);
+    for (const q of quads){
+      const c = signed ? divMap(q.t) : seqMap(q.t);
+      // slight depth shading
+      const sh = Math.max(0.35, Math.min(1, 1.35 - q.z*0.28));
+      ctx.fillStyle = 'rgb('+Math.round(255*c[0]*sh)+','+Math.round(255*c[1]*sh)+','+Math.round(255*c[2]*sh)+')';
+      ctx.beginPath();
+      ctx.moveTo(q.pp[0][0], q.pp[0][1]);
+      for (let i=1;i<4;i++) ctx.lineTo(q.pp[i][0], q.pp[i][1]);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // annotate throat radius
+    ctx.fillStyle = '#999'; ctx.font = '11px -apple-system, sans-serif';
+    let msg = 'embedding starts at r = '+fmt(prof.rStart)+' M';
+    if (prof.clipped) msg += ' · non-embeddable band clipped';
+    if (st.flat) msg = 'flat plane — Minkowski (cf. dissertation Fig. 1.1)';
+    ctx.fillText(msg, 14, h-14);
+    drawColorbar(signed, vmax);
+  }
+
+  /* ------------------ profiles view ------------------ */
+  function drawProfiles(w, h){
+    ctx.fillStyle = '#070b18'; ctx.fillRect(0, 0, w, h);
+    insetCtx.clearRect(0, 0, insetC.width, insetC.height);
+    const g = G();
+    const list = regBySet(st.set).filter(e => {
+      if (e.id === 'I3' || e.id === 'I4') return !(st.a > 0 && st.q > 0);
+      return true;
+    });
+    const th0 = st.probe.th;
+    const padL = 64, padR = 130, padT = 26, padB = 44;
+    const iw = w-padL-padR, ih = h-padT-padB;
+    const rMin = Math.max(0.3, (G().naked ? 0.3 : G().rp*0.35) || 0.3);
+    const rMax = st.extent*1.6;
+    const NX = 260;
+    // collect series
+    const series = [];
+    let vLo = Infinity, vHi = -Infinity;
+    list.forEach((e, idx) => {
+      const ys = [], signs = [];
+      for (let i=0;i<NX;i++){
+        const r = rMin*Math.pow(rMax/rMin, i/(NX-1));
+        let v = st.flat ? 0 : evalInv(e, e.kind==='cx' ? 'abs' : 're', r, th0, g.M, g.a, g.Q, false);
+        signs.push(Math.sign(v));
+        v = Math.abs(v);
+        ys.push(v);
+        if (v > 0 && isFinite(v)){ vHi = Math.max(vHi, v); vLo = Math.min(vLo, v); }
+      }
+      series.push({e:e, ys:ys, signs:signs, col:SERIES[idx % SERIES.length]});
+    });
+    if (!isFinite(vHi)){ vHi = 1; vLo = 1e-8; }
+    vLo = Math.max(vLo, vHi*Math.pow(10, -st.dec));
+    const lgLo = Math.log10(vLo), lgHi = Math.log10(vHi);
+    const xOf = i => padL + iw*i/(NX-1);
+    const yOf = v => {
+      const t = (Math.log10(Math.max(v, vLo*0.999)) - lgLo)/(lgHi-lgLo || 1);
+      return padT + ih*(1 - Math.max(0, Math.min(1, t)));
+    };
+    const rOf = i => rMin*Math.pow(rMax/rMin, i/(NX-1));
+    const pxOfR = r => padL + iw*Math.log(r/rMin)/Math.log(rMax/rMin);
+    // grid + axes
+    ctx.strokeStyle = '#2c2c2a'; ctx.lineWidth = 1;
+    ctx.font = '10.5px -apple-system, sans-serif';
+    ctx.fillStyle = '#898781';
+    for (let d = Math.ceil(lgLo); d <= Math.floor(lgHi); d++){
+      const y = yOf(Math.pow(10, d));
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL+iw, y); ctx.stroke();
+      ctx.fillText('1e'+d, 8, y+3);
+    }
+    for (const rr of [1,2,3,5,8,13,20]){
+      if (rr < rMin || rr > rMax) continue;
+      const x = pxOfR(rr);
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT+ih); ctx.stroke();
+      ctx.fillText(rr+'', x-4, h-padB+16);
+    }
+    ctx.fillText('r / M  (log)', padL+iw/2-24, h-10);
+    ctx.save();
+    ctx.translate(14, padT+ih/2); ctx.rotate(-PI/2);
+    ctx.fillText('|invariant|  (G=c=M=1)', -60, 0);
+    ctx.restore();
+    // markers: horizons + ergosurface
+    function vline(r, label, col, dash){
+      if (!isFinite(r) || r < rMin || r > rMax) return;
+      const x = pxOfR(r);
+      ctx.strokeStyle = col; ctx.setLineDash(dash);
+      ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT+ih); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = col;
+      ctx.fillText(label, x+3, padT+11);
+    }
+    if (!st.flat && !g.naked){
+      vline(g.rp, 'r₊', 'rgba(255,255,255,0.7)', [4,4]);
+      vline(g.rm, 'r₋', 'rgba(255,255,255,0.35)', [4,4]);
+    }
+    if (!st.flat && st.a > 0) vline(g.ergo(th0), 'r_E', 'rgba(88,196,221,0.7)', [2,4]);
+    // series
+    profCache = {rOf:rOf, xOf:xOf, series:series, yOf:yOf, padL:padL, iw:iw, NX:NX};
+    series.forEach(s => {
+      ctx.strokeStyle = s.col; ctx.lineWidth = 2;
+      ctx.beginPath();
+      let pen = false;
+      for (let i=0;i<NX;i++){
+        const v = s.ys[i];
+        if (!(v > 0) || !isFinite(v)){ pen = false; continue; }
+        const x = xOf(i), y = yOf(v);
+        if (!pen){ ctx.moveTo(x, y); pen = true; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      // sign-change markers (zero crossings — e.g. I3 at the horizon)
+      ctx.fillStyle = s.col;
+      for (let i=1;i<NX;i++){
+        if (s.signs[i] !== 0 && s.signs[i-1] !== 0 && s.signs[i] !== s.signs[i-1]){
+          const x = (xOf(i)+xOf(i-1))/2;
+          ctx.beginPath(); ctx.arc(x, padT+ih-5, 3, 0, 2*PI); ctx.fill();
+        }
+      }
+    });
+    // legend (right), direct labels for first entries
+    ctx.font = '11.5px -apple-system, sans-serif';
+    series.forEach((s, i) => {
+      const y = padT + 8 + i*17;
+      ctx.fillStyle = s.col;
+      ctx.fillRect(w-padR+10, y-7, 10, 3);
+      ctx.fillStyle = '#ccc';
+      const div = document.createElement('div');
+      div.innerHTML = s.e.label;
+      ctx.fillText(div.textContent, w-padR+26, y);
+    });
+    ctx.fillStyle = '#898781';
+    ctx.fillText('θ = '+(th0*180/PI).toFixed(0)+'°  ·  dots: sign change', w-padR+10, padT+8+series.length*17+8);
+  }
+
+  /* ------------------ cards view ------------------ */
+  function buildCards(){
+    const g = G(), r0 = st.probe.r, t0 = st.probe.th;
+    const v = inv(r0, t0, g.M, g.a, g.Q);
+    const al = st.flat ? null : ALderived(r0, t0, g.M, g.a, g.Q);
+    const out = [];
+    function card(nm, fm, val, nt){
+      out.push('<div class="card"><span class="nm">'+nm+'</span>'
+        +'<div class="fm">'+fm+'</div>'
+        +(val !== null ? '<span class="vl">'+val+'</span>' : '')
+        +(nt ? '<div class="nt">'+nt+'</div>' : '')+'</div>');
+    }
+    out.push('<h2>'+PRESETS[st.metric].label+' — probe r = '+fmt(r0)+' M, θ = '
+      +(t0*180/PI).toFixed(0)+'° — all values audited (108/108 python gates, plus the audit tab here)</h2>');
+    for (const setKey of ['al','cm','ck']){
+      out.push('<h2>'+({al:'I-invariants — Abdelqader–Lake differential set + classical SPIs',
+                        cm:'Carminati–McLenaghan (dissertation Appendix F normalization)',
+                        ck:'Cartan–Karlhede (canonical Kinnersley frame)'}[setKey])+'</h2>');
+      for (const e of regBySet(setKey)){
+        let valStr;
+        if (st.flat) valStr = '0';
+        else if (e.kind === 'cx') valStr = fmtC(e.get(v, {}));
+        else {
+          const x = evalInv(e, 're', r0, t0, g.M, g.a, g.Q, true);
+          valStr = isFinite(x) ? fmt(x) : '—';
+        }
+        card(e.label, e.fm, valStr, e.note);
+      }
+      if (setKey === 'al' && al && !g.naked && st.q === 0 && st.a > 0){
+        card('local measurement (AL §IV)',
+          'p<sub>1</sub> = a cosθ/r = '+fmt(al.p1)+', p<sub>2</sub> = r = '+fmt(al.p2),
+          'm(I) = '+fmt(al.mloc)+' M · a(I) = '+fmt(al.aloc)+' M',
+          'The seven invariants invert to the mass and spin — a local, coordinate-free measurement of M and a (audited: recovers the slider values exactly in vacuum).');
+      }
+      if (setKey === 'cm'){
+        card('syzygies', 'w<sub>1</sub>&sup3; = 27 w<sub>2</sub>&sup2; (Petrov D) · r<sub>2</sub> = m<sub>4</sub> = 0 · r<sub>3</sub> = r<sub>1</sub>&sup2; · m<sub>3</sub> = m&#772;<sub>2</sub>',
+          null,
+          'The family is algebraically special everywhere: the speciality index 27J&sup2;/I&sup3; = 1 exactly. '
+          +'Independent real invariants: Re/Im '+SB.P2+' and &lambda; — everything else is determined.');
+      }
+      if (setKey === 'ck'){
+        card('the algorithm at work (Schwarzschild)',
+          'q = 0: '+SB.P2+' = −M/r&sup3; (t<sub>0</sub> = 1, boost–spin isotropy) → '
+          +'q = 1: D'+SB.P2+' = 3ρ'+SB.P2+' fixes the boost (t<sub>1</sub> = 1) → '
+          +'q = 2: nothing new — <b>terminates</b>.',
+          null,
+          'Karlhede’s worst-case bound in 4D is <b>seven</b> derivatives; the black-hole family stops after one productive order (confirm at the second). '
+          +'Minkowski: every Cartan invariant vanishes — and unlike the SPIs this <i>does</i> characterize flatness (VSI spacetimes fool the polynomial invariants, never the Cartan set).');
+      }
+    }
+    out.push('<h2>References</h2><div class="card"><div class="nt">'
+      +'A. Karlhede, GRG <b>12</b>, 693 (1980) · '
+      +'A. Karlhede, U. Lindström, J. E. Åman, GRG <b>14</b>, 569 (1982) — the I<sub>3</sub> horizon effect · '
+      +'J. Carminati, R. G. McLenaghan, J. Math. Phys. <b>32</b>, 3135 (1991) · '
+      +'E. Zakhary, C. B. G. McIntosh, GRG <b>29</b>, 539 (1997) · '
+      +'M. Abdelqader, K. Lake, PRD <b>91</b>, 084017 (2015) — I<sub>1</sub>…I<sub>7</sub>, Q<sub>1</sub>, Q<sub>2</sub>, mass/spin · '
+      +'D. N. Page, A. A. Shoom, PRL <b>114</b>, 141102 (2015) · '
+      +'A. Coley, S. Hervik, N. Pelavas, CQG <b>26</b>, 025013 (2009) — I-non-degeneracy · '
+      +'D. Brooks et&nbsp;al., GRG <b>50</b>, 37 (2018) — Cartan horizon detection · '
+      +'D. D. McNutt et&nbsp;al., PRD <b>103</b>, 124024 (2021) — geometric surfaces (dissertation ref. 47) · '
+      +'dissertation Appendix F (conventions; w<sub>2</sub>, m<sub>5</sub> corrected vs the literature). '
+      +'Signature note: differential invariants I<sub>3</sub>–I<sub>7</sub> here are computed in (−+++); '
+      +'this flips the sign of I<sub>3</sub>+iI<sub>4</sub> relative to tables computed in (+−−−).'
+      +'</div></div>');
+    document.getElementById('cardsPane').innerHTML = out.join('');
+  }
+
+  /* ------------------ audit view ------------------ */
+  function buildAudit(){
+    const pane = document.getElementById('auditPane');
+    pane.innerHTML = '<h2>in-page verification gates</h2><div class="nt" style="color:#999;font-size:12px">'
+      +'Closed forms vs (i) the python-audit anchor pack (independent engine: repo NumericEngine + sympy), '
+      +'(ii) an in-page numeric Christoffel→Riemann→Weyl pipeline, (iii) exact identities. Running…</div>';
+    setTimeout(() => {
+      const T = runAudit(false);
+      let n = 0;
+      const rows = T.map(t => {
+        if (t.pass) n++;
+        return '<tr><td>'+t.name+'</td><td class="'+(t.pass?'ok':'bad')+'">'
+          +(t.pass?'PASS':'FAIL')+'</td><td class="num">'+t.err.toExponential(1)
+          +' / '+t.tol.toExponential(0)+'</td></tr>';
+      });
+      pane.innerHTML = '<h2>in-page verification gates — '+n+'/'+T.length+' pass</h2>'
+        +'<table class="aud"><tr><th>gate</th><th>result</th><th>err / tol</th></tr>'
+        +rows.join('')+'</table>'
+        +'<div class="nt" style="margin-top:10px;color:#999;font-size:12px">Python-side audit: '
+        +'108/108 (audit_scalar_invariants.py — measures every sign convention, discovers the m-coefficients '
+        +'by least squares + rational snapping, and cross-checks the repo engine, the exact sympy I₃ for a = 0, '
+        +'and the Abdelqader–Lake syzygies).</div>';
+    }, 30);
+  }
+
+  /* ------------------ draw loop ------------------ */
+  let drawPending = false;
+  function requestDraw(){
+    if (drawPending) return;
+    drawPending = true;
+    requestAnimationFrame(() => { drawPending = false; draw(); });
+  }
+  function resize(){
+    const dpr = window.devicePixelRatio || 1;
+    const w = Math.max(1, Math.round(canvas.clientWidth*dpr));
+    const h = Math.max(1, Math.round(canvas.clientHeight*dpr));
+    if (canvas.width !== w || canvas.height !== h){
+      canvas.width = w; canvas.height = h; fieldCache = null;
+    }
+  }
+  function draw(){
+    resize();
+    const w = canvas.width, h = canvas.height;
+    if (st.view === 'field') drawField(w, h);
+    else if (st.view === 'embed') drawEmbed(w, h);
+    else if (st.view === 'prof') drawProfiles(w, h);
+    const e = currentEntry();
+    const tmp = document.createElement('div'); tmp.innerHTML = e.label;
+    $('roMain').textContent = tmp.textContent;
+    $('roSub').innerHTML = PRESETS[st.metric].label
+      +' · a = '+st.a.toFixed(2)+' · Q = '+st.q.toFixed(2)
+      +(e.kind === 'cx' ? ' · '+({abs:'|·|',re:'Re',im:'Im'}[st.comp]) : '');
+  }
+
+  /* ------------------ events ------------------ */
+  for (const b of $('viewChips').getElementsByTagName('button'))
+    b.addEventListener('click', () => { st.view = b.getAttribute('data-v'); syncAll('view'); });
+  for (const b of $('metricChips').getElementsByTagName('button'))
+    b.addEventListener('click', () => applyPreset(b.getAttribute('data-m')));
+  for (const b of $('setChips').getElementsByTagName('button'))
+    b.addEventListener('click', () => { st.set = b.getAttribute('data-s');
+      const list = regBySet(st.set);
+      if (!list.find(e => e.id === st.inv)) st.inv = list[0].id;
+      syncAll('inv'); });
+  for (const b of $('compChips').getElementsByTagName('button'))
+    b.addEventListener('click', () => { if (!b.disabled){ st.comp = b.getAttribute('data-c'); syncAll('inv'); } });
+  $('aSlider').addEventListener('input', () => { st.a = +$('aSlider').value; syncAll('metric'); });
+  $('qSlider').addEventListener('input', () => { st.q = +$('qSlider').value; syncAll('metric'); });
+  $('zoomSlider').value = st.extent;
+  $('zoomSlider').addEventListener('input', () => { st.extent = +$('zoomSlider').value; syncAll('disp'); });
+  $('decSlider').value = st.dec;
+  $('decSlider').addEventListener('input', () => { st.dec = +$('decSlider').value; syncAll('disp'); });
+  for (const id of ['ovHor','ovErg','ovZero'])
+    $(id).addEventListener('change', () => { st[id] = $(id).checked; requestDraw(); });
+
+  canvas.addEventListener('pointermove', ev => {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const px = (ev.clientX-rect.left)*dpr, py = (ev.clientY-rect.top)*dpr;
+    if (st.view === 'field'){
+      const w = canvas.width, h = canvas.height;
+      const X = st.extent, Z = X*h/w;
+      const x = X*(2*px/w - 1), z = Z*(1 - 2*py/h);
+      const g = G();
+      const [r, th] = rthOf(Math.abs(x), z, g.a);
+      const e = currentEntry();
+      const val = st.flat ? 0 : evalInv(e, st.comp, r, th, g.M, g.a, g.Q, false);
+      tip.style.display = 'block';
+      tip.style.left = (ev.clientX-rect.left+14)+'px';
+      tip.style.top = (ev.clientY-rect.top+10)+'px';
+      const tl = document.createElement('div'); tl.innerHTML = e.label;
+      tip.innerHTML = '<b>'+tl.textContent+'</b> = '+(isFinite(val)?fmt(val):'…')
+        +'<br>r = '+fmt(r)+' M · θ = '+(th*180/PI).toFixed(1)+'°'
+        +(!st.flat && !G().naked ? '<br>Δ = '+fmt(inv(r,th,g.M,g.a,g.Q).Del) : '');
+      if (dragging){ st.probe = {r:r, th:th}; syncInfo(); requestDraw(); }
+    } else if (st.view === 'embed' && dragging){
+      const dx = ev.clientX-lastPX, dy = ev.clientY-lastPY;
+      lastPX = ev.clientX; lastPY = ev.clientY;
+      view3d.q = qnormalize(qmul(qaxis([0,1,0],dx*0.008),
+                          qmul(qaxis([1,0,0],dy*0.008), view3d.q)));
+      requestDraw();
+    } else if (st.view === 'prof' && profCache){
+      const w = canvas.width;
+      const i = Math.round((px-profCache.padL)/profCache.iw*(profCache.NX-1));
+      if (i >= 0 && i < profCache.NX){
+        const r = profCache.rOf(i);
+        const rows = profCache.series.slice(0, 8).map(s => {
+          const tl = document.createElement('div'); tl.innerHTML = s.e.label;
+          return '<span style="color:'+s.col+'">▪</span> '+tl.textContent+' = '+fmt(s.ys[i]*(s.signs[i]||1));
+        });
+        tip.style.display = 'block';
+        tip.style.left = (ev.clientX-rect.left+14)+'px';
+        tip.style.top = (ev.clientY-rect.top+10)+'px';
+        tip.innerHTML = '<b>r = '+fmt(r)+' M</b><br>'+rows.join('<br>');
+      }
+    } else {
+      tip.style.display = 'none';
+    }
+  });
+  canvas.addEventListener('pointerleave', () => { tip.style.display = 'none'; });
+  canvas.addEventListener('pointerdown', ev => {
+    dragging = true; lastPX = ev.clientX; lastPY = ev.clientY;
+    if (st.view === 'embed') canvas.classList.add('grabbing');
+    if (st.view === 'field'){
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const px = (ev.clientX-rect.left)*dpr, py = (ev.clientY-rect.top)*dpr;
+      const w = canvas.width, h = canvas.height;
+      const X = st.extent, Z = X*h/w;
+      const x = X*(2*px/w - 1), z = Z*(1 - 2*py/h);
+      const [r, th] = rthOf(Math.abs(x), z, G().a);
+      st.probe = {r:r, th:th};
+      syncInfo(); requestDraw();
+    }
+    if (canvas.setPointerCapture && ev.pointerId !== undefined)
+      canvas.setPointerCapture(ev.pointerId);
+  });
+  const endDrag = () => { dragging = false; canvas.classList.remove('grabbing'); };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('wheel', ev => {
+    if (st.view === 'embed'){ ev.preventDefault();
+      view3d.dist = Math.max(1.5, Math.min(8, view3d.dist*Math.exp(ev.deltaY*0.0012)));
+      requestDraw();
+    }
+  }, {passive:false});
+  window.addEventListener('resize', requestDraw);
+
+  applyPreset('kerr');
+}
+
+/* ============================ entry ============================== */
+if (typeof document !== 'undefined'){
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,2024 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Primes &mdash; the special forms, their proofs, and the newest record</title>
+<!--
+  ===================================================================
+  primes.html — how the largest primes are found and PROVEN: the
+  special forms, the n+1 and n-1 tests, and t5k entry 141212
+  ===================================================================
+
+  Six views.  THE FORMS: Mersenne 2^p-1, Fermat 2^(2^n)+1, generalized
+  Fermat b^(2^n)+1, Proth k 2^n+1, Riesel k 2^n-1, Cullen n 2^n+1 and
+  Woodall n 2^n-1, every small member decided LIVE by the form's own exact
+  test.  THE N+1 TESTS: Lucas-Lehmer and Lucas-Lehmer-Riesel animated
+  residue by residue.  THE N-1 TESTS: Proth's theorem (the witness and the
+  square-and-multiply chain), Pepin's test, and Pocklington/Theorem 2 with
+  N-1 fully factored (the generalized-Fermat proof).  THE RECORD: t5k entry
+  141212, 5336284^1048576+1 (7,054,022 digits, PrimeGrid, 2025-10-31) —
+  its anatomy, the sieve -> PRP -> prove pipeline replayed on a small field,
+  and the N-1 proof in miniature.  THE RECORDS: every record prime by year
+  since 1588 on a log axis, plus the ten largest known.  THE COVERING SETS:
+  why 78557 (Sierpinski) and 509203 (Riesel) can never give a prime.
+
+  WHAT IS EXACT HERE
+  ------------------
+  * Every verdict on a small member is exact BigInt arithmetic by the
+    form's own theorem — Lucas-Lehmer, LLR with Rodseth's starting value,
+    Proth, Pepin, Pocklington with N-1 fully factored — and every one is
+    cross-checked against Miller-Rabin (deterministic below 3.3e24, which
+    covers every number decided here) in selfTest, and against an
+    independent Python implementation in build_primes/derive.py.
+  * Every DIGIT COUNT of a record prime is recomputed from its exponent
+    (floor(e log10 b)+1) and matches the source's printed count — that
+    check caught two garbled expressions in the fetched tables.
+  * The covering sets are verified for two full periods.
+
+  WHAT IS SOURCED (verbatim, build_primes/derive.py -> p2_data.js)
+  ---------------------------------------------------------------
+  t5k.org: entry 141212 (the record's every printed field), prover code
+  L5543, the ten largest, records by year, the 52 Mersenne exponents, the
+  Cullen / Woodall / generalized-Fermat top-20; primegrid.com: the record's
+  discoverer/team/date row; Wikipedia: A005849, A080076, the LLR
+  starting-value rules, the two covering sets, F5-F8 factors.
+
+  NOT AVAILABLE
+  -------------
+  PrimeGrid's announcement PDF for the record returned 404 on both hosts,
+  so the discovery hardware, Genefer version and PRP timings are NOT shown;
+  only the t5k-verified proof (PFGW 4.0.4, N-1 BLS, 20.41 days) is.
+  Nothing here is approximate; the log-axis history is a chart of exact
+  digit counts.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the cells the rule selects (the thing computed),
+       orange = the analytic reference (census law, expected counts),
+       magenta = the live marker (hovered cell, census cursor),
+       cyan = structure (frames, diagonal guides). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     number-theory derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the number-theory column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Primes</h1>
+  <span class="sub" id="sub">the special forms, the n+1 and n&minus;1 tests that prove them, and how the newest record &mdash; 5336284<sup>1048576</sup> + 1, seven million digits &mdash; was proven</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+/* ================================================================== *
+ *  the mathematics — exact BigInt arithmetic throughout.  Every test   *
+ *  mirrors build_primes/derive.py (Python, written independently) and *
+ *  is pinned to its printed values (refvals.txt) in selfTest.         *
+ * ================================================================== */
+const B0=0n, B1=1n, B2=2n;
+
+function powmod(b,e,m){ let r=1n; b%=m; if(b<0n) b+=m; while(e>0n){ if(e&1n) r=r*b%m; b=b*b%m; e>>=1n; } return r; }
+function bigGcd(a,b){ if(a<0n) a=-a; if(b<0n) b=-b; while(b){ const t=a%b; a=b; b=t; } return a; }
+function bitLen(x){ return x<=0n?0:x.toString(2).length; }
+/* decimal digits of a positive BigInt without stringifying huge values */
+function digitsOf(x){ return x.toString().length; }
+
+/* Jacobi symbol (a|n), n odd positive */
+function jacobi(a,n){
+  if(n<=0n||(n&1n)===0n) throw new Error('jacobi: n must be odd and positive');
+  a%=n; if(a<0n) a+=n;
+  let r=1;
+  while(a){
+    while((a&1n)===0n){ a>>=1n; const m8=Number(n%8n); if(m8===3||m8===5) r=-r; }
+    const t=a; a=n; n=t;
+    if(Number(a%4n)===3&&Number(n%4n)===3) r=-r;
+    a%=n;
+  }
+  return n===1n?r:0;
+}
+
+/* ---- Miller-Rabin: deterministic below 3.317e24 with the first 13 primes
+   as bases (Sorenson & Webster); above that the same bases give a strong
+   probable prime, and callers label it so. ---- */
+const MR_BASES=[2n,3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n,41n];
+const MR_BOUND=3317044064679887385961981n;
+const SMALL_PRIMES=[2n,3n,5n,7n,11n,13n,17n,19n,23n,29n,31n,37n,41n,43n,47n,53n,59n,61n,67n,71n,73n,79n,83n,89n,97n];
+function millerRabin(x){
+  if(x<2n) return false;
+  for(const q of SMALL_PRIMES){ if(x===q) return true; if(x%q===0n) return false; }
+  let d=x-1n,s=0n;
+  while((d&1n)===0n){ d>>=1n; s++; }
+  for(const a of MR_BASES){
+    let v=powmod(a,d,x);
+    if(v===1n||v===x-1n) continue;
+    let hit=false;
+    for(let i=1n;i<s;i++){ v=v*v%x; if(v===x-1n){ hit=true; break; } }
+    if(!hit) return false;
+  }
+  return true;
+}
+function isDeterministic(x){ return x<MR_BOUND; }
+function sieveTo(N){
+  const s=new Uint8Array(N); s.fill(1); if(N>0) s[0]=0; if(N>1) s[1]=0;
+  for(let i=2;i*i<N;i++) if(s[i]) for(let j=i*i;j<N;j+=i) s[j]=0;
+  return s;
+}
+function factorSmall(n){          /* Number n, trial division */
+  const f=[]; let d=2;
+  while(d*d<=n){ while(n%d===0){ f.push(d); n=n/d; } d++; }
+  if(n>1) f.push(n);
+  return f;
+}
+function distinctPrimes(n){ return Array.from(new Set(factorSmall(n))); }
+
+/* ---- Lucas-Lehmer: 2^p - 1 prime iff s_{p-2} = 0, s_0 = 4, s -> s^2 - 2.
+   Reduction mod 2^p-1 by the shift-and-add trick (the modulus is all ones). */
+function modMersenne(x,p,M){
+  while(x>M){ x=(x&M)+(x>>BigInt(p)); }
+  return x===M?0n:x;
+}
+function lucasLehmer(p,keep){
+  const P=BigInt(p), M=(1n<<P)-1n;
+  let s=4n; const res=keep?[4n]:null;
+  for(let i=0;i<p-2;i++){ s=modMersenne(s*s-2n,p,M); if(keep) res.push(s); }
+  return {prime:s===0n,residue:s,res,M};
+}
+
+/* ---- Proth: N = k 2^n + 1, k < 2^n: prime iff a^((N-1)/2) = -1 for some
+   a with (a|N) = -1.  The witness search runs far enough that a prime never
+   comes back unknown (derive.py: 14 witnesses were not enough at 2^40). */
+function prothTest(k,n){
+  const N=BigInt(k)*(1n<<BigInt(n))+1n;
+  if(!(BigInt(k)<(1n<<BigInt(n)))) throw new Error('prothTest needs k < 2^n');
+  for(let a=3n;a<2000n;a+=2n){
+    if(!millerRabin(a)) continue;
+    if(N%a===0n) return {prime:N===a,a,N,residue:null};
+    if(jacobi(a,N)===-1){
+      const r=powmod(a,(N-1n)/2n,N);
+      return {prime:r===N-1n,a,N,residue:r};
+    }
+  }
+  return {prime:null,a:null,N,residue:null};
+}
+/* the square-and-multiply chain of a^e mod N, kept for the picture */
+function powChain(a,e,N){
+  const bits=e.toString(2), out=[];
+  let r=1n;
+  for(let i=0;i<bits.length;i++){
+    r=r*r%N; if(bits[i]==='1') r=r*a%N;
+    out.push({bit:bits[i],r});
+  }
+  return out;
+}
+/* Pepin: F_n = 2^(2^n)+1 prime iff 3^((F_n-1)/2) = -1 (n >= 1) */
+function fermatNumber(n){ return (1n<<(1n<<BigInt(n)))+1n; }
+function pepin(n){ const F=fermatNumber(n); const r=powmod(3n,(F-1n)/2n,F); return {prime:r===F-1n,residue:r,F}; }
+
+/* ---- Lucas sequences V_k(P,1) mod N by the (V_m, V_{m+1}) doubling ladder ---- */
+function lucasV(P,k,N){
+  let vm=2n%N, vm1=P%N; if(vm1<0n) vm1+=N;
+  const bits=k.toString(2);
+  for(let i=0;i<bits.length;i++){
+    if(bits[i]==='1'){ const a=(vm*vm1-P)%N, b=(vm1*vm1-2n)%N; vm=a<0n?a+N:a; vm1=b<0n?b+N:b; }
+    else { const a=(vm*vm-2n)%N, b=(vm*vm1-P)%N; vm=a<0n?a+N:a; vm1=b<0n?b+N:b; }
+  }
+  return vm;
+}
+/* Rodseth's starting value: any P with (P-2|N) = 1 and (P+2|N) = -1.
+   'P = 4 whenever 3 does not divide k' is WRONG — P = 4 needs (3|N) = -1,
+   which depends on the parity of n as well (derive.py, first run). */
+function rodsethP(N){
+  for(let P=3n;P<400n;P++) if(jacobi(P-2n,N)===1&&jacobi(P+2n,N)===-1) return P;
+  return null;
+}
+/* Lucas-Lehmer-Riesel: N = k 2^n - 1, k < 2^n, n >= 2 (even k shifts to odd) */
+function llrTest(k,n,keep){
+  let K=BigInt(k), nn=n;
+  while((K&1n)===0n){ K>>=1n; nn++; }
+  const N=K*(1n<<BigInt(nn))-1n;
+  if(!(K<(1n<<BigInt(nn)))||nn<2) throw new Error('llrTest needs k < 2^n, n >= 2');
+  /* trial division first, as every LLR program does: a composite with a
+     small factor may admit NO Rodseth P (both Jacobi symbols vanish) */
+  for(const q of SMALL_PRIMES) if(N%q===0n) return {prime:N===q,residue:null,P:null,N,k:K,n:nn,res:null,small:q};
+  const P=rodsethP(N);
+  if(P===null) throw new Error('llrTest: no Rodseth P for '+N);
+  let u=lucasV(P,K,N); const res=keep?[u]:null;
+  for(let i=0;i<nn-2;i++){ u=(u*u-2n)%N; if(u<0n) u+=N; if(keep) res.push(u); }
+  return {prime:u===0n,residue:u,P,N,k:K,n:nn,res};
+}
+
+/* ---- Pocklington with N-1 FULLY factored (t5k Theorem 2, F = N-1, R = 1):
+   N prime iff for every prime q | N-1 there is a with a^(N-1) = 1 and
+   gcd(a^((N-1)/q) - 1, N) = 1.  This is exactly how the record
+   5336284^1048576+1 was proven (PFGW, N-1, Brillhart-Lehmer-Selfridge). */
+function pocklingtonFull(N,qs){
+  const wit={};
+  for(const q of qs){
+    let found=null;
+    for(let a=2n;a<400n;a++){
+      if(powmod(a,N-1n,N)!==1n) return {prime:false,wit,failedAt:q,a};   /* not even a Fermat PRP */
+      if(bigGcd(powmod(a,(N-1n)/q,N)-1n,N)===1n){ found=a; break; }
+    }
+    if(found===null) return {prime:null,wit};
+    wit[q.toString()]=found;
+  }
+  return {prime:true,wit};
+}
+function gfNumber(b,n){ return BigInt(b)**(1n<<BigInt(n))+1n; }
+/* generalized Fermat b^(2^n)+1: N-1 = b^(2^n), so its prime factors are
+   exactly the prime factors of b — the whole proof needs only factor(b) */
+function gfProve(b,n){
+  const N=gfNumber(b,n), qs=distinctPrimes(b).map(BigInt);
+  const r=pocklingtonFull(N,qs);
+  return Object.assign({N,qs},r);
+}
+/* Fermat PRP to base a: the pre-screen every search runs before proving */
+function fermatPRP(N,a){ return powmod(BigInt(a),N-1n,N)===1n; }
+
+/* ---- digits of the record-sized numbers, without building them ---- */
+const LOG10_2=Math.log10(2);
+function mersenneDigits(p){ return Math.floor(p*LOG10_2)+1; }
+function powDigits(b,e,kmul){ return Math.floor(e*Math.log10(b)+(kmul?Math.log10(kmul):0))+1; }
+function fmtInt(x){ const s=(typeof x==='bigint'?x:BigInt(Math.round(x))).toString();
+  let o=''; for(let i=0;i<s.length;i++){ if(i&&(s.length-i)%3===0) o+=' '; o+=s[i]; } return o; }
+function fmtBig(x){                    /* exact to 24 digits, else a truncated mantissa */
+  const s=x.toString();
+  if(s.length<=24) return fmtInt(x);
+  return s[0]+'.'+s.slice(1,7)+'×10^'+(s.length-1)+' ('+s.length+' digits)';
+}
+/* ================================================================== *
+ *  sourced data — EMITTED by build_primes/derive.py from the pages   *
+ *  listed there (t5k.org, primegrid.com, en.wikipedia.org, fetched   *
+ *  2026-09-01); every digit count below was recomputed there.        *
+ *  Never edit by hand.                                               *
+ * ================================================================== */
+const RECORD={"id": 141212, "expr": "5336284^1048576+1", "b": 5336284, "n": 20, "digits": 7054022, "log10": "7054021.2934198", "rank": 21, "digit_rank": 1, "subcat_rank": 3, "submitted": "11/2/2025 06:48:29 UTC", "status": "Proven", "comment": "Generalized Fermat", "proof_code": "L5543", "proof_code_expansion": "Lucendo, GFNSvCUDA, GeneFer, AthGFNSieve, PrimeGrid, LLR", "verifier": "PFGW Version 4.0.4.64BIT, using N-1 test with Brillhart-Lehmer-Selfridge", "verify_line": "5336284^1048576+1 is prime! (1763609.6123s+0.1229s) [Elapsed time: 20.41 days]", "machine": "Digital Ocean Droplet", "score": "52.619", "pg_discoverer": "Trotador", "pg_team": "XtremeSystems", "pg_date": "2025-10-31 23:41:35 UTC", "pg_subproject": "Generalized Fermat Prime Search", "pg_rank": 4};
+const TOP10=[["2^136279841-1", 41024320, "MP1", 2024, "Mersenne 52?"], ["2^82589933-1", 24862048, "G16", 2018, "Mersenne 51?"], ["2^77232917-1", 23249425, "G15", 2018, "Mersenne 50"], ["2^74207281-1", 22338618, "G14", 2016, "Mersenne 49"], ["2^57885161-1", 17425170, "G13", 2013, "Mersenne 48"], ["2524190^2097152+1", 13426224, "L4245", 2025, "Generalized Fermat"], ["2^43112609-1", 12978189, "G10", 2008, "Mersenne 47"], ["2^42643801-1", 12837064, "G12", 2009, "Mersenne 46"], ["516693^2097152-516693^1048576+1", 11981518, "L4561", 2023, "Generalized unique"], ["465859^2097152-465859^1048576+1", 11887192, "L4561", 2023, "Generalized unique"]];
+const MERSENNE=[[1, 2, 1, null, ""], [2, 3, 1, null, ""], [3, 5, 2, null, ""], [4, 7, 3, null, ""], [5, 13, 4, 1456, "anonymous"], [6, 17, 6, 1588, "Cataldi"], [7, 19, 6, 1588, "Cataldi"], [8, 31, 10, 1772, "Euler"], [9, 61, 19, 1883, "Pervushin"], [10, 89, 27, 1911, "Powers"], [11, 107, 33, 1914, "Powers"], [12, 127, 39, 1876, "Lucas"], [13, 521, 157, 1952, "Robinson"], [14, 607, 183, 1952, "Robinson"], [15, 1279, 386, 1952, "Robinson"], [16, 2203, 664, 1952, "Robinson"], [17, 2281, 687, 1952, "Robinson"], [18, 3217, 969, 1957, "Riesel"], [19, 4253, 1281, 1961, "Hurwitz"], [20, 4423, 1332, 1961, "Hurwitz"], [21, 9689, 2917, 1963, "Gillies"], [22, 9941, 2993, 1963, "Gillies"], [23, 11213, 3376, 1963, "Gillies"], [24, 19937, 6002, 1971, "Tuckerman"], [25, 21701, 6533, 1978, "Noll & Nickel"], [26, 23209, 6987, 1979, "Noll"], [27, 44497, 13395, 1979, "Nelson & Slowinski"], [28, 86243, 25962, 1982, "Slowinski"], [29, 110503, 33265, 1988, "Colquitt & Welsh"], [30, 132049, 39751, 1983, "Slowinski"], [31, 216091, 65050, 1985, "Slowinski"], [32, 756839, 227832, 1992, "Slowinski & Gage et al."], [33, 859433, 258716, 1994, "Slowinski & Gage"], [34, 1257787, 378632, 1996, "Slowinski & Gage"], [35, 1398269, 420921, 1996, "Armengaud, Woltman, et al. (GIMPS)"], [36, 2976221, 895932, 1997, "Spence, Woltman, et al. (GIMPS)"], [37, 3021377, 909526, 1998, "Clarkson, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [38, 6972593, 2098960, 1999, "Hajratwala, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [39, 13466917, 4053946, 2001, "Cameron, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [40, 20996011, 6320430, 2003, "Shafer, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [41, 24036583, 7235733, 2004, "Findley, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [42, 25964951, 7816230, 2005, "Nowak, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [43, 30402457, 9152052, 2005, "Cooper, Boone, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [44, 32582657, 9808358, 2006, "Cooper, Boone, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [45, 37156667, 11185272, 2008, "Elvenich, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [46, 42643801, 12837064, 2009, "Strindmo, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [47, 43112609, 12978189, 2008, "Smith, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [48, 57885161, 17425170, 2013, "Cooper, Woltman, Kurowski et al. (GIMPS, PrimeNet)"], [49, 74207281, 22338618, 2016, "Cooper, Woltman, Kurowski & Blosser (PrimeNet), GIMPS et al."], [50, 77232917, 23249425, 2017, "Pace, Woltman, Kurowski & Blosser (PrimeNet), GIMPS et al."], [51, 82589933, 24862048, 2018, "Laroche, Woltman, Blosser, GIMPS et al."], [52, 136279841, 41024320, 2024, "Durant, Preda, Woltman, Blosser, et al."]];
+const BY_YEAR_PRE=[["2^17-1", 6, 1588, "Cataldi", "trial division"], ["2^19-1", 6, 1588, "Cataldi", "trial division"], ["2^31-1", 10, 1772, "Euler", "trial division++"], ["(2^59-1)/179951", 13, 1867, "Landry", "trial division++"], ["2^127-1", 39, 1876, "Lucas", "Lucas sequences"], ["(2^148+1)/17", 44, 1951, "Ferrier", "Proth's theorem"]];
+const BY_YEAR_ELEC=[["180(M127)^2+1", 79, 1951, "EDSAC1", "Miller & Wheeler"], ["M521", 157, 1952, "SWAC", "Robinson"], ["M607", 183, 1952, "SWAC", "Robinson"], ["M1279", 386, 1952, "SWAC", "Robinson"], ["M2203", 664, 1952, "SWAC", "Robinson"], ["M2281", 687, 1952, "SWAC", "Robinson"], ["M3217", 969, 1957, "BESK", "Riesel"], ["M4423", 1332, 1961, "IBM7090", "Hurwitz"], ["M9689", 2917, 1963, "ILLIAC 2", "Gillies"], ["M9941", 2993, 1963, "ILLIAC 2", "Gillies"], ["M11213", 3376, 1963, "ILLIAC 2", "Gillies"], ["M19937", 6002, 1971, "IBM360/91", "Tuckerman"], ["M21701", 6533, 1978, "CDC Cyber 174", "Noll & Nickel"], ["M23209", 6987, 1979, "CDC Cyber 174", "Noll"], ["M44497", 13395, 1979, "Cray 1", "Nelson & Slowinski"], ["M86243", 25962, 1982, "Cray 1", "Slowinski"], ["M132049", 39751, 1983, "Cray X-MP", "Slowinski"], ["M216091", 65050, 1985, "Cray X-MP/24", "Slowinski"], ["391581*2^216193-1", 65087, 1989, "Amdahl 1200", "Amdahl Six"], ["M756839", 227832, 1992, "Cray-2", "Slowinski & Gage"], ["M859433", 258716, 1994, "Cray C90", "Slowinski & Gage"], ["M1257787", 378632, 1996, "Cray T94", "Slowinski & Gage"], ["M1398269", 420921, 1996, "Pentium (90 MHz)", "Armengaud, Woltman, et al. [GIMPS]"], ["M2976221", 895932, 1997, "Pentium (100 MHz)", "Spence, Woltman, et al. [GIMPS]"], ["M3021377", 909526, 1998, "Pentium (200 MHz)", "Clarkson, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M6972593", 2098960, 1999, "Pentium (350 MHz)", "Hajratwala, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M13466917", 4053946, 2001, "AMD T-Bird (800 MHz)", "Cameron, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M20996011", 6320430, 2003, "Pentium (2 GHz)", "Shafer, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M24036583", 7235733, 2004, "Pentium 4 (2.4GHz)", "Findley, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M25964951", 7816230, 2005, "Pentium 4 (2.4GHz)", "Nowak, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M30402457", 9152052, 2005, "Pentium 4 (2GHz upgraded to 3GHz)", "Cooper, Boone, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M32582657", 9808358, 2006, "Pentium 4 (3 GHz)", "Cooper, Boone, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M43112609", 12978189, 2008, "Intel Core 2 Duo E6600 CPU (2.4 GHz)", "E_Smith, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M57885161", 17425170, 2013, "Intel Core2 Duo E8400 (3 GHz)", "Cooper, Woltman, Kurowski, et al. [GIMPS, PrimeNet]"], ["M74207281", 22338618, 2016, "Intel I7-4790 CPU", "Cooper, Woltman, Kurowski, Blosser, et al. [GIMPS, PrimeNet]"], ["M77232917", 23249425, 2018, "Intel i5-6600 CPU", "Pace, Woltman, Kurowski, Blosser, et al. [GIMPS, PrimeNet]"], ["M82589933", 24862048, 2018, "Intel i5-4590T CPU", "Laroche, Woltman, Blosser, et al. [GIMPS, PrimeNet]"], ["M136279841", 41024320, 2024, "NVIDIA A100 GPU", "Durant, Preda, Woltman, Blosser, et al. [GIMPS, PrimeNet]"]];
+const GF_TOP=[["gf", [2524190, 2097152], 13426224, "L4245", 2025], ["kbn", [4, 5, 11786358], 8238312, "A2", 2024], ["gf", [5336284, 1048576], 7054022, "L5543", 2025], ["gf", [3843236, 1048576], 6904556, "L6094", 2024], ["gf", [1963736, 1048576], 6598776, "L4245", 2022], ["gf", [1951734, 1048576], 6595985, "L5583", 2022], ["gf", [1059094, 1048576], 6317602, "L4720", 2018], ["gf", [919444, 1048576], 6253210, "L4286", 2017], ["kbn", [81, 2, 20498148], 6170560, "L4965", 2023], ["kbn", [4, 5, 8431178], 5893142, "A2", 2024], ["kbn", [4, 3, 11279466], 5381674, "A2", 2024], ["kbn", [25, 2, 13719266], 4129912, "L4965", 2022], ["kbn", [81, 2, 13708272], 4126603, "L4965", 2022], ["kbn", [81, 2, 13470584], 4055052, "L4965", 2022], ["gf", [25427072, 524288], 3882509, "L5639", 2026], ["gf", [23865586, 524288], 3868078, "L5543", 2026], ["gf", [23680116, 524288], 3866301, "L5586", 2026], ["gf", [22970694, 524288], 3859376, "L5755", 2026], ["gf", [22444816, 524288], 3854102, "L6322", 2026], ["gf", [22306708, 524288], 3852697, "L4387", 2026]];
+const CULLEN_TOP=[[6679881, 6679881, 2010852, "L917", 2009], [1582137, 6328550, 1905090, "L801", 2009], [338707, 1354830, 407850, "L124", 2005], [481899, 481899, 145072, "gm", 1998], [361275, 361275, 108761, "DS", 1998], [262419, 262419, 79002, "DS", 1998], [90825, 90825, 27347, "Y", 1997], [7457, 59659, 17964, "Y", 1997], [32469, 32469, 9779, "MM", 1997], [8073, 32294, 9726, "MM", 1997], [289, 18502, 5573, "K", 1984], [6611, 6611, 1994, "K", 1984], [5795, 5795, 1749, "K", 1984], [4713, 4713, 1423, "K", 1984]];
+const WOODALL_TOP=[[8508301, 17016603, 5122515, "L4784", 2018], [938237, 3752950, 1129757, "L521", 2007], [1183953, 2367907, 712818, "L447", 2007], [251749, 2013995, 606279, "L436", 2007], [1467763, 1467763, 441847, "L381", 2007], [1268979, 1268979, 382007, "L201", 2007], [1195203, 1195203, 359799, "L124", 2005], [667071, 667071, 200815, "g55", 2000], [151023, 151023, 45468, "g25", 1998], [71509, 143019, 43058, "g23", 1998], [49363, 98727, 29725, "Y", 1997], [23005, 23005, 6930, "Y", 1997], [22971, 22971, 6920, "Y", 1997], [18885, 18885, 5690, "K", 1987], [7911, 15823, 4768, "K", 1987], [12379, 12379, 3731, "K", 1984], [9531, 9531, 2874, "K", 1984], [7755, 7755, 2339, "K", 1984], [83, 5318, 1603, "K", 1984]];
+const CULLEN_N=[1, 141, 4713, 5795, 6611, 18496, 32292, 32469, 59656, 90825, 262419, 361275, 481899, 1354828, 6328548, 6679881];
+const PROTH_FIRST=[3, 5, 13, 17, 41, 97, 113, 193, 241, 257, 353, 449, 577, 641, 673, 769, 929, 1153, 1217, 1409, 1601, 2113, 2689, 2753, 3137, 3329, 3457, 4481, 4993, 6529, 7297, 7681, 7937, 9473, 9601, 9857];
+const PROTH_TOP3=[[10223, 31172165, 9383761, 2016, "Szabolcs Peter"], [202705, 21320516, 6418121, 2021, "Pavel Atnashev"], [81, 20498148, 6170560, 2023, "Ryan Propper"]];
+const FERMAT_FACTORS={"5": ["641", "6700417"], "6": ["274177", "67280421310721"], "7": ["59649589127497217", "5704689200685129054721"], "8": ["1238926361552897"]};
+const SIERP={"k": 78557, "cover": [3, 5, 7, 13, 19, 37, 73], "remaining": [21181, 22699, 24737, 55459, 67607]};
+const RIESEL={"k": 509203, "cover": [3, 5, 7, 13, 17, 241], "remaining": 41};
+/* ================================================================== *
+ *  state, model, readout, eqbar                                       *
+ * ================================================================== */
+const TABS=[['forms','the forms'],['nplus','the n+1 tests'],['nminus','the n−1 tests'],
+            ['record','the record'],['history','the records'],['cover','the covering sets']];
+const FORMS=[{id:'mersenne',name:'Mersenne 2^p − 1'},{id:'fermat',name:'Fermat 2^(2^n) + 1'},
+             {id:'gf',name:'generalized Fermat b^(2^n) + 1'},{id:'proth',name:'Proth k·2^n + 1'},
+             {id:'riesel',name:'Riesel k·2^n − 1'},{id:'cullen',name:'Cullen n·2^n + 1'},
+             {id:'woodall',name:'Woodall n·2^n − 1'}];
+const NPLUS=[{id:'mersenne',name:'Mersenne: Lucas–Lehmer'},{id:'riesel',name:'k·2^n − 1: LLR'},
+             {id:'woodall',name:'Woodall: LLR'}];
+const NMINUS=[{id:'proth',name:'Proth k·2^n + 1'},{id:'fermat',name:'Fermat: Pépin'},
+              {id:'gf',name:'generalized Fermat: N−1'},{id:'cullen',name:'Cullen: Proth'}];
+const COVERS=[{id:'sierp',name:'Sierpiński 78557'},{id:'riesel',name:'Riesel 509203'}];
+/* exponents offered for the animated Lucas-Lehmer: every prime p <= 127 */
+const LL_P=[3,5,7,11,13,17,19,23,29,31,37,41,43,47,53,59,61,67,71,73,79,83,89,97,101,103,107,109,113,127];
+const GRID_K=63, GRID_N=40;                 /* the k x n grids (k odd) */
+const CULLEN_MAX=200, WOODALL_MAX=400, LL_LIVE_MAX=607, GF_BMAX=40, GF_NMAX=4;
+
+const DEFAULTS={view:'forms', form:'mersenne', nplus:'mersenne', nminus:'proth',
+                pIdx:4, k:3, n:7, cn:141, wn:30, fn:5, gb:6, gn:2, cover:'sierp',
+                step:1e9, anim:false, speed:1, hk:-1, hn:-1, hi:-1};
+const ST=Object.assign({},DEFAULTS);
+
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0',
+           dim:'#8b93a6', off:'#161c2c', edge:'#242a3a', comp:'#2a3346'};
+const RO_W=300;
+
+const CACHE={};
+function cached(key,fn){ if(CACHE[key]===undefined) CACHE[key]=fn(); return CACHE[key]; }
+function lazyC(obj,name,fn){
+  let has=false,v;
+  Object.defineProperty(obj,name,{get(){ if(!has){ v=fn(); has=true; } return v; },
+                                  configurable:true, enumerable:false});
+}
+function primesUpTo(N){ return cached('primes|'+N,()=>{ const s=sieveTo(N+1), o=[]; for(let i=2;i<=N;i++) if(s[i]) o.push(i); return o; }); }
+
+/* ---- the forms: every small member decided by ITS OWN test, and every
+   verdict cross-checked against Miller-Rabin in selfTest ---- */
+function mersenneStrip(){ return cached('ms',()=>primesUpTo(LL_LIVE_MAX).map(p=>{
+  /* Lucas-Lehmer is a theorem about ODD p; M2 = 3 is prime by inspection */
+  const r=p===2?{prime:true}:lucasLehmer(p,false); return {p,prime:r.prime,digits:mersenneDigits(p)}; })); }
+function fermatStrip(){ return cached('fs',()=>{ const o=[]; for(let n=0;n<=12;n++){
+  const F=fermatNumber(n); const pr=n===0?true:pepin(n).prime;
+  o.push({n,prime:pr,digits:digitsOf(F),F:n<=6?F:null}); } return o; }); }
+function gfGrid(){ return cached('gfg',()=>{ const o=[]; for(let n=1;n<=GF_NMAX;n++){ const row=[];
+  for(let b=2;b<=GF_BMAX;b+=2){ const r=gfProve(b,n); row.push({b,n,prime:r.prime,wit:r.wit,qs:r.qs}); }
+  o.push(row); } return o; }); }
+/* k x n grids: inside k < 2^n the form's own theorem decides; the strip k >= 2^n
+   (top-left corner) is decided by Miller-Rabin and drawn hatched-dim, because
+   Proth's theorem does not apply there and the file says so */
+function prothGrid(){ return cached('pg',()=>{ const o=[];
+  for(let k=1;k<=GRID_K;k+=2){ const row=[];
+    for(let n=1;n<=GRID_N;n++){ const N=BigInt(k)*(1n<<BigInt(n))+1n;
+      if(k<Math.pow(2,n)){ const r=prothTest(k,n); row.push({k,n,prime:r.prime,a:r.a,theorem:true}); }
+      else row.push({k,n,prime:millerRabin(N),theorem:false}); }
+    o.push(row); } return o; }); }
+function rieselGrid(){ return cached('rg',()=>{ const o=[];
+  for(let k=1;k<=GRID_K;k+=2){ const row=[];
+    for(let n=1;n<=GRID_N;n++){ const N=BigInt(k)*(1n<<BigInt(n))-1n;
+      if(n>=2&&k<Math.pow(2,n)){ const r=llrTest(k,n,false); row.push({k,n,prime:r.prime,P:r.P,theorem:true}); }
+      else row.push({k,n,prime:N>1n&&millerRabin(N),theorem:false}); }
+    o.push(row); } return o; }); }
+function cullenStrip(){ return cached('cs',()=>{ const o=[]; for(let n=1;n<=CULLEN_MAX;n++){
+  const r=prothTest(n,n); o.push({n,prime:r.prime,a:r.a}); } return o; }); }
+function woodallStrip(){ return cached('ws',()=>{ const o=[]; for(let n=2;n<=WOODALL_MAX;n++){
+  const r=llrTest(n,n,false); o.push({n,prime:r.prime,P:r.P}); } return o; }); }
+
+/* ---- the record's pipeline replayed on a small field: generalized Fermat
+   b^4+1 for even b <= 2000 — sieve, PRP, prove ---- */
+function pipeline(){ return cached('pipe',()=>{
+  const small=primesUpTo(199).filter(q=>q>2);
+  const cands=[]; for(let b=2;b<=2000;b+=2) cands.push(b);
+  const sieved=cands.filter(b=>{ const N=BigInt(b)**4n+1n;
+    return small.every(q=>N%BigInt(q)!==0n||N===BigInt(q)); });
+  const prp=sieved.filter(b=>fermatPRP(BigInt(b)**4n+1n,3));
+  const proven=prp.filter(b=>gfProve(b,2).prime===true);
+  return {cands:cands.length,sieved:sieved.length,prp:prp.length,proven:proven.length,provenList:proven};
+}); }
+
+/* ---- covering sets: which prime of the set divides k 2^n +/- 1 ---- */
+function coverTable(id){ return cached('cov|'+id,()=>{
+  const D=id==='sierp'?SIERP:RIESEL, sign=id==='sierp'?1n:-1n, K=BigInt(D.k);
+  const period=id==='sierp'?36:24, rows=[];
+  for(let n=1;n<=2*period;n++){ const N=K*(1n<<BigInt(n))+sign;
+    const hits=D.cover.filter(q=>N%BigInt(q)===0n);
+    rows.push({n,hits,first:hits.length?hits[0]:0}); }
+  return {k:D.k,cover:D.cover,period,rows,sign:Number(sign)};
+}); }
+
+/* ---- the record: numbers derived from its printed fields ---- */
+function recordFacts(){ return cached('rec',()=>{
+  const b=RECORD.b, n=RECORD.n, e=Math.pow(2,n);
+  const log10=e*Math.log10(b), digits=Math.floor(log10)+1;
+  const bits=Math.floor(e*Math.log2(b))+1;
+  const qs=distinctPrimes(b);
+  const replica=gfProve(6,2);                 /* 6^4+1 = 1297, the same proof in miniature */
+  const sec=1763609.6123, days=sec/86400;
+  return {b,n,e,log10,digits,bits,qs,bfac:factorSmall(b),replica,sec,days,
+          logMatch:Math.abs(log10-parseFloat(RECORD.log10))};
+}); }
+
+function buildModel(){
+  const st=ST, view=st.view;
+  const M={view, form:st.form, nplus:st.nplus, nminus:st.nminus, cover:st.cover};
+  if(view==='forms'){
+    M.strip=st.form==='mersenne'?mersenneStrip():st.form==='fermat'?fermatStrip()
+      :st.form==='cullen'?cullenStrip():st.form==='woodall'?woodallStrip():null;
+    M.grid=st.form==='gf'?gfGrid():st.form==='proth'?prothGrid():st.form==='riesel'?rieselGrid():null;
+    lazyC(M,'count',()=>{
+      if(M.strip) return M.strip.filter(x=>x.prime).length;
+      let c=0; for(const row of M.grid) for(const cell of row) if(cell.prime) c++; return c; });
+    lazyC(M,'total',()=>M.strip?M.strip.length:M.grid.length*M.grid[0].length);
+    if(st.hk>=0&&st.hn>=0&&M.grid){
+      const row=M.grid[st.hk]; if(row&&row[st.hn]) M.hover=row[st.hn]; }
+    if(st.hi>=0&&M.strip&&M.strip[st.hi]) M.hover=M.strip[st.hi];
+  }
+  if(view==='nplus'){
+    if(st.nplus==='mersenne'){ const p=LL_P[clamp(st.pIdx,0,LL_P.length-1)];
+      M.p=p; M.test=cached('ll|'+p,()=>lucasLehmer(p,true)); M.N=M.test.M;
+      M.seq=M.test.res; M.label='M'+p+' = 2^'+p+' − 1'; M.steps=p-2; }
+    else if(st.nplus==='riesel'){ const k=st.k|1, n=Math.max(2,st.n);
+      M.k=k; M.n=n; M.test=cached('llr|'+k+'|'+n,()=>llrTest(k,n,true)); M.N=M.test.N;
+      M.seq=M.test.res; M.label=k+'·2^'+n+' − 1'; M.steps=n-2; M.P=M.test.P; }
+    else { const n=Math.max(2,st.wn); M.n=n; M.test=cached('wood|'+n,()=>llrTest(n,n,true));
+      M.N=M.test.N; M.seq=M.test.res; M.label='W'+n+' = '+n+'·2^'+n+' − 1'; M.steps=M.test.n-2; M.P=M.test.P; }
+    /* a tiny N is settled by trial division before any sequence runs
+       (llrTest returns no residues then): show that honestly */
+    if(!M.seq){ M.seq=[]; M.steps=0; M.small=M.test.small; }
+    M.stepShown=M.seq.length?clamp(Math.floor(st.step),0,M.seq.length-1):0;
+    M.done=M.stepShown>=M.seq.length-1;
+    M.verdict=M.test.prime;
+    lazyC(M,'mr',()=>millerRabin(M.N));
+    M.maxStep=Math.max(0,M.seq.length-1);
+  }
+  if(view==='nminus'){
+    if(st.nminus==='proth'||st.nminus==='cullen'){
+      const k=st.nminus==='proth'?(st.k|1):st.cn, n=st.nminus==='proth'?st.n:st.cn;
+      const applies=BigInt(k)<(1n<<BigInt(n));
+      M.k=k; M.n=n; M.applies=applies;
+      M.N=BigInt(k)*(1n<<BigInt(n))+1n;
+      M.label=(st.nminus==='cullen'?'C'+n+' = ':'')+k+'·2^'+n+' + 1';
+      if(applies){ M.test=cached('proth|'+k+'|'+n,()=>prothTest(k,n)); M.a=M.test.a;
+        M.chain=cached('chain|'+k+'|'+n,()=>M.a?powChain(M.a,(M.N-1n)/2n,M.N):[]); M.verdict=M.test.prime; }
+      else { M.verdict=millerRabin(M.N); M.chain=[]; }
+    } else if(st.nminus==='fermat'){ const n=clamp(st.fn,1,12);
+      M.n=n; M.N=fermatNumber(n); M.a=3n; M.label='F'+n+' = 2^'+Math.pow(2,n)+' + 1';
+      M.test=cached('pepin|'+n,()=>pepin(n)); M.verdict=M.test.prime; M.applies=true;
+      M.chain=cached('pchain|'+n,()=>n<=9?powChain(3n,(M.N-1n)/2n,M.N):[]);
+      M.factors=FERMAT_FACTORS[String(n)]||null;
+    } else { const b=st.gb-(st.gb%2), n=clamp(st.gn,1,GF_NMAX);
+      M.b=b; M.n=n; M.N=gfNumber(b,n); M.label=b+'^'+Math.pow(2,n)+' + 1';
+      M.test=cached('gf|'+b+'|'+n,()=>gfProve(b,n)); M.verdict=M.test.prime; M.applies=true;
+      M.qs=M.test.qs; M.wit=M.test.wit; M.chain=[]; }
+    M.stepShown=clamp(Math.floor(st.step),0,Math.max(0,M.chain.length-1));
+    M.done=M.chain.length===0||M.stepShown>=M.chain.length-1;
+    M.maxStep=Math.max(0,M.chain.length-1);
+    lazyC(M,'mr',()=>millerRabin(M.N));
+    M.det=isDeterministic(M.N);
+  }
+  if(view==='record'){ M.rec=recordFacts(); lazyC(M,'pipe',pipeline); }
+  if(view==='history'){
+    M.pts=cached('hist',()=>{
+      const o=[];
+      for(const r of BY_YEAR_PRE) o.push({expr:r[0],digits:r[1],year:r[2],who:r[3],how:r[4],era:'pre'});
+      for(const r of BY_YEAR_ELEC) o.push({expr:r[0],digits:r[1],year:r[2],who:r[4],how:r[3],era:'elec'});
+      return o; });
+    if(st.hi>=0&&M.pts[st.hi]) M.hover=M.pts[st.hi];
+  }
+  if(view==='cover'){ M.cov=coverTable(st.cover); M.remaining=st.cover==='sierp'?SIERP.remaining:RIESEL.remaining; }
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function verdictRow(v,det){
+  if(v===true) return rrow('verdict',det===false?'strong probable prime':'PRIME','good');
+  if(v===false) return rrow('verdict','composite','bad');
+  return rrow('verdict','undecided','');
+}
+function formName(id){ const f=FORMS.find(f=>f.id===id); return f?f.name:id; }
+
+function readoutHTML(M){
+  const st=ST;
+  let s='<div class="rname">primes<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='forms'){
+    s+=hd('the form')+rrow('family',formName(st.form))
+      +rrow('members shown',M.total)+rrow('prime',M.count,'good');
+    if(st.form==='mersenne') s+=rrow('known Mersenne primes','52 (t5k)')+rrow('largest','2^136279841 − 1, 41 024 320 digits');
+    if(st.form==='fermat') s+=rrow('known Fermat primes','F0 … F4 only')+rrow('F5 … F32','all composite');
+    if(st.form==='gf') s+=rrow('largest known','2524190^2097152 + 1')+rrow('digits','13 426 224 (t5k)');
+    if(st.form==='proth') s+=rrow('largest known','10223·2^31172165 + 1')+rrow('digits','9 383 761 (Wikipedia)');
+    if(st.form==='riesel') s+=rrow('conjecture','509203 is the smallest Riesel k')+rrow('k unresolved','41');
+    if(st.form==='cullen') s+=rrow('known Cullen primes',CULLEN_N.length+' (A005849)')+rrow('largest','6679881·2^6679881 + 1');
+    if(st.form==='woodall') s+=rrow('largest known','17016602·2^17016602 − 1')+rrow('digits','5 122 515 (t5k)');
+    if(M.hover){
+      const h=M.hover;
+      s+=hd('the member');
+      if(h.p!==undefined) s+=rrow('exponent p',h.p)+rrow('digits',h.digits);
+      if(h.F!==undefined&&h.n!==undefined&&h.b===undefined&&h.p===undefined) s+=rrow('F'+h.n,h.F?fmtBig(h.F):'2^'+Math.pow(2,h.n)+' + 1')+rrow('digits',h.digits);
+      if(h.b!==undefined) s+=rrow('b, n',h.b+', '+h.n)+rrow('N',fmtBig(gfNumber(h.b,h.n)));
+      if(h.k!==undefined) s+=rrow('k, n',h.k+', '+h.n)+rrow('theorem applies',h.theorem?'yes (k < 2^n)':'no — Miller–Rabin',h.theorem?'good':'');
+      if(h.a!==undefined&&h.a!==null) s+=rrow('witness a',h.a.toString());
+      if(h.P!==undefined&&h.P!==null) s+=rrow('Rödseth P',h.P.toString());
+      s+=verdictRow(h.prime,true);
+    } else s+='<tr><td colspan="2"><div class="note">hover a cell for its member and witness.</div></td></tr>';
+  }
+  else if(M.view==='nplus'){
+    s+=hd('the number')+rrow('N',M.label)+rrow('digits',digitsOf(M.N))
+      +rrow('steps',M.steps+' squarings');
+    if(M.P!==undefined&&M.P!==null&&M.seq.length) s+=rrow('Rödseth P',M.P.toString())+rrow('u₀ = V_k(P,1)',fmtBig(M.seq[0]));
+    if(M.seq.length) s+=hd('the sequence')+rrow('step shown',M.stepShown+' / '+(M.seq.length-1))
+      +rrow('residue',fmtBig(M.seq[M.stepShown]));
+    else s+=hd('the sequence')+rrow('settled by','trial division'+(M.small?' by '+M.small:''));
+    if(M.done) s+=verdictRow(M.verdict,true)+rrow('Miller–Rabin agrees',M.mr===M.verdict?'yes':'NO',M.mr===M.verdict?'good':'bad');
+    else s+=rrow('verdict','… running','');
+  }
+  else if(M.view==='nminus'){
+    s+=hd('the number')+rrow('N',M.label)+rrow('digits',digitsOf(M.N));
+    if(M.applies===false) s+=rrow('Proth applies','NO: k ≥ 2^n','bad');
+    if(M.a) s+=rrow('witness a',M.a.toString())+rrow('(a | N)','−1');
+    if(M.chain.length) s+=hd('the chain')+rrow('bits of (N−1)/2',M.chain.length)
+      +rrow('step shown',M.stepShown+' / '+(M.chain.length-1))
+      +rrow('residue',fmtBig(M.chain[M.stepShown].r));
+    if(M.qs){ s+=hd('N − 1 = b^(2^n)')+rrow('prime factors of b',M.qs.join(', '));
+      for(const q of M.qs) s+=rrow('witness for q = '+q,M.wit&&M.wit[q.toString()]!==undefined?'a = '+M.wit[q.toString()]:'—'); }
+    if(M.factors) s+=rrow('known factors',M.factors.join(' × ')+(M.n===8?' × (62 digits)':''));
+    if(M.done) s+=verdictRow(M.verdict,M.det)+rrow('Miller–Rabin agrees',M.mr===M.verdict?'yes':'NO',M.mr===M.verdict?'good':'bad');
+  }
+  else if(M.view==='record'){
+    const R=M.rec;
+    s+=hd('t5k entry '+RECORD.id)+rrow('prime',RECORD.expr)+rrow('digits',fmtInt(RECORD.digits))
+      +rrow('log₁₀ (t5k)',RECORD.log10)+rrow('log₁₀ (recomputed)',R.log10.toFixed(7),R.logMatch<1e-4?'good':'bad')
+      +rrow('bits',fmtInt(R.bits))+rrow('rank overall',RECORD.rank)+rrow('rank, gen. Fermat',RECORD.subcat_rank)
+      +rrow('submitted',RECORD.submitted)+rrow('status',RECORD.status,'good');
+    s+=hd('who')+rrow('discoverer (PrimeGrid)',RECORD.pg_discoverer)+rrow('team',RECORD.pg_team)
+      +rrow('found',RECORD.pg_date)+rrow('prover code',RECORD.proof_code);
+    s+=hd('the proof')+rrow('N − 1 = b^(2^20), b =',R.bfac.join(' × '))
+      +rrow('prime q to witness','2 and 1334071')+rrow('program',RECORD.verifier.split(',')[0])
+      +rrow('test','N−1, Brillhart–Lehmer–Selfridge')+rrow('elapsed','20.41 days')
+      +rrow('machine',RECORD.machine);
+    s+=hd('the replica: 6^4 + 1 = 1297')+rrow('prime factors of 6','2, 3')
+      +rrow('witnesses','a = '+R.replica.wit['2']+' for 2, a = '+R.replica.wit['3']+' for 3')
+      +verdictRow(R.replica.prime,true);
+  }
+  else if(M.view==='history'){
+    s+=hd('record primes by year')+rrow('rows',M.pts.length+' (t5k)')
+      +rrow('first','2^17 − 1, 1588')+rrow('latest','2^136279841 − 1, 2024');
+    if(M.hover) s+=hd('the point')+rrow('prime',M.hover.expr)+rrow('digits',fmtInt(M.hover.digits))
+      +rrow('year',M.hover.year)+rrow('who',M.hover.who)+rrow(M.hover.era==='pre'?'method':'machine',M.hover.how);
+    else s+='<tr><td colspan="2"><div class="note">hover a point for its row.</div></td></tr>';
+    s+=hd('the ten largest');
+    TOP10.forEach((r,i)=>{ s+=rrow((i+1)+'. '+r[0],fmtInt(r[1])); });
+  }
+  else if(M.view==='cover'){
+    const C=M.cov;
+    s+=hd('k = '+C.k)+rrow('form',C.sign>0?'k·2^n + 1':'k·2^n − 1')
+      +rrow('covering set',C.cover.join(', '))+rrow('period',C.period)
+      +rrow('n = 1 … '+C.rows.length+' covered',C.rows.every(r=>r.hits.length>0)?'all':'NO',C.rows.every(r=>r.hits.length>0)?'good':'bad');
+    s+=hd('the conjecture')+rrow('smallest such k?',C.k)
+      +rrow('k still unresolved',Array.isArray(M.remaining)?M.remaining.join(', '):M.remaining);
+  }
+  s+='</table><div class="note">Sources: t5k.org (record entry 141212, prover code, largest.html, by_year, '
+    +'Mersenne table, top-20 pages), primegrid.com, Wikipedia (A005849, A080076, LLR, covering sets). '
+    +'Every digit count and every small verdict is recomputed in this file.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const st=ST;
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='forms') return E('2<sup>p</sup>&minus;1, &nbsp; 2<sup>2<sup>n</sup></sup>+1, &nbsp; b<sup>2<sup>n</sup></sup>+1, &nbsp; k&middot;2<sup>n</sup>&plusmn;1, &nbsp; n&middot;2<sup>n</sup>&plusmn;1',
+    'the special forms: N&plusmn;1 factors completely, so an exact test exists — that is why every record prime has one of these shapes');
+  if(M.view==='nplus') return E('s<sub>0</sub> = 4 &nbsp;(or u<sub>0</sub> = V<sub>k</sub>(P,1)), &nbsp; s<sub>i+1</sub> = s<sub>i</sub><sup>2</sup> &minus; 2 &nbsp;(mod N), &nbsp; N prime &hArr; s<sub>n&minus;2</sub> &equiv; 0',
+    'Lucas 1876, Lehmer 1930, Riesel 1969: one squaring per bit of the exponent, and the last residue decides');
+  if(M.view==='nminus') return E('a<sup>(N&minus;1)/2</sup> &equiv; &minus;1 (mod N), (a | N) = &minus;1 &nbsp;&rArr;&nbsp; N prime &nbsp; [Proth 1878, P&eacute;pin 1877]; &nbsp; N&minus;1 = &Pi;q<sup>e</sup>: gcd(a<sup>(N&minus;1)/q</sup>&minus;1, N) = 1 &forall;q &rArr; prime',
+    'the n&minus;1 family: a square root of &minus;1 pins the order of a, and a known factorisation of N&minus;1 forces every prime factor of N above &radic;N');
+  if(M.view==='record') return E('5336284<sup>1048576</sup> + 1: &nbsp; N&minus;1 = 2<sup>2097152</sup> &middot; 1334071<sup>1048576</sup>',
+    'fully factored, so the N&minus;1 test needs only two witnesses — PFGW 4.0.4, 20.41 days, "is prime!" (t5k entry 141212)');
+  if(M.view==='history') return E('digits(2<sup>p</sup>&minus;1) = &lfloor;p log<sub>10</sub>2&rfloor; + 1, &nbsp; digits(b<sup>2<sup>n</sup></sup>+1) = &lfloor;2<sup>n</sup> log<sub>10</sub>b&rfloor; + 1',
+    'four centuries of records: every size on this chart was recomputed from its exponent and matches the source to the digit');
+  return E('k&middot;2<sup>n</sup> &plusmn; 1 &equiv; 0 (mod q) for some q in a finite set, for EVERY n',
+    'a covering set: 78557 and 509203 never give a prime, and the conjectures say they are the smallest such k');
+}
+function tagHTML(M){
+  const st=ST;
+  if(M.view==='forms') return '<b>the forms</b> — '+formName(st.form)+', '+M.count+' prime of '+M.total;
+  if(M.view==='nplus') return '<b>the n+1 tests</b> — '+M.label;
+  if(M.view==='nminus') return '<b>the n−1 tests</b> — '+M.label;
+  if(M.view==='record') return '<b>the record</b> — 5336284<sup>1048576</sup> + 1, 7 054 022 digits';
+  if(M.view==='history') return '<b>the records</b> — 1588 to 2024';
+  return '<b>the covering sets</b> — k = '+M.cov.k;
+}
+/* ================================================================== *
+ *  drawing helpers, geometry, the six views, dispatch, scene           *
+ * ================================================================== */
+function capHFor(W){ return W>=900?60:96; }
+function drawCap(ctx,W,H,full,short){
+  const narrow=W<900;
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,H-capHFor(W),W,capHFor(W));
+  caption(ctx,28,H-capHFor(W)+8,narrow?short:full,narrow?W-56:W-RO_W-60);
+}
+function txt(ctx,t,x,y,col,font,align,base){
+  ctx.fillStyle=col||COL.dim; ctx.font=font||'11px -apple-system, sans-serif';
+  ctx.textAlign=align||'left'; ctx.textBaseline=base||'alphabetic';
+  ctx.fillText(plain(t),x,y);
+}
+function ptitle(ctx,b,t){ txt(ctx,t,b.x,b.y-9,'#aeb6c6','italic 13px Georgia, serif','left','bottom'); }
+function stageBox(W,H,extraTop){
+  return box(24,stageTop()+(extraTop||24),(W>=900?W-RO_W-8:W-24)-24,H-capHFor(W)-16-stageTop()-(extraTop||24));
+}
+/* a one- or two-line header above the stage box, wrapped to the stage width */
+function header(ctx,W,t){ caption(ctx,24,stageTop()+8,t,W>=900?W-RO_W-60:W-56,COL.dim); }
+function cellText(c){ const [r,g2,b]=toRgb(c); return 0.2126*r+0.7152*g2+0.0722*b>110?'#0d1120':'#9aa2b4'; }
+/* fraction residue/N in [0,1] without floats on the BigInt */
+function frac(r,N){ return Number(r*10000n/N)/10000; }
+
+/* ---- strip geometry: `count` square cells wrapping in rows ---- */
+function stripGeo(W,H,count){
+  const b=stageBox(W,H,34);
+  const cols=Math.max(1,Math.min(count,Math.max(8,Math.floor(b.w/34))));
+  const rows=Math.ceil(count/cols);
+  const cell=Math.max(4,Math.min(Math.floor(b.w/cols),Math.floor(b.h/rows)));
+  return {b,cols,rows,cell,count,X(i){ return b.x+(i%cols)*cell; },Y(i){ return b.y+Math.floor(i/cols)*cell; }};
+}
+function pickStrip(g,x,y){
+  const c=Math.floor((x-g.b.x)/g.cell), r=Math.floor((y-g.b.y)/g.cell);
+  if(c<0||c>=g.cols||r<0||r>=g.rows) return -1;
+  const i=r*g.cols+c; return i<g.count?i:-1;
+}
+/* ---- grid geometry: nrows x ncols cells with a label gutter ---- */
+function gridGeo(W,H,nrows,ncols){
+  const b=stageBox(W,H,34), lm=44, tm=22;
+  const cell=Math.max(3,Math.min(Math.floor((b.w-lm)/ncols),Math.floor((b.h-tm)/nrows)));
+  return {b,lm,tm,cell,nrows,ncols,X(c){ return b.x+lm+c*cell; },Y(r){ return b.y+tm+r*cell; }};
+}
+function pickGrid(g,x,y){
+  const c=Math.floor((x-g.b.x-g.lm)/g.cell), r=Math.floor((y-g.b.y-g.tm)/g.cell);
+  if(c<0||c>=g.ncols||r<0||r>=g.nrows) return null;
+  return {r,c};
+}
+
+/* ================================================================== *
+ *  view: the forms                                                    *
+ * ================================================================== */
+function formsGeo(W,H,M){
+  if(M.strip) return {kind:'strip',g:stripGeo(W,H,M.strip.length)};
+  return {kind:'grid',g:gridGeo(W,H,M.grid.length,M.grid[0].length)};
+}
+function drawForms(ctx,W,H,M){
+  const st=ST, fg=formsGeo(W,H,M);
+  if(fg.kind==='strip'){
+    const g=fg.g, S=M.strip, fs=Math.min(12,g.cell*0.34);
+    ctx.font=fs+'px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    for(let i=0;i<S.length;i++){
+      const c=S[i].prime?COL.pos:COL.off, x=g.X(i), y=g.Y(i), d=g.cell-Math.max(1,g.cell*0.1);
+      ctx.fillStyle=c; ctx.fillRect(x,y,d,d);
+      if(g.cell>=22){ ctx.fillStyle=cellText(c);
+        ctx.fillText(String(S[i].p!==undefined?S[i].p:(st.form==='fermat'?'F'+S[i].n:S[i].n)),x+d/2,y+d/2); }
+    }
+    if(st.hi>=0&&st.hi<S.length){ const d=g.cell-Math.max(1,g.cell*0.1);
+      ctx.strokeStyle=COL.live; ctx.lineWidth=2; ctx.strokeRect(g.X(st.hi)-1.5,g.Y(st.hi)-1.5,d+3,d+3); }
+    header(ctx,W,st.form==='mersenne'?'p = 2 … '+LL_LIVE_MAX+', every prime exponent, each 2^p − 1 decided by Lucas–Lehmer live'
+      :st.form==='fermat'?'F0 … F12, each decided by Pépin live; F5 … F8 carry their known factors in the readout'
+      :st.form==='cullen'?'n = 1 … '+CULLEN_MAX+', each n·2^n + 1 decided by Proth live'
+      :'n = 2 … '+WOODALL_MAX+', each n·2^n − 1 decided by Lucas–Lehmer–Riesel live');
+  } else {
+    const g=fg.g, G=M.grid;
+    for(let r=0;r<G.length;r++) for(let c=0;c<G[r].length;c++){
+      const cell=G[r][c];
+      const col=cell.prime?(cell.theorem?COL.pos:shade(COL.pos,0.55)):(cell.theorem?COL.off:'#0c1019');
+      const d=g.cell-Math.max(0.5,g.cell*0.12);
+      ctx.fillStyle=col; ctx.fillRect(g.X(c),g.Y(r),d,d);
+    }
+    if(st.hk>=0&&st.hn>=0&&G[st.hk]&&G[st.hk][st.hn]){ const d=g.cell-Math.max(0.5,g.cell*0.12);
+      ctx.strokeStyle=COL.live; ctx.lineWidth=2; ctx.strokeRect(g.X(st.hn)-1.5,g.Y(st.hk)-1.5,d+3,d+3); }
+    /* labels: rows (k or n), columns (n or b) */
+    ctx.font='9.5px -apple-system, sans-serif';
+    const rowLab=r=>st.form==='gf'?'n='+G[r][0].n:'k='+G[r][0].k;
+    const colLab=c=>st.form==='gf'?'b='+G[0][c].b:String(G[0][c].n);
+    const rstep=g.cell>=11?1:(g.cell>=6?2:4);
+    for(let r=0;r<G.length;r+=rstep) txt(ctx,rowLab(r),g.b.x+g.lm-5,g.Y(r)+g.cell/2,COL.dim,'9.5px -apple-system, sans-serif','right','middle');
+    const cstep=st.form==='gf'?(g.cell>=26?1:2):5;
+    for(let c=0;c<G[0].length;c+=cstep) txt(ctx,colLab(c),g.X(c)+g.cell/2,g.b.y+g.tm-4,COL.dim,'9.5px -apple-system, sans-serif','center','bottom');
+    header(ctx,W,st.form==='gf'?'b even 2 … 40 across, n = 1 … 4 down: every b^(2^n)+1 proven or refuted by the N−1 test on factor(b)'
+      :(st.form==='proth'?'k odd down, n across: Proth\'s theorem decides where k < 2^n; the faded corner (k ≥ 2^n) is Miller–Rabin'
+      :'k odd down, n across: Lucas–Lehmer–Riesel decides where k < 2^n; the faded corner is Miller–Rabin'));
+  }
+  drawCap(ctx,W,H,
+    formName(st.form)+': '+M.count+' prime among the '+M.total+' members shown — green cells are proven by the form\'s own '
+    +(st.form==='mersenne'||st.form==='riesel'||st.form==='woodall'?'N+1 test (Lucas sequences)':'N−1 test (Proth / Pépin / Pocklington)')
+    +'; the readout carries the record holder from t5k',
+    formName(st.form)+': '+M.count+' prime of '+M.total);
+}
+
+/* ================================================================== *
+ *  view: the n+1 tests — the residue sequence, one squaring per bit   *
+ * ================================================================== */
+function drawSeqPanel(ctx,b,seq,shown,N,done,verdict,title,finalLabel){
+  const n=seq.length;
+  /* one slot per step, bars centred in their slots and capped at 40 px, so a
+     three-step chain cannot spill past the frame (first PNG pass) */
+  const tstep=Math.max(1,Math.ceil(n/8)), xt=[];
+  for(let i=0;i<n;i+=tstep) xt.push(i);
+  axes(ctx,b,-0.5,n-0.5,0,1,{xlab:'step i',ylab:'residue / N',title,ny:4,xticks:xt,
+    xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,1)});
+  const slot=b.w/Math.max(1,n), bw=Math.min(40,Math.max(1,slot*0.8));
+  const XofI=i=>b.x+slot*(i+0.5);
+  for(let i=0;i<n;i++){
+    const X=XofI(i), f=frac(seq[i],N), hgt=b.h*f;
+    const on=i<=shown;
+    ctx.fillStyle=on?(i===n-1&&done?(verdict?COL.pos:COL.ref):COL.pos):'#1a2030';
+    if(on) ctx.fillRect(X-bw/2,b.y1-hgt,bw,Math.max(1.5,hgt));
+    else ctx.fillRect(X-bw/2,b.y1-2,bw,2);
+  }
+  if(done){
+    const X=XofI(n-1);
+    ctx.strokeStyle=COL.live; ctx.setLineDash([3,3]); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke(); ctx.setLineDash([]);
+    txt(ctx,finalLabel,X-6,b.y+10,verdict?COL.pos:COL.ref,'bold 12px -apple-system, sans-serif','right','top');
+  }
+}
+function drawNplus(ctx,W,H,M){
+  const st=ST, b0=stageBox(W,H,40);
+  const b=box(b0.x+50,b0.y+16,b0.w-70,Math.max(80,b0.h*0.62-30));
+  if(!M.seq.length){
+    txt(ctx,M.label+' is settled by trial division'+(M.small?' — divisible by '+M.small:'')+'; pick a larger target for a sequence',b0.x,b0.y+20,COL.dim);
+  } else {
+    drawSeqPanel(ctx,b,M.seq,M.stepShown,M.N,M.done,M.verdict,'the Lucas sequence mod '+M.label,
+      M.verdict?'last residue 0 — PRIME':'last residue ≠ 0 — composite');
+    /* the residues in words, as many as fit */
+    let y=b.y1+46, line='', shown=0;
+    const maxW=b0.w-20;
+    ctx.font='11px "SF Mono", Menlo, monospace';
+    for(let i=0;i<=M.stepShown;i++){
+      const piece=(i?', ':'s₀ = ')+(digitsOf(M.seq[i])<=12?M.seq[i].toString():fmtBig(M.seq[i]));
+      if(ctx.measureText(line+piece).width>maxW){ if(shown>=3) break; txt(ctx,line,b0.x,y,'#9aa2b4','11px "SF Mono", Menlo, monospace'); y+=16; line=piece.replace(/^, /,''); shown++; }
+      else line+=piece;
+    }
+    if(line) txt(ctx,line+(M.stepShown<M.seq.length-1?' …':''),b0.x,y,'#9aa2b4','11px "SF Mono", Menlo, monospace');
+  }
+  drawCap(ctx,W,H,
+    (st.nplus==='mersenne'?'Lucas–Lehmer on M'+M.p+': s₀ = 4, square-minus-two '+M.steps+' times modulo 2^'+M.p+' − 1 (the reduction is a shift and an add, because the modulus is all ones)'
+     :'Lucas–Lehmer–Riesel on '+M.label+': u₀ = V_k(P,1) with Rödseth\'s P = '+(M.P===null?'—':M.P)+', then '+M.steps+' squarings')
+    +' — the number is prime exactly when the last residue is 0; a square root of 2+√3 exists in the ring only then'
+    +(M.done?'':' — running'),
+    M.label+': '+M.steps+' squarings, last residue decides'+(M.done?'':' (running)'));
+}
+
+/* ================================================================== *
+ *  view: the n−1 tests — witness, square-and-multiply, the −1         *
+ * ================================================================== */
+function drawNminus(ctx,W,H,M){
+  const st=ST, b0=stageBox(W,H,40);
+  if(M.chain.length){
+    /* the exponent's bits across the top */
+    const nb=M.chain.length, cw=Math.min(14,Math.max(2,(b0.w-60)/nb)), y0=b0.y+18;
+    if(cw>=3){
+      for(let i=0;i<nb;i++){
+        const on=M.chain[i].bit==='1';
+        ctx.fillStyle=i===M.stepShown?COL.live:(on?COL.struct:'#1a2030');
+        ctx.fillRect(b0.x+50+i*cw,y0,Math.max(1,cw-1),10);
+      }
+      txt(ctx,'bits of (N−1)/2, high to low — each is a squaring, each 1 also a multiply by a = '+M.a,b0.x+50,y0+24,COL.dim,'10.5px -apple-system, sans-serif');
+    } else txt(ctx,nb+' bits of (N−1)/2 (too many to draw): each a squaring, each 1 a multiply by a = '+M.a,b0.x+50,y0+8,COL.dim,'10.5px -apple-system, sans-serif');
+    const b=box(b0.x+50,y0+52,b0.w-70,Math.max(80,b0.h*0.55-40));
+    const seq=M.chain.map(c=>c.r);
+    drawSeqPanel(ctx,b,seq,M.stepShown,M.N,M.done,M.verdict,'a^e mod N along the chain, a = '+M.a,
+      M.verdict?'ends at N − 1 ≡ −1 — PRIME':'ends elsewhere — composite');
+    const r=seq[M.stepShown];
+    txt(ctx,'current residue: '+(digitsOf(r)<=30?r.toString():fmtBig(r))+(M.done?'   (N − 1 = '+(digitsOf(M.N)<=30?(M.N-1n).toString():fmtBig(M.N-1n))+')':''),
+        b0.x,b.y1+46,'#9aa2b4','11px "SF Mono", Menlo, monospace');
+  } else if(M.qs){
+    /* generalized Fermat: the N-1 test with the factorization of b */
+    let y=b0.y+26;
+    y+=caption(ctx,b0.x,y,M.label+' — N − 1 = '+M.b+'^'+Math.pow(2,M.n)+', whose prime factors are those of '+M.b+': '+M.qs.join(', '),b0.w,'#cfd4de','12.5px -apple-system, sans-serif')+12;
+    y+=caption(ctx,b0.x,y,'Theorem 2 (t5k): for every prime q | N−1 find a with a^(N−1) ≡ 1 and gcd(a^((N−1)/q) − 1, N) = 1; then N is prime',b0.w)+10;
+    for(const q of M.qs){
+      const a=M.wit&&M.wit[q.toString()];
+      if(a!==undefined){
+        const e1=powmod(a,M.N-1n,M.N), e2=bigGcd(powmod(a,(M.N-1n)/q,M.N)-1n,M.N);
+        y+=caption(ctx,b0.x+16,y,'q = '+q+':  a = '+a+'   a^(N−1) mod N = '+e1+'   gcd(a^((N−1)/'+q+') − 1, N) = '+e2,b0.w-16,COL.pos,'11.5px "SF Mono", Menlo, monospace')+6;
+      } else {
+        y+=caption(ctx,b0.x+16,y,'q = '+q+':  no witness — '+(M.test.failedAt?('a = '+M.test.a+' fails a^(N−1) ≡ 1: N is not even a Fermat probable prime'):'undecided'),b0.w-16,COL.ref,'11.5px "SF Mono", Menlo, monospace')+6;
+      }
+    }
+    y+=10;
+    y+=caption(ctx,b0.x,y,M.verdict?'every factor of N−1 has its witness ⇒ '+M.label+' is PRIME':M.label+' is composite',b0.w,M.verdict?COL.pos:COL.ref,'bold 13px -apple-system, sans-serif')+14;
+    caption(ctx,b0.x,y,'this is the record\'s proof in miniature: 5336284^1048576 + 1 has N − 1 = 2^2097152 · 1334071^1048576, two primes to witness',b0.w);
+  } else if(M.applies===false){
+    caption(ctx,b0.x,b0.y+12,M.label+': k = '+M.k+' ≥ 2^'+M.n+' — Proth\'s theorem does not apply; Miller–Rabin says '+(M.verdict?'prime':'composite'),b0.w,COL.ref);
+  } else {
+    let y=b0.y+12;
+    y+=caption(ctx,b0.x,y,M.label+': the chain is too long to draw ('+(Math.pow(2,M.n)-1)+' squarings); Pépin\'s residue is '+(M.verdict?'−1: PRIME':'not −1: composite'),b0.w)+10;
+    if(M.factors) caption(ctx,b0.x,y,'known factors: '+M.factors.join(' × ')+(M.n===8?' × (a 62-digit prime)':''),b0.w,'#9aa2b4','11px "SF Mono", Menlo, monospace');
+  }
+  drawCap(ctx,W,H,
+    (st.nminus==='fermat'?'Pépin\'s test: F_n is prime iff 3^((F_n−1)/2) ≡ −1 — only F0 … F4 pass; Euler\'s 641 divides F5'
+     :st.nminus==='gf'?'the N−1 test with the factorisation of b: because N − 1 = b^(2^n), the only primes to witness are the primes of b — exactly what PFGW ran for the record'
+     :'Proth\'s theorem: find a with (a | N) = −1; a^((N−1)/2) ≡ −1 (mod N) proves N prime because it forces the order of a to carry the full power of 2 in N−1')
+    +(M.done?'':' — running'),
+    (st.nminus==='fermat'?'Pépin: 3^((F−1)/2) ≡ −1 ⇔ prime':st.nminus==='gf'?'N−1 test on factor(b)':'Proth: a^((N−1)/2) ≡ −1 ⇒ prime')+(M.done?'':' (running)'));
+}
+
+/* ================================================================== *
+ *  view: the record — 5336284^1048576 + 1, anatomy and pipeline       *
+ * ================================================================== */
+function drawRecord(ctx,W,H,M){
+  const R=M.rec, b0=stageBox(W,H,30), P=M.pipe;
+  const compact=b0.h<430||b0.w<520;          /* short stages drop the ladder and the coda */
+  const tiny=b0.h<300;                       /* and the subtitle and box descriptions */
+  let y=b0.y+4;
+  txt(ctx,'5336284^1048576 + 1',b0.x,y,'#fff','italic '+(compact?22:30)+'px Georgia, serif','left','top'); y+=compact?30:42;
+  if(!tiny) y+=caption(ctx,b0.x,y,fmtInt(RECORD.digits)+' digits · '+fmtInt(R.bits)+' bits · generalized Fermat b^(2^20) + 1 · found '+RECORD.pg_date.slice(0,10)+' by '+RECORD.pg_discoverer+' (PrimeGrid) · t5k rank '+RECORD.rank+' overall, '+RECORD.subcat_rank+' among generalized Fermat',
+      b0.w,'#cfd4de','12px -apple-system, sans-serif')+10;
+  if(!compact){
+    /* the size ladder */
+    const lad=[['largest known: 2^136279841 − 1',41024320],['largest gen. Fermat: 2524190^2097152 + 1',13426224],['this record',RECORD.digits],['M127 (1876, the last hand record)',39]];
+    const barW=Math.min(b0.w-260,620);
+    txt(ctx,'digits, to scale',b0.x,y,COL.dim,'italic 12px Georgia, serif','left','top'); y+=18;
+    for(const [lab,d] of lad){
+      const w=Math.max(2,barW*d/41024320);
+      ctx.fillStyle=lab==='this record'?COL.live:(lab.startsWith('largest known')?COL.pos:COL.struct);
+      ctx.fillRect(b0.x,y,w,10);
+      txt(ctx,lab+' — '+fmtInt(d),b0.x+w+8,y+5,'#9aa2b4','10.5px -apple-system, sans-serif','left','middle');
+      y+=16;
+    }
+    y+=12;
+  }
+  /* the pipeline, with the replica's numbers */
+  y+=caption(ctx,b0.x,y,'the pipeline the search ran — replayed here on the field b^4 + 1, b even ≤ 2000',b0.w,COL.dim,'italic 12px Georgia, serif')+6;
+  const stages=[['sieve','AthGFNSieve / GFNSvCUDA: trial division by small primes removes most candidates',P.cands+' → '+P.sieved],
+                ['PRP','Genefer: a Fermat probable-prime test, 3^(N−1) ≡ 1 (mod N), with the Gerbicz error check',P.sieved+' → '+P.prp],
+                ['prove','LLR / PFGW: the N−1 test (Brillhart–Lehmer–Selfridge) on the full factorisation of N−1 — 20.41 days',P.prp+' → '+P.proven]];
+  const bx=b0.x, bw=Math.min(b0.w-10,760), sh=tiny?30:(compact?40:46);
+  stages.forEach((s,i)=>{
+    const yy=y+i*(sh+8);
+    frame(ctx,box(bx,yy,bw,sh),COL.edge);
+    ctx.fillStyle=i===2?rgba(COL.pos,0.12):rgba(COL.struct,0.08); ctx.fillRect(bx+1,yy+1,bw-2,sh-2);
+    txt(ctx,s[0],bx+10,yy+13,i===2?COL.pos:COL.struct,'bold 12px -apple-system, sans-serif','left','middle');
+    txt(ctx,s[2],bx+bw-10,yy+13,COL.live,'bold 12px "SF Mono", Menlo, monospace','right','middle');
+    if(!tiny) caption(ctx,bx+10,yy+22,s[1],bw-20,'#9aa2b4','10.5px -apple-system, sans-serif');
+  });
+  y+=3*(sh+8)+6;
+  if(!compact)
+    caption(ctx,b0.x,y,'why N−1 is cheap here: N − 1 = 5336284^1048576 = 2^2097152 · 1334071^1048576 is fully factored the moment you factor b, so Theorem 2 needs just two witnesses (q = 2, q = 1334071); '
+      +'the replica 6^4 + 1 = 1297 needs witnesses for 2 and 3: a = '+R.replica.wit['2']+' and a = '+R.replica.wit['3']+' — '+(R.replica.prime?'proven prime':'?'),b0.w,COL.dim);
+  drawCap(ctx,W,H,
+    'log₁₀ N = 2^20 · log₁₀ 5336284 = '+R.log10.toFixed(4)+' (t5k prints '+RECORD.log10+'), so '+fmtInt(RECORD.digits)+' digits — the PrimeGrid announcement PDF is not published, so discovery hardware and Genefer times are NOT shown; every number here is from the t5k entry or recomputed',
+    fmtInt(RECORD.digits)+' digits · proven by the N−1 test in 20.41 days (t5k)');
+}
+
+/* ================================================================== *
+ *  view: the records — four centuries on a log axis                   *
+ * ================================================================== */
+function historyGeo(W,H){
+  const b0=stageBox(W,H,40);
+  const wide=W>=900;
+  return {b:box(b0.x+56,b0.y+10,(wide?b0.w*0.66:b0.w)-70,b0.h-60),x0:1560,x1:2032,y0:0,y1:8};
+}
+function drawHistory(ctx,W,H,M){
+  const st=ST, G=historyGeo(W,H), b=G.b;
+  axes(ctx,b,G.x0,G.x1,G.y0,G.y1,{xlab:'year',ylab:'log10 of the digit count',title:'the largest known prime, by year (t5k)',
+    nx:8,ny:8,xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,0)});
+  /* era shading (drawn from data, clipped to the box by construction) */
+  const eras=[[1560,1951,'by hand',COL.ref],[1951,1996,'computers',COL.struct],[1996,2024,'GIMPS',COL.pos],[2024,2032,'GPU',COL.live]];
+  ctx.font='10px -apple-system, sans-serif';
+  for(const [a,c,lab,col] of eras){
+    const X0=b.x+b.w*(a-G.x0)/(G.x1-G.x0), X1=b.x+b.w*(c-G.x0)/(G.x1-G.x0);
+    ctx.fillStyle=rgba(col,0.05); ctx.fillRect(X0,b.y,X1-X0,b.h);
+    /* a label wider than its own band would sit on its neighbour's */
+    if(ctx.measureText(lab).width<X1-X0-4)
+      txt(ctx,lab,(X0+X1)/2,b.y1-6,rgba(col,0.8),'10px -apple-system, sans-serif','center','bottom');
+  }
+  const pts=M.pts.slice().sort((p,q)=>p.year-q.year||p.digits-q.digits);
+  const xs=pts.map(p=>p.year), ys=pts.map(p=>Math.log10(p.digits));
+  polyline(ctx,b,xs,ys,G.x0,G.x1,G.y0,G.y1,rgba(COL.pos,0.6),1.2);
+  M.pts.forEach((p,i)=>{
+    const X=b.x+b.w*(p.year-G.x0)/(G.x1-G.x0), Y=b.y1-b.h*(Math.log10(p.digits)-G.y0)/(G.y1-G.y0);
+    const col=p.era==='pre'?COL.ref:(/GIMPS/.test(p.who)?COL.pos:(p.year>=2024?COL.live:COL.struct));
+    ctx.fillStyle=i===st.hi?COL.live:col; ctx.beginPath(); ctx.arc(X,Y,i===st.hi?4.5:3,0,TAU); ctx.fill();
+  });
+  if(W>=900){
+    /* the ten largest, as bars, to the right */
+    const bx=b.x1+60, bw=W-36-bx, top=Math.max(486,b.y);
+    if(bw>150&&b.y1-top>120){
+      txt(ctx,'the ten largest known primes (t5k)',bx,top-8,'#aeb6c6','italic 13px Georgia, serif','left','bottom');
+      const rh=Math.min(20,(b.y1-top)/10);
+      ctx.font='9.5px -apple-system, sans-serif';
+      TOP10.forEach((r,i)=>{
+        const yy=top+i*rh, w=bw*r[1]/TOP10[0][1], lab=(i+1)+'. '+r[0]+' — '+fmtInt(r[1]);
+        const barCol=/Mersenne/.test(r[4])?COL.pos:COL.struct;
+        ctx.fillStyle=barCol; ctx.fillRect(bx,yy+3,Math.max(2,w),rh-6);
+        /* dark text ON a bar wide enough to hold it, light text BESIDE a short one
+           (first PNG pass: light text on bright bars was unreadable) */
+        const lw=ctx.measureText(plain(lab)).width;
+        if(w>lw+10) txt(ctx,lab,bx+4,yy+rh/2,'#0d1120','9.5px -apple-system, sans-serif','left','middle');
+        else txt(ctx,lab,bx+w+5,yy+rh/2,'#cfd4de','9.5px -apple-system, sans-serif','left','middle');
+      });
+    }
+  }
+  drawCap(ctx,W,H,
+    'from Cataldi\'s 2^17 − 1 (1588, trial division) through Lucas\'s hand-proved M127 (1876), Ferrier\'s Proth-theorem record (1951, the last of the pre-computer era in t5k\'s table), the SWAC and Cray Lucas–Lehmer runs, GIMPS on home PCs, to an A100 GPU in 2024 — 41 million digits; the 2025 generalized Fermat record sits at 7 million, rank 21',
+    'record primes 1588 – 2024, log scale; every size recomputed from its exponent');
+}
+function pickHistory(G,pts,x,y){
+  let best=-1,bd=1e9;
+  pts.forEach((p,i)=>{
+    const X=G.b.x+G.b.w*(p.year-G.x0)/(G.x1-G.x0), Y=G.b.y1-G.b.h*(Math.log10(p.digits)-G.y0)/(G.y1-G.y0);
+    const d=Math.hypot(X-x,Y-y); if(d<bd){ bd=d; best=i; } });
+  return bd<=9?best:-1;
+}
+
+/* ================================================================== *
+ *  view: the covering sets                                            *
+ * ================================================================== */
+function drawCover(ctx,W,H,M){
+  const C=M.cov, b0=stageBox(W,H,40);
+  const nrows=C.period, ncols=C.cover.length;
+  const lm=40, tm=22;
+  /* the table must FIT the stage: no floor on the cell, and row labels thin
+     out to stay 12 px apart (first sweep: rows ran into the caption band) */
+  const cell=Math.max(3,Math.min(Math.floor((b0.w*0.55-lm)/ncols),(b0.h-tm)/nrows));
+  const lstep=Math.max(1,Math.ceil(12/cell));
+  const X=c=>b0.x+lm+c*cell, Y=r=>b0.y+tm+r*cell;
+  if(cell>=14) for(let c=0;c<ncols;c++) txt(ctx,String(C.cover[c]),X(c)+cell/2,b0.y+tm-4,COL.dim,'10px -apple-system, sans-serif','center','bottom');
+  else txt(ctx,'q = '+C.cover.join(', '),b0.x+lm,b0.y+tm-4,COL.dim,'10px -apple-system, sans-serif','left','bottom');
+  for(let r=0;r<nrows;r++){
+    const row=C.rows[r];
+    if(r%lstep===0) txt(ctx,'n='+row.n,b0.x+lm-5,Y(r)+cell/2,COL.dim,'9.5px -apple-system, sans-serif','right','middle');
+    for(let c=0;c<ncols;c++){
+      const q=C.cover[c], hit=row.hits.indexOf(q)>=0;
+      ctx.fillStyle=hit?(row.first===q?COL.pos:shade(COL.pos,0.5)):COL.off;
+      ctx.fillRect(X(c),Y(r),cell-1,cell-1);
+    }
+  }
+  const rx=X(ncols)+30;
+  let y=b0.y+tm;
+  txt(ctx,'k = '+C.k+', '+(C.sign>0?'k·2^n + 1':'k·2^n − 1'),rx,y,'#fff','italic 16px Georgia, serif','left','top'); y+=28;
+  caption(ctx,rx,y,'every row has a green cell: for each n some prime of the set {'+C.cover.join(', ')+'} divides the number, so no member is ever prime. The divisor pattern repeats with period '+C.period+' because the orders of 2 modulo the set primes all divide '+C.period+'.',Math.max(200,b0.x1-rx-10)); y+=90;
+  caption(ctx,rx,y,(M.cover==='sierp'?'Selfridge (1962) proved 78557 is Sierpiński; the conjecture that it is the SMALLEST is what Seventeen or Bust / PrimeGrid attack by finding a Proth prime for each smaller k — five k remain: '+SIERP.remaining.join(', ')+'.'
+     :'Riesel (1956) showed 509203 never gives a prime; the Riesel conjecture says it is the smallest such k — PrimeGrid hunts an LLR prime for each smaller k, and 41 remain.'),Math.max(200,b0.x1-rx-10));
+  drawCap(ctx,W,H,
+    'a covering set is a finite proof about infinitely many numbers: 2^n mod q cycles, so the residues of k·2^n ± 1 modulo each q cycle too, and the set is chosen so every n lands on a zero somewhere — the sim checks all '+C.rows.length+' rows exactly',
+    'k = '+C.k+': every n covered by {'+C.cover.join(', ')+'}, period '+C.period);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='forms') drawForms(ctx,W,H,M);
+  else if(M.view==='nplus') drawNplus(ctx,W,H,M);
+  else if(M.view==='nminus') drawNminus(ctx,W,H,M);
+  else if(M.view==='record') drawRecord(ctx,W,H,M);
+  else if(M.view==='history') drawHistory(ctx,W,H,M);
+  else drawCover(ctx,W,H,M);
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* the animation: the test sequences advance one step per frame while `anim`
+     is on and the end has not been reached; then the loop idles */
+  S.step=function(){
+    const st=ST;
+    if(!st.anim||(st.view!=='nplus'&&st.view!=='nminus')) return false;
+    const M=buildModel();
+    if(st.step>=M.maxStep) return false;
+    st.step=Math.min(M.maxStep,st.step+Math.max(0.25,st.speed*Math.max(1,M.maxStep)/180));
+    return true;
+  };
+  S.hover=function(x,y){
+    const st=ST, M=buildModel();
+    let hk=-1,hn=-1,hi=-1;
+    if(st.view==='forms'){
+      const fg=formsGeo(S.W,S.H,M);
+      if(fg.kind==='strip') hi=pickStrip(fg.g,x,y);
+      else { const pk=pickGrid(fg.g,x,y); if(pk){ hk=pk.r; hn=pk.c; } }
+    } else if(st.view==='history'){
+      hi=pickHistory(historyGeo(S.W,S.H),M.pts,x,y);
+    } else return false;
+    if(hk===st.hk&&hn===st.hn&&hi===st.hi) return false;
+    st.hk=hk; st.hn=hn; st.hi=hi; return true;
+  };
+  return S;
+}
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  const clearHover=()=>{ st.hk=-1; st.hn=-1; st.hi=-1; };
+  const retarget=()=>{ clearHover(); st.step=st.anim?0:1e9; };
+  function setView(k){
+    if(st.view!==k){ st.view=k; clearHover(); st.step=st.anim?0:1e9; }
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+
+  const gForm=h('div',{class:'grp'},h('h3',null,'the form'));
+  const formChips=chipRow(FORMS,'form',clearHover); gForm.appendChild(formChips); trackChips(gForm,FORMS,'form');
+  const formTag=h('div',{class:'tag'}); gForm.appendChild(formTag);
+
+  const gTarget=h('div',{class:'grp'},h('h3',null,'the target'));
+  const nplusChips=chipRow(NPLUS,'nplus',retarget); gTarget.appendChild(nplusChips); trackChips(gTarget,NPLUS,'nplus');
+  const nminusChips=chipRow(NMINUS,'nminus',retarget); gTarget.appendChild(nminusChips); trackChips(gTarget,NMINUS,'nminus');
+  gTarget.appendChild(slider('pIdx','exponent p',0,LL_P.length-1,1,v=>'p = '+LL_P[clamp(v,0,LL_P.length-1)],retarget));
+  gTarget.appendChild(slider('k','k (odd)',1,GRID_K,2,v=>fmt(v,0),retarget));
+  gTarget.appendChild(slider('n','n',2,GRID_N,1,v=>fmt(v,0),retarget));
+  gTarget.appendChild(slider('wn','Woodall n',2,WOODALL_MAX,1,v=>fmt(v,0),retarget));
+  gTarget.appendChild(slider('cn','Cullen n',1,CULLEN_MAX,1,v=>fmt(v,0),retarget));
+  gTarget.appendChild(slider('fn','Fermat index n',1,12,1,v=>'F'+fmt(v,0),retarget));
+  gTarget.appendChild(slider('gb','base b (even)',2,GF_BMAX,2,v=>fmt(v,0),retarget));
+  gTarget.appendChild(slider('gn','n  (N = b^(2^n)+1)',1,GF_NMAX,1,v=>fmt(v,0),retarget));
+  const targetTag=h('div',{class:'tag'}); gTarget.appendChild(targetTag);
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the run'));
+  gRun.appendChild(h('div',{class:'checks'},checkbox('anim','run the test step by step',()=>{ if(st.anim) st.step=0; })));
+  gRun.appendChild(slider('speed','speed',0.25,4,0.25,v=>fmt(v,2)+'×'));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ st.step=0; st.anim=true; syncPanel(); dirty=true; refresh(); }},'restart'),
+    h('button',{onclick:()=>{ st.step=1e9; dirty=true; refresh(); }},'finish'),
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v;
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gCover=h('div',{class:'grp'},h('h3',null,'the covering set'));
+  const coverChips=chipRow(COVERS,'cover',null); gCover.appendChild(coverChips); trackChips(gCover,COVERS,'cover');
+  const coverTag=h('div',{class:'tag'}); gCover.appendChild(coverTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Sources: t5k.org (entry 141212, prover code L5543, largest.html, notes/by_year, '
+      +'the Mersenne table, top-20 pages 6/7/12, prove3_1), primegrid.com (mega_primes), Wikipedia '
+      +'(Cullen, Proth, Fermat, LLR, Riesel, Sierpi&#324;ski, GIMPS, IBDWT). All fetched 2026-09-01 '
+      +'and emitted by build_primes/derive.py; every digit count and small verdict is recomputed in '
+      +'this file. PrimeGrid&rsquo;s announcement PDF was not obtainable (404).'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the number theory'),h('div',{id:'phys'}));
+  [gForm,gTarget,gRun,gCover,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++) if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view;
+    gForm.hidden=(v!=='forms');
+    gTarget.hidden=!(v==='nplus'||v==='nminus');
+    gRun.hidden=!(v==='nplus'||v==='nminus');
+    gCover.hidden=(v!=='cover');
+    nplusChips.hidden=(v!=='nplus'); nminusChips.hidden=(v!=='nminus');
+    rows.pIdx.row.hidden=!(v==='nplus'&&st.nplus==='mersenne');
+    rows.k.row.hidden=!((v==='nplus'&&st.nplus==='riesel')||(v==='nminus'&&st.nminus==='proth'));
+    rows.n.row.hidden=rows.k.row.hidden;
+    rows.wn.row.hidden=!(v==='nplus'&&st.nplus==='woodall');
+    rows.cn.row.hidden=!(v==='nminus'&&st.nminus==='cullen');
+    rows.fn.row.hidden=!(v==='nminus'&&st.nminus==='fermat');
+    rows.gb.row.hidden=!(v==='nminus'&&st.nminus==='gf');
+    rows.gn.row.hidden=rows.gb.row.hidden;
+    rows.speed.row.hidden=!st.anim;
+    for(const k in rows) rows[k].sync();
+    formTag.innerHTML='green = proven prime by the form\'s own test; hover a cell';
+    targetTag.innerHTML=v==='nplus'?'N + 1 factors completely — a Lucas sequence decides'
+                                   :'N − 1 factors completely — a witness a decides';
+    runTag.innerHTML='space runs/pauses &nbsp; <b>r</b> restarts &nbsp; 1–6 switch views';
+    coverTag.innerHTML='the two smallest known covering-set k; smaller k are conjectured to give primes';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='forms'||st.view==='history')
+        ?'hover for the member / the row · 1–6 switch views'
+        :((st.view==='nplus'||st.view==='nminus')?'space runs the test · r restarts · 1–6 switch views':'1–6 switch views');
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.anim=!st.anim; if(st.anim&&st.step>=1e8) st.step=0;
+      syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ st.step=0; st.anim=true; syncPanel(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+  canvas.addEventListener('pointermove',e=>{
+    const r=canvas.getBoundingClientRect();
+    if(S.hover(e.clientX-r.left,e.clientY-r.top)){ dirty=true; roEl.innerHTML=readoutHTML(S.model()); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw(); if(advanced&&frameN%6===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  forms:'Why every record prime has a shape. A general number of a million digits cannot be '
+    +'proven prime in any reasonable time, but if N + 1 or N − 1 factors completely, an EXACT test '
+    +'exists that costs one modular squaring per bit of N. So the hunt is confined to the special '
+    +'forms: <b>Mersenne</b> 2<sup>p</sup> − 1 (N+1 = 2<sup>p</sup>: Lucas–Lehmer), <b>Riesel</b> '
+    +'k·2<sup>n</sup> − 1 and <b>Woodall</b> n·2<sup>n</sup> − 1 (N+1 = k·2<sup>n</sup>: '
+    +'Lucas–Lehmer–Riesel), <b>Fermat</b> 2<sup>2<sup>n</sup></sup> + 1 (Pépin), '
+    +'<b>generalized Fermat</b> b<sup>2<sup>n</sup></sup> + 1 (N−1 = b<sup>2<sup>n</sup></sup>: the '
+    +'n−1 test needs only the factors of b), <b>Proth</b> k·2<sup>n</sup> + 1 and <b>Cullen</b> '
+    +'n·2<sup>n</sup> + 1 (Proth\'s theorem). Every green cell here was decided live by that form\'s '
+    +'own theorem, and cross-checked against Miller–Rabin in selfTest; the faded corner of the k×n '
+    +'grids is where k ≥ 2<sup>n</sup> and the theorem does not apply. The readout carries each '
+    +'form\'s record holder from t5k.',
+  nplus:'The n+1 family. Lucas (1876) proved 2<sup>127</sup> − 1 prime by hand with a sequence; '
+    +'Lehmer (1930) gave it its clean form: s<sub>0</sub> = 4, s<sub>i+1</sub> = s<sub>i</sub>² − 2 '
+    +'mod M<sub>p</sub>, and M<sub>p</sub> is prime iff s<sub>p−2</sub> = 0. The bars are the '
+    +'residues as fractions of N — noise until the last one, which is either exactly zero or not. '
+    +'Riesel (1969) extended it to k·2<sup>n</sup> − 1: start from u<sub>0</sub> = V<sub>k</sub>(P,1), '
+    +'the kth term of a Lucas sequence whose parameter P is chosen by Rödseth\'s Jacobi conditions, '
+    +'then square-minus-two n−2 times. Run it: the sequence advances one squaring per frame, and the '
+    +'readout prints the exact residue at every step.',
+  nminus:'The n−1 family. Proth (1878): for N = k·2<sup>n</sup> + 1 with k &lt; 2<sup>n</sup>, one '
+    +'witness a with a<sup>(N−1)/2</sup> ≡ −1 proves N prime — because that congruence forces the '
+    +'multiplicative order of a to carry the whole 2<sup>n</sup>, and Pocklington then puts every '
+    +'prime factor of N at 1 mod 2<sup>n</sup>, larger than √N. The picture is the square-and-multiply '
+    +'chain: the bits of (N−1)/2 across the top, one squaring each, a multiply by a at each 1, and the '
+    +'residue must land on N − 1. Pépin\'s test is the same idea for Fermat numbers with a = 3 (only '
+    +'F<sub>0</sub> … F<sub>4</sub> pass; Euler\'s 641 divides F<sub>5</sub>). For a generalized '
+    +'Fermat number N − 1 = b<sup>2<sup>n</sup></sup> is fully factored by factoring b, so Theorem 2 '
+    +'needs one witness per prime of b — this is precisely how the 7-million-digit record was proven.',
+  record:'The newest record on t5k at the time of writing: 5336284<sup>1048576</sup> + 1, '
+    +'7 054 022 digits, a generalized Fermat number with n = 20, found on PrimeGrid on 2025-10-31 '
+    +'(discoverer "Trotador", team XtremeSystems), t5k rank 21 overall and 3 among generalized '
+    +'Fermat primes. How it was found and proven: candidates b for fixed n = 20 were SIEVED '
+    +'(AthGFNSieve / GFNSvCUDA remove every b whose b<sup>2<sup>20</sup></sup> + 1 has a small '
+    +'factor), the survivors were PRP-TESTED (Genefer runs a Fermat probable-prime test with the '
+    +'Gerbicz error check — a probable prime is not a proof), and the one survivor was PROVEN with '
+    +'the N−1 test: N − 1 = 2<sup>2097152</sup> · 1334071<sup>1048576</sup> is fully factored, so '
+    +'two witnesses suffice; PFGW 4.0.4 reported "is prime!" after 20.41 days on a Digital Ocean '
+    +'droplet (t5k entry 141212). The sim replays that pipeline on the field b<sup>4</sup> + 1, '
+    +'b even ≤ 2000, and runs the proof in miniature on 6<sup>4</sup> + 1 = 1297.',
+  history:'Four centuries of the largest known prime, on a log axis of digit counts — every point '
+    +'is a t5k row and every size was recomputed from its exponent. Cataldi (1588) by trial division; '
+    +'Euler (1772) with his factor form 2kp + 1; Lucas (1876) with the first Lucas-sequence proof, a '
+    +'39-digit record that stood for 75 years; Ferrier (1951) with Proth\'s theorem, the last pre-computer '
+    +'record; then the SWAC, ILLIAC and Cray Lucas–Lehmer runs; GIMPS on volunteers\' PCs from '
+    +'1996 (since 2018 a base-3 Fermat PRP test with the Gerbicz check, and since 2020 a verifiable '
+    +'proof certificate that replaces the double-check at 1/100 of the cost); and in 2024 an NVIDIA '
+    +'A100 found 2<sup>136279841</sup> − 1, 41 million digits. The bars on the right are the ten '
+    +'largest known primes; the 2025 generalized Fermat record sits just outside them at rank 21.',
+  cover:'Why some k never give a prime — and why that matters to the searches. Selfridge (1962) '
+    +'showed 78557·2<sup>n</sup> + 1 is always divisible by one of {3, 5, 7, 13, 19, 37, 73}: the '
+    +'residues of 2<sup>n</sup> modulo each prime cycle, and the set is arranged so every n mod 36 '
+    +'lands on a zero somewhere. Riesel (1956) did the same for 509203·2<sup>n</sup> − 1 with '
+    +'{3, 5, 7, 13, 17, 241} and period 24. The conjectures say these are the SMALLEST such k, and '
+    +'proving that means exhibiting a Proth (or LLR) prime for every smaller candidate — the '
+    +'Seventeen or Bust / PrimeGrid programmes, which produced several of the largest known '
+    +'non-Mersenne primes along the way. Five Sierpiński candidates and 41 Riesel candidates remain.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  forms:'<h4>why a complete factorisation of N &plusmn; 1 is worth a proof</h4>'
+    +EQ(1,'<i>N</i> &minus; 1 = <i>F</i>&middot;<i>R</i>, <i>F</i> known: &nbsp; <i>a</i><sup>N&minus;1</sup> &equiv; 1, gcd(<i>a</i><sup>(N&minus;1)/q</sup> &minus; 1, <i>N</i>) = 1 &forall; <i>q</i> | <i>F</i> &nbsp;&rArr;&nbsp; every prime factor of <i>N</i> is &equiv; 1 (mod <i>F</i>)')
+    +'<p>(Pocklington 1914.) If <i>F</i> &gt; &radic;<i>N</i> no such factor fits below &radic;<i>N</i>, so <i>N</i> is prime. '
+    +'For b<sup>2<sup>n</sup></sup> + 1 the whole of <i>N</i> &minus; 1 is known; for k&middot;2<sup>n</sup> + 1 with k &lt; 2<sup>n</sup> the '
+    +'power of two alone is enough (Proth).</p>'
+    +EQ(2,'<i>N</i> + 1 = <i>k</i>&middot;2<sup>n</sup>: &nbsp; a Lucas sequence <i>V</i><sub>m</sub>(<i>P</i>,1) in the ring &#8484;[&radic;<i>D</i>]/<i>N</i> plays the role of <i>a</i><sup>m</sup>, and <i>V</i><sub>(N+1)/2</sub> &equiv; 0 is the analogue of <i>a</i><sup>(N&minus;1)/2</sup> &equiv; &minus;1')
+    +'<p>That is Lucas&ndash;Lehmer (k = 1) and Lucas&ndash;Lehmer&ndash;Riesel. Both families cost one modular squaring per bit, done by FFT '
+    +'multiplication — for Mersenne numbers the irrational-base discrete weighted transform (Crandall&ndash;Fagin 1994) folds the '
+    +'reduction mod 2<sup>p</sup> &minus; 1 into the transform, about 2&times; faster than a plain FFT product.</p>'
+    +'<div class="cite">t5k prove3_1 (Pocklington, Theorem 2, Proth, Pepin); the file decides every small member by these tests and pins each against Miller-Rabin</div>',
+  nplus:'<h4>Lucas&ndash;Lehmer</h4>'
+    +EQ(1,'<i>s</i><sub>0</sub> = 4, &nbsp; <i>s</i><sub>i+1</sub> = <i>s</i><sub>i</sub><sup>2</sup> &minus; 2 (mod <i>M</i><sub>p</sub>), &nbsp; <i>M</i><sub>p</sub> prime &hArr; <i>s</i><sub>p&minus;2</sub> &equiv; 0')
+    +'<p>Write &omega; = 2 + &radic;3, &omega;&#773; = 2 &minus; &radic;3, &omega;&omega;&#773; = 1. Then <i>s</i><sub>i</sub> = &omega;<sup>2<sup>i</sup></sup> + &omega;&#773;<sup>2<sup>i</sup></sup>, so '
+    +'<i>s</i><sub>p&minus;2</sub> &equiv; 0 means &omega;<sup>2<sup>p&minus;1</sup></sup> = &minus;1 in the ring modulo a prime factor <i>q</i> of <i>M</i><sub>p</sub>: the order of &omega; '
+    +'is exactly 2<sup>p</sup>, and it divides the group order <i>q</i><sup>2</sup> &minus; 1, so <i>q</i> &gt; 2<sup>p/2</sup> = &radic;<i>M</i><sub>p</sub> — no factor below the root, <i>M</i><sub>p</sub> is prime. '
+    +'The converse uses (3 | <i>M</i><sub>p</sub>) = &minus;1 and (2 | <i>M</i><sub>p</sub>) = 1 for p &ge; 3.</p>'
+    +EQ(2,'<i>x</i> mod (2<sup>p</sup> &minus; 1) = (<i>x</i> &amp; <i>M</i><sub>p</sub>) + (<i>x</i> &gt;&gt; <i>p</i>) &nbsp;<span class="rm">(repeat; the modulus is all ones, so reduction is a shift and an add)</span>')
+    +'<h4>Lucas&ndash;Lehmer&ndash;Riesel (Riesel 1969, R&ouml;dseth 1994)</h4>'
+    +EQ(3,'<i>N</i> = <i>k</i>&middot;2<sup>n</sup> &minus; 1, <i>k</i> &lt; 2<sup>n</sup>: &nbsp; <i>u</i><sub>0</sub> = <i>V</i><sub>k</sub>(<i>P</i>,1) mod <i>N</i>, &nbsp; (<i>P</i>&minus;2 | <i>N</i>) = 1, (<i>P</i>+2 | <i>N</i>) = &minus;1; &nbsp; <i>N</i> prime &hArr; <i>u</i><sub>n&minus;2</sub> &equiv; 0')
+    +'<p>The shortcut &ldquo;P = 4 whenever 3 &#8740; k&rdquo; is not enough: P = 4 needs (3 | N) = &minus;1, which depends on k mod 3 <i>and</i> the parity of n. '
+    +'This file always searches P by the Jacobi conditions (derive.py found the shortcut disagreeing with Miller&ndash;Rabin), and trial-divides first, as every '
+    +'LLR program does. Even k shifts to odd: n&middot;2<sup>n</sup> &minus; 1 = (n/2)&middot;2<sup>n+1</sup> &minus; 1.</p>'
+    +'<div class="cite">pins: LL residues for p = 7, 11, 13, 17, 19; LL exponents &le; 4423 = the t5k table; Woodall n &le; 400; Riesel grid 142 primes = Miller-Rabin — derive.py</div>',
+  nminus:'<h4>Proth (1878) and P&eacute;pin (1877)</h4>'
+    +EQ(1,'<i>N</i> = <i>k</i>&middot;2<sup>n</sup> + 1, <i>k</i> &lt; 2<sup>n</sup>: &nbsp; <i>a</i><sup>(N&minus;1)/2</sup> &equiv; &minus;1 (mod <i>N</i>) &nbsp;&rArr;&nbsp; <i>N</i> prime')
+    +'<p>Squaring gives <i>a</i><sup>N&minus;1</sup> &equiv; 1 with <i>a</i><sup>(N&minus;1)/2</sup> &ne; 1, so ord(<i>a</i>) mod any prime factor <i>q</i> of <i>N</i> is divisible by 2<sup>n</sup>; '
+    +'ord divides <i>q</i> &minus; 1, hence <i>q</i> &equiv; 1 (mod 2<sup>n</sup>), <i>q</i> &gt; 2<sup>n</sup> &gt; &radic;<i>N</i>. For a prime <i>N</i> the converse is Euler&rsquo;s criterion, '
+    +'so any <i>a</i> with (<i>a</i> | <i>N</i>) = &minus;1 works: this file searches the odd primes for one.</p>'
+    +EQ(2,'<i>F</i><sub>n</sub> = 2<sup>2<sup>n</sup></sup> + 1 prime &hArr; 3<sup>(F<sub>n</sub>&minus;1)/2</sup> &equiv; &minus;1 &nbsp;<span class="rm">(P&eacute;pin: 3 is a non-residue of every F<sub>n</sub>, n &ge; 1)</span>')
+    +'<h4>the n&minus;1 test with everything known (t5k Theorem 2)</h4>'
+    +EQ(3,'<i>N</i> &minus; 1 = <i>b</i><sup>2<sup>n</sup></sup>: for each prime <i>q</i> | <i>b</i> find <i>a</i> with <i>a</i><sup>N&minus;1</sup> &equiv; 1 and gcd(<i>a</i><sup>(N&minus;1)/q</sup> &minus; 1, <i>N</i>) = 1 &nbsp;&rArr;&nbsp; <i>N</i> prime')
+    +'<p>Pocklington with <i>F</i> = <i>N</i> &minus; 1 and <i>R</i> = 1: every prime factor of <i>N</i> would be &equiv; 1 (mod <i>N</i> &minus; 1), impossible below &radic;<i>N</i>. '
+    +'For 5336284<sup>1048576</sup> + 1 the primes of <i>b</i> are 2 and 1334071 — two witnesses, one chain of 23.4 million squarings each, 20.41 days in PFGW. '
+    +'The replica 6<sup>4</sup> + 1 = 1297 (primes of 6: 2, 3) takes witnesses a = 5 and a = 2.</p>'
+    +'<div class="cite">t5k prove3_1 verbatim; pins: Proth grid 147 primes = Miller-Rabin, A080076 reproduced, Cullen 1 and 141 with witness 5, Pepin F1..F12, GF grid rows — derive.py</div>',
+  record:'<h4>the size, from the printed fields</h4>'
+    +EQ(1,'log<sub>10</sub> <i>N</i> = 2<sup>20</sup> log<sub>10</sub> 5336284 = 7054021.2934&hellip;, &nbsp; digits = &lfloor;log<sub>10</sub> <i>N</i>&rfloor; + 1 = 7 054 022, &nbsp; bits = 23 432 952')
+    +'<p>t5k prints log<sub>10</sub> = 7054021.2934198; the recomputation agrees to the last printed digit (asserted).</p>'
+    +'<h4>the pipeline</h4>'
+    +EQ(2,'<span class="rm">sieve:</span> drop <i>b</i> if some small prime divides <i>b</i><sup>2<sup>20</sup></sup> + 1 &nbsp;&rarr;&nbsp; <span class="rm">PRP:</span> 3<sup>N&minus;1</sup> &equiv; 1? &nbsp;&rarr;&nbsp; <span class="rm">prove:</span> Theorem 2 on <i>N</i> &minus; 1 = 2<sup>2097152</sup> &middot; 1334071<sup>1048576</sup>')
+    +'<p>A Fermat probable-prime test is one modular exponentiation and is almost never wrong, but it is not a proof — the proof is the n&minus;1 test, which is the same cost again per witness. '
+    +'Genefer&rsquo;s PRP carries the Gerbicz check: the running product of residues is re-derived every few thousand iterations, so a hardware error is caught rather than reported as a composite. '
+    +'On the small field b<sup>4</sup> + 1, b even &le; 2000: 1000 candidates &rarr; 556 after sieving by primes below 200 &rarr; 204 probable primes &rarr; 204 proven, and 204 is also Miller&ndash;Rabin&rsquo;s count (asserted).</p>'
+    +'<div class="cite">t5k entry 141212 and prover code L5543: "PFGW Version 4.0.4.64BIT, using N-1 test with Brillhart-Lehmer-Selfridge", "is prime! (1763609.6123s+0.1229s) [Elapsed time: 20.41 days]", "Digital Ocean Droplet"; primegrid.com mega_primes: Trotador, XtremeSystems, 2025-10-31 23:41:35 UTC</div>',
+  history:'<h4>digits from exponents</h4>'
+    +EQ(1,'digits(2<sup>p</sup> &minus; 1) = &lfloor;<i>p</i> log<sub>10</sub> 2&rfloor; + 1, &nbsp; digits(<i>k</i>&middot;<i>b</i><sup>e</sup> + 1) = &lfloor;<i>e</i> log<sub>10</sub> <i>b</i> + log<sub>10</sub> <i>k</i>&rfloor; + 1')
+    +'<p>Every row of every fetched table was recomputed this way and compared with the printed count — which is how two garbled expressions '
+    +'(a superscript run into its base) were caught and corrected before they reached this file.</p>'
+    +'<h4>how the modern Mersenne search proves</h4>'
+    +EQ(2,'<span class="rm">PRP:</span> 3<sup>M<sub>p</sub>&minus;1</sup> &equiv; 1 (mod <i>M</i><sub>p</sub>)? &nbsp;<span class="rm">(a = 2 is useless: every Mersenne number is a base-2 pseudoprime)</span>')
+    +'<p>Since 2018 GIMPS runs a base-3 Fermat test with the Gerbicz error check instead of Lucas&ndash;Lehmer as the first pass; since 2020 the test emits a '
+    +'verifiable-delay-function proof (Pietrzak) whose check costs about 1/100 of the run, replacing the independent double-check. A hit is then confirmed by '
+    +'Lucas&ndash;Lehmer on several programs (Prime95, PRPLL, CUDALucas for M136279841, found on an A100 by Luke Durant on 2024-10-12).</p>'
+    +'<div class="cite">t5k notes/by_year and largest.html; Wikipedia GIMPS; every size on the chart pinned to its exponent</div>',
+  cover:'<h4>a covering set</h4>'
+    +EQ(1,'2<sup>n</sup> mod <i>q</i> has period ord<sub>q</sub>(2); &nbsp; choose primes and residue classes so that every <i>n</i> satisfies <i>k</i>&middot;2<sup>n</sup> &plusmn; 1 &equiv; 0 (mod <i>q</i>) for SOME <i>q</i> in the set')
+    +'<p>For 78557: ord<sub>3</sub>(2) = 2, ord<sub>5</sub> = 4, ord<sub>7</sub> = 3, ord<sub>13</sub> = 12, ord<sub>19</sub> = 18, ord<sub>37</sub> = 36, ord<sub>73</sub> = 9 — all dividing 36, so the '
+    +'divisor pattern repeats with period 36 and checking n = 1 &hellip; 36 (the sim checks 72) proves it for all n. For 509203 the set {3, 5, 7, 13, 17, 241} has period 24 (ord<sub>17</sub> = 8, ord<sub>241</sub> = 24).</p>'
+    +EQ(2,'<span class="rm">conjectures:</span> 78557 is the smallest Sierpi&#324;ski number; 509203 the smallest Riesel number')
+    +'<p>To settle them, every smaller k must produce a prime: a Proth prime k&middot;2<sup>n</sup> + 1 (proven by Proth&rsquo;s theorem) or an LLR prime k&middot;2<sup>n</sup> &minus; 1. '
+    +'That is the Seventeen or Bust programme (now on PrimeGrid): 17 candidates in 2002, five left — 21181, 22699, 24737, 55459, 67607; the Riesel side has 41 left. '
+    +'The 9.4-million-digit 10223&middot;2<sup>31172165</sup> + 1 (2016) eliminated k = 10223.</p>'
+    +'<div class="cite">Wikipedia Sierpinski_number, Riesel_number (covering sets and remaining k, as of the fetch); both sets verified here for two full periods</div>',
+};
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) are lines of build_primes/refvals.txt, the printed output *
+ *  of derive.py (an independent Python implementation), read in full. *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:y-fh*0.8);
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){ Object.assign(ST,DEFAULTS,over); try{ return fn(); } finally{ Object.assign(ST,stSave); } }
+
+  /* ---------- A. the core ---------- */
+  eq(powmod(3n,200n,1000003n),(3n**200n)%1000003n,'powmod vs direct BigInt power');
+  { const sv=sieveTo(20000); let bad=0;
+    for(let i=0;i<20000;i++) if((sv[i]===1)!==millerRabin(BigInt(i))) bad++;
+    eq(bad,0,'Miller-Rabin vs sieve on [0, 20000)'); }
+  for(const [x,want] of [[2047n,false],[3215031751n,false],[341550071728321n,false],[2147483647n,true],[1000000007n,true],[4294967297n,false]])
+    eq(millerRabin(x),want,'isprime('+x+')');
+  { /* Jacobi vs Euler's criterion for primes, and the multiplicativity */
+    let bad=0; const ps=primesUpTo(200).filter(q=>q>2);
+    for(const q of ps) for(let a=1;a<q;a++){
+      const e=powmod(BigInt(a),BigInt((q-1)/2),BigInt(q)); const j=jacobi(BigInt(a),BigInt(q));
+      if((e===1n?1:-1)!==j) bad++; }
+    eq(bad,0,'Jacobi = Euler criterion for every a mod prime q < 200');
+    eq(jacobi(3n,7n),-1,'(3|7) = -1'); eq(jacobi(2n,7n),1,'(2|7) = 1'); eq(jacobi(6n,15n),0,'(6|15) = 0'); }
+  { let bad=0; const M=(1n<<61n)-1n;
+    for(let t=1n;t<200n;t++){ const x=(t*t*t*98765432109876n+t)%(M*M); if(modMersenne(x,61,M)!==x%M) bad++; }
+    eq(bad,0,'shift-and-add reduction equals x mod 2^61-1'); }
+
+  /* ---------- B. Lucas-Lehmer ---------- */
+  const LLPINS={7:[4,14,67,42,111,0],11:[4,14,194,788,701,119,1877,240,282,1736],
+    13:[4,14,194,4870,3953,5970,1857,36,1294,3470,128,0],
+    17:[4,14,194,37634,95799,119121,66179,53645,122218,126220,70490,69559,99585,78221,130559,0],
+    19:[4,14,194,37634,218767,510066,386344,323156,218526,504140,103469,417706,307417,382989,275842,85226,523263,0]};
+  for(const p of [7,11,13,17,19]){ const r=lucasLehmer(p,true);
+    eq(r.res.map(x=>x.toString()).join(','),LLPINS[p].join(','),'LL residues for p = '+p+' (derive)');
+    eq(r.prime,p!==11,'M'+p+(p===11?' composite':' prime')); }
+  { const got=primesUpTo(4423).filter(p=>p===2||lucasLehmer(p,false).prime);
+    const want=MERSENNE.filter(r=>r[1]<=4423).map(r=>r[1]);
+    eq(got.join(','),want.join(','),'Lucas-Lehmer exponents <= 4423 = the t5k table (derive)'); }
+  { let bad=0; for(const p of primesUpTo(607)) if(p>2&&lucasLehmer(p,false).prime!==millerRabin((1n<<BigInt(p))-1n)) bad++;
+    eq(bad,0,'LL vs Miller-Rabin for every prime p <= 607'); }
+  eq((1n<<11n)-1n,23n*89n,'M11 = 23 * 89');
+
+  /* ---------- C. Proth, Cullen ---------- */
+  { const G=prothGrid(); let hits=0,bad=0;
+    for(const row of G) for(const c of row){ const N=BigInt(c.k)*(1n<<BigInt(c.n))+1n;
+      if(c.theorem){ if(c.prime) hits++; if(c.prime!==millerRabin(N)) bad++; } }
+    eq(hits,147,'Proth grid primes where the theorem applies (derive)');
+    eq(bad,0,'Proth verdicts = Miller-Rabin over the whole grid'); }
+  { const got=[]; for(let N=3;N<10000;N++){ let isP=false;
+      for(let n=1;n<14&&!isP;n++){ const k=(N-1)/(1<<n); if(Number.isInteger(k)&&k%2===1&&k<(1<<n)&&k>=1) isP=true; }
+      if(isP&&millerRabin(BigInt(N))) got.push(N); }
+    eq(got.join(','),PROTH_FIRST.join(','),'Proth primes below 10000 = A080076 (derive)'); }
+  { const r=prothTest(3,2); eq(r.prime,true,'13 = 3*2^2+1 prime'); eq(r.a,5n,'witness for 13 is a = 5 (derive)'); }
+  { const cs=cullenStrip().filter(x=>x.prime).map(x=>x.n);
+    eq(cs.join(','),'1,141','Cullen primes n <= 200 (derive)');
+    eq(CULLEN_N.slice(0,2).join(','),'1,141','and A005849 starts the same way');
+    eq(prothTest(141,141).a,5n,'Cullen 141 witness a = 5 (derive)'); }
+
+  /* ---------- D. Pepin / Fermat ---------- */
+  eq([1,2,3,4,5,6,7,8,9,10,11,12].map(n=>pepin(n).prime?'T':'F').join(''),'TTTTFFFFFFFF','Pepin F1..F12 (derive)');
+  eq(fermatNumber(5),641n*6700417n,'F5 = 641 * 6700417 (Euler)');
+  eq(fermatNumber(6),274177n*67280421310721n,'F6 factors');
+  eq(fermatNumber(7),59649589127497217n*5704689200685129054721n,'F7 factors');
+  eq(fermatNumber(8)%1238926361552897n,0n,'F8 small factor divides');
+
+  /* ---------- E. generalized Fermat, N-1 with factor(b) ---------- */
+  { const G=gfGrid(); const want=['2,4,6,10,14,16,20,24,26,36,40','2,4,6,16,20,24,28,34','2,4','2'];
+    for(let n=1;n<=4;n++) eq(G[n-1].filter(c=>c.prime).map(c=>c.b).join(','),want[n-1],'GF primes b^(2^'+n+')+1, even b <= 40 (derive)');
+    let bad=0; for(const row of G) for(const c of row) if(c.prime!==millerRabin(gfNumber(c.b,c.n))) bad++;
+    eq(bad,0,'GF verdicts = Miller-Rabin'); }
+  { const r=gfProve(6,2); eq(r.prime,true,'6^4+1 = 1297 prime'); eq(r.wit['2']+','+r.wit['3'],'5,2','witnesses for 1297 (derive)'); }
+  { const r=gfProve(10,2); eq(r.prime,false,'10^4+1 = 10001 composite'); eq(10001n,73n*137n,'10001 = 73 * 137'); }
+
+  /* ---------- F. LLR: Riesel and Woodall ---------- */
+  { const ws=woodallStrip().filter(x=>x.prime).map(x=>x.n);
+    eq(ws.join(','),'2,3,6,30,75,81,115,123,249,362,384','Woodall primes n <= 400 (derive)');
+    let bad=0; for(const x of woodallStrip()) if(x.prime!==millerRabin(BigInt(x.n)*(1n<<BigInt(x.n))-1n)) bad++;
+    eq(bad,0,'Woodall verdicts = Miller-Rabin'); }
+  { const G=rieselGrid(); let hits=0,bad=0;
+    for(const row of G) for(const c of row){ const N=BigInt(c.k)*(1n<<BigInt(c.n))-1n;
+      if(c.theorem){ if(c.prime) hits++; if(c.prime!==millerRabin(N)) bad++; } }
+    eq(hits,142,'Riesel grid primes where LLR applies (derive)');
+    eq(bad,0,'LLR verdicts = Miller-Rabin over the grid'); }
+  eq([5,6,7,8].map(n=>rodsethP(3n*(1n<<BigInt(n))-1n)).join(','),'5,5,3,3','Rodseth P for 3*2^n-1, n = 5..8 (derive)');
+  eq(rodsethP(47n),3n,'Rodseth P for 47 (derive)');
+  eq(lucasV(3n,3n,47n),18n,'V_3(3,1) mod 47 = 18 (derive)');
+  { const r=llrTest(3,7,true); eq(r.prime,true,'3*2^7-1 = 383 prime'); eq(r.P,3n,'with P = 3'); eq(r.res.length,6,'n-2 = 5 squarings after u0'); }
+  { const r=llrTest(5,5,false); eq(r.prime,false,'5*2^5-1 = 159 composite'); eq(r.small,3n,'settled by trial division: 3 | 159'); }
+
+  /* ---------- G. the pipeline, the covering sets, the record ---------- */
+  { const P=pipeline(); eq([P.cands,P.sieved,P.prp,P.proven].join(','),'1000,556,204,204','sieve -> PRP -> prove counts (derive)');
+    let mr=0; for(let b=2;b<=2000;b+=2) if(millerRabin(BigInt(b)**4n+1n)) mr++;
+    eq(P.proven,mr,'proven count = Miller-Rabin count'); }
+  for(const id of ['sierp','riesel']){ const C=coverTable(id);
+    ok(C.rows.every(r=>r.hits.length>0),id+': every n = 1..'+C.rows.length+' covered');
+    const a=C.rows.slice(0,C.period).map(r=>r.first).join(','), b=C.rows.slice(C.period,2*C.period).map(r=>r.first).join(',');
+    eq(a,b,id+': the divisor pattern repeats with period '+C.period);
+    eq(C.rows.slice(0,8).map(r=>r.first).join(','),id==='sierp'?'5,3,73,3,5,3,7,3':'5,3,241,3,5,3,13,3',id+': first divisors (derive)'); }
+  { const R=recordFacts();
+    eq(R.digits,7054022,'record digits recomputed (t5k 7054022)');
+    close(R.log10,7054021.2934198,1e-4,'record log10 recomputed (t5k 7054021.2934198)');
+    eq(R.bits,23432952,'record bits (derive)');
+    eq(R.bfac.join(','),'2,2,1334071','5336284 = 2^2 * 1334071 (derive)');
+    ok(millerRabin(1334071n),'1334071 is prime (derive)');
+    eq(R.replica.wit['2']+','+R.replica.wit['3'],'5,2','replica witnesses');
+    close(R.days,20.41,0.01,'1763609.6 s = 20.41 days (t5k)'); }
+
+  /* ---------- H. the sourced tables re-derived ---------- */
+  { let bad=0; for(const r of MERSENNE) if(mersenneDigits(r[1])!==r[2]) bad++;
+    eq(bad,0,'52 Mersenne digit counts recomputed from p');
+    eq(MERSENNE.length,52,'52 Mersenne primes listed'); }
+  { let bad=0; for(const r of GF_TOP){ const d=r[0]==='gf'?powDigits(r[1][0],r[1][1]):powDigits(r[1][1],r[1][2],r[1][0]); if(d!==r[2]) bad++; }
+    eq(bad,0,'20 generalized-Fermat top digit counts recomputed'); }
+  { let bad=0; for(const r of TOP10){ const e=r[0]; let d;
+      if(e.startsWith('2^')) d=mersenneDigits(parseInt(e.slice(2)));
+      else { const b=parseInt(e.split('^')[0]), ex=parseInt(e.split('^')[1]); d=powDigits(b,ex); }
+      if(d!==r[1]) bad++; }
+    eq(bad,0,'ten largest: digit counts recomputed'); }
+  { let bad=0; for(const r of CULLEN_TOP.concat(WOODALL_TOP)){ if(powDigits(2,r[1],r[0])!==r[2]) bad++;
+      /* k 2^n = m 2^m  <=>  m = n - d with m / 2^d = k — exponent arithmetic,
+         never the 17-million-bit number itself (the first run built it) */
+      let m=false; for(let d=0;d<=30;d++){ const mm=r[1]-d; if(mm%Math.pow(2,d)===0&&mm/Math.pow(2,d)===r[0]) m=true; } if(!m) bad++; }
+    eq(bad,0,'Cullen/Woodall top rows: digits recomputed and each is m*2^m'); }
+  eq(GF_TOP[2][1][0],RECORD.b,'the record is row 3 of the GF top-20');
+  eq(fmtInt(41024320),'41 024 320','fmtInt thin-space groups');
+  eq(fmtBig(fermatNumber(9)),'1.340780×10^154 (155 digits)','fmtBig truncates F9');
+
+  /* ---------- I. the model, per view ---------- */
+  withState({view:'forms',form:'mersenne'},()=>{ const M=buildModel(); eq(M.count,14,'Mersenne strip: 14 prime exponents <= 607 (incl. 2)'); eq(M.total,primesUpTo(607).length,'members = primes <= 607');
+    ok(readoutHTML(M).indexOf('52')>=0,'readout cites the 52 known'); });
+  withState({view:'forms',form:'fermat'},()=>{ eq(buildModel().count,5,'five Fermat primes'); });
+  withState({view:'forms',form:'gf'},()=>{ eq(buildModel().count,22,'GF grid: 22 primes'); });
+  withState({view:'forms',form:'cullen'},()=>{ eq(buildModel().count,2,'Cullen strip: 2 primes'); });
+  withState({view:'forms',form:'woodall'},()=>{ eq(buildModel().count,11,'Woodall strip: 11 primes'); });
+  withState({view:'forms',form:'proth',hk:1,hn:1},()=>{ const M=buildModel(); ok(!!M.hover&&M.hover.k===3&&M.hover.n===2,'hover picks k=3,n=2'); ok(readoutHTML(M).indexOf('witness a')>=0,'readout shows the witness'); });
+  withState({view:'nplus',nplus:'mersenne',pIdx:4},()=>{ const M=buildModel(); eq(M.p,13,'pIdx 4 is p = 13'); eq(M.seq.map(String).join(','),LLPINS[13].join(','),'the model carries the pinned residues'); eq(M.maxStep,11,'11 steps'); ok(readoutHTML(M).indexOf('PRIME')>=0,'readout prints PRIME'); ok(M.done,'default step shows the end'); });
+  withState({view:'nplus',nplus:'mersenne',pIdx:3,step:2},()=>{ const M=buildModel(); eq(M.p,11,'p = 11'); ok(!M.done,'step 2 of 9 is not done'); eq(M.stepShown,2,'step shown'); ok(readoutHTML(M).indexOf('running')>=0,'readout says running'); });
+  withState({view:'nplus',nplus:'riesel',k:3,n:7},()=>{ const M=buildModel(); eq(M.N,383n,'3*2^7-1 = 383'); eq(M.verdict,true,'prime'); eq(M.P,3n,'P = 3'); });
+  withState({view:'nplus',nplus:'woodall',wn:30},()=>{ const M=buildModel(); eq(M.verdict,true,'W30 prime'); eq(M.mr,true,'MR agrees'); });
+  withState({view:'nplus',nplus:'riesel',k:5,n:5},()=>{ const M=buildModel(); eq(M.seq.length,0,'159 needs no sequence'); ok(readoutHTML(M).indexOf('trial division')>=0,'readout says trial division'); });
+  withState({view:'nminus',nminus:'proth',k:3,n:2},()=>{ const M=buildModel(); eq(M.N,13n,'N = 13'); eq(M.a,5n,'a = 5'); eq(M.chain.length,3,'(N-1)/2 = 6 = 110b: 3 steps'); eq(M.chain[2].r,12n,'ends at N-1'); eq(M.verdict,true,'prime'); ok(M.det,'deterministic range'); });
+  withState({view:'nminus',nminus:'proth',k:63,n:5},()=>{ const M=buildModel(); eq(M.applies,false,'k = 63 >= 2^5: Proth does not apply'); ok(readoutHTML(M).indexOf('NO')>=0,'readout says so'); });
+  withState({view:'nminus',nminus:'fermat',fn:4},()=>{ const M=buildModel(); eq(M.chain.length,16,'F4: 16-bit exponent'); eq(M.chain[15].r,65536n,'ends at F4 - 1'); eq(M.verdict,true,'F4 prime'); });
+  withState({view:'nminus',nminus:'fermat',fn:5},()=>{ const M=buildModel(); eq(M.verdict,false,'F5 composite'); ok(M.factors&&M.factors[0]==='641','641 listed'); });
+  withState({view:'nminus',nminus:'fermat',fn:12},()=>{ const M=buildModel(); eq(M.chain.length,0,'F12: no drawable chain'); eq(M.verdict,false,'F12 composite'); });
+  withState({view:'nminus',nminus:'gf',gb:6,gn:2},()=>{ const M=buildModel(); eq(M.verdict,true,'6^4+1 prime'); eq(M.qs.join(','),'2,3','primes of 6'); ok(readoutHTML(M).indexOf('a = 5')>=0,'readout shows a witness'); });
+  withState({view:'nminus',nminus:'gf',gb:10,gn:2},()=>{ eq(buildModel().verdict,false,'10^4+1 composite'); });
+  withState({view:'nminus',nminus:'cullen',cn:141},()=>{ const M=buildModel(); eq(M.verdict,true,'C141 prime'); eq(M.a,5n,'witness 5'); });
+  withState({view:'record'},()=>{ const M=buildModel(); const s=readoutHTML(M); ok(s.indexOf('7 054 022')>=0,'readout prints the digits'); ok(s.indexOf('20.41 days')>=0,'and the elapsed time'); ok(s.indexOf('Trotador')>=0,'and the discoverer'); eq(M.pipe.proven,204,'pipeline in the model'); });
+  withState({view:'history'},()=>{ const M=buildModel(); eq(M.pts.length,44,'44 record rows'); eq(M.pts[M.pts.length-1].digits,41024320,'ends at 41 024 320');
+    /* probe the LAST point: 1952 holds five near-coincident rows, so a pick
+       there legitimately returns a neighbour (first run) */
+    const G=historyGeo(1400,820); const li=M.pts.length-1, p=M.pts[li]; const X=G.b.x+G.b.w*(p.year-G.x0)/(G.x1-G.x0), Y=G.b.y1-G.b.h*(Math.log10(p.digits)-G.y0)/(G.y1-G.y0);
+    eq(pickHistory(G,M.pts,X+2,Y-2),li,'history pick returns the point under the pointer'); eq(pickHistory(G,M.pts,G.b.x-100,G.b.y-100),-1,'and nothing far away'); });
+  withState({view:'cover',cover:'riesel'},()=>{ const M=buildModel(); eq(M.cov.k,509203,'Riesel k'); eq(M.remaining,41,'41 remaining'); });
+  for(const [v] of TABS) withState({view:v},()=>{ const M=buildModel(); const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+    ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0,'panels clean for '+v); });
+
+  /* ---------- J. the scene: animation and hover ---------- */
+  { const shot=makeShot(1100,712); const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS); ST.view='nplus'; ST.anim=true; ST.step=0;
+    let n=0; while(S.step()&&n<5000) n++;
+    eq(ST.step,11,'the run reaches the last step'); ok(n>3&&n<5000,'over several frames ('+n+')'); ok(!S.step(),'then idles');
+    /* a LONG run at a speed whose per-frame rate does not divide the step
+       count: the clamp must land exactly on the end (first sweep: M13's 11
+       steps are a multiple of the 0.25 floor, so an overshooting mutant and a
+       rate-collapsed mutant both looked fine) */
+    ST.pIdx=29; ST.speed=1.3; ST.step=0; n=0;
+    while(S.step()&&n<5000) n++;
+    eq(ST.step,125,'M127: the clamp lands exactly on step 125');
+    ok(n>=130&&n<=145,'in about 180/1.3 = 139 frames ('+n+')');
+    ST.view='forms'; ST.form='proth'; ST.anim=false;
+    const fg=formsGeo(S.W,S.H,buildModel()); ok(S.hover(fg.g.X(3)+2,fg.g.Y(2)+2),'hover on the grid registers');
+    eq(ST.hk+','+ST.hn,'2,3','and picks row 2, column 3');
+    ST.view='cover'; ok(!S.hover(300,300),'the covering view ignores the pointer');
+    Object.assign(ST,stSave); }
+
+  /* ---------- K. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['forms mersenne',{view:'forms',form:'mersenne'},50],['forms fermat',{view:'forms',form:'fermat'},10],
+    ['forms gf',{view:'forms',form:'gf'},60],['forms proth',{view:'forms',form:'proth',hk:2,hn:3},1000],
+    ['forms riesel',{view:'forms',form:'riesel'},1000],['forms cullen',{view:'forms',form:'cullen',hi:140},150],
+    ['forms woodall',{view:'forms',form:'woodall'},300],
+    ['nplus M13 end',{view:'nplus',nplus:'mersenne',pIdx:4},8],['nplus M11 mid',{view:'nplus',nplus:'mersenne',pIdx:3,step:4},8],
+    ['nplus M127',{view:'nplus',nplus:'mersenne',pIdx:29},8],['nplus riesel',{view:'nplus',nplus:'riesel',k:3,n:7},4],
+    ['nplus riesel small',{view:'nplus',nplus:'riesel',k:5,n:5},1],['nplus woodall',{view:'nplus',nplus:'woodall',wn:30},8],
+    ['nminus proth',{view:'nminus',nminus:'proth',k:3,n:2},3],['nminus proth big',{view:'nminus',nminus:'proth',k:63,n:40,step:10},20],
+    ['nminus proth no',{view:'nminus',nminus:'proth',k:63,n:5},1],['nminus fermat 4',{view:'nminus',nminus:'fermat',fn:4},10],
+    ['nminus fermat 9',{view:'nminus',nminus:'fermat',fn:9},100],['nminus fermat 12',{view:'nminus',nminus:'fermat',fn:12},1],
+    ['nminus gf',{view:'nminus',nminus:'gf',gb:6,gn:2},1],['nminus gf comp',{view:'nminus',nminus:'gf',gb:10,gn:2},1],
+    ['nminus cullen',{view:'nminus',nminus:'cullen',cn:141},20],
+    ['record',{view:'record'},5],['history',{view:'history',hi:10},40],
+    ['cover sierp',{view:'cover',cover:'sierp'},200],['cover riesel',{view:'cover',cover:'riesel'},100],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

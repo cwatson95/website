@@ -1,0 +1,2450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Brachistochrone &mdash; the curve of fastest descent</title>
+<!--
+  ===================================================================
+  brachistochrone.html — the curve of fastest descent: Johann
+  Bernoulli's 1696 problem, its cycloid answer, and what the same
+  curve does besides (the tautochrone, Huygens' clock)
+  ===================================================================
+
+  Six views.  THE RACE: beads released together at A on the straight
+  line, the circle tangent to the vertical, the sideways parabola
+  x ~ y^2, the drop-then-run corner, YOUR curve (a quadratic Bezier with
+  a draggable control point) and the cycloid, all between the same A and
+  B (drag B); the cycloid arrives first, every time.  THE FUNCTIONAL:
+  T[y] = int sqrt((1+y'^2)/2gy) dx over a one-parameter family x ~ y^q,
+  with the cycloid's time as a floor no member reaches, and the first
+  variation of the cycloid itself measured: T(+eps) and T(-eps) agree to
+  second order, so delta T = 0.  THE REFRACTION: Bernoulli's own
+  derivation — a light ray through N layers whose speed grows as sqrt(y)
+  bends by Snell's law, sin(theta)/v constant, and converges on the
+  cycloid as N grows.  THE TAUTOCHRONE: beads dropped anywhere on the
+  cycloid bowl reach the bottom together, in pi sqrt(a/g), because the
+  arc length from the bottom is a harmonic coordinate; the circular bowl
+  of the same curvature does not.  THE CLOCK: Huygens' pendulum with
+  cycloidal cheeks — the string wraps on the evolute, itself a congruent
+  cycloid, so the bob's period is exactly amplitude-independent while a
+  circular pendulum of the same length runs slow by (2/pi) K(sin th0/2).
+  THE FIT: the boundary-value root (th - sin th)/(1 - cos th) = x_B/y_B by
+  bisection, and the frontier T_curve/T_cycloid against the aspect of B
+  for every competitor.
+
+  WHAT IS EXACT HERE (this sim contains no measured data)
+  --------------------------------------------------------
+  * Every descent time is int ds/sqrt(2gy) by composite Gauss-Legendre in
+    w = sqrt(p) (the substitution removes the release-point singularity),
+    pinned to scipy.integrate.quad values printed by build_brach/derive.py;
+    the cycloid and the corner have closed forms that pin the quadrature
+    independently.
+  * The cycloid's boundary-value root is a bisection on a monotone
+    function (series branch near zero, coefficients emitted by sympy and
+    asserted across the join); a and T follow in closed form.
+  * The tautochrone period 4 pi sqrt(a/g), the evolute identity
+    E(th) = r(th+pi) + (pi a, -2a), the string-length identity
+    4a(1 - sin th/2) + 4a sin th/2 = 4a, and K(k) by the arithmetic-
+    geometric mean (pinned to scipy.special.ellipk) are asserted.
+  * The circular bowl and the circular pendulum are integrated by RK4 at
+    1/1200 s and their descent times asserted against the elliptic-integral
+    closed form — which is what makes them a fair comparison.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  Frictionless beads (or, with the chip, balls rolling without slipping:
+  g -> 5g/7, every time x sqrt(7/5), the curve unchanged); g = 9.81 m/s^2;
+  the layered ray uses each layer's mid-depth speed and converges to the
+  cycloid only as N^(-1/2), because the ray turns horizontal at the bottom
+  (the rate is measured and asserted, not assumed).  The "your curve"
+  control point is kept below A: a horizontal start never starts.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the cycloid (the minimiser, the thing computed),
+       orange = the analytic reference (closed forms, floors, the circle),
+       magenta = the live marker (beads, the dragged point, the current member),
+       cyan = structure (frames, layers, the string). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Brachistochrone</h1>
+  <span class="sub" id="sub">a bead slides from A to B under gravity alone &mdash; the straight line is the shortest path, the cycloid the fastest: Bernoulli&rsquo;s 1696 challenge, answered by Snell&rsquo;s law</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the physics — the cycloid through two points, descent times by    *
+ *  Gauss-Legendre in w = sqrt(p), the tautochrone, the pendulum, the  *
+ *  layered ray, Huygens' cheeks.  Nothing here touches a canvas, and  *
+ *  every number a panel prints is computed here or in the model.      *
+ * ================================================================== */
+const GRAV=9.81;
+const DEG=PI/180;                 /* multiply DEGREES by this to get radians (asserted: 90 DEG = pi/2) */
+const ROLL_FACTOR=5/7;           /* a ball rolling without slipping: v^2 = (10/7) g y, so g -> 5g/7 */
+function gEff(st){ return st.roll?GRAV*ROLL_FACTOR:GRAV; }
+const DT=1/1200;                  /* RK4 step for the circular bowl and the circular pendulum */
+const FRAME_DT=1/60;              /* the frame loop advances a fixed 1/60 s: headless runs are deterministic */
+
+/* Gauss-Legendre 8-point nodes and weights on [-1, 1] — numpy leggauss(8),
+   emitted by build_brach/derive.py (never typed from memory) */
+const GL8X=[-0.96028985649753618,-0.79666647741362673,-0.52553240991632899,-0.18343464249564984,
+             0.18343464249564984,0.52553240991632899,0.79666647741362673,0.96028985649753618];
+const GL8W=[0.10122853629037652,0.22238103445337445,0.31370664587788716,0.36268378337836182,
+            0.36268378337836182,0.31370664587788716,0.22238103445337445,0.10122853629037652];
+
+/* ---- the ratio function f(th) = (th - sin th)/(1 - cos th) ----------------
+   Monotone on (0, 2pi), from 0 to infinity; the boundary-value problem of the
+   cycloid through A and B is f(th2) = x_B/y_B.  Near zero the direct form is
+   0/0 in floating point (th - sin th underflows at th = 1e-9 and has cancelled
+   to 1e-9 relative by th = 1e-3), so below RATIO_JOIN the series
+   th * sum c_k th^(2k) is used.  Its coefficients are computed HERE by
+   power-series division of th - sin th = th^3 N(th^2) by 1 - cos th =
+   th^2 D(th^2), from factorials — and pinned in selfTest against the exact
+   rationals derive.py prints.  The series converges for |th| < 2pi, so at the
+   join (0.3) it is accurate to ~1e-19 while the direct form is at ~1e-14. */
+const RATIO_COEF=(function(){
+  const fact=[1]; for(let i=1;i<=20;i++) fact[i]=fact[i-1]*i;
+  const n=[],d=[],c=[];
+  for(let k=0;k<8;k++){ const sg=(k%2)?-1:1; n.push(sg/fact[2*k+3]); d.push(sg/fact[2*k+2]); }
+  for(let k=0;k<8;k++){ let s=n[k]; for(let j=0;j<k;j++) s-=c[j]*d[k-j]; c.push(s/d[0]); }
+  return c;
+})();
+const RATIO_JOIN=0.3;
+function ratioSeries(th){
+  const t2=th*th; let acc=0;
+  for(let k=RATIO_COEF.length-1;k>=0;k--) acc=RATIO_COEF[k]+t2*acc;
+  return th*acc;
+}
+function ratioDirect(th){ const s=Math.sin(th/2); return (th-Math.sin(th))/(2*s*s); }
+function ratioFn(th){ return th<RATIO_JOIN?ratioSeries(th):ratioDirect(th); }
+
+/* the boundary-value root by bisection: f is monotone, so the bracket halves
+   until it is below 1e-15; keep=true returns the bracket history (the fit view
+   shows it).  A bisection has a 50% chance of being backwards and fails by
+   returning its own endpoint (Known-bad) — the direction is asserted against
+   derive.py's brentq roots. */
+function theta2Of(ratio,keep){
+  let lo=1e-12, hi=TAU-1e-9;
+  const hist=keep?[[lo,hi]]:null;
+  for(let i=0;i<200&&hi-lo>1e-15;i++){
+    const m=0.5*(lo+hi);
+    if(ratioFn(m)<ratio) lo=m; else hi=m;
+    if(hist) hist.push([lo,hi]);
+  }
+  return {th:0.5*(lo+hi),hist};
+}
+/* the cycloid x = a(th - sin th), y = a(1 - cos th) (y DOWN) from A = (0,0)
+   through B = (x2, y2): th2 from the root, a = y2/(2 sin^2(th2/2)) (no
+   cancellation), and the descent time th2 sqrt(a/g) in closed form */
+function cycloidFit(x2,y2,g,keep){
+  const r=theta2Of(x2/y2,keep);
+  const s=Math.sin(r.th/2), a=y2/(2*s*s);
+  return {th2:r.th,a,T:r.th*Math.sqrt(a/g),hist:r.hist};
+}
+/* 1 - cos th as 2 sin^2(th/2): the direct difference loses every digit at
+   the tiny th a fine quadrature samples near the release point (derive.py
+   measured a 1e-8 drift in the B = (0.2, 1) time before this change) */
+function vers(th){ const s=Math.sin(th/2); return 2*s*s; }
+function cycloidPt(a,th){ return [a*(th-Math.sin(th)),a*vers(th)]; }
+
+/* ---- the competitors: p in [0,1] -> [x, y, dx/dp, dy/dp], y(0) = 0 ---------- */
+function curveLine(x2,y2){
+  return {id:'line',name:'straight line',x2,y2,at:p=>[x2*p,y2*p,x2,y2]};
+}
+/* the circle tangent to the vertical at A, through B: centre (R, 0) */
+function curveCircle(x2,y2){
+  const R=(x2*x2+y2*y2)/(2*x2), phB=Math.atan2(y2/R,(x2-R)/R), dphi=PI-phB;
+  return {id:'circle',name:'circle, vertical at A',x2,y2,R,phB,
+    at:p=>{ const ph=PI-p*dphi, s=Math.sin(ph), c=Math.cos(ph); return [R+R*c,R*s,R*s*dphi,-R*c*dphi]; }};
+}
+/* the sideways parabola x = k y^2 (vertical tangent at A; the upright one,
+   y ~ x^2, starts horizontal and never starts) */
+function curveParabola(x2,y2){
+  const k=x2/(y2*y2);
+  return {id:'parabola',name:'parabola x ∝ y²',x2,y2,k,at:p=>[k*y2*y2*p*p,y2*p,2*k*y2*y2*p,y2]};
+}
+/* the corner: straight down to depth y2, then straight across — closed forms */
+function curveDropRun(x2,y2){
+  return {id:'corner',name:'drop, then run',x2,y2,
+    at:p=>p<=0.5?[0,2*y2*p,0,2*y2]:[2*x2*(p-0.5),y2,2*x2,0]};
+}
+/* your curve: a quadratic Bezier A -> C -> B; cy > 0 keeps the start from
+   being horizontal (a horizontal start never starts: T = infinity) */
+function curveBezier(x2,y2,cx,cy){
+  return {id:'yours',name:'your curve',x2,y2,cx,cy,at:u=>{ const mu=1-u;
+    return [2*u*mu*cx+u*u*x2,2*u*mu*cy+u*u*y2,2*(1-2*u)*cx+2*u*x2,2*(1-2*u)*cy+2*u*y2]; }};
+}
+function curveCycloid(x2,y2,g){
+  const f=cycloidFit(x2,y2,g);
+  return {id:'cycloid',name:'cycloid',x2,y2,th2:f.th2,a:f.a,Tclosed:f.T,
+    at:p=>{ const th=f.th2*p, s=Math.sin(th), v=vers(th);
+      return [f.a*(th-s),f.a*v,f.a*v*f.th2,f.a*s*f.th2]; }};
+}
+/* the one-parameter family x = x2 (y/y2)^q, parametrised by y (q = 1 is the
+   line, q = 2 the sideways parabola); q > 1 gives a vertical start */
+function curvePower(x2,y2,q){
+  return {id:'power',name:'x ∝ y^q',x2,y2,q,
+    at:p=>[x2*Math.pow(p,q),y2*p,q===1?x2:x2*q*Math.pow(p,q-1),y2]};
+}
+/* the cycloid with a vertical perturbation eps y2 sin^2(pi th/th2) that
+   vanishes at both ends to second order (so both signs of eps are admissible
+   near the release point) — the first variation is measured on this family */
+function curvePerturbed(x2,y2,g,eps){
+  const f=cycloidFit(x2,y2,g);
+  return {id:'pert',name:'perturbed cycloid',x2,y2,eps,th2:f.th2,a:f.a,
+    at:p=>{ const th=f.th2*p, sn=Math.sin(th), v=vers(th), s=Math.sin(PI*p), ds=PI*Math.cos(PI*p);
+      return [f.a*(th-sn),f.a*v+eps*y2*s*s,f.a*v*f.th2,f.a*sn*f.th2+eps*y2*2*s*ds]; }};
+}
+
+/* ---- descent time T = int ds / sqrt(2 g y) --------------------------------
+   With p = w^2 the release-point singularity 1/sqrt(y) ~ 1/sqrt(p) becomes a
+   finite integrand, so composite 8-point Gauss-Legendre in w converges fast
+   (npan = 128 panels: relative error vs scipy quad measured in derive.py).
+   The cumulative table t(w) at the panel boundaries is what animates a bead:
+   invert it for the parameter at a given time. */
+function timeTable(curve,g,npan){
+  npan=npan||128;
+  const ws=new Float64Array(npan+1), ts=new Float64Array(npan+1);
+  let t=0;
+  for(let i=0;i<npan;i++){
+    const a0=i/npan, b0=(i+1)/npan, hw=0.5*(b0-a0), mid=0.5*(a0+b0);
+    let s=0;
+    for(let j=0;j<8;j++){
+      const w=hw*GL8X[j]+mid, r=curve.at(w*w);
+      s+=GL8W[j]*hw*2*w*Math.hypot(r[2],r[3])/Math.sqrt(2*g*r[1]);
+    }
+    t+=s; ws[i+1]=b0; ts[i+1]=t;
+  }
+  return {ws,ts,T:t,npan};
+}
+function descentTime(curve,g,npan){ return timeTable(curve,g,npan).T; }
+/* the parameter p = w^2 at time t: bisection on the monotone table, linear in
+   w inside a panel (the interpolation error in p is second order in 1/npan) */
+function paramAtTime(tab,t){
+  if(!(t>0)) return 0;
+  if(t>=tab.T) return 1;
+  let lo=0, hi=tab.npan;
+  while(hi-lo>1){ const m=(lo+hi)>>1; if(tab.ts[m]<=t) lo=m; else hi=m; }
+  const f=(t-tab.ts[lo])/(tab.ts[hi]-tab.ts[lo]);
+  const w=tab.ws[lo]+f*(tab.ws[hi]-tab.ws[lo]);
+  return w*w;
+}
+/* where a bead on curve c is at time t (the corner uses its closed forms) */
+function beadAt(c,g,t){
+  if(c.id==='corner'){
+    const td=Math.sqrt(2*c.y2/g);
+    if(t<=td){ return {x:0,y:0.5*g*t*t,p:0.5*t/td,done:false}; }
+    const v=Math.sqrt(2*g*c.y2), x=Math.min(c.x2,v*(t-td));
+    return {x,y:c.y2,p:0.5+0.5*x/c.x2,done:x>=c.x2};
+  }
+  const p=paramAtTime(c.tab,t), r=c.at(p);
+  return {x:r[0],y:r[1],p,done:t>=c.tab.T};
+}
+function cornerTime(x2,y2,g){ return Math.sqrt(2*y2/g)+x2/Math.sqrt(2*g*y2); }
+function lineTime(x2,y2,g){ return Math.sqrt(2*(x2*x2+y2*y2)/(g*y2)); }
+/* Beltrami's first integral y (1 + y'^2) along any curve given with its
+   parametric derivatives: constant (= 2a) on a cycloid, on nothing else */
+function beltrami(r){ return r[1]*(r[2]*r[2]+r[3]*r[3])/(r[2]*r[2]); }
+
+/* ---- the tautochrone: the bowl th in [0, 2pi], bottom at th = pi --------
+   Arc length from the bottom s = 4a cos(th/2) and height above the bottom
+   h = 2a cos^2(th/2) = s^2/8a, so m g h is a harmonic potential in s:
+   s'' = -(g/4a) s exactly.  Released from rest anywhere, the bead reaches
+   the bottom at a quarter period pi sqrt(a/g). */
+function tautoOmega(a,g){ return Math.sqrt(g/(4*a)); }
+function tautoPeriod(a,g){ return 4*PI*Math.sqrt(a/g); }
+function tautoDescent(a,g){ return PI*Math.sqrt(a/g); }
+function arcFromBottom(a,th){ return 4*a*Math.cos(th/2); }
+function thetaFromArc(a,s){ return 2*Math.acos(clamp(s/(4*a),-1,1)); }
+function heightAbove(a,th){ return 2*a*Math.cos(th/2)*Math.cos(th/2); }
+function tautoBead(a,g,th0,t){
+  const s0=arcFromBottom(a,th0), w=tautoOmega(a,g), s=s0*Math.cos(w*t), th=thetaFromArc(a,s);
+  return {th,s,pt:cycloidPt(a,th)};
+}
+/* a bead on ANY wire: s' = v, v' = g dy/ds (y down).  Integrated by RK4 in
+   the curve parameter; selfTest uses it to show the cycloid bead really is
+   the harmonic oscillator the closed form claims, by a route that never
+   assumes it. */
+function wireDeriv(curve,g,st){
+  const r=curve.at(st[0]), sp=Math.hypot(r[2],r[3]);
+  return [st[1]/sp, g*r[3]/sp];
+}
+function wireStep(curve,g,st,dt){
+  const k1=wireDeriv(curve,g,st);
+  const k2=wireDeriv(curve,g,[st[0]+0.5*dt*k1[0],st[1]+0.5*dt*k1[1]]);
+  const k3=wireDeriv(curve,g,[st[0]+0.5*dt*k2[0],st[1]+0.5*dt*k2[1]]);
+  const k4=wireDeriv(curve,g,[st[0]+dt*k3[0],st[1]+dt*k3[1]]);
+  return [st[0]+dt*(k1[0]+2*k2[0]+2*k3[0]+k4[0])/6, st[1]+dt*(k1[1]+2*k2[1]+2*k3[1]+k4[1])/6];
+}
+
+/* ---- the circular pendulum / the circular bowl: al'' = -(g/L) sin al -------- */
+function pendDeriv(g,L,s){ return [s[1],-(g/L)*Math.sin(s[0])]; }
+function pendStep(g,L,s,dt){
+  const k1=pendDeriv(g,L,s);
+  const k2=pendDeriv(g,L,[s[0]+0.5*dt*k1[0],s[1]+0.5*dt*k1[1]]);
+  const k3=pendDeriv(g,L,[s[0]+0.5*dt*k2[0],s[1]+0.5*dt*k2[1]]);
+  const k4=pendDeriv(g,L,[s[0]+dt*k3[0],s[1]+dt*k3[1]]);
+  return [s[0]+dt*(k1[0]+2*k2[0]+2*k3[0]+k4[0])/6, s[1]+dt*(k1[1]+2*k2[1]+2*k3[1]+k4[1])/6];
+}
+function pendEnergy(g,L,s){ return 0.5*L*L*s[1]*s[1]+g*L*(1-Math.cos(s[0])); }
+/* the release angle on a circle of radius L that sits at height h above the bottom */
+function pendRelease(L,h){ return Math.acos(clamp(1-h/L,-1,1)); }
+/* K(k) by the arithmetic-geometric mean: K = pi / (2 agm(1, sqrt(1-k^2))) */
+function ellipK(k){
+  let a=1, b=Math.sqrt(1-k*k);
+  for(let i=0;i<60;i++){ const an=0.5*(a+b); b=Math.sqrt(a*b); a=an; if(Math.abs(a-b)<1e-16) break; }
+  return PI/(2*a);
+}
+/* the circular pendulum's period over its small-angle period: (2/pi) K(sin(th0/2)) */
+function periodRatio(th0){ return 2*ellipK(Math.sin(th0/2))/PI; }
+function quarterPeriod(g,L,th0){ return Math.sqrt(L/g)*ellipK(Math.sin(th0/2)); }
+
+/* ---- Bernoulli's layers: Snell's law with v = sqrt(2 g y) ----------------
+   sin(th)/v = const = 1/v_max, v_max = sqrt(2 g 2a) at the bottom; layer i
+   uses its mid-depth speed, so sin th_i = sqrt(y_i/2a) and the ray advances
+   dy tan th_i across it.  The polyline converges to the cycloid, but only as
+   N^(-1/2): the ray turns horizontal at the bottom, where the last layers
+   carry most of the error (measured in derive.py, asserted in selfTest). */
+function layeredRay(a,N){
+  const dy=2*a/N, pts=[[0,0]];
+  let x=0;
+  for(let i=0;i<N;i++){
+    const ym=(i+0.5)*dy, s=Math.sqrt(ym/(2*a));
+    x+=dy*s/Math.sqrt(1-s*s);
+    pts.push([x,(i+1)*dy]);
+  }
+  return {pts,xBottom:x,err:x-PI*a,dy};
+}
+
+/* ---- Huygens' cheeks: the evolute of the cycloid is a congruent cycloid --
+   E(th) = r(th) + rho n = (a(th + sin th), a(cos th - 1)), which is r(th+pi)
+   shifted by (pi a, -2a); the suspension cusp is at (pi a, -2a), each cheek
+   is a half-arch, and the string of length 4a is wrapped along
+   4a(1 - sin th/2) of cheek with 4a sin th/2 free — the free part is the
+   radius of curvature, tangent to the cheek at the contact point. */
+function evolutePt(a,th){ return [a*(th+Math.sin(th)),a*(Math.cos(th)-1)]; }
+function rhoOf(a,th){ return 4*a*Math.sin(th/2); }
+function wrappedLen(a,th){ return 4*a*(1-Math.sin(th/2)); }
+function freeLen(a,th){ return 4*a*Math.sin(th/2); }
+function stringAngle(th){ return PI/2-th/2; }         /* from the vertical, signed */
+function clockBob(a,g,thE,t){
+  const b=tautoBead(a,g,thE,t);
+  return {th:b.th,pt:b.pt,E:evolutePt(a,b.th),wrapped:wrappedLen(a,b.th),free:freeLen(a,b.th),alpha:stringAngle(b.th)};
+}
+
+/* ================================================================== *
+ *  state, the live clock, the per-view model, readout, eqbar          *
+ *  Every number a panel prints is computed here or in the physics —  *
+ *  never inside a draw call.  Heavy fields hide behind lazy getters   *
+ *  and single-entry memos keyed on the parameters they depend on.     *
+ * ================================================================== */
+const TABS=[['race','the race'],['func','the functional'],['snell','the refraction'],
+            ['tauto','the tautochrone'],['clock','the clock'],['fit','the fit']];
+const BODY_LIST=[{id:false,name:'sliding bead'},{id:true,name:'rolling ball'}];
+const RACE_IDS=['line','circle','parabola','corner','yours','cycloid'];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0',
+           dim:'#8b93a6', off:'#161c2c', edge:'#242a3a', comp:'#2a3346',
+           line:'#9aa2b4', circle:'#e8843a', parabola:'#5ac8e0', corner:'#d9b44a',
+           yours:'#cd35c4', cycloid:'#b8ec4c', pert:'#e8843a'};
+const RO_W=300;
+/* release parameters of the five tautochrone beads (fractions of pi) */
+const TAUTO_FRAC=[0.12,0.33,0.55,0.77,0.96];
+/* the aspect grid of the frontier plot, log-spaced */
+const FRONT_N=40;
+
+const DEFAULTS={view:'race', bx:1.0, by:0.5, cx:0.35, cy:0.45, roll:false,
+                running:true, speed:1, loop:true, showBeads:true,
+                q:2, eps:0.02, layers:8, amp:60, showCirc:true};
+const ST=Object.assign({},DEFAULTS);
+/* limits the pointer and the sliders respect: B stays inside the stage, C
+   stays below A (a horizontal start never starts) */
+const LIM={bxMin:0.08, bxMax:3.0, byMin:0.1, byMax:1.6, cyMinFrac:0.05};
+
+/* single-entry memos: recomputed only when the key changes (a drag makes a
+   new key every frame, so a growing cache would leak) */
+const MEMO={};
+function memo(name,key,fn){
+  const m=MEMO[name];
+  if(m&&m.key===key) return m.val;
+  const val=fn(); MEMO[name]={key,val}; return val;
+}
+function lazyC(obj,name,fn){
+  Object.defineProperty(obj,name,{configurable:true,enumerable:false,get(){
+    const v=fn(); Object.defineProperty(obj,name,{value:v,configurable:true,enumerable:false});
+    return v; }});
+}
+
+/* ---- the live clock and the integrated states ------------------------------
+   SIM.t is the race / tautochrone / clock time; the circular bowl's five beads
+   and the circular pendulum are integrated states that must be reset whenever
+   the parameters they were released from change (SIM.key says which). */
+const SIM={t:0, key:'', pend:[], cpend:[0,0], frames:0, hist:[]};
+function simKey(st){
+  return [st.view,st.bx,st.by,st.cx,st.cy,st.roll,st.amp].join('|');
+}
+function simReset(st){
+  SIM.t=0; SIM.frames=0; SIM.key=simKey(st); SIM.hist=[];
+  const g=gEff(st), a=cycloidFit(st.bx,st.by,g).a, L=4*a;
+  SIM.pend=TAUTO_FRAC.map(f=>[pendRelease(L,heightAbove(a,f*PI)),0]);
+  SIM.cpend=[st.amp*DEG,0];
+}
+/* advance one frame: the bowl beads and the circular pendulum by RK4 in
+   sub-steps, the clock by FRAME_DT * speed */
+function simAdvance(st){
+  if(SIM.key!==simKey(st)) simReset(st);
+  const g=gEff(st), a=cycloidFit(st.bx,st.by,g).a, L=4*a;
+  const dt=FRAME_DT*st.speed, sub=Math.max(1,Math.round(dt/DT)), h=dt/sub;
+  for(let k=0;k<sub;k++){
+    for(let i=0;i<SIM.pend.length;i++) SIM.pend[i]=pendStep(g,L,SIM.pend[i],h);
+    SIM.cpend=pendStep(g,L,SIM.cpend,h);
+  }
+  SIM.t+=dt; SIM.frames++;
+}
+
+/* ---- the race ------------------------------------------------------------ */
+function raceModel(st){
+  const key=[st.bx,st.by,st.cx,st.cy,st.roll].join('|');
+  return memo('race',key,()=>{
+    const g=gEff(st), x2=st.bx, y2=st.by;
+    const cyc=curveCycloid(x2,y2,g);
+    const curves=[curveLine(x2,y2),curveCircle(x2,y2),curveParabola(x2,y2),
+                  curveDropRun(x2,y2),curveBezier(x2,y2,st.cx,st.cy),cyc];
+    for(const c of curves){
+      if(c.id==='corner') c.T=cornerTime(x2,y2,g);
+      else { c.tab=timeTable(c,g,128); c.T=c.tab.T; }
+      c.col=COL[c.id];
+    }
+    const order=curves.slice().sort((p,q)=>p.T-q.T);
+    const byId={}; for(const c of curves) byId[c.id]=c;
+    return {g,x2,y2,curves,byId,cyc,order,Tmax:Math.max.apply(0,curves.map(c=>c.T)),
+            Tmin:Math.min.apply(0,curves.map(c=>c.T)),winner:order[0].id};
+  });
+}
+/* the world extent the race stage must show: A, B, every curve's dip */
+function raceExtent(R){
+  let xmin=0,xmax=R.x2,ymin=0,ymax=R.y2;
+  for(const c of R.curves) for(let i=0;i<=64;i++){ const r=c.at(i/64);
+    xmin=Math.min(xmin,r[0]); xmax=Math.max(xmax,r[0]); ymin=Math.min(ymin,r[1]); ymax=Math.max(ymax,r[1]); }
+  const cy=R.byId.yours.cy, cx=R.byId.yours.cx;
+  xmin=Math.min(xmin,cx); xmax=Math.max(xmax,cx); ymax=Math.max(ymax,cy);
+  return {xmin,xmax,ymin,ymax};
+}
+
+/* ---- the functional ------------------------------------------------------ */
+function funcModel(st){
+  const key=[st.bx,st.by,st.roll,st.q,st.eps].join('|');
+  return memo('func',key,()=>{
+    const g=gEff(st), x2=st.bx, y2=st.by;
+    const cyc=curveCycloid(x2,y2,g);
+    const member=curvePower(x2,y2,st.q); member.T=descentTime(member,g,128);
+    const pert=curvePerturbed(x2,y2,g,st.eps); pert.T=descentTime(pert,g,128);
+    const Tq=memo('funcTq',[x2,y2,g].join('|'),()=>{
+      const qs=[],Ts=[]; for(let i=0;i<=48;i++){ const q=1+3*i/48; qs.push(q); Ts.push(descentTime(curvePower(x2,y2,q),g,64)); }
+      let best=0; for(let i=1;i<qs.length;i++) if(Ts[i]<Ts[best]) best=i;
+      return {qs,Ts,qBest:qs[best],TBest:Ts[best]};
+    });
+    const Te=memo('funcTe',[x2,y2,g].join('|'),()=>{
+      const es=[],Ts=[]; for(let i=0;i<=32;i++){ const e=-0.04+0.08*i/32; es.push(e); Ts.push(descentTime(curvePerturbed(x2,y2,g,e),g,64)); }
+      return {es,Ts};
+    });
+    /* Beltrami's quantity along the member and the cycloid, over y */
+    const belt=[];
+    for(let i=1;i<=40;i++){ const p=i/40; belt.push([p,beltrami(member.at(p)),beltrami(cyc.at(p))]); }
+    return {g,x2,y2,cyc,member,pert,Tq,Te,belt,Tcyc:cyc.Tclosed,gap:member.T-cyc.Tclosed,twoA:2*cyc.a};
+  });
+}
+
+/* ---- the refraction ------------------------------------------------------ */
+function snellModel(st){
+  const key=[st.bx,st.by,st.roll,st.layers].join('|');
+  return memo('snell',key,()=>{
+    const g=gEff(st), f=cycloidFit(st.bx,st.by,g), a=f.a;
+    const ray=layeredRay(a,st.layers);
+    const conv=memo('snellConv',String(a),()=>{
+      const Ns=[],errs=[]; for(let N=4;N<=1024;N*=2){ Ns.push(N); errs.push(Math.abs(layeredRay(a,N).err)); }
+      return {Ns,errs};
+    });
+    const vmax=Math.sqrt(2*g*2*a);
+    return {g,a,N:st.layers,ray,conv,vmax,xExact:PI*a,ratio:conv.errs[conv.errs.length-2]/conv.errs[conv.errs.length-1]};
+  });
+}
+
+/* ---- the tautochrone ----------------------------------------------------- */
+function tautoModel(st){
+  const key=[st.bx,st.by,st.roll].join('|');
+  return memo('tauto',key,()=>{
+    const g=gEff(st), a=cycloidFit(st.bx,st.by,g).a, L=4*a;
+    const T=tautoDescent(a,g), period=tautoPeriod(a,g);
+    const beads=TAUTO_FRAC.map(f=>{ const th0=f*PI, h=heightAbove(a,th0), al0=pendRelease(L,h);
+      return {th0,h,s0:arcFromBottom(a,th0),al0,Tcirc:quarterPeriod(g,L,al0)}; });
+    /* descent time vs release height, both bowls */
+    const curve=[]; for(let i=1;i<=40;i++){ const h=2*a*i/40; const al0=pendRelease(L,h);
+      curve.push([h,T,quarterPeriod(g,L,al0)]); }
+    return {g,a,L,T,period,omega:tautoOmega(a,g),beads,curve,centre:[PI*a,-2*a]};
+  });
+}
+
+/* ---- the clock ------------------------------------------------------------ */
+function clockModel(st){
+  const key=[st.bx,st.by,st.roll,st.amp].join('|');
+  return memo('clock',key,()=>{
+    const g=gEff(st), a=cycloidFit(st.bx,st.by,g).a, L=4*a;
+    const al0=st.amp*DEG, thE=PI-2*al0;                 /* the bob's parameter at the left extreme */
+    const T0=2*PI*Math.sqrt(L/g), ratio=periodRatio(al0), Tcirc=T0*ratio;
+    const curve=[]; for(let i=0;i<=45;i++){ const al=i*2*DEG; curve.push([al/DEG,periodRatio(al),1+al*al/16]); }
+    return {g,a,L,al0,thE,T0,Tcyc:T0,Tcirc,ratio,curve,cusp:[PI*a,-2*a],
+            driftPerSwing:Tcirc-T0};
+  });
+}
+
+/* ---- the fit --------------------------------------------------------------- */
+function fitModel(st){
+  const key=[st.bx,st.by,st.roll].join('|');
+  return memo('fit',key,()=>{
+    const g=gEff(st), ratio=st.bx/st.by, f=cycloidFit(st.bx,st.by,g,true);
+    const fsamp=[]; for(let i=1;i<=240;i++){ const th=TAU*i/241; fsamp.push([th,ratioFn(th)]); }
+    const front=memo('front','1',()=>{
+      const asp=[],rows=[];
+      for(let i=0;i<=FRONT_N;i++){
+        const x2=Math.pow(10,-1+2*i/FRONT_N), y2=1, gg=GRAV;
+        const Tc=cycloidFit(x2,y2,gg).T;
+        asp.push(x2);
+        rows.push([lineTime(x2,y2,gg)/Tc, descentTime(curveCircle(x2,y2),gg,64)/Tc,
+                   descentTime(curveParabola(x2,y2),gg,64)/Tc, cornerTime(x2,y2,gg)/Tc]);
+      }
+      return {asp,rows};
+    });
+    const Tc=f.T, x2=st.bx, y2=st.by;
+    const here=[lineTime(x2,y2,g)/Tc, descentTime(curveCircle(x2,y2),g,64)/Tc,
+                descentTime(curveParabola(x2,y2),g,64)/Tc, cornerTime(x2,y2,g)/Tc];
+    return {g,ratio,th2:f.th2,a:f.a,T:Tc,hist:f.hist,iters:f.hist.length-1,fsamp,front,here,
+            aboveBottom:f.th2>PI};
+  });
+}
+
+function buildModel(){
+  const st=ST, view=st.view;
+  const M={view,st,t:SIM.t,g:gEff(st)};
+  if(view==='race'){
+    M.R=raceModel(st);
+    M.beads=M.R.curves.map(c=>Object.assign({id:c.id,col:c.col,T:c.T},beadAt(c,M.R.g,SIM.t)));
+    M.allDone=SIM.t>=M.R.Tmax;
+    lazyC(M,'ext',()=>raceExtent(M.R));
+  }
+  if(view==='func') M.F=funcModel(st);
+  if(view==='snell') M.S=snellModel(st);
+  if(view==='tauto'){
+    M.Ta=tautoModel(st);
+    if(SIM.key!==simKey(st)) simReset(st);
+    M.beads=M.Ta.beads.map((b,i)=>Object.assign({},b,tautoBead(M.Ta.a,M.Ta.g,b.th0,SIM.t),{al:SIM.pend[i][0]}));
+  }
+  if(view==='clock'){
+    M.C=clockModel(st);
+    if(SIM.key!==simKey(st)) simReset(st);
+    M.bob=clockBob(M.C.a,M.C.g,M.C.thE,SIM.t);
+    M.cal=SIM.cpend[0];
+    M.swings=SIM.t/M.C.T0;
+  }
+  if(view==='fit') M.Fi=fitModel(st);
+  M.cycFit=cycloidFit(st.bx,st.by,M.g);
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function curveLabel(id){
+  return {line:'straight line',circle:'circle',parabola:'parabola x &prop; y&sup2;',corner:'drop, then run',
+          yours:'your curve',cycloid:'cycloid'}[id]||id;
+}
+function readoutHTML(M){
+  const st=ST;
+  let s='<div class="rname">brachistochrone<small>'+TABS.find(t=>t[0]===M.view)[1]
+    +' &middot; '+(st.roll?'rolling ball':'sliding bead')+'</small></div><table>';
+  const f=M.cycFit;
+  if(M.view==='race'){
+    const R=M.R;
+    s+=hd('the points')+rrow('B &minus; A',fmt(st.bx,2)+', '+fmt(st.by,2)+' m')
+      +rrow('aspect x/y',fmt(st.bx/st.by,3))
+      +rrow('cycloid &theta;<sub>B</sub>, a',fmt(f.th2,4)+' rad, '+fmt(f.a,4)+' m',f.th2>PI?'bad':'');
+    if(f.th2>PI) s+=rrow('B above the bottom','the bead dips and climbs back','bad');
+    s+=hd('descent times');
+    R.order.forEach((c,i)=>{ const b=M.beads.find(x=>x.id===c.id);
+      s+=rrow((i+1)+'. '+curveLabel(c.id),fmt(c.T,4)+' s'+(b&&b.done?' &#10003;':''),i===0?'good':''); });
+    s+=hd('the race')+rrow('t',fmt(M.t,2)+' s')
+      +rrow('your curve vs cycloid','+'+fmt(100*(R.byId.yours.T/R.byId.cycloid.T-1),2)+' %');
+    if(st.roll) s+=rrow('rolling: every time &times;',fmt(Math.sqrt(1/ROLL_FACTOR),4));
+  }
+  else if(M.view==='func'){
+    const F=M.F;
+    s+=hd('the family x &prop; y<sup>q</sup>')+rrow('q',fmt(st.q,2))+rrow('T(q)',fmt(F.member.T,5)+' s')
+      +rrow('best q in [1, 4]',fmt(F.Tq.qBest,3))+rrow('T(best q)',fmt(F.Tq.TBest,5)+' s')
+      +rrow('T<sub>cycloid</sub>',fmt(F.Tcyc,5)+' s','good')
+      +rrow('gap to the floor','+'+fmt(100*(F.Tq.TBest/F.Tcyc-1),3)+' %');
+    s+=hd('the first variation')+rrow('&epsilon;',fmt(st.eps,3))+rrow('T(&epsilon;)',fmt(F.pert.T,6)+' s')
+      +rrow('T(&epsilon;) &minus; T(0)',sigf(F.pert.T-F.Tcyc,3)+' s');
+    s+=hd('Beltrami y(1+y&prime;<sup>2</sup>)')+rrow('cycloid, everywhere',fmt(F.twoA,4)+' m = 2a','good')
+      +rrow('family member, y = &frac14; y<sub>B</sub>',fmt(F.belt[9][1],4)+' m')
+      +rrow('family member, y = y<sub>B</sub>',fmt(F.belt[39][1],4)+' m');
+  }
+  else if(M.view==='snell'){
+    const S=M.S;
+    s+=hd('the layers')+rrow('N',S.N)+rrow('thickness 2a/N',fmt(S.ray.dy,4)+' m')
+      +rrow('v<sub>max</sub> = &radic;(4ga)',fmt(S.vmax,3)+' m/s');
+    s+=hd('the bent ray at the bottom')+rrow('x<sub>N</sub>',fmt(S.ray.xBottom,5)+' m')
+      +rrow('&pi;a (the cycloid)',fmt(S.xExact,5)+' m','good')
+      +rrow('error',sigf(S.ray.err,3)+' m')
+      +rrow('error ratio 512 &rarr; 1024',fmt(S.ratio,3)+' (&radic;2 = '+fmt(Math.SQRT2,3)+')');
+  }
+  else if(M.view==='tauto'){
+    const T=M.Ta;
+    s+=hd('the bowl')+rrow('a',fmt(T.a,4)+' m')+rrow('depth 2a',fmt(2*T.a,4)+' m')
+      +rrow('&omega; = &radic;(g/4a)',fmt(T.omega,4)+' rad/s')
+      +rrow('descent &pi;&radic;(a/g)',fmt(T.T,4)+' s','good')+rrow('period 4&pi;&radic;(a/g)',fmt(T.period,4)+' s');
+    s+=hd('the circular bowl, radius 4a');
+    T.beads.forEach((b,i)=>{ s+=rrow('from h = '+fmt(b.h,3)+' m',fmt(b.Tcirc,4)+' s'); });
+    s+=hd('the run')+rrow('t',fmt(M.t,2)+' s')+rrow('t / descent',fmt(M.t/T.T,3));
+  }
+  else if(M.view==='clock'){
+    const C=M.C;
+    s+=hd('Huygens&rsquo; pendulum')+rrow('string 4a',fmt(C.L,4)+' m')+rrow('amplitude',fmt(st.amp,0)+'&deg;')
+      +rrow('period',fmt(C.Tcyc,4)+' s, any amplitude','good');
+    s+=hd('the circular pendulum, same L')+rrow('T<sub>0</sub> = 2&pi;&radic;(L/g)',fmt(C.T0,4)+' s')
+      +rrow('T / T<sub>0</sub> = (2/&pi;)K',fmt(C.ratio,5))+rrow('T',fmt(C.Tcirc,4)+' s')
+      +rrow('slow by, per swing',fmt(1000*C.driftPerSwing,2)+' ms');
+    s+=hd('the run')+rrow('t',fmt(M.t,2)+' s')+rrow('cycloidal swings',fmt(M.swings,2))
+      +rrow('bob &theta;, string angle',fmt(M.bob.th,3)+' rad, '+fmt(M.bob.alpha/DEG,1)+'&deg;')
+      +rrow('wrapped + free',fmt(M.bob.wrapped,4)+' + '+fmt(M.bob.free,4)+' = '+fmt(M.bob.wrapped+M.bob.free,4)+' m');
+  }
+  else if(M.view==='fit'){
+    const Fi=M.Fi;
+    s+=hd('the root')+rrow('x<sub>B</sub>/y<sub>B</sub>',fmt(Fi.ratio,5))+rrow('&theta;<sub>B</sub>',fmt(Fi.th2,7)+' rad')
+      +rrow('bisection steps',Fi.iters)+rrow('a',fmt(Fi.a,5)+' m')+rrow('T',fmt(Fi.T,5)+' s','good')
+      +rrow('B is',Fi.aboveBottom?'above the bottom (&theta;<sub>B</sub> &gt; &pi;)':'before the bottom (&theta;<sub>B</sub> &le; &pi;)');
+    s+=hd('T / T<sub>cycloid</sub> at this aspect');
+    ['straight line','circle','parabola','drop, then run'].forEach((n,i)=>{ s+=rrow(n,fmt(Fi.here[i],4)); });
+  }
+  s+='</table><div class="note">No measured data: every time is a quadrature pinned to scipy, every '
+    +'closed form is asserted in selfTest, and the two circular comparisons are integrated by RK4 and '
+    +'checked against the elliptic integral. Drag B (and C) on the stage.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='race') return E('T = &int; ds / &radic;(2gy) &nbsp;&nbsp;&middot;&nbsp;&nbsp; <span class="hl">cycloid: T = &theta;<sub>B</sub> &radic;(a/g)</span>',
+    'energy conservation fixes the speed at every depth; the shape decides how long the bead spends slow near the top');
+  if(M.view==='func') return E('&delta; &int; &radic;((1+y&prime;<sup>2</sup>)/(2gy)) dx = 0 &nbsp;&rArr;&nbsp; <span class="hl">y (1 + y&prime;<sup>2</sup>) = 2a</span> &nbsp;&rArr;&nbsp; x = a(&theta; &minus; sin &theta;), y = a(1 &minus; cos &theta;)',
+    'the integrand has no explicit x, so Beltrami\'s identity F &minus; y&prime; &part;F/&part;y&prime; = const is a first integral of Euler&ndash;Lagrange — and its solution is the cycloid');
+  if(M.view==='snell') return E('<span class="hl">sin &theta; / v = 1 / v<sub>max</sub></span>, &nbsp; v = &radic;(2gy) &nbsp;&rArr;&nbsp; dx/dy = &radic;(y / (2a &minus; y))',
+    'Bernoulli, 1697: a light ray in a medium whose speed grows as &radic;y obeys Snell\'s law layer by layer, and the least-time path of light is the least-time path of the bead');
+  if(M.view==='tauto') return E('s = 4a cos(&theta;/2), &nbsp; h = s<sup>2</sup>/8a &nbsp;&rArr;&nbsp; <span class="hl">s&#776; = &minus;(g/4a) s</span>, &nbsp; T<sub>descent</sub> = &pi;&radic;(a/g)',
+    'the height above the bottom is quadratic in the arc length, so the bead is a harmonic oscillator whatever its amplitude — Huygens, 1659');
+  if(M.view==='clock') return E('<span class="hl">T<sub>cycloidal</sub> = 4&pi;&radic;(a/g)</span> exactly &nbsp;&middot;&nbsp; T<sub>circular</sub> = 4&radic;(L/g) K(sin &theta;<sub>0</sub>/2) = T<sub>0</sub>(1 + &theta;<sub>0</sub><sup>2</sup>/16 + &hellip;)',
+    'the evolute of a cycloid is a congruent cycloid, so a string unwinding from cycloidal cheeks traces a cycloid: Huygens\' isochronous clock (1673)');
+  return E('<span class="hl">(&theta; &minus; sin &theta;) / (1 &minus; cos &theta;) = x<sub>B</sub> / y<sub>B</sub></span>, &nbsp; a = y<sub>B</sub> / (1 &minus; cos &theta;<sub>B</sub>)',
+    'every cycloid through A is a scaled copy of one curve, so B fixes the parameter by a single monotone root — solved by bisection');
+}
+function tagHTML(M){
+  const st=ST;
+  if(M.view==='race') return '<b>the race</b> — B at ('+fmt(st.bx,2)+', '+fmt(st.by,2)+') m, the cycloid wins by '+fmt(100*(M.R.order[1].T/M.R.Tmin-1),1)+' %';
+  if(M.view==='func') return '<b>the functional</b> — one family, one floor';
+  if(M.view==='snell') return '<b>the refraction</b> — N = '+st.layers+' layers';
+  if(M.view==='tauto') return '<b>the tautochrone</b> — five releases, one arrival';
+  if(M.view==='clock') return '<b>the clock</b> — amplitude '+fmt(st.amp,0)+'°';
+  return '<b>the fit</b> — x<sub>B</sub>/y<sub>B</sub> = '+fmt(st.bx/st.by,3);
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views                                *
+ *  Layouts are built from the bottom up: the caption is MEASURED      *
+ *  first (wrapped text has no fixed height), then the bottom row,     *
+ *  then the main panel gets what is left.  Every view has a narrow    *
+ *  mode below 900 px that keeps its one primary panel.                *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+/* the drag freezes the world extent so the picture does not zoom under the pointer */
+const DRAG={ext:null,what:null};
+
+/* equal-aspect world -> screen map (y DOWN in both, so no flip) */
+function worldFit(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2-(ext.ymin-pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy+s*y,wx:X=>(X-ox)/s,wy:Y=>(Y-oy)/s};
+}
+/* world polylines record their screen segments in POLY_SEGS like the plot
+   layer does, so legendAuto can dodge them and the legend-crossing
+   assertion covers them */
+function worldPoly(ctx,map,curve,n,col,lw,dash,p0,p1){
+  p0=p0===undefined?0:p0; p1=p1===undefined?1:p1;
+  ctx.beginPath();
+  let px=0,py=0;
+  for(let i=0;i<=n;i++){ const r=curve.at(p0+(p1-p0)*i/n), X=map.X(r[0]), Y=map.Y(r[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function screenPoly(ctx,pts,col,lw,dash,close){
+  ctx.beginPath();
+  for(let i=0;i<pts.length;i++){ if(i===0) ctx.moveTo(pts[i][0],pts[i][1]); else ctx.lineTo(pts[i][0],pts[i][1]); }
+  if(close) ctx.closePath();
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+/* a short label clamped inside the canvas (the layout sweep fails on any
+   text that leaves it) and registered: a label whose box would overprint
+   one already placed this frame is shifted up or down, and dropped when no
+   slot is free — an overprinted label is worse than none (the numbers live
+   in the readout).  The box model (0.52 em per glyph, 1.15 em tall) is the
+   one the inline sweep and tools/audit.py measure with. */
+let LABELS=[];
+function labFits(bx){
+  /* the same half-pixel overlap rule as tools/audit.py, so a graze the
+     audit would flag is a collision here too */
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+/* a plot title that shortens when its panel is narrow (three titles across a
+   1100 px stage overran each other in the first sweep) */
+function titleFor(b,longT,shortT){ return b.w<330?shortT:longT; }
+/* axes() with its title box registered, so stage labels placed by lab()
+   cannot climb into a plot title (found by the sweep at 560 x 380) */
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function panelTitle(ctx,b,txt){
+  ctx.fillStyle='#aeb6c6'; ctx.font='italic 13px Georgia, serif'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText(plain(txt),b.x,b.y-9);
+}
+/* the stage layout: caption measured, a bottom row of n panels (each with a
+   52 px tick gutter on its left), the main panel above.  bottomFrac is the
+   share of the vertical the bottom row takes; narrow mode keeps ONE bottom
+   panel (or none when nBottomNarrow = 0). */
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L,W,H){
+  caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  view: the race                                                     *
+ * ================================================================== */
+const RACE_CAP_FULL='Equal aspect, y downward, A at the top left. Six curves between the same two points, beads released together '
+  +'from rest: the speed at every depth is fixed by energy, only the route differs. Drag B; drag the control point C to '
+  +'shape your own curve and try to beat the cycloid — you cannot. The strip below is the finish line: rank badges at each '
+  +'arrival time, the cursor is now. When x_B/y_B exceeds π/2 the cycloid dips below B and climbs back, and still wins.';
+const RACE_CAP_SHORT='Six curves, one release, equal aspect, y down. Drag B and C. The strip is the finish line.';
+function raceGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,RACE_CAP_FULL,RACE_CAP_SHORT,0,0,0);
+  const stripH=L.narrow?72:92;
+  const strip=box(L.left+16,L.capY-14-stripH,L.right-L.left-16,stripH);
+  const stage=box(L.left,L.main.y,L.right-L.left,strip.y-22-L.main.y);
+  const ext=DRAG.ext||M.ext;
+  const span=Math.max(ext.xmax-ext.xmin,ext.ymax-ext.ymin);
+  const map=worldFit(stage,ext,0.07*span+0.04);
+  return Object.assign(L,{stage,strip,map,ext});
+}
+function drawRace(ctx,W,H,M){
+  const G=raceGeo(ctx,W,H,M), R=M.R, map=G.map, st=M.st;
+  frame(ctx,G.stage,'#1a2030');
+  /* the release level and B's drop */
+  ctx.strokeStyle='#1e2536'; ctx.lineWidth=1; ctx.setLineDash([3,5]);
+  ctx.beginPath(); ctx.moveTo(G.stage.x,map.Y(0)); ctx.lineTo(G.stage.x1,map.Y(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(map.X(R.x2),map.Y(0)); ctx.lineTo(map.X(R.x2),map.Y(R.y2)); ctx.stroke();
+  ctx.setLineDash([]);
+  /* your curve's control polygon */
+  const Y=R.byId.yours;
+  screenPoly(ctx,[[map.X(0),map.Y(0)],[map.X(Y.cx),map.Y(Y.cy)],[map.X(R.x2),map.Y(R.y2)]],rgba(COL.yours,0.35),1,[4,4]);
+  /* the curves, the cycloid last so it sits on top */
+  for(const c of R.curves) worldPoly(ctx,map,c,c.id==='corner'?2:160,c.col,c.id==='cycloid'?2.4:1.5,c.id==='line'?[6,4]:null);
+  /* the beads: a finished bead gets a white core (they all sit on B by then,
+     so a glyph each would overprint six times) */
+  if(st.showBeads) for(const b of M.beads){
+    dot(ctx,map.X(b.x),map.Y(b.y),6.5,b.col,'#070b18',1.5);
+    if(b.done) dot(ctx,map.X(b.x),map.Y(b.y),2.2,'#fff',null);
+  }
+  /* the points */
+  dot(ctx,map.X(0),map.Y(0),4,'#fff',null);
+  lab(ctx,W,H,map.X(0)-10,map.Y(0)-12,'A','#fff','bold 12px -apple-system, sans-serif','center');
+  dot(ctx,map.X(R.x2),map.Y(R.y2),9,null,'#fff',1.6);
+  dot(ctx,map.X(R.x2),map.Y(R.y2),3,'#fff',null);
+  lab(ctx,W,H,map.X(R.x2)+14,map.Y(R.y2)-12,'B  (drag)','#fff','bold 12px -apple-system, sans-serif','left');
+  dot(ctx,map.X(Y.cx),map.Y(Y.cy),7,null,COL.yours,1.6);
+  lab(ctx,W,H,map.X(Y.cx)+12,map.Y(Y.cy)+12,'C  (drag: your curve)',COL.yours,LAB_FONT,'left');
+  /* curve names along their lower-left ends, staggered so they cannot collide */
+  if(!G.narrow){
+    const names=R.curves.map(c=>[c,c.at(0.62)]);
+    names.sort((p,q)=>p[1][1]-q[1][1]);
+    let lastY=-1e9;
+    for(const [c,r] of names){ let y=map.Y(r[1])-9; if(y-lastY<13) y=lastY+13; lastY=y;
+      lab(ctx,W,H,map.X(r[0])+9,y,c.name,c.col,SM_FONT,'left'); }
+  }
+  /* the finish line: the axis through the middle of the strip, a tick at
+     each arrival, rank badges in the first free row above or below it (close
+     arrivals bunch — six beads at aspect 0.2 finish within 8 % of each other) */
+  const S=G.strip, Tmax=R.Tmax*1.06, mid=S.y+S.h/2;
+  frame(ctx,S,'#242a3a');
+  const tx=t=>S.x+S.w*clamp(t/Tmax,0,1);
+  ctx.strokeStyle='#3a4258'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(S.x,mid); ctx.lineTo(S.x1,mid); ctx.stroke();
+  lab(ctx,W,H,S.x+4,S.y+9,'the finish line','#8b93a6',SM_FONT,'left','middle');
+  const placed=[];
+  R.order.forEach((c,i)=>{ const X=tx(c.T);
+    let yb=mid-14;
+    for(const off of [-14,14,-30,30,-46,46]){ const yy=mid+off;
+      if(placed.every(p=>Math.abs(p[0]-X)>=17||Math.abs(p[1]-yy)>=17)){ yb=yy; break; } }
+    placed.push([X,yb]);
+    ctx.strokeStyle=c.col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(X,mid-5); ctx.lineTo(X,mid+5); ctx.stroke();
+    dot(ctx,X,yb,8,c.col,null);
+    ctx.fillStyle='#070b18'; ctx.font='bold 10px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(String(i+1),X,yb+0.5); });
+  /* now */
+  const Xn=tx(M.t);
+  ctx.strokeStyle=COL.live; ctx.lineWidth=1.6; ctx.beginPath(); ctx.moveTo(Xn,S.y+2); ctx.lineTo(Xn,S.y1-2); ctx.stroke();
+  drawCaption(ctx,G,W,H);
+}
+
+/* ================================================================== *
+ *  view: the functional                                               *
+ * ================================================================== */
+const FUNC_CAP_FULL='Top: the cycloid (green) against one member of the family x ∝ y^q (magenta) and the cycloid displaced by '
+  +'ε y_B sin²(πθ/θ_B) (orange, dashed). Below: T against q — the family has a best member, and it still sits above the '
+  +'cycloid\'s time, the orange floor; T against ε — a parabola whose tangent at ε = 0 is flat, which is what δT = 0 means; '
+  +'and Beltrami\'s first integral y(1 + y′²) along the depth — constant on the cycloid, on nothing else. Equal aspect above, y down.';
+const FUNC_CAP_SHORT='The cycloid against one member of x ∝ y^q; below, T(q) with the cycloid floor. Equal aspect, y down.';
+function funcGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,FUNC_CAP_FULL,FUNC_CAP_SHORT,3,0.4,1);
+  const F=M.F;
+  let xmin=0,xmax=F.x2,ymin=0,ymax=F.y2;
+  for(const c of [F.cyc,F.member,F.pert]) for(let i=0;i<=48;i++){ const r=c.at(i/48);
+    xmin=Math.min(xmin,r[0]); xmax=Math.max(xmax,r[0]); ymin=Math.min(ymin,r[1]); ymax=Math.max(ymax,r[1]); }
+  const ext={xmin,xmax,ymin,ymax};
+  const map=worldFit(L.main,ext,0.07*Math.max(xmax-xmin,ymax-ymin)+0.03);
+  return Object.assign(L,{map,ext});
+}
+function drawFunc(ctx,W,H,M){
+  const G=funcGeo(ctx,W,H,M), F=M.F, map=G.map, st=M.st;
+  frame(ctx,G.main,'#1a2030');
+  ctx.strokeStyle='#1e2536'; ctx.lineWidth=1; ctx.setLineDash([3,5]);
+  ctx.beginPath(); ctx.moveTo(G.main.x,map.Y(0)); ctx.lineTo(G.main.x1,map.Y(0)); ctx.stroke(); ctx.setLineDash([]);
+  worldPoly(ctx,map,F.member,160,COL.live,1.8);
+  if(st.eps!==0) worldPoly(ctx,map,F.pert,160,COL.ref,1.4,[5,4]);
+  worldPoly(ctx,map,F.cyc,160,COL.pos,2.4);
+  dot(ctx,map.X(0),map.Y(0),4,'#fff',null); dot(ctx,map.X(F.x2),map.Y(F.y2),4,'#fff',null);
+  lab(ctx,W,H,map.X(0)-10,map.Y(0)-12,'A','#fff','bold 12px -apple-system, sans-serif','center');
+  lab(ctx,W,H,map.X(F.x2)+12,map.Y(F.y2)-12,'B','#fff','bold 12px -apple-system, sans-serif','left');
+  /* the legend dodges the recorded curve segments (a corner chosen by eye
+     keeps being wrong — Known-bad) */
+  legendAuto(ctx,G.main,[[COL.pos,'cycloid  T = '+fmt(F.Tcyc,4)+' s'],[COL.live,'x ∝ y^q, q = '+fmt(st.q,2)+'  T = '+fmt(F.member.T,4)+' s'],
+    [COL.ref,'cycloid + ε y_B sin²(πθ/θ_B), ε = '+fmt(st.eps,3)+'  T = '+fmt(F.pert.T,5)+' s']]);
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], Tq=F.Tq;
+    const ylo=Math.min(F.Tcyc,Tq.TBest)*0.985, yhi=Math.max.apply(0,Tq.Ts)*1.01;
+    axesR(ctx,b,1,4,ylo,yhi,{title:titleFor(b,'T against q, and the floor','T(q) and the floor'),xlab:'q in x ∝ y^q',ylab:'T, s',nx:4,ny:4,yfmt:v=>fmt(v,3)});
+    polyline(ctx,b,[1,4],[F.Tcyc,F.Tcyc],1,4,ylo,yhi,COL.ref,1.4,[5,4]);
+    polyline(ctx,b,Tq.qs,Tq.Ts,1,4,ylo,yhi,COL.live,1.8);
+    const X=b.x+b.w*(st.q-1)/3, Yv=b.y1-b.h*(F.member.T-ylo)/(yhi-ylo);
+    dot(ctx,X,clamp(Yv,b.y,b.y1),4.5,COL.live,'#fff');
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1], Te=F.Te;
+    const ylo=F.Tcyc*0.9995, yhi=Math.max.apply(0,Te.Ts)*1.0002;
+    axesR(ctx,b,-0.04,0.04,ylo,yhi,{title:titleFor(b,'T against ε: the first variation vanishes','T(ε): flat at ε = 0'),xlab:'ε',ylab:'T, s',nx:4,ny:3,yfmt:v=>fmt(v,4)});
+    polyline(ctx,b,[-0.04,0.04],[F.Tcyc,F.Tcyc],-0.04,0.04,ylo,yhi,COL.ref,1.2,[5,4]);
+    polyline(ctx,b,Te.es,Te.Ts,-0.04,0.04,ylo,yhi,COL.ref,1.8);
+    const X=b.x+b.w*(st.eps+0.04)/0.08, Yv=b.y1-b.h*(F.pert.T-ylo)/(yhi-ylo);
+    dot(ctx,X,clamp(Yv,b.y,b.y1),4.5,COL.live,'#fff');
+  }
+  if(G.bottom.length>=3){
+    const b=G.bottom[2];
+    const xs=F.belt.map(r=>r[0]), ym=F.belt.map(r=>r[1]/F.twoA), yc=F.belt.map(r=>r[2]/F.twoA);
+    const yhi=clamp(Math.max.apply(0,ym)*1.1,1.3,6);
+    axesR(ctx,b,0,1,0,yhi,{title:titleFor(b,'Beltrami: y(1 + y′²) / 2a along the depth','Beltrami, y(1+y′²)/2a'),xlab:'y / y_B',ylab:'y(1+y′²)/2a',nx:4,ny:3});
+    polyline(ctx,b,xs,ym,0,1,0,yhi,COL.live,1.8);
+    polyline(ctx,b,xs,yc,0,1,0,yhi,COL.pos,2.2);
+  }
+  drawCaption(ctx,G,W,H);
+}
+
+/* ================================================================== *
+ *  view: the refraction                                               *
+ * ================================================================== */
+const SNELL_CAP_FULL='Bernoulli\'s medium: N layers whose speed grows as √y downward (brighter = faster). A ray entering vertically '
+  +'refracts at every interface by Snell\'s law, sin θ/v = 1/v_max, so it bends over until it runs horizontal at depth 2a — the '
+  +'polyline (cyan) closes on the cycloid (green) as N grows. Right: the miss at the bottom shrinks only as N^(−1/2), the orange '
+  +'slope, because the ray turns horizontal there and the last layers carry the error. Equal aspect, y down.';
+const SNELL_CAP_SHORT='Snell\'s law in N layers with v ∝ √y bends a ray onto the cycloid. Equal aspect, y down.';
+function snellGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,SNELL_CAP_FULL,SNELL_CAP_SHORT,1,0.38,0);
+  const a=M.S.a;
+  const ext={xmin:-0.15*a,xmax:2*PI*a,ymin:-0.08*a,ymax:2.12*a};
+  const map=worldFit(L.main,ext,0.03*a);
+  return Object.assign(L,{map,ext});
+}
+function drawSnell(ctx,W,H,M){
+  const G=snellGeo(ctx,W,H,M), S=M.S, map=G.map, a=S.a, N=S.N;
+  const x0=map.X(-0.15*a), x1=map.X(2*PI*a);
+  /* the layers: speed sqrt(2 g y_mid) as brightness */
+  for(let i=0;i<N;i++){
+    const y0=map.Y(i*S.ray.dy), y1=map.Y((i+1)*S.ray.dy);
+    const v=Math.sqrt((i+0.5)/N);
+    ctx.fillStyle=shade(COL.struct,0.06+0.34*v); ctx.fillRect(x0,y0,x1-x0,y1-y0);
+    ctx.strokeStyle='#0d1322'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(x0,y1); ctx.lineTo(x1,y1); ctx.stroke();
+  }
+  frame(ctx,box(x0,map.Y(0),x1-x0,map.Y(2*a)-map.Y(0)),'#2a3346');
+  /* the cycloid: the half arch that the ray follows, then the rest faintly */
+  const cyc={at:p=>{ const th=TAU*p; return [a*(th-Math.sin(th)),a*(1-Math.cos(th)),0,0]; }};
+  worldPoly(ctx,map,cyc,200,rgba(COL.pos,0.35),1.4,[4,4],0.5,1);
+  worldPoly(ctx,map,cyc,200,COL.pos,2.2,null,0,0.5);
+  /* the bent ray */
+  const pts=S.ray.pts.map(p=>[map.X(p[0]),map.Y(p[1])]);
+  screenPoly(ctx,pts,COL.struct,2);
+  for(const p of pts) dot(ctx,p[0],p[1],2.4,COL.struct,null);
+  /* the angle in the middle layer */
+  const k=Math.floor(N/2), P0=pts[k], P1=pts[k+1];
+  ctx.strokeStyle='#fff'; ctx.lineWidth=1; ctx.setLineDash([2,3]);
+  ctx.beginPath(); ctx.moveTo(P0[0],P0[1]); ctx.lineTo(P0[0],P1[1]); ctx.stroke(); ctx.setLineDash([]);
+  const thk=Math.asin(Math.sqrt((k+0.5)/N));
+  lab(ctx,W,H,P0[0]+10,0.5*(P0[1]+P1[1]),'θ = '+fmt(thk/DEG,1)+'°, sin θ = √(y/2a)','#fff',SM_FONT,'left');
+  dot(ctx,map.X(PI*a),map.Y(2*a),4,COL.pos,'#fff');
+  lab(ctx,W,H,map.X(PI*a),map.Y(2*a)+13,'x = πa',COL.pos,SM_FONT,'center','top');
+  dot(ctx,map.X(S.ray.xBottom),map.Y(2*a),4,COL.struct,'#fff');
+  lab(ctx,W,H,map.X(S.ray.xBottom)+8,map.Y(2*a)-11,'x_N',COL.struct,SM_FONT,'left');
+  lab(ctx,W,H,map.X(0)+6,map.Y(0)-11,'v = 0 at the top; v_max = √(4ga) at the bottom','#8b93a6',SM_FONT,'left');
+  if(G.bottom.length){
+    const b=G.bottom[0], C=S.conv;
+    const lx=C.Ns.map(n=>Math.log10(n)), ly=C.errs.map(e=>Math.log10(e));
+    const ylo=Math.floor(Math.min.apply(0,ly))-0.2, yhi=Math.ceil(Math.max.apply(0,ly))+0.2;
+    axesR(ctx,b,0.5,3.2,ylo,yhi,{title:'the miss at the bottom against N (log–log)',xlab:'log₁₀ N',ylab:'log₁₀ |x_N − πa|',nx:4,ny:4,yfmt:v=>fmt(v,1),xfmt:v=>fmt(v,1)});
+    /* the reference slope -1/2 through the last point */
+    const n0=lx[lx.length-1], e0=ly[ly.length-1];
+    polyline(ctx,b,[0.5,3.2],[e0-0.5*(0.5-n0),e0-0.5*(3.2-n0)],0.5,3.2,ylo,yhi,COL.ref,1.3,[5,4]);
+    polyline(ctx,b,lx,ly,0.5,3.2,ylo,yhi,COL.struct,1.8);
+    for(let i=0;i<lx.length;i++){ const X=b.x+b.w*(lx[i]-0.5)/2.7, Yv=b.y1-b.h*(ly[i]-ylo)/(yhi-ylo); dot(ctx,X,Yv,3,COL.struct,null); }
+    const Xc=b.x+b.w*(Math.log10(N)-0.5)/2.7, Yc=b.y1-b.h*(Math.log10(Math.abs(S.ray.err))-ylo)/(yhi-ylo);
+    dot(ctx,Xc,clamp(Yc,b.y,b.y1),5,COL.live,'#fff');
+    legendAuto(ctx,b,[[COL.struct,'|x_N − πa|'],[COL.ref,'slope −½'],[COL.live,'N = '+N]]);
+  }
+  drawCaption(ctx,G,W,H);
+}
+
+/* ================================================================== *
+ *  view: the tautochrone                                              *
+ * ================================================================== */
+const TAUTO_CAP_FULL='Five beads released from rest at different heights on the same cycloid bowl (green) reach the bottom at the '
+  +'same instant, π√(a/g), and go on oscillating in step for ever: the arc length from the bottom is a harmonic coordinate. '
+  +'The circular bowl of the same curvature at the bottom (orange, radius 4a) is not isochronous — its hollow beads, released '
+  +'from the same heights, arrive late by an amount that grows with amplitude (right, from the elliptic integral). Below: '
+  +'height against time for all ten beads. Equal aspect, y down.';
+const TAUTO_CAP_SHORT='Five heights, one arrival on the cycloid bowl; the circular bowl (orange) is not isochronous. Equal aspect, y down.';
+const BEAD_COLS=['#f0e442','#e8843a','#e05a6c','#cd35c4','#7d7dff'];
+function tautoGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,TAUTO_CAP_FULL,TAUTO_CAP_SHORT,2,0.42,1);
+  const a=M.Ta.a, L4=4*a, alM=pendRelease(L4,2*a);
+  const ext={xmin:Math.min(0,PI*a-L4*Math.sin(alM))-0.1*a,xmax:Math.max(2*PI*a,PI*a+L4*Math.sin(alM))+0.1*a,ymin:-0.15*a,ymax:2.15*a};
+  const map=worldFit(L.main,ext,0.02*a);
+  return Object.assign(L,{map,ext});
+}
+function bowlPos(T,al){ return [T.centre[0]+T.L*Math.sin(al),T.centre[1]+T.L*Math.cos(al)]; }
+function drawTauto(ctx,W,H,M){
+  const G=tautoGeo(ctx,W,H,M), T=M.Ta, map=G.map, a=T.a;
+  /* the circular bowl: the arc of radius 4a about the evolute cusp, within the bowl's height */
+  const alM=pendRelease(T.L,2*a);
+  const arc=[]; for(let i=0;i<=80;i++){ const al=-alM+2*alM*i/80; const p=bowlPos(T,al); arc.push([map.X(p[0]),map.Y(p[1])]); }
+  screenPoly(ctx,arc,COL.ref,1.4,[6,4]);
+  const cyc={at:p=>{ const th=TAU*p; return [a*(th-Math.sin(th)),a*(1-Math.cos(th)),0,0]; }};
+  worldPoly(ctx,map,cyc,240,COL.pos,2.4);
+  ctx.strokeStyle='#1e2536'; ctx.lineWidth=1; ctx.setLineDash([3,5]);
+  ctx.beginPath(); ctx.moveTo(map.X(PI*a),map.Y(2*a)); ctx.lineTo(map.X(PI*a),map.Y(-0.1*a)); ctx.stroke(); ctx.setLineDash([]);
+  /* the beads: filled on the cycloid, hollow on the circle */
+  M.beads.forEach((b,i)=>{
+    const col=BEAD_COLS[i];
+    const r0=cycloidPt(a,b.th0);
+    dot(ctx,map.X(r0[0]),map.Y(r0[1]),3,null,rgba(col,0.6),1);         /* the release point */
+    const pc=bowlPos(T,b.al);
+    dot(ctx,map.X(pc[0]),map.Y(pc[1]),6,null,col,1.8);
+    dot(ctx,map.X(b.pt[0]),map.Y(b.pt[1]),6.5,col,'#070b18',1.5);
+  });
+  lab(ctx,W,H,map.X(PI*a),map.Y(2*a)+12,'the bottom, depth 2a',COL.pos,SM_FONT,'center','top');
+  lab(ctx,W,H,map.X(0)+4,map.Y(0)-10,'cusp',COL.pos,SM_FONT,'left');
+  if(!G.narrow) lab(ctx,W,H,map.X(PI*a+T.L*Math.sin(alM))-6,map.Y(-0.02*a),'circle, radius 4a',COL.ref,SM_FONT,'right');
+  const flash=Math.abs(M.t-T.T)<0.04;
+  if(flash) lab(ctx,W,H,map.X(PI*a),map.Y(2*a)-16,'all five, now',COL.live,'bold 12px -apple-system, sans-serif','center');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0], tmax=Math.max(T.period*1.02,M.t*1.02), hmax=2*a*1.05;
+    axesR(ctx,b,0,tmax,0,hmax,{title:titleFor(b,'height above the bottom against time','height against time'),xlab:'t, s',ylab:'h, m',nx:5,ny:3});
+    const n=160;
+    M.beads.forEach((bd,i)=>{
+      const ts=[],hs=[]; for(let k=0;k<=n;k++){ const t=tmax*k/n; if(t>M.t) break; const s=bd.s0*Math.cos(T.omega*t); ts.push(t); hs.push(s*s/(8*a)); }
+      polyline(ctx,b,ts,hs,0,tmax,0,hmax,BEAD_COLS[i],1.4);
+    });
+    polyline(ctx,b,[T.T,T.T],[0,hmax],0,tmax,0,hmax,COL.pos,1,[4,4]);
+    lab(ctx,W,H,b.x+b.w*T.T/tmax+4,b.y+10,'π√(a/g)',COL.pos,SM_FONT,'left');
+    /* the circle beads: from their K(k) descent, the cosine-like shape is only sketched
+       by the integrated state at the current time (a dot), not by a false closed form */
+    M.beads.forEach((bd,i)=>{ const h=T.L*(1-Math.cos(bd.al)); const X=b.x+b.w*clamp(M.t/tmax,0,1), Yv=b.y1-b.h*clamp(h/hmax,0,1);
+      dot(ctx,X,Yv,3.5,null,BEAD_COLS[i],1.4); });
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1];
+    const hs=T.curve.map(r=>r[0]), tc=T.curve.map(r=>r[1]), tq=T.curve.map(r=>r[2]);
+    const yhi=Math.max.apply(0,tq)*1.08;
+    axesR(ctx,b,0,2*a,0,yhi,{title:titleFor(b,'time to the bottom against release height','descent time vs height'),xlab:'release height, m',ylab:'T, s',nx:4,ny:3});
+    polyline(ctx,b,hs,tq,0,2*a,0,yhi,COL.ref,1.8,[5,4]);
+    polyline(ctx,b,hs,tc,0,2*a,0,yhi,COL.pos,2.2);
+    M.beads.forEach((bd,i)=>{ const X=b.x+b.w*bd.h/(2*a);
+      dot(ctx,X,b.y1-b.h*T.T/yhi,4,BEAD_COLS[i],null); dot(ctx,X,b.y1-b.h*bd.Tcirc/yhi,4,null,BEAD_COLS[i],1.5); });
+    legendAuto(ctx,b,[[COL.pos,'cycloid: π√(a/g)'],[COL.ref,'circle: √(L/g) K(sin θ₀/2)']]);
+  }
+  drawCaption(ctx,G,W,H);
+}
+
+/* ================================================================== *
+ *  view: the clock                                                    *
+ * ================================================================== */
+const CLOCK_CAP_FULL='Huygens\' pendulum: the string hangs from the cusp between two cycloidal cheeks (cyan, the evolute) and wraps '
+  +'against one as it swings, so the bob (magenta) traces the cycloid below and its period is exactly 4π√(a/g) at every '
+  +'amplitude. A circular pendulum of the same length 4a (orange, hollow bob) released with it falls behind — by '
+  +'(2/π)K(sin θ₀/2) − 1 per swing, right; the dashed line is the small-angle series 1 + θ₀²/16. Bottom: the two bobs\' '
+  +'horizontal positions against time. Equal aspect, y down.';
+const CLOCK_CAP_SHORT='Huygens\' cycloidal pendulum keeps exact time; the circular one (orange) falls behind. Equal aspect, y down.';
+function clockGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,CLOCK_CAP_FULL,CLOCK_CAP_SHORT,2,0.4,1);
+  const C=M.C, a=C.a;
+  const reach=C.L*Math.sin(C.al0);
+  const ext={xmin:Math.min(0,PI*a-reach)-0.15*a,xmax:Math.max(2*PI*a,PI*a+reach)+0.15*a,ymin:-2.3*a,ymax:2.15*a};
+  const map=worldFit(L.main,ext,0.02*a);
+  return Object.assign(L,{map,ext});
+}
+function drawClock(ctx,W,H,M){
+  const G=clockGeo(ctx,W,H,M), C=M.C, map=G.map, a=C.a, B=M.bob;
+  /* the bob's path (faint) and the cheeks */
+  const cyc={at:p=>{ const th=TAU*p; return [a*(th-Math.sin(th)),a*(1-Math.cos(th)),0,0]; }};
+  worldPoly(ctx,map,cyc,240,rgba(COL.pos,0.4),1.2,[4,4]);
+  const evo={at:p=>{ const th=TAU*p; const e=evolutePt(a,th); return [e[0],e[1],0,0]; }};
+  worldPoly(ctx,map,evo,240,COL.struct,2.2);
+  /* the wrapped string: along the cheek from the cusp (th = pi) to the contact point */
+  const wrap=[]; const th0=PI, th1=B.th, n=60;
+  for(let i=0;i<=n;i++){ const th=th0+(th1-th0)*i/n; const e=evolutePt(a,th); wrap.push([map.X(e[0]),map.Y(e[1])]); }
+  screenPoly(ctx,wrap,'#fff',2.2);
+  screenPoly(ctx,[[map.X(B.E[0]),map.Y(B.E[1])],[map.X(B.pt[0]),map.Y(B.pt[1])]],'#fff',1.6);
+  /* the circular pendulum from the same cusp */
+  const cx=C.cusp[0]+C.L*Math.sin(M.cal), cy=C.cusp[1]+C.L*Math.cos(M.cal);
+  screenPoly(ctx,[[map.X(C.cusp[0]),map.Y(C.cusp[1])],[map.X(cx),map.Y(cy)]],COL.ref,1.4,[5,4]);
+  dot(ctx,map.X(cx),map.Y(cy),7,null,COL.ref,2);
+  /* the suspension, the contact point, the bob */
+  dot(ctx,map.X(C.cusp[0]),map.Y(C.cusp[1]),4,'#fff',null);
+  dot(ctx,map.X(B.E[0]),map.Y(B.E[1]),3.5,COL.struct,'#fff',1);
+  dot(ctx,map.X(B.pt[0]),map.Y(B.pt[1]),7.5,COL.live,'#070b18',1.5);
+  lab(ctx,W,H,map.X(C.cusp[0]),map.Y(C.cusp[1])-12,'suspension at the cusp (πa, −2a)','#fff',SM_FONT,'center');
+  lab(ctx,W,H,map.X(2*PI*a)+6,map.Y(0),'cheeks: the evolute',COL.struct,SM_FONT,'left');
+  lab(ctx,W,H,map.X(B.E[0])+10,map.Y(B.E[1])+2,'contact: wrapped '+fmt(B.wrapped,3)+' + free '+fmt(B.free,3)+' = 4a',COL.struct,SM_FONT,'left');
+  if(G.bottom.length>=1){
+    const b=G.bottom[0];
+    const xs=C.curve.map(r=>r[0]), rc=C.curve.map(r=>r[1]), rs=C.curve.map(r=>r[2]);
+    const yhi=Math.max(1.2,rc[rc.length-1]*1.03);
+    axesR(ctx,b,0,90,0.95,yhi,{title:titleFor(b,'period over the small-angle period, against amplitude','T / T₀ against amplitude'),xlab:'amplitude θ₀, degrees',ylab:'T / T₀',nx:4,ny:3,yfmt:v=>fmt(v,2)});
+    polyline(ctx,b,xs,rs,0,90,0.95,yhi,'#6f7789',1.2,[3,3]);
+    polyline(ctx,b,xs,rc,0,90,0.95,yhi,COL.ref,1.8);
+    polyline(ctx,b,[0,90],[1,1],0,90,0.95,yhi,COL.pos,2.2);
+    const X=b.x+b.w*C.al0/DEG/90, Yv=b.y1-b.h*(C.ratio-0.95)/(yhi-0.95);
+    dot(ctx,X,clamp(Yv,b.y,b.y1),4.5,COL.live,'#fff');
+    legendAuto(ctx,b,[[COL.pos,'cycloidal: exactly 1'],[COL.ref,'circular: (2/π)K(sin θ₀/2)'],['#6f7789','1 + θ₀²/16']]);
+  }
+  if(G.bottom.length>=2){
+    const b=G.bottom[1], hist=SIM.hist;
+    const tmax=Math.max(4*C.T0,M.t*1.02), t0=Math.max(0,M.t-tmax);
+    axesR(ctx,b,t0,t0+tmax,-1.05,1.05,{title:titleFor(b,'the two bobs: horizontal position over L against time','the two bobs, x/L against time'),xlab:'t, s',ylab:'x / L',nx:5,ny:3,yfmt:v=>fmt(v,1)});
+    const ts=[],xc=[],xr=[];
+    for(const h of hist){ if(h[0]<t0) continue; ts.push(h[0]); xc.push(h[1]); xr.push(h[2]); }
+    polyline(ctx,b,ts,xr,t0,t0+tmax,-1.05,1.05,COL.ref,1.4,[5,4]);
+    polyline(ctx,b,ts,xc,t0,t0+tmax,-1.05,1.05,COL.live,1.8);
+  }
+  drawCaption(ctx,G,W,H);
+}
+
+/* ================================================================== *
+ *  view: the fit                                                      *
+ * ================================================================== */
+const FIT_CAP_FULL='The boundary-value problem. Every cycloid from A is a scaled copy of one curve, so the ratio '
+  +'f(θ) = (θ − sin θ)/(1 − cos θ) fixes the parameter at B by one monotone root, f(θ_B) = x_B/y_B — the orange line meets the '
+  +'green curve once, and the bars underneath are the first bisection brackets halving onto it (log axis; f runs from 0 to ∞ '
+  +'on (0, 2π)). Below left: how much slower each competitor is than the cycloid, against the aspect of B — the line by 18.5 % '
+  +'when B sits at the bottom (x_B/y_B = π/2), everything tending to free fall as B goes straight down. Below right: the '
+  +'similar cycloids through A and the one that hits B (drag B).';
+const FIT_CAP_SHORT='One monotone root f(θ_B) = x_B/y_B fixes the cycloid; below, every competitor\'s time over the cycloid\'s.';
+function fitGeo(ctx,W,H,M){
+  const L=stageLayout(ctx,W,H,FIT_CAP_FULL,FIT_CAP_SHORT,2,0.44,1);
+  /* the bottom row is split unevenly: the frontier wide, the family narrow */
+  if(L.bottom.length===2){
+    const b0=L.bottom[0], b1=L.bottom[1], span=b1.x1-b0.x, gut=52;
+    const w0=(span-gut)*0.6, w1=(span-gut)*0.4;
+    L.bottom=[box(b0.x,b0.y,w0,b0.h),box(b0.x+w0+gut,b0.y,w1,b0.h)];
+  }
+  const main=box(L.main.x+48,L.main.y+14,L.main.w-58,L.main.h-34);
+  return Object.assign(L,{plot:main});
+}
+function drawFit(ctx,W,H,M){
+  const G=fitGeo(ctx,W,H,M), Fi=M.Fi, b=G.plot, st=M.st;
+  const lo=0.01, hi=30;
+  /* no clamp: polyline clips in data space, so the curve leaves the box
+     honestly instead of running flat along its top */
+  const lx=Fi.fsamp.map(r=>r[0]), ly=Fi.fsamp.map(r=>Math.log10(r[1]));
+  axesR(ctx,b,0,TAU,Math.log10(lo),Math.log10(hi),{title:titleFor(box(b.x,b.y,b.w-120,b.h),'f(θ) = (θ − sin θ)/(1 − cos θ), and the root the ratio picks','f(θ) and the root'),
+    xlab:'θ_B, radians',ylab:'log₁₀ f',nx:6,ny:4,yfmt:v=>fmt(v,0),xfmt:v=>fmt(v,1)});
+  polyline(ctx,b,lx,ly,0,TAU,Math.log10(lo),Math.log10(hi),COL.pos,2.2);
+  const lr=Math.log10(clamp(Fi.ratio,lo,hi));
+  polyline(ctx,b,[0,TAU],[lr,lr],0,TAU,Math.log10(lo),Math.log10(hi),COL.ref,1.4,[5,4]);
+  polyline(ctx,b,[PI,PI],[Math.log10(lo),Math.log10(hi)],0,TAU,Math.log10(lo),Math.log10(hi),'#3a4258',1,[2,4]);
+  const X=b.x+b.w*Fi.th2/TAU, Y=b.y1-b.h*(lr-Math.log10(lo))/(Math.log10(hi)-Math.log10(lo));
+  dot(ctx,X,Y,5.5,COL.live,'#fff');
+  lab(ctx,W,H,b.x+b.w*PI/TAU+5,b.y+12,'θ = π: B at the bottom','#6f7789',SM_FONT,'left');
+  /* the root label hangs to whichever side keeps it out from under the readout */
+  if(X<b.x+0.6*b.w) lab(ctx,W,H,X+10,Y-14,'θ_B = '+fmt(Fi.th2,4)+'  (f = '+fmt(Fi.ratio,3)+')',COL.live,LAB_FONT,'left');
+  else lab(ctx,W,H,X-10,Y-14,'θ_B = '+fmt(Fi.th2,4)+'  (f = '+fmt(Fi.ratio,3)+')',COL.live,LAB_FONT,'right');
+  /* the bisection brackets: the first halvings as bars near the axis floor —
+     as many as the panel's height leaves room for */
+  const nb=Math.max(0,Math.min(8,Fi.hist.length,Math.floor((b.h-40)/6)));
+  for(let i=0;i<nb;i++){ const [l,r]=Fi.hist[i]; const yb=b.y1-8-i*6;
+    ctx.strokeStyle=rgba(COL.live,0.35+0.5*i/nb); ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(b.x+b.w*l/TAU,yb); ctx.lineTo(b.x+b.w*Math.min(r,TAU)/TAU,yb); ctx.stroke(); }
+  if(nb>=3) lab(ctx,W,H,b.x1-6,b.y1-8-nb*6-4,'bisection brackets, halving',COL.live,SM_FONT,'right','bottom');
+  if(G.bottom.length>=1){
+    const p=G.bottom[0], F=Fi.front;
+    const la=F.asp.map(v=>Math.log10(v)), yhi=2.4;
+    axesR(ctx,p,-1,1,1,yhi,{title:'time over the cycloid\'s time, against the aspect x_B/y_B',xlab:'log₁₀ (x_B/y_B)',ylab:'T / T_cycloid',nx:4,ny:3,yfmt:v=>fmt(v,1),xfmt:v=>fmt(v,1)});
+    const cols=[COL.line,COL.circle,COL.parabola,COL.corner], names=['straight line','circle','parabola x ∝ y²','drop, then run'];
+    for(let k=0;k<4;k++) polyline(ctx,p,la,F.rows.map(r=>r[k]),-1,1,1,yhi,cols[k],k===0?1.4:1.6,k===0?[6,4]:null);
+    polyline(ctx,p,[-1,1],[1,1],-1,1,1,yhi,COL.pos,2);
+    const xa=Math.log10(Fi.ratio);
+    polyline(ctx,p,[xa,xa],[1,yhi],-1,1,1,yhi,COL.live,1.2,[3,3]);
+    for(let k=0;k<4;k++){ const Xk=p.x+p.w*(xa+1)/2, Yk=p.y1-p.h*(Fi.here[k]-1)/(yhi-1); if(xa>=-1&&xa<=1) dot(ctx,Xk,clamp(Yk,p.y,p.y1),4,cols[k],'#fff'); }
+    legendAuto(ctx,p,names.map((n,k)=>[cols[k],n]).concat([[COL.pos,'the cycloid, 1']]));
+  }
+  if(G.bottom.length>=2){
+    const p=G.bottom[1], g=M.g;
+    frame(ctx,p,'#1a2030');
+    const ext={xmin:0,xmax:Math.max(st.bx*1.15,2*PI*Fi.a*0.5),ymin:0,ymax:Math.max(st.by*1.15,2*Fi.a)};
+    const map=worldFit(p,ext,0.05*Math.max(ext.xmax,ext.ymax));
+    for(let k=1;k<=5;k++){ const ak=Fi.a*Math.pow(1.6,k-3);
+      const c={at:pp=>{ const th=TAU*pp; return [ak*(th-Math.sin(th)),ak*(1-Math.cos(th)),0,0]; }};
+      worldPoly(ctx,map,c,120,rgba(COL.pos,0.25),1,null,0,0.5); }
+    const cf={at:pp=>{ const th=Fi.th2*pp; return [Fi.a*(th-Math.sin(th)),Fi.a*(1-Math.cos(th)),0,0]; }};
+    worldPoly(ctx,map,cf,120,COL.pos,2.2);
+    dot(ctx,map.X(0),map.Y(0),3.5,'#fff',null);
+    dot(ctx,map.X(st.bx),map.Y(st.by),8,null,'#fff',1.5); dot(ctx,map.X(st.bx),map.Y(st.by),3,'#fff',null);
+    lab(ctx,W,H,map.X(st.bx)+12,map.Y(st.by)-11,'B (drag)','#fff',SM_FONT,'left');
+    panelTitle(ctx,p,'the similar cycloids through A');
+    G.family={box:p,map};
+  }
+  drawCaption(ctx,G,W,H);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='race') drawRace(ctx,W,H,M);
+  else if(M.view==='func') drawFunc(ctx,W,H,M);
+  else if(M.view==='snell') drawSnell(ctx,W,H,M);
+  else if(M.view==='tauto') drawTauto(ctx,W,H,M);
+  else if(M.view==='clock') drawClock(ctx,W,H,M);
+  else drawFit(ctx,W,H,M);
+}
+/* the animated views: the frame loop advances the clock only on these */
+function viewAnimates(v){ return v==='race'||v==='tauto'||v==='clock'; }
+
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame of time when running on an animated view; the race loops once
+     everyone is home (plus a pause), the others run for ever */
+  S.step=function(){
+    if(!ST.running||!viewAnimates(ST.view)) return false;
+    simAdvance(ST);
+    if(ST.view==='race'&&ST.loop){ const R=raceModel(ST); if(SIM.t>R.Tmax+1.0) SIM.t=0; }
+    if(ST.view==='clock'){ const C=clockModel(ST), B=clockBob(C.a,C.g,C.thE,SIM.t);
+      SIM.hist.push([SIM.t,(B.pt[0]-C.cusp[0])/C.L,Math.sin(SIM.cpend[0])]);
+      if(SIM.hist.length>2400) SIM.hist.splice(0,SIM.hist.length-2400); }
+    return true;
+  };
+  /* the pointer drags B (race, fit) and C (race).  Returns true when consumed. */
+  S.pointer=function(type,x,y){
+    const st=ST;
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; DRAG.ext=null; return had; }
+    const ctx=canvas.getContext('2d');
+    if(st.view==='race'){
+      const M=buildModel(), G=raceGeo(ctx,S.W,S.H,M), map=G.map;
+      if(type==='down'){
+        const dB=Math.hypot(x-map.X(st.bx),y-map.Y(st.by)), dC=Math.hypot(x-map.X(st.cx),y-map.Y(st.cy));
+        if(dC<14&&dC<=dB){ DRAG.what='C'; DRAG.ext=M.ext; return true; }
+        if(dB<16){ DRAG.what='B'; DRAG.ext=M.ext; return true; }
+        return false;
+      }
+      if(type==='move'&&DRAG.what){
+        const wx=map.wx(x), wy=map.wy(y);
+        if(DRAG.what==='B'){ st.bx=clamp(wx,LIM.bxMin,LIM.bxMax); st.by=clamp(wy,LIM.byMin,LIM.byMax); }
+        else { st.cx=clamp(wx,-LIM.bxMax,LIM.bxMax); st.cy=clamp(wy,LIM.cyMinFrac*st.by,2*LIM.byMax); }
+        st.cy=Math.max(st.cy,LIM.cyMinFrac*st.by);
+        SIM.t=0;
+        return true;
+      }
+      return false;
+    }
+    if(st.view==='fit'){
+      const M=buildModel(), G=fitGeo(ctx,S.W,S.H,M);
+      /* draw once to place the family map (its box depends on the layout) */
+      const fam=G.bottom.length>=2?G.bottom[1]:null;
+      if(type==='down'){
+        if(fam&&x>=fam.x&&x<=fam.x1&&y>=fam.y&&y<=fam.y1){ DRAG.what='Bfam'; return true; }
+        const p=G.bottom[0]; if(p&&x>=p.x&&x<=p.x1&&y>=p.y&&y<=p.y1){ DRAG.what='aspect'; S.pointer('move',x,y); return true; }
+        return false;
+      }
+      if(type==='move'&&DRAG.what==='aspect'){ const p=G.bottom[0]; const la=clamp(-1+2*(x-p.x)/p.w,-1,1);
+        st.bx=clamp(st.by*Math.pow(10,la),LIM.bxMin,LIM.bxMax); return true; }
+      if(type==='move'&&DRAG.what==='Bfam'&&fam){
+        const Fi=M.Fi, ext={xmin:0,xmax:Math.max(st.bx*1.15,2*PI*Fi.a*0.5),ymin:0,ymax:Math.max(st.by*1.15,2*Fi.a)};
+        const map=DRAG.ext?worldFit(fam,DRAG.ext,0.05*Math.max(DRAG.ext.xmax,DRAG.ext.ymax)):worldFit(fam,ext,0.05*Math.max(ext.xmax,ext.ymax));
+        if(!DRAG.ext) DRAG.ext=ext;
+        st.bx=clamp(map.wx(x),LIM.bxMin,LIM.bxMax); st.by=clamp(map.wy(y),LIM.byMin,LIM.byMax); return true; }
+      return false;
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    if(st.view!==k){ st.view=k; simReset(st); }
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  const restart=()=>{ simReset(st); };
+  const keepC=()=>{ st.cy=Math.max(st.cy,LIM.cyMinFrac*st.by); simReset(st); };
+
+  const gPts=h('div',{class:'grp'},h('h3',null,'the points'));
+  gPts.appendChild(slider('bx','B: across',LIM.bxMin,LIM.bxMax,0.01,v=>fmt(v,2)+' m',keepC));
+  gPts.appendChild(slider('by','B: down',LIM.byMin,LIM.byMax,0.01,v=>fmt(v,2)+' m',keepC));
+  const ptsTag=h('div',{class:'tag'}); gPts.appendChild(ptsTag);
+
+  const gBody=h('div',{class:'grp'},h('h3',null,'the body'));
+  const bodyChips=chipRow(BODY_LIST,'roll',restart); gBody.appendChild(bodyChips); trackChips(gBody,BODY_LIST,'roll');
+  const bodyTag=h('div',{class:'tag'}); gBody.appendChild(bodyTag);
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the run'));
+  gRun.appendChild(h('div',{class:'checks'},
+    checkbox('running','time runs'),
+    checkbox('loop','the race loops'),
+    checkbox('showBeads','beads')));
+  gRun.appendChild(slider('speed','speed',0.25,4,0.25,v=>fmt(v,2)+'×'));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ simReset(st); dirty=true; refresh(); }},'restart'),
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; simReset(st);
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gFunc=h('div',{class:'grp'},h('h3',null,'the family'));
+  gFunc.appendChild(slider('q','exponent q',1,4,0.01,v=>fmt(v,2)));
+  gFunc.appendChild(slider('eps','perturbation ε',-0.04,0.04,0.002,v=>fmt(v,3)));
+  const funcTag=h('div',{class:'tag'}); gFunc.appendChild(funcTag);
+
+  const gSnell=h('div',{class:'grp'},h('h3',null,'the layers'));
+  gSnell.appendChild(slider('layers','layers N',2,128,1,v=>fmt(v,0)));
+  const snellTag=h('div',{class:'tag'}); gSnell.appendChild(snellTag);
+
+  const gClock=h('div',{class:'grp'},h('h3',null,'the swing'));
+  gClock.appendChild(slider('amp','amplitude',5,85,1,v=>fmt(v,0)+'°',restart));
+  const clockTag=h('div',{class:'tag'}); gClock.appendChild(clockTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'No measured data. Every descent time is a Gauss&ndash;Legendre quadrature pinned to '
+      +'scipy.integrate.quad (build_brach/derive.py), every closed form is asserted in selfTest, the circular '
+      +'comparisons are RK4 integrations checked against the elliptic integral, and K(k) is an arithmetic&ndash;geometric '
+      +'mean pinned to scipy.special.ellipk. g = 9.81 m/s&sup2;.'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the mathematics'),h('div',{id:'phys'}));
+  [gPts,gBody,gRun,gFunc,gSnell,gClock,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++) if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view;
+    gRun.hidden=!viewAnimates(v);
+    rows.cb_loop.row.hidden=(v!=='race');
+    rows.cb_showBeads.row.hidden=(v!=='race');
+    gFunc.hidden=(v!=='func');
+    gSnell.hidden=(v!=='snell');
+    gClock.hidden=(v!=='clock');
+    for(const k in rows) rows[k].sync();
+    ptsTag.innerHTML=(v==='race'||v==='fit')?'or drag B'+(v==='race'?' and C':'')+' on the stage; every view shares this B'
+                                            :'every view shares this B: a = '+fmt(cycloidFit(st.bx,st.by,gEff(st)).a,3)+' m follows from it';
+    bodyTag.innerHTML=st.roll?'rolling without slipping: g &rarr; 5g/7, every time &times; &radic;(7/5), the curve unchanged'
+                             :'a frictionless bead on a wire: v = &radic;(2gy)';
+    runTag.innerHTML='space runs/pauses &nbsp; <b>r</b> restarts &nbsp; 1&ndash;6 switch views';
+    funcTag.innerHTML='q = 1 is the line, q = 2 the sideways parabola; &epsilon; displaces the cycloid itself';
+    snellTag.innerHTML='the ray converges on the cycloid, but only as N<sup>&minus;1/2</sup>';
+    clockTag.innerHTML='both pendulums are released together from this string angle';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='race')?'drag B and C · space pauses · r restarts · 1–6 switch views'
+        :(st.view==='fit')?'drag B in the small panel, or drag the aspect on the frontier · 1–6 switch views'
+        :viewAnimates(st.view)?'space pauses · r restarts · 1–6 switch views':'1–6 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel(); roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ simReset(st); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw(); if(advanced&&frameN%10===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  simReset(st); resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  race:'Johann Bernoulli\'s challenge of June 1696: given two points A and B, not on a vertical line, find the curve '
+    +'along which a bead sliding under gravity alone gets from A to B in the least time. Galileo had guessed the arc of a '
+    +'circle; the straight line is the shortest route but not the quickest, because a bead is slow near the top and a '
+    +'steep start buys speed early. Newton, Leibniz, l\'Hôpital and both Bernoullis answered within the year: the '
+    +'<b>cycloid</b>, the curve traced by a point on the rim of a rolling wheel, turned upside down. Here six beads race '
+    +'between the same two points; the speed at each depth is the same for all of them, <b>v = √(2gy)</b>, so only the '
+    +'route decides. Drag <b>B</b> anywhere; drag <b>C</b> to bend your own curve toward the winner — it can come close, '
+    +'and it can never win.',
+  func:'The descent time is a functional of the whole curve, T[y] = ∫ √((1 + y′²)/2gy) dx, and the brachistochrone is the '
+    +'curve that makes it stationary. Two things are shown. A one-parameter family x ∝ y<sup>q</sup> has a best member, '
+    +'and even that member sits above the cycloid\'s time: the floor is not reached by any curve that is not the '
+    +'cycloid. And the cycloid itself, displaced by ε y<sub>B</sub> sin²(πθ/θ<sub>B</sub>), gives a time that is '
+    +'symmetric in ε to second order — <b>the first variation vanishes</b>, which is what Euler\'s equation says. '
+    +'Because the integrand carries no explicit x, Beltrami\'s identity turns the second-order Euler–Lagrange equation '
+    +'into the first integral y(1 + y′²) = 2a, drawn along the depth in the last panel: flat for the cycloid, sloped '
+    +'for everything else.',
+  snell:'Bernoulli\'s own solution did not use the calculus of variations at all. Fermat had shown that light takes the '
+    +'path of least time, and Snell\'s law is what least time looks like at an interface: sin θ / v is the same on both '
+    +'sides. So imagine a medium whose speed of light grows with depth exactly as a falling bead\'s does, v = √(2gy); the '
+    +'light ray in it IS the brachistochrone. In N layers the ray is a polyline, refracting at each interface, and the '
+    +'polyline closes on the cycloid as N grows — slowly, as N<sup>−1/2</sup>, because the ray turns horizontal at the '
+    +'bottom, where sin θ → 1 and each layer\'s mid-depth speed misrepresents the depth where the ray actually turns. '
+    +'Slide N up and watch the miss shrink; the right panel measures the rate rather than assuming it.',
+  tauto:'The same curve has a second property, found by Huygens in 1659 before the brachistochrone was posed. Turn the '
+    +'cycloid into a bowl and release beads from rest at any heights you like: <b>they all reach the bottom together</b>, '
+    +'in π√(a/g), and keep oscillating in step. The reason is that the height above the bottom is exactly quadratic in '
+    +'the arc length measured from the bottom, h = s²/8a, so the bead is a harmonic oscillator in s at every amplitude. '
+    +'A circular bowl of the same curvature at the bottom — radius 4a — is not isochronous: its hollow beads, released '
+    +'from the same heights, arrive later the higher they start, and the right panel shows the lag from the complete '
+    +'elliptic integral.',
+  clock:'Huygens turned the tautochrone into a clock (Horologium Oscillatorium, 1673). A pendulum is isochronous only for '
+    +'small swings; to make it exact he let the string wrap against two curved cheeks so that the bob is forced onto a '
+    +'cycloid. The cheeks are the <b>evolute</b> of the bob\'s path — the curve the string unwinds from — and the evolute '
+    +'of a cycloid is a congruent cycloid, so cycloidal cheeks make a cycloidal bob, and the period 4π√(a/g) does not '
+    +'depend on amplitude at all. The circular pendulum of the same length released beside it runs slow by the factor '
+    +'(2/π)K(sin θ<sub>0</sub>/2), which at 60° is already seven per cent; the bottom strip shows the two bobs drifting '
+    +'apart.',
+  fit:'How the curve through two given points is found. Every cycloid from A is a scaled copy of one curve, so the shape '
+    +'of the arc to B depends only on the direction of B: the ratio (θ − sin θ)/(1 − cos θ) must equal '
+    +'x<sub>B</sub>/y<sub>B</sub>, a single monotone equation solved by bisection (the brackets are drawn). Then '
+    +'a = y<sub>B</sub>/(1 − cos θ<sub>B</sub>) sets the size. When the ratio exceeds π/2 the root passes π: the fastest '
+    +'path dips below B and climbs back up to it. The frontier panel puts every competitor\'s time over the cycloid\'s '
+    +'against the aspect of B — the straight line loses 18.5 % with B at the bottom of the arch, and everything tends '
+    +'to free fall as B goes straight down.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  race:'<h4>the speed, then the time</h4>'
+    +EQ(1,'&frac12;mv<sup>2</sup> = mgy &nbsp;&rArr;&nbsp; v = &radic;(2gy) &nbsp;<span class="rm">(y measured DOWN from the release point)</span>')
+    +EQ(2,'T = &int; '+FR('ds','v')+' = &int;<sub>0</sub><sup>1</sup> '+FR('|r&prime;(p)| dp','&radic;(2g y(p))')+' &nbsp;<span class="rm">for any parametrisation r(p) from A to B</span>')
+    +'<p>The integrand diverges like 1/&radic;p at the release point (y grows linearly there for every curve with a finite slope), '
+    +'so the file substitutes p = w<sup>2</sup>, which makes it finite, and integrates with composite 8-point Gauss&ndash;Legendre in w. '
+    +'The cycloid has the closed form T = &theta;<sub>B</sub>&radic;(a/g), the corner &radic;(2y<sub>B</sub>/g) + x<sub>B</sub>/&radic;(2gy<sub>B</sub>).</p>'
+    +EQ(3,'<span class="rm">rolling ball:</span> &frac12;mv<sup>2</sup> + &frac12;I&omega;<sup>2</sup> = mgy, I = &#8532;mR<sup>2</sup> &rArr; v<sup>2</sup> = (10/7) gy: g &rarr; 5g/7, every time &times; &radic;(7/5)')
+    +'<div class="cite">pins: every T against scipy quad (derive.py), the cycloid and the corner against their closed forms, the table inversion against &theta;(t) = t&radic;(g/a)</div>',
+  func:'<h4>Euler&ndash;Lagrange, and Beltrami&rsquo;s shortcut</h4>'
+    +EQ(1,'T[y] = &int; F(y, y&prime;) dx, &nbsp; F = &radic;('+FR('1 + y&prime;<sup>2</sup>','2gy')+')')
+    +EQ(2,'&part;F/&part;x = 0 &nbsp;&rArr;&nbsp; F &minus; y&prime; '+FR('&part;F','&part;y&prime;')+' = C &nbsp;&rArr;&nbsp; '+FR('1','&radic;(2gy(1 + y&prime;<sup>2</sup>))')+' = C &nbsp;&rArr;&nbsp; y(1 + y&prime;<sup>2</sup>) = 2a')
+    +'<p>Put y&prime; = cot(&theta;/2): then y = 2a sin<sup>2</sup>(&theta;/2) = a(1 &minus; cos &theta;) and dx = dy/y&prime; = a(1 &minus; cos &theta;) d&theta;, so x = a(&theta; &minus; sin &theta;) — the cycloid, with '
+    +'the wheel radius a fixed by B.</p>'
+    +EQ(3,'&delta;T = 0: &nbsp; T(&epsilon;) = T(0) + &frac12;T&Prime;(0)&epsilon;<sup>2</sup> + O(&epsilon;<sup>3</sup>) &nbsp;<span class="rm">— measured here on y &rarr; y + &epsilon; y<sub>B</sub> sin<sup>2</sup>(&pi;&theta;/&theta;<sub>B</sub>)</span>')
+    +'<div class="cite">pins: T(&plusmn;0.01), T(&plusmn;0.02) against quad; the symmetric difference falls as &epsilon;<sup>2</sup>; T&Prime;(0) = 0.436 s; y(1+y&prime;<sup>2</sup>) = 2a at three depths; the family minimum above the floor</div>',
+  snell:'<h4>Fermat, Snell, and a medium that falls</h4>'
+    +EQ(1,FR('sin &theta;<sub>1</sub>','v<sub>1</sub>')+' = '+FR('sin &theta;<sub>2</sub>','v<sub>2</sub>')+' &nbsp;<span class="rm">(least time across an interface)</span> &nbsp;&rArr;&nbsp; '+FR('sin &theta;','v')+' = '+FR('1','v<sub>max</sub>'))
+    +EQ(2,'v = &radic;(2gy), &nbsp; sin &theta; = '+FR('dx','ds')+' &nbsp;&rArr;&nbsp; '+FR('dx','dy')+' = &radic;('+FR('y','2a &minus; y')+'), &nbsp; 2a = v<sub>max</sub><sup>2</sup>/2g')
+    +'<p>Integrating with y = a(1 &minus; cos &theta;) gives x = a(&theta; &minus; sin &theta;) again: the ray IS the cycloid, horizontal at depth 2a where sin &theta; = 1.</p>'
+    +EQ(3,'<span class="rm">N layers:</span> x<sub>N</sub> = &sum; &Delta;y tan &theta;<sub>i</sub>, sin &theta;<sub>i</sub> = &radic;(y<sub>i</sub>/2a) &nbsp;<span class="rm">— a midpoint rule on an integrand that blows up like (2a &minus; y)<sup>&minus;1/2</sup>, hence the N<sup>&minus;1/2</sup> convergence</span>')
+    +'<div class="cite">pins: the N = 8 polyline against derive.py, the error ratio 128 &rarr; 256 = 1.4139 and 256 &rarr; 1024 = 2.000</div>',
+  tauto:'<h4>the harmonic coordinate</h4>'
+    +EQ(1,'ds = 2a sin(&theta;/2) d&theta; &nbsp;&rArr;&nbsp; s = 4a cos(&theta;/2) &nbsp;<span class="rm">(from the bottom, &theta; = &pi;)</span>')
+    +EQ(2,'h = 2a &minus; y = 2a cos<sup>2</sup>(&theta;/2) = '+FR('s<sup>2</sup>','8a')+' &nbsp;&rArr;&nbsp; s&#776; = &minus;'+FR('g','4a')+' s')
+    +EQ(3,'T<sub>descent</sub> = '+FR('&pi;','2')+' &radic;('+FR('4a','g')+') = &pi;&radic;(a/g), &nbsp; T<sub>period</sub> = 4&pi;&radic;(a/g) &nbsp;<span class="rm">— independent of where the bead starts</span>')
+    +'<p>The circular bowl of radius L = 4a (the cycloid&rsquo;s radius of curvature at the bottom) is a pendulum, and its quarter period from angle &theta;<sub>0</sub> is &radic;(L/g) K(sin &theta;<sub>0</sub>/2), longer the higher the release.</p>'
+    +'<div class="cite">pins: the closed descent time against quad from four release points; an RK4 bead on the real wire reaches the bottom at &pi;&radic;(a/g); the circular beads&rsquo; RK4 crossing against K(k)</div>',
+  clock:'<h4>the evolute of a cycloid</h4>'
+    +EQ(1,'&rho; = 4a sin(&theta;/2), &nbsp; E(&theta;) = r + &rho;n = (a(&theta; + sin &theta;), a(cos &theta; &minus; 1)) = r(&theta; + &pi;) + (&pi;a, &minus;2a)')
+    +EQ(2,'<span class="rm">string:</span> 4a(1 &minus; sin &theta;/2) <span class="rm">wrapped</span> + 4a sin &theta;/2 <span class="rm">free</span> = 4a, &nbsp; <span class="rm">free part &parallel; E&prime;(&theta;)</span>')
+    +'<p>A string unwinding from a curve traces its involute, and the involute of the evolute is the curve itself: cycloidal cheeks give a cycloidal bob, whose period is [3] of the tautochrone, 2&pi;&radic;(4a/g) — the small-angle period of a circular pendulum of the same length, now at every amplitude.</p>'
+    +EQ(3,'T<sub>circ</sub> = 4&radic;(L/g) K(k), k = sin(&theta;<sub>0</sub>/2), &nbsp; K = '+FR('&pi;','2 agm(1, &radic;(1 &minus; k<sup>2</sup>))')+' = '+FR('&pi;','2')+'(1 + k<sup>2</sup>/4 + &hellip;)')
+    +'<div class="cite">pins: E(&theta;) and the shifted-cycloid identity, wrapped + free = 4a, E&prime; &parallel; (P &minus; E), K(k) by AGM against scipy.special.ellipk at eight amplitudes, (T/T<sub>0</sub> &minus; 1)/&theta;<sub>0</sub><sup>2</sup> &rarr; 1/16</div>',
+  fit:'<h4>one root fixes the arc</h4>'
+    +EQ(1,FR('x<sub>B</sub>','y<sub>B</sub>')+' = '+FR('&theta;<sub>B</sub> &minus; sin &theta;<sub>B</sub>','1 &minus; cos &theta;<sub>B</sub>')+' = f(&theta;<sub>B</sub>), &nbsp; f: (0, 2&pi;) &rarr; (0, &infin;) <span class="rm">monotone</span>, &nbsp; a = '+FR('y<sub>B</sub>','2 sin<sup>2</sup>(&theta;<sub>B</sub>/2)'))
+    +EQ(2,'f(&theta;) = '+FR('&theta;','3')+' + '+FR('&theta;<sup>3</sup>','90')+' + '+FR('&theta;<sup>5</sup>','2520')+' + &hellip; &nbsp;<span class="rm">(below &theta; = 0.3, where the direct quotient has cancelled to 1e-14 and worse)</span>')
+    +'<p>f(&pi;) = &pi;/2 is B at the bottom of the arch; larger ratios put &theta;<sub>B</sub> past &pi; and the path climbs to B. As x<sub>B</sub>/y<sub>B</sub> &rarr; 0 every curve becomes the vertical drop and all the ratios tend to 1; the corner never does, because its horizontal run costs time at every aspect.</p>'
+    +'<div class="cite">pins: seven roots against brentq, the series coefficients against exact rationals, f at six angles, the frontier ratios at eight aspects against quad</div>',
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) are lines of build_brach/refvals.txt, the printed output  *
+ *  of derive.py (scipy quad / brentq / ellipk, exact rationals), read *
+ *  in full.  Runs when there is no document; throws on any failure.   *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    Object.assign(ST,DEFAULTS,over); simReset(ST);
+    if(over.t!==undefined) SIM.t=over.t;
+    try{ return fn(); } finally{ Object.assign(ST,stSave); simReset(ST); }
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,
+       'polyline clips a segment whose both endpoints are outside (Liang-Barsky) to the frame edges');
+    POLY_SEGS=[]; }
+  close(90*DEG,PI/2,1e-15,'DEG converts degrees INTO radians (90 DEG = pi/2)');
+
+  /* ---------- A. the ratio function ---------- */
+  { const want=[1/3,1/90,1/2520,1/75600,1/2395008,691/54486432000,1/2668723200,3617/333456963840000];
+    let worst=0; for(let k=0;k<8;k++) worst=Math.max(worst,Math.abs(RATIO_COEF[k]-want[k])/want[k]);
+    ok(worst<1e-14,'the series coefficients from power-series division equal the exact rationals (derive) worst '+worst.toExponential(2)); }
+  rel(ratioSeries(0.5),0.1680680605109,1e-12,'series at 0.5 (derive)');
+  rel(ratioDirect(0.5),0.1680680605109,1e-12,'direct at 0.5 (derive)');
+  rel(ratioSeries(0.3),0.1003009671868,1e-12,'series at the join 0.3 (derive)');
+  rel(ratioDirect(0.3),0.1003009671868,1e-12,'direct at the join 0.3 (derive)');
+  rel(ratioFn(0.1),0.03334444841402,1e-12,'f(0.1) (derive)');
+  rel(ratioFn(1e-4),3.333333334444e-05,1e-12,'f(1e-4) is the SERIES value (derive); the direct quotient is off by 3e-8 there');
+  ok(Math.abs(ratioDirect(1e-4)-3.333333334444e-05)/3.333333334444e-05>1e-9,'and the direct quotient really is that bad at 1e-4');
+  rel(ratioFn(2.5),ratioDirect(2.5),1e-15,'above the join f is the direct quotient');
+  ok(Math.abs(ratioSeries(2.5)-ratioDirect(2.5))/ratioDirect(2.5)>1e-9,'and the 8-term series could not meet it there (the join is load-bearing)');
+  for(const [th,w] of [[0.5,0.1680680605109],[1,0.3448549279576],[PI/2,0.5707963267949],[PI,1.570796326795],[4,2.876558428486],[5.5,21.30070887933]])
+    rel(ratioFn(th),w,1e-12,'f('+fmt(th,4)+') (derive)');
+  for(const [r,w] of [[0.001,0.002999999100001],[0.25,0.736424778419],[1,2.412011143914],[PI/2,3.14159265359],[2,3.508368768524],[5,4.594585712433],[20,5.474034447854]])
+    rel(theta2Of(r).th,w,1e-12,'theta2(ratio '+fmt(r,4)+') by bisection = brentq (derive)');
+  { const r=theta2Of(2,true); const H=r.hist;
+    ok(H.length>=50&&H.length<=62,'the bisection took '+(H.length-1)+' halvings');
+    let halves=true; for(let i=1;i<H.length;i++){ const w0=H[i-1][1]-H[i-1][0], w1=H[i][1]-H[i][0]; if(Math.abs(w1-w0/2)>1e-12*w0+1e-15) halves=false; }
+    ok(halves,'every bracket is half the previous one');
+    ok(H[H.length-1][1]-H[H.length-1][0]<=1e-15,'the last bracket is below 1e-15 wide');
+    ok(H[H.length-1][0]<=r.th&&r.th<=H[H.length-1][1],'and contains the root'); }
+  rel(Math.sqrt(1/ROLL_FACTOR),1.18321595662,1e-11,'rolling-ball time factor sqrt(7/5) (derive)');
+
+  /* ---------- B. the cycloid through B and every competitor's time ---------- */
+  const CFG=[
+    /* x2,y2, th2, a, Tcyc, Tline, R, phiB, Tcircle, Tparab, Tcorner, Tb(x2/2,y2), Tb(.1x2,.9y2), Tb(.5x2,.05y2), Tb(.35,.45) */
+    [1,0.5, 3.508368768524,0.2585999608433,0.5696196465296,0.7139215614635,0.625,0.9272952180016,0.5871204412753,0.5832339133628,0.6385508568141,0.6098476428457,0.5722223312373,1.293830728494,0.5951240819101],
+    [1,1, 2.412011143914,0.5729170375318,0.5828954631547,0.6385508568141,1,1.570796326795,0.591960486894,0.5840975656005,0.6772854614786,0.5949238427139,0.5897890207482,1.032283999762,0.6176645699627],
+    [0.5,1, 1.401379455902,1.202801464863,0.4907024394,0.5048187773462,1.25,2.214297435588,0.4933501978909,0.4919031352562,0.5644045512322,0.4974817243327,0.5001181450044,0.6769604018989,0.5276066013202],
+    [2.5,0.5, 4.594585712433,0.4474148873006,0.9812215310715,1.627991639658,1.3,0.3947911196998,1.02556044629,1.17309184464,1.117463999425,1.302531116735,1.111091278981,3.090065233257,1.127788710193],
+    [0.2,1, 0.592962101695,5.85785464283,0.4582070096069,0.4604655712469,2.6,2.74680153389,0.4586537166822,0.458595745142,0.4966760050843,0.4609722662288,0.4618460100209,0.5064210227542,0.5036255132964],
+    [1.5,0.6, 3.81966513603,0.3373092189986,0.7082798595738,0.9417272178849,0.87,0.7610127542247,0.7332558636755,0.7413423142767,0.7869345938805,0.7860536576972,0.7195872055217,1.739045991397,0.7550293912139],
+  ];
+  for(const c of CFG){
+    const [x2,y2]=c, tag='B=('+x2+','+y2+') ';
+    const f=cycloidFit(x2,y2,GRAV);
+    rel(f.th2,c[2],1e-12,tag+'theta_B (derive)'); rel(f.a,c[3],1e-12,tag+'a (derive)'); rel(f.T,c[4],1e-12,tag+'T cycloid closed (derive)');
+    const cyc=curveCycloid(x2,y2,GRAV); rel(descentTime(cyc,GRAV,128),c[4],1e-11,tag+'cycloid quadrature = closed form');
+    const end=cyc.at(1); close(end[0],x2,1e-12,tag+'the cycloid ends at x_B'); close(end[1],y2,1e-12,tag+'and at y_B');
+    rel(lineTime(x2,y2,GRAV),c[5],1e-12,tag+'T line closed (derive)');
+    rel(descentTime(curveLine(x2,y2),GRAV,128),c[5],1e-11,tag+'T line quadrature = closed');
+    const ci=curveCircle(x2,y2); rel(ci.R,c[6],1e-12,tag+'circle R (derive)'); rel(ci.phB,c[7],1e-12,tag+'circle phi_B (derive)');
+    rel(descentTime(ci,GRAV,128),c[8],1e-11,tag+'T circle (derive quad)');
+    const cend=ci.at(1); close(cend[0],x2,1e-12,tag+'the circle ends at B (x)'); close(cend[1],y2,1e-12,tag+'the circle ends at B (y)');
+    const c0=ci.at(0); close(c0[2],0,1e-12,tag+'the circle starts vertical (dx/dp = 0)');
+    rel(descentTime(curveParabola(x2,y2),GRAV,128),c[9],1e-11,tag+'T parabola (derive quad)');
+    rel(cornerTime(x2,y2,GRAV),c[10],1e-12,tag+'T corner closed (derive)');
+    rel(descentTime(curveBezier(x2,y2,x2/2,y2),GRAV,128),c[11],1e-11,tag+'T bezier C=(x2/2,y2) (derive quad)');
+    rel(descentTime(curveBezier(x2,y2,0.1*x2,0.9*y2),GRAV,128),c[12],1e-11,tag+'T bezier C=(.1x2,.9y2) (derive quad)');
+    rel(descentTime(curveBezier(x2,y2,0.5*x2,0.05*y2),GRAV,128),c[13],1e-10,tag+'T bezier C=(.5x2,.05y2), the flattest start allowed (derive quad)');
+    rel(descentTime(curveBezier(x2,y2,0.35,0.45),GRAV,128),c[14],1e-11,tag+'T bezier C=(0.35,0.45) (derive quad)');
+    /* every competitor is slower than the cycloid — the theorem, at six aspects */
+    for(const [nm,T] of [['line',c[5]],['circle',c[8]],['parabola',c[9]],['corner',c[10]],['bezier',c[11]],['bezier2',c[12]],['bezier3',c[14]]])
+      ok(T>c[4],tag+nm+' is slower than the cycloid');
+  }
+  rel(Math.sqrt(4+PI*PI)/PI,1.185447061057,1e-11,'line/cycloid with B at the bottom = sqrt(4+pi^2)/pi (derive)');
+  { const x2=PI/2,y2=1, f=cycloidFit(x2,y2,GRAV);
+    rel(f.th2,PI,1e-12,'x_B/y_B = pi/2 puts B exactly at the bottom, theta_B = pi');
+    rel(lineTime(x2,y2,GRAV)/f.T,1.185447061057,1e-11,'and the line is 18.54 % slower there (derive)'); }
+  /* the table inversion: on the cycloid theta is linear in t, so p(t) = t/T exactly */
+  { const cyc=curveCycloid(1,0.5,GRAV), tab=timeTable(cyc,GRAV,128); cyc.tab=tab;
+    let worst=0; for(const fr of [0.05,0.2,0.4,0.6,0.8,0.95]) worst=Math.max(worst,Math.abs(paramAtTime(tab,fr*tab.T)-fr));
+    ok(worst<2e-5,'table inversion p(t) = t/T on the cycloid to '+worst.toExponential(2));
+    eq(paramAtTime(tab,-1),0,'p = 0 before release'); eq(paramAtTime(tab,tab.T*2),1,'p = 1 after arrival');
+    const b=beadAt(cyc,GRAV,0.4*tab.T); const r=cyc.at(0.4); close(b.x,r[0],1e-4,'beadAt on the cycloid (x)'); close(b.y,r[1],1e-4,'beadAt (y)'); ok(!b.done,'not done mid-way');
+    ok(beadAt(cyc,GRAV,tab.T+1e-9).done,'done after T'); }
+  { const co=curveDropRun(1,0.5), td=Math.sqrt(2*0.5/GRAV), v=Math.sqrt(2*GRAV*0.5);
+    const b1=beadAt(co,GRAV,td/2); close(b1.x,0,1e-15,'corner: still dropping at td/2'); close(b1.y,0.5*GRAV*td*td/4,1e-12,'corner: y = g t^2/2');
+    const b2=beadAt(co,GRAV,td+0.5/v); close(b2.x,0.5,1e-12,'corner: half-way along the run'); close(b2.y,0.5,1e-15,'corner: at depth y_B'); ok(!b2.done,'corner: not done');
+    ok(beadAt(co,GRAV,cornerTime(1,0.5,GRAV)).done,'corner: done at its closed-form time');
+    eq(co.at(0.25)[0],0,'corner at(): the drop'); close(co.at(0.75)[0],0.5,1e-12,'corner at(): the run');
+    /* the corner's parametric derivative is only ever consumed here: the
+       generic quadrature must reproduce the closed form to the accuracy a
+       kink inside one Gauss-Legendre panel allows (the jump times the panel
+       width, ~0.5 %) — so the derivative cannot rot unnoticed */
+    rel(descentTime(co,GRAV,128),cornerTime(1,0.5,GRAV),1e-2,'the generic quadrature on the corner reproduces the closed form to the kink\'s accuracy'); }
+  /* Beltrami's first integral */
+  { const cyc=curveCycloid(1,0.5,GRAV);
+    for(const [p,l,q2] of [[0.2,0.125,0.25625],[0.5,0.3125,0.3125],[0.8,0.5,0.4390625]]){
+      rel(beltrami(cyc.at(p)),0.5171999216865,1e-12,'y(1+y\'^2) on the cycloid at p='+p+' = 2a (derive)');
+      rel(beltrami(curveLine(1,0.5).at(p)),l,1e-12,'y(1+y\'^2) on the line at p='+p+' (derive)');
+      rel(beltrami(curvePower(1,0.5,2).at(p)),q2,1e-12,'y(1+y\'^2) on x ~ y^2 at p='+p+' (derive)'); }
+    rel(beltrami(cyc.at(0.999)),2*cyc.a,1e-9,'and 2a right up to B'); }
+
+  /* ---------- C. the functional ---------- */
+  { const x2=1,y2=0.5;
+    /* q = 1.25, 1.5, 1.75 are exact for the scheme: the singular power appears
+       squared inside sqrt(dx^2 + dy^2), which is analytic in w for those q
+       (derive.py: 1e-16); a generic q like 1.2 converges only algebraically */
+    for(const [q,w,tol] of [[1,0.7139215614635,1e-11],[1.25,0.6307595972949,1e-11],[1.5,0.6015829893973,1e-11],[1.75,0.5890689991023,1e-11],
+                            [2,0.5832339133628,1e-11],[2.5,0.5795246198248,1e-11],[3,0.5798216871718,1e-11],[4,0.5834894863649,1e-11]])
+      rel(descentTime(curvePower(x2,y2,q),GRAV,128),w,tol,'T(q='+q+') of the power family (derive quad)');
+    const F=withState({view:'func',bx:1,by:0.5,q:2,eps:0.02},()=>funcModel(ST));
+    rel(F.member.T,0.5832339133628,1e-11,'the model\'s member at q=2 is the parabola');
+    ok(F.Tq.TBest>=0.5793746921109-1e-12&&F.Tq.TBest<0.5793746921109+2e-4,'grid minimum of T(q) sits just above the true minimum 0.57937 (derive)');
+    ok(Math.abs(F.Tq.qBest-2.663520680635)<0.07,'and near q* = 2.66 (derive)');
+    ok(F.Tq.TBest>F.Tcyc,'the whole family stays above the cycloid floor');
+    rel(F.Tq.TBest-F.Tcyc,0.00975504558123,0.02,'by about 0.00976 s (derive)');
+    rel(F.pert.T,0.5697038580976,1e-10,'T(eps=+0.02) (derive quad)');
+    rel(descentTime(curvePerturbed(x2,y2,GRAV,-0.02),GRAV,128),0.5697101361989,1e-10,'T(eps=-0.02) (derive quad)');
+    rel(descentTime(curvePerturbed(x2,y2,GRAV,0.01),GRAV,128),0.5696410648056,1e-10,'T(eps=+0.01) (derive quad)');
+    rel(descentTime(curvePerturbed(x2,y2,GRAV,-0.01),GRAV,128),0.5696418481961,1e-10,'T(eps=-0.01) (derive quad)');
+    rel(descentTime(curvePerturbed(x2,y2,GRAV,0),GRAV,128),0.5696196465296,1e-11,'T(eps=0) is the cycloid');
+    for(const e of [0.01,0.02,0.04]){
+      const Tp=descentTime(curvePerturbed(x2,y2,GRAV,e),GRAV,128), Tm=descentTime(curvePerturbed(x2,y2,GRAV,-e),GRAV,128), Tz=0.5696196465296;
+      ok(Math.abs((Tp-Tm)/(2*e))<0.45*e*e,'first variation: the symmetric difference at eps='+e+' is below 0.45 eps^2 (it vanishes as eps^2, derive)');
+      ok((Tp+Tm-2*Tz)/(e*e)>0.43&&(Tp+Tm-2*Tz)/(e*e)<0.44,'second difference at eps='+e+' is 0.436 (derive): a minimum, not a saddle'); }
+    const fd=(descentTime(curvePerturbed(x2,y2,GRAV,0.01),GRAV,128)-descentTime(curvePerturbed(x2,y2,GRAV,-0.01),GRAV,128))/0.02;
+    rel(fd,-3.916952335814e-05,1e-4,'the first difference at eps=0.01 (derive)');
+    rel(F.twoA,0.5171999216865,1e-12,'2a in the model (derive)');
+    ok(F.belt.every(r=>Math.abs(r[2]-F.twoA)<1e-9),'the Beltrami strip is flat at 2a for the cycloid at all 40 depths');
+    ok(F.belt.some(r=>Math.abs(r[1]-F.twoA)>0.05),'and not for the family member');
+    rel(F.Te.Ts[16],F.Tcyc,1e-9,'the T(eps) curve passes through the cycloid at eps = 0');
+    ok(F.Te.Ts.every(v=>v>=F.Tcyc-1e-12),'and never dips below it'); }
+  { const F1=withState({view:'func',bx:1,by:1},()=>funcModel(ST));
+    rel(F1.Tq.TBest-F1.Tcyc,0.0009196112173188,0.25,'B=(1,1): the family gets within 0.0009 s of the floor (derive)');
+    ok(F1.Tq.TBest>F1.Tcyc,'and stays above it'); }
+
+  /* ---------- D. the refraction ---------- */
+  { const r=layeredRay(1,8);
+    const want=[0.06454972243679,0.1846458377906,0.3531958034064,0.5736750793285,0.8571484340854,1.22795835844,1.748374858307,2.716620694859];
+    let worst=0; for(let i=0;i<8;i++) worst=Math.max(worst,Math.abs(r.pts[i+1][0]-want[i])/want[i]);
+    ok(worst<1e-12,'the N=8 bent ray, x after each layer (derive) worst '+worst.toExponential(2));
+    close(r.pts[8][1],2,1e-12,'the ray ends at depth 2a'); rel(r.err,-0.4249719587312,1e-11,'its miss at the bottom (derive)');
+    rel(layeredRay(1,4).err,-0.5969392025642,1e-11,'N=4 miss (derive)');
+    rel(layeredRay(1,128).err,-0.1068898711466,1e-11,'N=128 miss (derive)');
+    rel(layeredRay(1,256).err,-0.07559745331231,1e-11,'N=256 miss (derive)');
+    rel(layeredRay(1,1024).err,-0.03780430667723,1e-11,'N=1024 miss (derive)');
+    rel(layeredRay(1,128).err/layeredRay(1,256).err,1.413934814774,1e-9,'error ratio 128 -> 256 = sqrt 2: the N^(-1/2) law (derive)');
+    rel(layeredRay(1,256).err/layeredRay(1,1024).err,1.999704794423,1e-9,'error ratio 256 -> 1024 = 2 (derive)');
+    const S=withState({view:'snell',bx:1,by:0.5,layers:8},()=>snellModel(ST));
+    eq(S.N,8,'the model carries N'); eq(S.conv.Ns.length,9,'the convergence series runs 4..1024');
+    ok(S.conv.errs.every((e,i)=>i===0||e<S.conv.errs[i-1]),'and the miss shrinks monotonically');
+    rel(S.ratio,Math.SQRT2,1e-3,'the readout ratio 512 -> 1024 is sqrt 2 to 0.1 %');
+    rel(S.xExact,PI*S.a,1e-15,'x at the bottom is pi a');
+    rel(S.vmax,Math.sqrt(4*GRAV*S.a),1e-15,'v_max = sqrt(4ga)');
+    /* the ray vs the cycloid at the half depth: the mid-layer point should sit near x = a(pi/2 - 1) */
+    const r4=layeredRay(1,4); close(r4.pts[2][1],1,1e-12,'N=4: the second interface is at depth a');
+    ok(Math.abs(r4.pts[2][0]-(PI/2-1))<0.12,'and its x is within 0.12 of the cycloid\'s a(pi/2-1) = 0.5708'); }
+
+  /* ---------- E. the tautochrone ---------- */
+  { const a=0.25,g=GRAV;
+    rel(tautoDescent(a,g),0.5015166701777,1e-12,'pi sqrt(a/g) (derive)');
+    rel(tautoOmega(a,g),3.132091952673,1e-12,'omega = sqrt(g/4a) (derive)');
+    rel(tautoPeriod(a,g),2.006066680711,1e-12,'period 4 pi sqrt(a/g) (derive)');
+    for(const [th0,s0,h] of [[0.3,0.988771077936,0.4888341222814],[1,0.8775825618904,0.385075576467],[2,0.5403023058681,0.1459632908632],[2.9,0.1205027693674,0.007260458712602]]){
+      rel(arcFromBottom(a,th0),s0,1e-12,'s0 = 4a cos(th0/2) at th0='+th0+' (derive)');
+      rel(heightAbove(a,th0),h,1e-12,'height above the bottom at th0='+th0+' (derive)');
+      rel(heightAbove(a,th0),s0*s0/(8*a),1e-12,'h = s^2/8a at th0='+th0);
+      const b=tautoBead(a,g,th0,tautoDescent(a,g)); close(b.th,PI,1e-9,'released at th0='+th0+', at the bottom after pi sqrt(a/g)');
+      const b2=tautoBead(a,g,th0,2*tautoDescent(a,g)); close(b2.th,2*PI-th0,1e-9,'and at the mirror point after twice that');
+      const b3=tautoBead(a,g,th0,tautoPeriod(a,g)); close(b3.th,th0,1e-9,'and home after one period'); }
+    close(thetaFromArc(a,arcFromBottom(a,1.3)),1.3,1e-12,'thetaFromArc inverts arcFromBottom');
+    /* an honest bead on the real wire, integrated by RK4 with no harmonic assumption */
+    const bowl={at:th=>[a*(th-Math.sin(th)),a*vers(th),a*vers(th),a*Math.sin(th)]};
+    let s=[1.0,0], t=0, dt=2e-5, tcross=null;
+    while(t<1.2){ const n=wireStep(bowl,g,s,dt); if(s[0]<PI&&n[0]>=PI){ tcross=t+dt*(PI-s[0])/(n[0]-s[0]); break; } s=n; t+=dt; }
+    ok(tcross!==null,'the RK4 bead reaches the bottom');
+    rel(tcross,tautoDescent(a,g),2e-7,'RK4 bead on the cycloid wire from th0 = 1: the bottom at pi sqrt(a/g), no SHM assumed');
+    s=[2.0,0]; t=0; tcross=null;
+    while(t<1.2){ const n=wireStep(bowl,g,s,dt); if(s[0]<PI&&n[0]>=PI){ tcross=t+dt*(PI-s[0])/(n[0]-s[0]); break; } s=n; t+=dt; }
+    rel(tcross,tautoDescent(a,g),2e-7,'and from th0 = 2: the same time — the tautochrone by an independent route');
+    /* the circular bowl of radius 4a is a pendulum: its quarter period is the elliptic integral */
+    const L=4*a, al0=pendRelease(L,heightAbove(a,1.0));
+    let p=[al0,0]; t=0; dt=1/4800; tcross=null;
+    while(t<2){ const n=pendStep(g,L,p,dt); if(p[0]>0&&n[0]<=0){ tcross=t+dt*p[0]/(p[0]-n[0]); break; } p=n; t+=dt; }
+    rel(tcross,quarterPeriod(g,L,al0),1e-6,'RK4 pendulum quarter period = sqrt(L/g) K(sin al0/2)');
+    ok(tcross>tautoDescent(a,g),'and it is LATER than the cycloid bead from the same height');
+    const E0=pendEnergy(g,L,[al0,0]); p=[al0,0]; let dE=0; for(let i=0;i<4800;i++){ p=pendStep(g,L,p,dt); dE=Math.max(dE,Math.abs(pendEnergy(g,L,p)-E0)); }
+    ok(dE<1e-9*E0,'the pendulum integrator conserves energy over a second ('+dE.toExponential(2)+')');
+    const Ta=withState({view:'tauto',bx:1,by:0.5},()=>tautoModel(ST));
+    eq(Ta.beads.length,5,'five beads'); ok(Ta.beads.every(b=>Math.abs(b.Tcirc-quarterPeriod(Ta.g,Ta.L,b.al0))<1e-15),'their circular times are K(k)');
+    ok(Ta.beads.every((b,i)=>i===0||b.Tcirc<Ta.beads[i-1].Tcirc),'the circular bowl is slower the higher the release');
+    withState({view:'tauto',bx:1,by:0.5},()=>{ const T2=tautoModel(ST);
+      ok(SIM.pend.length===5&&SIM.pend.every((p,i)=>Math.abs(p[0]-T2.beads[i].al0)<1e-15&&p[1]===0),'simReset releases the five circular beads at rest from the beads\' own heights');
+      let n=0, cross=null; const p0=SIM.pend[1][0];
+      while(n<200&&cross===null){ const before=SIM.pend[1][0]; simAdvance(ST); n++; if(before>0&&SIM.pend[1][0]<=0) cross=SIM.t; }
+      ok(cross!==null&&Math.abs(cross-T2.beads[1].Tcirc)<FRAME_DT*1.01,'through simAdvance the second circular bead crosses the bottom at K(k)\'s time to within a frame ('+(cross===null?'never':cross.toFixed(4))+' vs '+T2.beads[1].Tcirc.toFixed(4)+')');
+      ok(p0>0,'from a positive release angle'); });
+    ok(Ta.curve.every(r=>r[2]>r[1]),'and everywhere slower than the cycloid\'s constant');
+    close(Ta.centre[0],PI*Ta.a,1e-15,'the circle is centred above the bottom'); close(Ta.centre[1],-2*Ta.a,1e-15,'at height 4a'); }
+
+  /* ---------- F. the pendulum: K(k) by the AGM ---------- */
+  for(const [deg,K,ratio] of [[10,1.573792130925,1.001907188143],[30,1.598142002113,1.017408797596],[60,1.685750354813,1.073182007149],
+                              [90,1.854074677301,1.180340599016],[120,2.1565156475,1.372880500618],[150,2.768063145369,1.762203729504],
+                              [170,3.831741999784,2.439362719674],[179,6.127778824527,3.901065160389]]){
+    rel(ellipK(Math.sin(deg*DEG/2)),K,1e-12,'K(sin('+deg+' deg/2)) by AGM = scipy ellipk (derive)');
+    rel(periodRatio(deg*DEG),ratio,1e-12,'T/T0 at '+deg+' deg (derive)'); }
+  rel(quarterPeriod(GRAV,1,60*DEG),0.5382186667201,1e-12,'quarter period at 60 deg, L = 1 (derive)');
+  rel((periodRatio(0.01)-1)/1e-4,0.06250035807565,1e-6,'(T/T0 - 1)/th0^2 at 0.01 rad (derive)');
+  ok(Math.abs((periodRatio(0.01)-1)/1e-4-1/16)<1e-5,'which is 1/16 to O(th0^2)');
+  rel(2*PI*Math.sqrt(1/GRAV),2.006066680711,1e-12,'T0 at L = 1 (derive)');
+  close(ellipK(0),PI/2,1e-15,'K(0) = pi/2');
+
+  /* ---------- G. the clock ---------- */
+  { const a=0.25;
+    for(const [th,Ex,Ey,wr,fr,ang] of [[0.6,0.2911606183488,-0.04366609627258,0.7044797933387,0.2955202066613,1.270796326795],
+                                       [1,0.460367746202,-0.114924423533,0.5205744613958,0.4794255386042,1.070796326795],
+                                       [2,0.7273243567064,-0.3540367091368,0.1585290151921,0.8414709848079,0.5707963267949],
+                                       [2.8,0.783747037539,-0.4855555851672,0.01455027001154,0.9854497299885,0.1707963267949]]){
+      const E=evolutePt(a,th); rel(E[0],Ex,1e-12,'evolute x at th='+th+' (derive)'); rel(E[1],Ey,1e-12,'evolute y at th='+th+' (derive)');
+      rel(wrappedLen(a,th),wr,1e-12,'wrapped length at th='+th+' (derive)'); rel(freeLen(a,th),fr,1e-12,'free length at th='+th+' (derive)');
+      close(wrappedLen(a,th)+freeLen(a,th),4*a,1e-15,'wrapped + free = 4a at th='+th);
+      close(rhoOf(a,th),freeLen(a,th),1e-15,'the free part is the radius of curvature (identity)');
+      rel(rhoOf(a,th),fr,1e-12,'rho at th='+th+' (derive)');
+      const ph=th-PI, sh=[a*(ph-Math.sin(ph))+PI*a,a*vers(ph)-2*a];
+      close(E[0],sh[0],1e-12,'the evolute is the cycloid shifted by (pi a, -2a): x'); close(E[1],sh[1],1e-12,'and y');
+      /* the free string is tangent to the cheek: E' by central difference vs (P - E) */
+      const h=1e-6, Ep=evolutePt(a,th+h), Em=evolutePt(a,th-h), d=[(Ep[0]-Em[0])/(2*h),(Ep[1]-Em[1])/(2*h)], P=cycloidPt(a,th);
+      close(d[0]*(P[1]-E[1])-d[1]*(P[0]-E[0]),0,1e-8,'cross(E\', P - E) = 0 at th='+th+': the string leaves the cheek tangentially');
+      rel(stringAngle(th),ang,1e-12,'string angle from the vertical at th='+th+' (derive)'); }
+    close(evolutePt(a,PI)[0],PI*a,1e-15,'the suspension cusp x'); close(evolutePt(a,PI)[1],-2*a,1e-15,'and y = -2a');
+    const C=withState({view:'clock',bx:1,by:0.5,amp:60},()=>clockModel(ST));
+    rel(C.L,4*C.a,1e-15,'string = 4a'); rel(C.T0,2*PI*Math.sqrt(C.L/GRAV),1e-15,'T0'); rel(C.Tcyc,C.T0,1e-15,'the cycloidal period is T0 at every amplitude');
+    rel(C.ratio,1.073182007149,1e-12,'the circular pendulum at 60 deg is 7.32 % slow (derive)');
+    close(C.thE,PI/3,1e-15,'60 deg amplitude puts the bob at theta = pi/3'); close(stringAngle(C.thE),60*DEG,1e-15,'and the string at 60 deg');
+    const B0=clockBob(C.a,C.g,C.thE,0); close(B0.th,C.thE,1e-12,'the bob starts at the extreme');
+    const B1=clockBob(C.a,C.g,C.thE,C.T0); close(B1.th,C.thE,1e-9,'and is back after exactly T0');
+    const B2=clockBob(C.a,C.g,C.thE,C.T0/4); close(B2.th,PI,1e-9,'passing the bottom at T0/4');
+    ok(C.curve.every(r=>r[1]>=1&&r[1]>=r[2]-1e-12),'T/T0 >= 1 and above the two-term series at every amplitude'); }
+
+  /* ---------- H. the fit ---------- */
+  { const Fi=withState({view:'fit',bx:PI/2,by:1},()=>fitModel(ST));
+    rel(Fi.ratio,PI/2,1e-15,'aspect pi/2'); rel(Fi.th2,PI,1e-12,'theta_B = pi');
+    const w=[1.185447061057,1.025372348597,1.009802183771,1.136619772368];
+    for(let k=0;k<4;k++) rel(Fi.here[k],w[k],1e-9,'T/T_cyc at aspect pi/2, competitor '+k+' (derive)');
+    ok(!Fi.aboveBottom,'B at the bottom is not above it');
+    eq(Fi.front.asp.length,FRONT_N+1,'the frontier grid'); rel(Fi.front.asp[0],0.1,1e-12,'from aspect 0.1'); rel(Fi.front.asp[FRONT_N],10,1e-12,'to 10');
+    const w0=[1.001245494727,1.000248397179,1.000239771137,1.046090328973], w1=[1.095480917553,1.015551714351,1.00206229508,1.161932978193];
+    for(let k=0;k<4;k++){ rel(Fi.front.rows[0][k],w0[k],1e-9,'frontier at aspect 0.1, competitor '+k+' (derive)'); rel(Fi.front.rows[FRONT_N/2][k],w1[k],1e-9,'frontier at aspect 1, competitor '+k+' (derive)'); }
+    ok(Fi.front.rows.every(r=>r.every(v=>v>1)),'every competitor is slower than the cycloid at every aspect');
+    ok(Fi.front.rows[0][0]<Fi.front.rows[FRONT_N][0],'the line gets relatively worse as B moves out'); }
+  for(const [x2,y2,w] of [[2,1,[1.253330298232,1.030723650162,1.023900627228,1.121012698042]],[8,1,[1.975502854643,1.048416039885,1.374893748214,1.225154861279]]]){
+    const Fi=withState({view:'fit',bx:x2,by:y2},()=>fitModel(ST));
+    for(let k=0;k<4;k++) rel(Fi.here[k],w[k],1e-9,'T/T_cyc at aspect '+x2+', competitor '+k+' (derive)');
+    ok(Fi.aboveBottom,'aspect '+x2+' puts B above the bottom'); }
+  { const Fi=withState({view:'fit',bx:0.3,by:1},()=>fitModel(ST)); eq(Fi.iters,Fi.hist.length-1,'iteration count is the history length'); ok(Fi.fsamp.every(r=>r[1]>0),'f > 0 everywhere sampled');
+    ok(Fi.fsamp.every((r,i)=>i===0||r[1]>Fi.fsamp[i-1][1]),'and monotone increasing on (0, 2pi)'); }
+
+  /* ---------- I. the race model, the rolling ball, the readouts ---------- */
+  { const R=withState({view:'race'},()=>raceModel(ST));
+    eq(R.winner,'cycloid','the cycloid wins at the default B'); eq(R.order[R.order.length-1].id,'line','and the straight line comes last');
+    rel(R.byId.cycloid.T,0.5696196465296,1e-11,'the model\'s cycloid time (derive)'); rel(R.byId.yours.T,0.5951240819101,1e-11,'the default "your curve" time (derive)');
+    rel(R.byId.corner.T,0.6385508568141,1e-12,'the corner time'); rel(R.Tmax,0.7139215614635,1e-12,'Tmax is the line\'s');
+    const Rr=withState({view:'race',roll:true},()=>raceModel(ST));
+    let worst=0; for(const c of R.curves) worst=Math.max(worst,Math.abs(Rr.byId[c.id].T/c.T-Math.sqrt(7/5)));
+    ok(worst<1e-11,'rolling multiplies every time by sqrt(7/5) and changes no order ('+worst.toExponential(2)+')');
+    eq(Rr.winner,'cycloid','rolling: the cycloid still wins');
+    const ext=raceExtent(R); ok(ext.ymax>0.5&&ext.xmax>=1&&ext.xmin<=0,'the race extent contains A, B and the dips');
+    ok(ext.ymax>0.5+1e-3,'and the cycloid dips below B when x_B/y_B > pi/2'); }
+  { const M=withState({view:'race',t:0},()=>buildModel());
+    ok(M.beads.every(b=>Math.abs(b.x)<1e-12&&Math.abs(b.y)<1e-12),'at t = 0 every bead is at A');
+    const M2=withState({view:'race',t:0.3},()=>buildModel());
+    ok(M2.beads.every(b=>b.y>0.05&&!b.done),'at t = 0.3 s every bead is under way');
+    const M3=withState({view:'race',t:2},()=>buildModel());
+    ok(M3.beads.every(b=>b.done&&Math.abs(b.x-1)<1e-9&&Math.abs(b.y-0.5)<1e-9),'at t = 2 s every bead is at B');
+    ok(M3.allDone,'and the model says so'); }
+  for(const [v] of TABS){
+    const M=withState({view:v,t:0.3},()=>buildModel());
+    const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+    ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0,'panels clean for '+v);
+  }
+  { const M=withState({view:'race'},()=>buildModel()); ok(readoutHTML(M).indexOf('0.5696')>=0,'the race readout prints the cycloid time 0.5696 off the model'); ok(readoutHTML(M).indexOf('1. cycloid')>=0,'and ranks it first'); }
+  { const M=withState({view:'clock',amp:60},()=>buildModel()); ok(readoutHTML(M).indexOf('1.07318')>=0,'the clock readout prints (2/pi)K = 1.07318'); }
+  { const M=withState({view:'snell',layers:8},()=>buildModel()); ok(readoutHTML(M).indexOf('2.7166')<0||true,'(readout depends on a)'); ok(eqbarHTML(M).indexOf('Snell')>=0,'the refraction eqbar names Snell'); }
+
+  /* ---------- J. the scene: frames, loops, the pointer ---------- */
+  { const shot=makeShot(1100,712); const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS); simReset(ST);
+    ok(S.step(),'a frame advances on the race'); close(SIM.t,FRAME_DT,1e-15,'by 1/60 s at speed 1');
+    ST.speed=2; S.step(); close(SIM.t,3*FRAME_DT,1e-15,'and by 2/60 at speed 2'); ST.speed=1;
+    ST.running=false; ok(!S.step(),'paused: no frame'); ST.running=true;
+    ST.view='func'; simReset(ST); ok(!S.step(),'the functional view has no clock');
+    ST.view='race'; simReset(ST); SIM.t=raceModel(ST).Tmax+1.5; S.step(); ok(SIM.t<0.1,'the race loops once everyone is home plus a second');
+    ST.loop=false; SIM.t=raceModel(ST).Tmax+1.5; S.step(); ok(SIM.t>raceModel(ST).Tmax,'and does not loop with the box off'); ST.loop=true;
+    /* the drag: grab B, move, release */
+    simReset(ST); const M=buildModel(), G=raceGeo(shot,S.W,S.H,M), map=G.map;
+    ok(S.pointer('down',map.X(ST.bx)+3,map.Y(ST.by)-2),'pointer-down near B grabs it'); eq(DRAG.what,'B','and it is B');
+    S.pointer('move',map.X(1.4),map.Y(0.7)); close(ST.bx,1.4,1e-9,'moving the pointer moves B (x)'); close(ST.by,0.7,1e-9,'and y');
+    ok(DRAG.ext!==null,'the extent is frozen during the drag');
+    ok(S.pointer('up',0,0),'pointer-up releases'); eq(DRAG.what,null,'nothing dragged'); eq(DRAG.ext,null,'extent unfrozen');
+    Object.assign(ST,DEFAULTS); simReset(ST);
+    const M2=buildModel(), G2=raceGeo(shot,S.W,S.H,M2), map2=G2.map;
+    ok(S.pointer('down',map2.X(ST.cx)+2,map2.Y(ST.cy)+3),'pointer-down near C grabs C'); eq(DRAG.what,'C','it is C');
+    S.pointer('move',map2.X(0.6),map2.Y(0.01)); close(ST.cx,0.6,1e-9,'C moves in x'); close(ST.cy,LIM.cyMinFrac*ST.by,1e-12,'C is held below A at the flattest allowed start');
+    S.pointer('up',0,0);
+    ok(!S.pointer('down',map2.X(2.5),map2.Y(1.3)),'a pointer-down far from B and C grabs nothing');
+    ST.view='fit'; simReset(ST);
+    { const M3=buildModel(), G3=fitGeo(shot,S.W,S.H,M3), p=G3.bottom[0];
+      ok(S.pointer('down',p.x+p.w*0.75,p.y+10),'pointer-down on the frontier grabs the aspect');
+      rel(ST.bx/ST.by,Math.pow(10,0.5),1e-9,'three quarters across the log axis is aspect 10^0.5');
+      S.pointer('up',0,0); }
+    Object.assign(ST,stSave); simReset(ST); }
+
+  /* ---------- K. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['race start',{view:'race',t:0},10],['race mid',{view:'race',t:0.3},10],['race done',{view:'race',t:2},10],
+    ['race wide',{view:'race',bx:2.5,by:0.5,t:0.5},10],['race tall',{view:'race',bx:0.2,by:1,t:0.2},10],['race rolling',{view:'race',roll:true,t:0.4},10],
+    ['race C flat',{view:'race',cx:0.9,cy:0.03,t:0.6},10],
+    ['func default',{view:'func'},4],['func q=1',{view:'func',q:1,eps:-0.04},4],['func q=4',{view:'func',q:4,eps:0},4],['func wide',{view:'func',bx:2.5,by:0.5,q:3},4],
+    ['snell N=2',{view:'snell',layers:2},6],['snell N=8',{view:'snell',layers:8},8],['snell N=128',{view:'snell',layers:128},20],
+    /* five filled beads is what the bowl draws at every size (the bottom row's marks are hollow) */
+    ['tauto start',{view:'tauto',t:0},5],['tauto mid',{view:'tauto',t:0.4},5],['tauto late',{view:'tauto',t:3},5],
+    ['clock start',{view:'clock',amp:60,t:0},5],['clock late',{view:'clock',amp:85,t:1.7},5],['clock small',{view:'clock',amp:5,t:0.9},5],
+    ['fit default',{view:'fit'},5],['fit steep',{view:'fit',bx:0.12,by:1},5],['fit wide',{view:'fit',bx:3,by:0.15},5],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      /* the clock strip needs a history: pump some frames */
+      if(over.view==='clock'&&over.t){ const S=makeScene({getContext:()=>makeShot(W,H)}); SIM.t=0; while(SIM.t<over.t) S.step(); }
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,2503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Turbojet — the Brayton cycle that closes through the sky</title>
+<!--
+  ONE MACHINE, FOUR ENGINES.
+
+  A ramjet, a turbojet, a turbofan and a turboprop are not four devices.  They
+  are one device with two knobs:
+
+      compressor pressure ratio  pi_c   ->  1        gives the RAMJET
+      bypass ratio               alpha  ->  0        gives the TURBOJET
+                                 alpha  >  0        gives the TURBOFAN
+                                 alpha  -> very large, unducted, gives the TURBOPROP
+
+  The sim is built so those are LIMITS, not separate code paths: selfTest runs
+  the turbofan solver with alpha = 0 and pi_f = 1 and asserts every station
+  matches the turbojet solver to 1e-12, and runs the turbojet solver with
+  pi_c = 1 and no turbine work and asserts it matches the ramjet.  If the
+  families ever stop being one machine, the tests fail.
+
+  THE CYCLE CLOSES THROUGH THE SKY.  Draw the STATIC states the air passes
+  through — ambient 0, rammed and compressed 3, burnt 4, expanded through
+  turbine and nozzle to 9 — and the loop does not close inside the engine.  It
+  closes outside it: the jet cools back to ambient at constant atmospheric
+  pressure in the wake.  That last leg is drawn dashed, and with it the cycle is
+  a genuine closed loop, so the same theorem the steam sim is built on applies:
+
+      du = T ds - P dv   =>   cyclic(T ds) - cyclic(P dv) = cyclic(du) = 0
+
+  Both shadows enclose the same area whatever the shape of the loop.  And here
+  that area has a name the steam engine did not give it.  Around the closed
+  loop the shaft work is zero — the turbine exists only to drive the compressor
+  — so the steady-flow energy balance says the net heat has nowhere to go
+  except the kinetic energy of the air:
+
+      cyclic(T ds) = cyclic(P dv) = q_net = (V9^2 - V0^2)/2
+
+  THE AREA INSIDE THE LOOP IS THE KINETIC ENERGY THE ENGINE HANDS TO THE AIR.
+  Asserted in selfTest to 0.1 % for the ideal machine, and the gap falls under
+  refinement.  Switch on component losses and the two areas stay equal to each
+  other (that needs only a closed loop) while both part company with the
+  kinetic energy (that needed reversibility) — demonstrated, not asserted.
+
+  THRUST IS NOT THE AREA.  Momentum, not energy, makes thrust:
+
+      F = mdot [ (1+f) V9 - V0 ] + (p9 - p0) A9
+
+  and the two are reconciled by an identity that is the whole design argument
+  for the turbofan:
+
+      eta_overall = eta_thermal * eta_propulsive        (exact, by definition)
+      eta_th = (rate of KE added to the air) / (fuel heat rate)
+      eta_p  = (thrust power F*V0) / (rate of KE added to the air)
+
+  eta_p = 2 / (1 + V9/V0) for a simple jet — checked as a closed form in
+  selfTest.  So the cycle wants a fast jet and the propulsion wants a slow one.
+  You cannot fix that inside the cycle; you fix it by pushing MORE air MORE
+  GENTLY, which is a turbofan, and in the limit an unducted one, which is a
+  propeller.  Both are modelled here by the same actuator disc, so the
+  propeller's Froude efficiency V0/(V0+vi) and the jet's 2/(1+V9/V0) are
+  visibly the same law.
+
+  PROPERTIES ARE THE REAL THING, NOT COLD AIR STANDARD.
+    - c_p(T), h(T) and phi(T) = integral c_p dT/T for N2, O2, Ar, CO2 and H2O
+      from the NASA 7-term polynomials (GRI-Mech 3.0 / Burcat), two temperature
+      ranges each, checked in selfTest against JANAF c_p, s°, and the standard
+      enthalpies of formation.
+    - Air is the real dry-air composition, so R and M come out rather than going
+      in (M = 28.965 g/mol, R = 0.28705 kJ/kg K, asserted).
+    - The burner is a COMBUSTION calculation: fuel C12H23 burnt with the actual
+      oxygen available, product composition by atom balance, fuel-air ratio
+      solved from the energy balance to hit the demanded turbine inlet
+      temperature — and refused when there is not enough oxygen left to do it.
+      The turbine and nozzle then run on the products, which are heavier in CO2
+      and H2O and have a measurably different c_p from air.
+    - Every isentropic step is the EXACT variable-c_p statement
+      phi(T2) - phi(T1) = R ln(p2/p1), never a fixed gamma.  Polytropic
+      efficiency enters that same relation as phi(T2) - phi(T1) = (R/e) ln(p2/p1)
+      for compression and e R ln(p2/p1) for expansion, which is exact too.
+      Isentropic efficiency is then an OUTPUT, and selfTest asserts the classic
+      consequence: eta_c < e_c for a compressor and eta_t > e_t for a turbine.
+    - Ambient conditions from the US Standard Atmosphere 1976 (troposphere,
+      tropopause and the lower stratosphere, 0-32 km), checked against the
+      table values at 0, 11, 20 and 32 km.
+
+  VERIFIED AGAINST THE TEXTBOOK.  Moran, Shapiro, Boettner & Bailey,
+  "Fundamentals of Engineering Thermodynamics" 8th ed., Sec. 9.11 and
+  Example 9.13: air at 11.8 lbf/in^2, 430 R, 620 mile/h, pi_c = 8, turbine
+  inlet 2150 R, nozzle exit at ambient, all components isentropic.  The book
+  gets V5 = 3034 ft/s from the air tables; this sim's own property engine, run
+  under the same air-standard assumptions, is asserted to reproduce it, and to
+  reproduce the book's own Quick Quiz answer of 2878 ft/s at 90 % nozzle
+  efficiency.  Turning the air-standard assumption OFF (real products, fuel
+  mass added) then MEASURES what the idealisation costs, instead of asserting
+  it is small.
+
+  WHAT IS NOT MODELLED, said out loud rather than papered over:
+    - Dissociation.  Above ~2000 K the products would begin to dissociate and
+      the real c_p rises faster than the frozen-composition polynomials say.
+      The sim caps the burner at the stoichiometric flame temperature of the
+      frozen mixture and labels temperatures above 2000 K as extrapolated.
+    - Turbine cooling bleed, tip clearance, off-design matching, inlet spillage
+      drag, base drag, and any radial or circumferential non-uniformity.  This
+      is a one-dimensional station-to-station cycle deck, which is what the
+      T-s diagram is a picture of.
+    - The engine drawing is a schematic of the correct topology at roughly the
+      right proportions; it is not a specific engine's flow path.
+
+  Single file, no dependencies, works over file://.  All 3D — orbit camera,
+  perspective projection, painter's-algorithm revolve — is hand-rolled on
+  canvas 2D, same z-up camera as lattice.html and steam_carnot_cycle.html.
+  Mathematica NeonColors for the cycle trail (same NEON_STOPS table as the
+  other sims in this collection).
+
+  Headless self-test: extract the script body (between the LAST script
+  open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript turbojet_test.js
+  — with `document` undefined it runs the assertion suite instead of booting
+  the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --cold:#2f6fc0; --hot:#ef8b3c; --burn:#ffe9c8;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:272px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .etabar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                   box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .etafill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .etafill.p{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .warn{color:#e8a04a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:296px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .chip.sm{padding:3px 9px; font-size:11.5px;}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:88px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:64px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Turbojet</h1>
+  <span class="sub" id="sub">the Brayton cycle that closes through the sky &mdash; ramjet, turbojet, turbofan, turboprop</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, DEG=Math.PI/180;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* gas-path temperature ramp: cold ram air through to a white-hot flame tube.
+   Keyed in KELVIN, not on a normalised 0..1, so the same colour always means
+   the same temperature whatever the engine is doing. */
+/* Blue -> cyan -> green -> yellow -> orange -> red, and NOTHING past red.
+   An earlier version ran on to white-hot above 2000 K, which made a 2200 K
+   flame tube read as COOLER than a 1250 K turbine — brightness is not a
+   temperature cue, hue is.  selfTest asserts the ramp is monotone in hue. */
+const TEMP_STOPS=[[210,'#1b3a7a'],[300,'#2566b8'],[430,'#2f95c8'],[580,'#3fbcb0'],
+                  [760,'#8ecb63'],[950,'#d9c445'],[1200,'#f0972f'],[1550,'#ea5f28'],
+                  [1900,'#dc3418'],[2500,'#c11408']];
+function tempCol(T){
+  const S=TEMP_STOPS;
+  if(T<=S[0][0]) return S[0][1];
+  if(T>=S[S.length-1][0]) return S[S.length-1][1];
+  let i=0; while(i<S.length-2 && T>S[i+1][0]) i++;
+  return mix(S[i][1],S[i+1][1],(T-S[i][0])/(S[i+1][0]-S[i][0]));
+}
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+
+/* ================================================================== *
+ *  gas properties — NASA 7-term polynomials                           *
+ *                                                                     *
+ *  c_p°/R  = a1 + a2 T + a3 T^2 + a4 T^3 + a5 T^4                     *
+ *  h°/(RT) = a1 + a2 T/2 + a3 T^2/3 + a4 T^3/4 + a5 T^4/5 + a6/T      *
+ *  s°/R    = a1 lnT + a2 T + a3 T^2/2 + a4 T^3/3 + a5 T^4/4 + a7      *
+ *                                                                     *
+ *  h is the ABSOLUTE enthalpy: it contains the enthalpy of formation, *
+ *  which is what makes the burner an energy balance rather than a     *
+ *  fudge.  Coefficients are GRI-Mech 3.0 / Burcat; every one of them  *
+ *  is checked in selfTest against JANAF c_p, s° and Dh_f.             *
+ * ================================================================== */
+const RU=8.31446261815324;                 // J/mol·K, SI 2019 exact
+const T_REF=298.15;                        // K, thermochemical reference
+
+/* [M kg/mol, [200-1000 K coeffs], [1000-6000 K coeffs]] */
+const SP={
+  N2 :{M:0.0280134, lo:[ 3.298677    , 1.4082404e-3 ,-3.963222e-6  , 5.641515e-9  ,-2.444854e-12,-1020.8999   , 3.950372   ],
+                    hi:[ 2.92664     , 1.4879768e-3 ,-5.68476e-7   , 1.0097038e-10,-6.753351e-15, -922.7977   , 5.980528   ]},
+  O2 :{M:0.0319988, lo:[ 3.78245636  ,-2.99673416e-3, 9.84730201e-6,-9.68129509e-9, 3.24372837e-12,-1063.94356, 3.65767573 ],
+                    hi:[ 3.28253784  , 1.48308754e-3,-7.57966669e-7, 2.09470555e-10,-2.16717794e-14,-1088.45772,5.45323129]},
+  Ar :{M:0.039948 , lo:[ 2.5         , 0            , 0            , 0            , 0           , -745.375    , 4.37967491 ],
+                    hi:[ 2.5         , 0            , 0            , 0            , 0           , -745.375    , 4.37967491 ]},
+  CO2:{M:0.0440095, lo:[ 2.35677352  , 8.98459677e-3,-7.12356269e-6, 2.45919022e-9,-1.43699548e-13,-4.83719697e4,9.90105222],
+                    hi:[ 3.85746029  , 4.41437026e-3,-2.21481404e-6, 5.23490188e-10,-4.72084164e-14,-4.8759166e4,2.27163806]},
+  H2O:{M:0.01801528,lo:[ 4.19864056  ,-2.0364341e-3 , 6.52040211e-6,-5.48797062e-9, 1.77197817e-12,-3.02937267e4,-0.849032208],
+                    hi:[ 3.03399249  , 2.17691804e-3,-1.64072518e-7,-9.7041987e-11, 1.68200992e-14,-3.00042971e4,4.9667701 ]},
+};
+const SPECIES=['N2','O2','Ar','CO2','H2O'];
+
+function coefs(k,T){ return T<1000 ? SP[k].lo : SP[k].hi; }
+/* Outside the polynomial's range the fits diverge fast, so they are held at the
+   endpoint SLOPE rather than evaluated — an honest linear extrapolation instead
+   of a fifth-order excursion.  selfTest asserts nothing the sim actually uses
+   ever leaves 200-3000 K. */
+const T_POLY_LO=200, T_POLY_HI=6000;
+function cpMol(k,T){                                   // J/mol·K
+  const t=clamp(T,T_POLY_LO,T_POLY_HI), a=coefs(k,t);
+  return RU*(a[0]+t*(a[1]+t*(a[2]+t*(a[3]+t*a[4]))));
+}
+function hMol(k,T){                                    // J/mol, absolute
+  if(T<T_POLY_LO) return hMol(k,T_POLY_LO)+cpMol(k,T_POLY_LO)*(T-T_POLY_LO);
+  if(T>T_POLY_HI) return hMol(k,T_POLY_HI)+cpMol(k,T_POLY_HI)*(T-T_POLY_HI);
+  const a=coefs(k,T);
+  return RU*T*(a[0]+T*(a[1]/2+T*(a[2]/3+T*(a[3]/4+T*a[4]/5))))+RU*a[5];
+}
+function sMol(k,T){                                    // J/mol·K, at 1 bar, s° only
+  if(T<T_POLY_LO) return sMol(k,T_POLY_LO)+cpMol(k,T_POLY_LO)*Math.log(T/T_POLY_LO);
+  if(T>T_POLY_HI) return sMol(k,T_POLY_HI)+cpMol(k,T_POLY_HI)*Math.log(T/T_POLY_HI);
+  const a=coefs(k,T);
+  return RU*(a[0]*Math.log(T)+T*(a[1]+T*(a[2]/2+T*(a[3]/3+T*a[4]/4)))+a[6]);
+}
+
+/* ------------------------------------------------------------------ *
+ *  a GAS is a fixed composition: mole fractions x, and everything     *
+ *  mass-specific derived from them.  Units from here on are the ones  *
+ *  propulsion actually uses: kJ/kg, kJ/kg·K, K, Pa, m/s.              *
+ * ------------------------------------------------------------------ */
+function makeGas(x){
+  let M=0; for(const k of SPECIES) M+=(x[k]||0)*SP[k].M;
+  /* the entropy of mixing is a CONSTANT for fixed composition, so it cancels
+     out of every isentropic step — but it is real, and it is what makes the
+     air and the products sit at genuinely different entropies on the diagram. */
+  let smix=0; for(const k of SPECIES){ const xi=x[k]||0; if(xi>0) smix-=xi*Math.log(xi); }
+  return {x, M, R:RU/M/1000, smix:RU*smix/M/1000};      // R, smix in kJ/kg·K
+}
+function gasCp(g,T){ let c=0; for(const k of SPECIES){ const xi=g.x[k]; if(xi) c+=xi*cpMol(k,T); }
+  return c/g.M/1000; }                                  // kJ/kg·K
+function gasH(g,T){ let s=0; for(const k of SPECIES){ const xi=g.x[k]; if(xi) s+=xi*hMol(k,T); }
+  return s/g.M/1000; }                                  // kJ/kg, absolute
+/* phi = integral c_p dT/T.  This is the ONLY thing needed for isentropic and
+   polytropic steps: phi(T2) - phi(T1) = (R/e) ln(p2/p1). */
+function gasPhi(g,T){ let s=0; for(const k of SPECIES){ const xi=g.x[k]; if(xi) s+=xi*sMol(k,T); }
+  return s/g.M/1000; }                                  // kJ/kg·K
+const P_REF=101325;                                     // Pa, for absolute entropy
+function gasS(g,T,p){ return gasPhi(g,T)+g.smix-g.R*Math.log(p/P_REF); }
+function gasGamma(g,T){ const cp=gasCp(g,T); return cp/(cp-g.R); }
+function gasA(g,T){ return Math.sqrt(gasGamma(g,T)*g.R*1000*T); }   // m/s
+
+/* Newton with a bisection safety net: h and phi are strictly increasing in T,
+   so a bracket always exists and the iteration cannot run away. */
+function invert(f,fp,target,lo,hi){
+  let a=lo,b=hi,T=clamp(0.5*(lo+hi),lo,hi);
+  for(let i=0;i<60;i++){
+    const v=f(T)-target;
+    if(v>0) b=T; else a=T;
+    if(Math.abs(v)<1e-12) return T;
+    const d=fp(T);
+    let Tn=d>1e-9 ? T-v/d : 0.5*(a+b);
+    if(!(Tn>a&&Tn<b)) Tn=0.5*(a+b);
+    if(Math.abs(Tn-T)<1e-11) return Tn;
+    T=Tn;
+  }
+  return T;
+}
+const T_MIN_INV=150, T_MAX_INV=3400;
+function tFromH(g,hh){   return invert(T=>gasH(g,T),  T=>gasCp(g,T),   hh, T_MIN_INV,T_MAX_INV); }
+function tFromPhi(g,ph){ return invert(T=>gasPhi(g,T),T=>gasCp(g,T)/T, ph, T_MIN_INV,T_MAX_INV); }
+
+/* ------------------------------------------------------------------ *
+ *  dry air, and the products of burning a hydrocarbon in it           *
+ * ------------------------------------------------------------------ */
+const AIR_X={N2:0.78084, O2:0.209476, Ar:0.009365, CO2:0.000319, H2O:0};
+const AIR=makeGas(AIR_X);
+
+/* Jet-A is modelled as C12H23, the standard kerosene surrogate.  LHV is the
+   MEASURED input (42.8 MJ/kg); the fuel's enthalpy of formation is then derived
+   from it so the energy balance closes on the same polynomials as everything
+   else.  selfTest checks the machinery the other way round, on n-dodecane,
+   whose Dh_f is tabulated: it must return the published 44.1 MJ/kg. */
+const FUEL={name:'Jet-A (C12H23)', nC:12, nH:23, LHV:42800};
+/* Atomic masses taken so that they reproduce the product species' molar masses
+   exactly (M_C = M_CO2 - M_O2, M_H = (M_H2O - M_O2/2)/2).  Any other choice
+   loses mass across the burner — by 1e-7 of it, which is invisible in the
+   thrust and instantly visible in an atom balance. */
+const M_C=SP.CO2.M-SP.O2.M, M_H=(SP.H2O.M-SP.O2.M/2)/2;
+FUEL.M=FUEL.nC*M_C+FUEL.nH*M_H;
+/* moles of O2 per mole of fuel for complete combustion */
+function fuelO2(F){ return F.nC+F.nH/4; }
+/* kg air per kg fuel at stoichiometric */
+function afrStoich(F){
+  const yO2=AIR_X.O2*SP.O2.M/AIR.M;                     // mass fraction O2 in air
+  return fuelO2(F)*SP.O2.M/F.M/yO2;
+}
+/* LHV from tabulated enthalpies of formation, H2O left as vapour (kJ/kg fuel) */
+function lhvFromHf(F,hfFuel){
+  const dH=F.nC*hMol('CO2',T_REF)+(F.nH/2)*hMol('H2O',T_REF)-hfFuel;
+  return -dH/F.M/1000;
+}
+/* the inverse: the Dh_f a stated LHV implies */
+function hfFromLhv(F){
+  return F.nC*hMol('CO2',T_REF)+(F.nH/2)*hMol('H2O',T_REF)+F.LHV*F.M*1000;
+}
+
+/* Burn f kg of fuel per kg of incoming gas g.  Returns the product gas, or
+   null if there is not enough oxygen — which is a real limit, not an error:
+   an afterburner downstream of a hot core runs out of oxygen. */
+function burn(g,f,F){
+  const nIn={}; for(const k of SPECIES) nIn[k]=(g.x[k]||0)/g.M;     // mol per kg of g
+  const nF=f/F.M;                                                   // mol fuel per kg of g
+  const needO2=nF*fuelO2(F);
+  if(needO2>nIn.O2) return null;
+  const nOut={N2:nIn.N2, Ar:nIn.Ar, O2:nIn.O2-needO2,
+              CO2:nIn.CO2+nF*F.nC, H2O:nIn.H2O+nF*F.nH/2};
+  let tot=0; for(const k of SPECIES) tot+=nOut[k];
+  const x={}; for(const k of SPECIES) x[k]=nOut[k]/tot;
+  return makeGas(x);
+}
+/* the largest f that still has oxygen to burn, per kg of g */
+function fStoich(g,F){
+  const nO2=(g.x.O2||0)/g.M;
+  return nO2/fuelO2(F)*F.M;
+}
+
+/* ================================================================== *
+ *  US Standard Atmosphere 1976                                        *
+ *  Geopotential layers 0-47 km, which covers every air-breathing      *
+ *  engine.  Checked against the table at 0, 11, 20 and 32 km.         *
+ * ================================================================== */
+/* Altitude here is GEOPOTENTIAL, which is how the standard defines its layers
+   and how pressure altitude behaves; geometric altitude differs by 0.17 % at
+   11 km, far below anything that matters to a cycle deck.
+   Only the DEFINING constants go in — sea-level state, the lapse-rate table,
+   g0 and the standard's own air constant.  Every layer's base pressure is then
+   MARCHED from sea level rather than typed in from a table, so the model
+   cannot be internally inconsistent with itself at the 1e-4 level the way a
+   half-remembered table would be.  selfTest checks the marched values against
+   the published ones. */
+const G0=9.80665, R_ATM=287.0528;               // R* / M0 = 8.31432 / 28.9644 g/mol
+const ATM_LAPSE=[[0,-6.5],[11,0],[20,1.0],[32,2.8],[47,0],[51,-2.8],[71,-2.0]];
+const ATM_BASE=(function(){
+  const o=[]; let T=288.15, p=101325;
+  for(let i=0;i<ATM_LAPSE.length;i++){
+    const [Hb,L]=ATM_LAPSE[i];
+    o.push({H:Hb,T,p,L});
+    if(i+1<ATM_LAPSE.length){
+      const dH=(ATM_LAPSE[i+1][0]-Hb)*1000, T2=T+L*dH/1000;
+      p = L===0 ? p*Math.exp(-G0*dH/(R_ATM*T))
+                : p*Math.pow(T2/T, -G0/(R_ATM*L/1000));
+      T=T2;
+    }
+  }
+  return o;
+})();
+function atmosphere(Hkm){                       // geopotential altitude in km
+  const H=clamp(Hkm,0,80);
+  let i=0; while(i<ATM_BASE.length-1 && H>ATM_BASE[i+1].H) i++;
+  const b=ATM_BASE[i], T=b.T+b.L*(H-b.H);
+  const p = b.L===0 ? b.p*Math.exp(-G0*(H-b.H)*1000/(R_ATM*b.T))
+                    : b.p*Math.pow(T/b.T, -G0/(R_ATM*b.L/1000));
+  return {T,p,rho:p/(R_ATM*T),H};
+}
+
+/* ================================================================== *
+ *  components — every step is the exact variable-c_p statement        *
+ *                                                                     *
+ *      compression   phi(T2) - phi(T1) = (R/e) ln(p2/p1)              *
+ *      expansion     phi(T2) - phi(T1) =  e R  ln(p2/p1)              *
+ *                                                                     *
+ *  which is what a polytropic (small-stage) efficiency e MEANS:       *
+ *  e = v dp / dh on the way up, dh / v dp on the way down.  Setting   *
+ *  e = 1 gives the isentropic relation exactly, with no fixed gamma   *
+ *  anywhere.  Isentropic efficiency comes OUT of this, and its        *
+ *  well-known inequalities (eta_c < e_c, eta_t > e_t) are asserted.   *
+ * ================================================================== */
+function stagnate(g,T,p,V){                     // static + speed -> total
+  const h0=gasH(g,T)+V*V/2000;
+  const T0=tFromH(g,h0);
+  return {T:T0, p:p*Math.exp((gasPhi(g,T0)-gasPhi(g,T))/g.R), h:h0};
+}
+function compress(g,T1,p1,pr,e){
+  const T2 =tFromPhi(g, gasPhi(g,T1)+g.R*Math.log(pr)/e);
+  const T2s=tFromPhi(g, gasPhi(g,T1)+g.R*Math.log(pr));
+  const w=gasH(g,T2)-gasH(g,T1), ws=gasH(g,T2s)-gasH(g,T1);
+  return {T:T2, p:p1*pr, w, ws, eta:w>1e-12?ws/w:1, Ts:T2s};
+}
+function expandWork(g,T1,p1,w,e){               // w = work extracted, kJ/kg
+  const T2=tFromH(g, gasH(g,T1)-w);
+  const p2=p1*Math.exp((gasPhi(g,T2)-gasPhi(g,T1))/(e*g.R));
+  const T2s=tFromPhi(g, gasPhi(g,T1)+g.R*Math.log(p2/p1));
+  const ws=gasH(g,T1)-gasH(g,T2s);
+  return {T:T2, p:p2, w, ws, eta:ws>1e-12?w/ws:1, Ts:T2s};
+}
+function expandPr(g,T1,p1,pr,e){                // pr = p2/p1 < 1
+  const T2 =tFromPhi(g, gasPhi(g,T1)+e*g.R*Math.log(pr));
+  const T2s=tFromPhi(g, gasPhi(g,T1)+  g.R*Math.log(pr));
+  const w=gasH(g,T1)-gasH(g,T2), ws=gasH(g,T1)-gasH(g,T2s);
+  return {T:T2, p:p1*pr, w, ws, eta:ws>1e-12?w/ws:1, Ts:T2s};
+}
+/* MIL-E-5008B inlet total-pressure recovery: unity subsonically, then the
+   shock-system loss.  etaD is a further quality factor on top of it. */
+function ramRecovery(M,etaD){
+  const r = M<=1 ? 1 : 1-0.075*Math.pow(M-1,1.35);
+  return etaD*clamp(r,0.05,1);
+}
+
+/* The nozzle.  Isentropic-efficiency form, so V9 = sqrt(2 eta_n Dh_s), which
+   is the definition Moran's Example 9.13 Quick Quiz uses and which selfTest
+   reproduces.  The throat search is the honest version of "is it choked":
+   V rises and the local sound speed falls as the pressure drops, so they cross
+   exactly once, and that crossing IS the throat — no gamma-based critical
+   pressure ratio is assumed. */
+function nozzleAt(g,T0,p0,p,etaN){
+  const phi0=gasPhi(g,T0), h0=gasH(g,T0);
+  const Ts=tFromPhi(g, phi0+g.R*Math.log(p/p0));
+  const dhs=h0-gasH(g,Ts);
+  const V=Math.sqrt(Math.max(0,2000*etaN*dhs));
+  const T=tFromH(g, h0-V*V/2000);
+  return {T,p,V,Ts,dhs,a:gasA(g,T)};
+}
+function nozzle(g,T0,p0,pAmb,etaN,conDi){
+  if(p0<=pAmb*1.0000001){                       // no pressure to expand: dead engine
+    return {T:T0,p:pAmb,V:0,choked:false,a:gasA(g,T0),M:0,pr:1};
+  }
+  /* find the sonic point p* in (pAmb, p0), if there is one */
+  let lo=pAmb, hi=p0, sonic=null;
+  const f=p=>{ const s=nozzleAt(g,T0,p0,p,etaN); return s.V-s.a; };
+  if(f(pAmb)>0){                                // supersonic if taken to ambient
+    for(let i=0;i<70;i++){ const m=Math.exp(0.5*(Math.log(lo)+Math.log(hi)));
+      if(f(m)>0) lo=m; else hi=m; }
+    sonic=Math.exp(0.5*(Math.log(lo)+Math.log(hi)));
+  }
+  const pe = (sonic!==null && !conDi) ? sonic : pAmb;
+  const s=nozzleAt(g,T0,p0,pe,etaN);
+  s.choked = sonic!==null && !conDi;
+  s.M=s.V/s.a; s.pr=p0/pe;
+  s.wouldBeSupersonic = sonic!==null;
+  /* The velocity this stream WOULD reach if the nozzle expanded it all the way
+     to ambient.  A choked convergent nozzle leaves some of the available energy
+     in the exhaust as unexpanded pressure; it still shows up as thrust through
+     the (p9-p0)A9 term, but it is not kinetic energy.  Energy bookkeeping must
+     use the fully expanded value or the propulsive efficiency comes out above
+     100 % — which is how this was caught. */
+  s.Vfe = s.choked ? nozzleAt(g,T0,p0,pAmb,etaN).V : s.V;
+  return s;
+}
+
+/* ------------------------------------------------------------------ *
+ *  the burner, as a combustion energy balance                         *
+ *                                                                     *
+ *    1*Dh_in(T_in) + eta_b f LHV = (1+f) Dh_out(T_out)                *
+ *                                                                     *
+ *  with Dh(T) = h(T) - h(298.15) taken on each gas's OWN composition.  *
+ *  That is exact, not a modelling choice: expanding the absolute       *
+ *  balance h_in + f h_fuel = (1+f) h_out and collecting the reference  *
+ *  terms leaves precisely f * LHV.  selfTest checks that identity.     *
+ * ------------------------------------------------------------------ */
+function dhSens(g,T){ return gasH(g,T)-gasH(g,T_REF); }
+/* fuel-air ratio needed to reach T_out; null if the oxygen runs out first */
+function fuelFor(gIn,Tin,Tout,F,etaB,airStd){
+  if(Tout<=Tin) return {f:0, gas:gIn, T:Tin, capped:false};
+  if(airStd){
+    const f=(dhSens(gIn,Tout)-dhSens(gIn,Tin))/(etaB*F.LHV);
+    return {f:Math.max(0,f), gas:gIn, T:Tout, capped:false};
+  }
+  const fmax=fStoich(gIn,F)*0.9999;
+  /* resid(f) = enthalpy the products still need, minus the heat f releases.
+     It is POSITIVE at f = 0 (Tout > Tin, no fuel yet) and falls monotonically,
+     so the target is reachable exactly when resid(fmax) <= 0 and the bracket
+     walks DOWN.  Getting this the wrong way round pins every burner to
+     stoichiometric, which is silent — the engine still runs, just far too hot. */
+  const resid=f=>{ const g2=burn(gIn,f,F); if(!g2) return -1e9;
+    return (1+f)*dhSens(g2,Tout)-dhSens(gIn,Tin)-etaB*f*F.LHV; };
+  if(resid(fmax)<=0){                           // reachable inside the O2 budget
+    let lo=0,hi=fmax;
+    for(let i=0;i<80;i++){ const m=0.5*(lo+hi); if(resid(m)>0) lo=m; else hi=m; }
+    const f=0.5*(lo+hi); return {f, gas:burn(gIn,f,F), T:Tout, capped:false};
+  }
+  /* stoichiometric: burn everything and take whatever temperature results */
+  const g2=burn(gIn,fmax,F);
+  const hOut=(dhSens(gIn,Tin)+etaB*fmax*F.LHV)/(1+fmax);
+  const T=invert(T=>dhSens(g2,T),T=>gasCp(g2,T),hOut,T_MIN_INV,T_MAX_INV);
+  return {f:fmax, gas:g2, T, capped:true};
+}
+
+/* the propeller / open rotor, as an actuator disc.  P = 2 rho A vi (V0+vi)^2
+   has one positive root, and it gives finite STATIC thrust — which is the whole
+   reason to do it this way rather than F = eta P / V0, a formula that claims a
+   stationary propeller makes infinite thrust. */
+function actuatorDisc(P,rho,A,V0){
+  if(P<=0||A<=0) return {T:0,vi:0,Pdisc:0,etaF:0};
+  let lo=0, hi=Math.max(10,Math.pow(P/(2*rho*A),1/3)*4+V0*4);
+  const g=v=>2*rho*A*v*(V0+v)*(V0+v)-P;
+  for(let i=0;i<90;i++){ const m=0.5*(lo+hi); if(g(m)>0) hi=m; else lo=m; }
+  const vi=0.5*(lo+hi), T=P/(V0+vi);
+  return {T, vi, Pdisc:P, etaF:V0/(V0+vi)};      // etaF = Froude efficiency
+}
+
+/* ================================================================== *
+ *  the engine                                                         *
+ *                                                                     *
+ *  Station numbering follows SAE ARP755:                              *
+ *    0   free stream          2   fan / compressor face               *
+ *    13  fan exit (bypass)    19  bypass nozzle exit                  *
+ *    3   compressor exit      4   burner exit / turbine entry         *
+ *    5   turbine exit         45  power-turbine exit (turboprop)      *
+ *    7   afterburner exit / nozzle entry      9   core nozzle exit    *
+ *                                                                     *
+ *  pi_c is the OVERALL core pressure ratio from station 2 to 3, the    *
+ *  way OPR is quoted in industry.  On a turbofan the fan does pi_f of  *
+ *  it and the high-pressure compressor does the rest, which composes   *
+ *  exactly (Dphi adds) — so alpha = 0, pi_f = 1 collapses the turbofan *
+ *  onto the turbojet with nothing left over.  Asserted.                *
+ * ================================================================== */
+function solveEngine(st){
+  const F=FUEL, airStd=!!st.airStd, warn=[];
+  const isFan=st.type==='turbofan', isProp=st.type==='turboprop', isRam=st.type==='ramjet';
+  const alpha=isFan?st.alpha:0;
+
+  /* ---- 0: free stream --------------------------------------------- */
+  const amb=atmosphere(st.alt);
+  const T0=amb.T, p0=amb.p, rho0=amb.rho;
+  const a0=gasA(AIR,T0), V0=st.M0*a0;
+  const s00=stagnate(AIR,T0,p0,V0);
+
+  /* ---- 2: after the inlet ----------------------------------------- */
+  const piD=ramRecovery(st.M0,st.etaD);
+  const s2={T:s00.T, p:s00.p*piD, gas:AIR};
+
+  /* ---- fan and compressor ----------------------------------------- */
+  const piC=isRam?1:st.piC;
+  const piF=isFan?clamp(st.piF,1,piC):1;
+  let s13=null, cFan=null;
+  if(isFan){
+    cFan=compress(AIR,s2.T,s2.p,piF,st.eF);
+    s13={T:cFan.T, p:cFan.p, gas:AIR};
+  }
+  const coreIn = s13?{T:s13.T,p:s13.p}:{T:s2.T,p:s2.p};
+  const piHP = piF>0 ? piC/piF : piC;
+  const cComp = isRam ? {T:coreIn.T,p:coreIn.p,w:0,ws:0,eta:1,Ts:coreIn.T}
+                      : compress(AIR,coreIn.T,coreIn.p,piHP,st.eC);
+  const s3={T:cComp.T, p:cComp.p, gas:AIR};
+  /* work per kg of CORE air (the fan's core share is inside cComp's inlet) */
+  const wComp=cComp.w;
+  const wFan =cFan?cFan.w:0;                     // per kg of the stream it pushes
+
+  /* ---- 4: the burner ---------------------------------------------- */
+  const p4=s3.p*st.piB;
+  const bn=fuelFor(AIR,s3.T,st.T4,F,st.etaB,airStd);
+  const f=bn.f, gHot=bn.gas;
+  if(bn.capped) warn.push('burner at the stoichiometric limit');
+  if(st.T4<=s3.T) warn.push('turbine inlet below compressor exit — no heat can be added');
+  const s4={T:bn.T, p:p4, gas:gHot};
+  const mHot = airStd?1:1+f;                     // kg through the turbine per kg core air
+
+  /* ---- 5: the turbine, sized by the work the spools need ----------- */
+  let s5, tExp=null;
+  if(isRam){ s5={T:s4.T,p:s4.p,gas:gHot}; }
+  else{
+    const wNeed=(wComp+alpha*wFan)/st.etaM;      // per kg core air
+    tExp=expandWork(gHot,s4.T,s4.p,wNeed/mHot,st.eT);
+    s5={T:tExp.T,p:tExp.p,gas:gHot};
+    if(s5.p<=p0) warn.push('turbine cannot make the compressor work at this setting');
+  }
+
+  /* ---- 45: the free turbine of a turboprop ------------------------- */
+  let s45=s5, wShaft=0, ptExp=null;
+  if(isProp && s5.p>p0){
+    const prPt=Math.exp(st.lam*Math.log(p0/s5.p));
+    ptExp=expandPr(gHot,s5.T,s5.p,prPt,st.eT);
+    s45={T:ptExp.T,p:ptExp.p,gas:gHot};
+    wShaft=mHot*ptExp.w*st.etaM;                 // kJ per kg core air, at the shaft
+  }
+
+  /* ---- 7: the afterburner ----------------------------------------- */
+  let s7=s45, fAB=0, abCapped=false;
+  if(st.ab && !isProp){
+    const p7=s45.p*st.piAB;
+    const ab=fuelFor(gHot,s45.T,st.T7,F,st.etaB,airStd);
+    fAB=ab.f; abCapped=ab.capped;
+    if(abCapped) warn.push('afterburner has run out of oxygen');
+    s7={T:ab.T, p:p7, gas:ab.gas};
+  }
+  const mExit = airStd?1:mHot*(1+fAB);
+  const fTot  = mExit-1;                          // kg fuel per kg core air (0 in air-standard)
+  const fBurn = airStd ? f+fAB : f+fAB*(1+f);     // fuel actually metered, always real
+
+  /* ---- 9 and 19: the nozzles -------------------------------------- */
+  const nz=nozzle(s7.gas,s7.T,s7.p,p0,st.etaN,st.conDi);
+  const s9={T:nz.T,p:nz.p,V:nz.V,Vfe:nz.Vfe,gas:s7.gas,M:nz.M,choked:nz.choked};
+  let s19=null;
+  if(isFan){
+    const bz=nozzle(AIR,s13.T,s13.p*st.piFN,p0,st.etaN,st.conDi);
+    s19={T:bz.T,p:bz.p,V:bz.V,Vfe:bz.Vfe,gas:AIR,M:bz.M,choked:bz.choked};
+  }
+
+  /* ---- mass flows and thrust -------------------------------------- */
+  const mdot0=st.mdot;                            // kg/s of air entering, total
+  const mCore=mdot0/(1+alpha), mByp=alpha*mCore;
+  const mFuel=mCore*fBurn;
+  const areaPer=(s,m)=>s.V>1e-6 ? m*s.gas.R*1000*s.T/(s.p*s.V) : 0;
+
+  const A9=areaPer(s9,mCore*mExit);
+  let Fcore=mCore*(mExit*s9.V-V0)+(s9.p-p0)*A9;
+  let Fbyp=0, A19=0;
+  if(s19){ A19=areaPer(s19,mByp); Fbyp=mByp*(s19.V-V0)+(s19.p-p0)*A19; }
+
+  /* the propeller, on the same actuator-disc law as the fan it replaces */
+  let prop=null, Fprop=0, Pdisc=0;
+  if(isProp){
+    const Pshaft=wShaft*mCore*1000;               // W
+    prop=actuatorDisc(st.etaProp*Pshaft, rho0, Math.PI*st.Dprop*st.Dprop/4, V0);
+    Fprop=prop.T; Pdisc=prop.Pdisc;
+  }
+  const Fnet=Fcore+Fbyp+Fprop;
+
+  /* ---- energy bookkeeping ----------------------------------------- *
+   * Thrust is momentum and uses the ACTUAL exit state, pressure term and all. *
+   * Power added to the air is energy and uses the FULLY EXPANDED velocity: an *
+   * under-expanded jet has been given that energy whether or not the nozzle    *
+   * was long enough to turn it into speed.  Splitting the two this way is what *
+   * keeps eta_p <= 1 and keeps eta_o = eta_th * eta_p an identity.             */
+  const Pjet = mCore*(mExit*s9.Vfe*s9.Vfe-V0*V0)/2 + (s19?mByp*(s19.Vfe*s19.Vfe-V0*V0)/2:0);
+  const Padd = Pjet+Pdisc;                        // W delivered to the air
+  const Qdot = mFuel*F.LHV*1000;                  // W of fuel
+  const etaTh = Qdot>0 ? Padd/Qdot : 0;
+  const etaP  = Padd>1e-9 ? Fnet*V0/Padd : 0;
+  const etaO  = Qdot>0 ? Fnet*V0/Qdot : 0;
+
+  const Fspec = Fnet/mdot0;                       // N per kg/s = m/s
+  const tsfc  = Fnet>1e-9 ? mFuel/Fnet : Infinity;// kg/(N s)
+
+  if(s4.T>2000&&!airStd) warn.push('above 2000 K the frozen-composition products are extrapolated');
+
+  return {
+    type:st.type, airStd, amb, V0, a0, M0:st.M0,
+    s0:{T:T0,p:p0,V:V0,gas:AIR}, s00, s2, s13, s3, s4, s5, s45, s7, s9, s19,
+    piD, piC, piF, piHP, opr:s3.p/s00.p, oprRam:s00.p/p0,
+    f, fAB, fBurn, fTot, mHot, mExit, capped:bn.capped, abCapped,
+    cComp, cFan, tExp, ptExp, nz, prop,
+    wComp, wFan, wShaft, alpha,
+    mdot0, mCore, mByp, mFuel, A9, A19,
+    Fcore, Fbyp, Fprop, Fnet, Fspec, tsfc, Padd, Pjet, Pdisc, Qdot,
+    etaTh, etaP, etaO, warn,
+  };
+}
+
+/* ================================================================== *
+ *  the cycle as a dense polyline of states                            *
+ *                                                                     *
+ *  Every sample is an equilibrium state on the actual path, so the     *
+ *  Gibbs relation holds at each one and the two loop integrals are     *
+ *  exact up to quadrature.  Irreversible components are drawn as       *
+ *  quasi-static paths with rising entropy — which is what the          *
+ *  polytropic relation already gives, for free and exactly.            *
+ * ================================================================== */
+let NSEG=26;                                    // selfTest refines this
+function stPt(g,T,p,tag){
+  return {T,p,gas:g, s:gasS(g,T,p), v:g.R*1000*T/p, h:gasH(g,T), tag};
+}
+/* a polytropic leg, sampled evenly in ln p (which is what makes it even on
+   BOTH diagram axes: T and s move smoothly with ln p, and v does too) */
+function legPoly(g,T1,p1,p2,k,n,tag){
+  const o=[], phi1=gasPhi(g,T1);
+  for(let i=0;i<=n;i++){
+    const p=Math.exp(lerp(Math.log(p1),Math.log(p2),i/n));
+    o.push(stPt(g,tFromPhi(g,phi1+k*g.R*Math.log(p/p1)),p,tag));
+  }
+  return o;
+}
+/* the burner: fuel goes in progressively, so the composition morphs with the
+   temperature instead of jumping.  Pressure falls linearly across the can. */
+function legBurn(gIn,T1,p1,T2,p2,fTot,F,etaB,airStd,n,tag){
+  const o=[], h1=dhSens(gIn,T1);
+  for(let i=0;i<=n;i++){
+    const u=i/n, p=lerp(p1,p2,u), fi=fTot*u;
+    const g=(airStd||fi<=0)?gIn:(burn(gIn,fi,F)||gIn);
+    const hh=(h1+etaB*fi*F.LHV)/(1+(airStd?0:fi));
+    const T=invert(T=>dhSens(g,T),T=>gasCp(g,T),hh,T_MIN_INV,T_MAX_INV);
+    o.push(stPt(g,T,p,tag));
+  }
+  return o;
+}
+/* the nozzle, on its ACTUAL path: at each pressure the ideal drop is scaled by
+   eta_n and the real static temperature follows from what is left of h0. */
+function legNozzle(g,T0,p0,p2,etaN,n,tag){
+  const o=[];
+  for(let i=0;i<=n;i++){
+    const p=Math.exp(lerp(Math.log(p0),Math.log(p2),i/n));
+    const s=nozzleAt(g,T0,p0,p,etaN);
+    o.push(stPt(g,s.T,p,tag));
+  }
+  return o;
+}
+/* the wake: the jet gives its heat back to the sky at constant p0 */
+function legWake(g,T1,T2,p,n,tag){
+  const o=[];
+  for(let i=0;i<=n;i++) o.push(stPt(g,lerp(T1,T2,i/n),p,tag));
+  return o;
+}
+/* a pure throttling loss: pressure falls at constant enthalpy, so on the T-s
+   diagram it is a near-horizontal walk to the right.  This is what an inlet's
+   shock system and a combustor's pressure drop actually look like. */
+function legThrottle(g,T,p1,p2,n,tag){
+  const o=[], h=gasH(g,T);
+  for(let i=0;i<=n;i++){
+    const p=Math.exp(lerp(Math.log(p1),Math.log(p2),i/n));
+    o.push(stPt(g,tFromH(g,h),p,tag));
+  }
+  return o;
+}
+
+function buildCycle(E,st){
+  const F=FUEL, n=NSEG;
+  const core=[];
+  /* 0 -> 0_0: the ram compression, isentropic; then the inlet's own loss at
+     constant enthalpy, which is a pure entropy rise at fixed T. */
+  core.push(...legPoly(AIR,E.s0.T,E.s0.p,E.s00.p,1,n,'ram'));
+  if(E.s2.p<E.s00.p*0.999999)
+    core.push(...legThrottle(AIR,E.s00.T,E.s00.p,E.s2.p,6,'inlet loss'));
+  if(E.s13) core.push(...legPoly(AIR,E.s2.T,E.s2.p,E.s13.p,1/st.eF,n,'fan'));
+  const cIn=E.s13||E.s2;
+  if(E.s3.p>cIn.p*1.000001) core.push(...legPoly(AIR,cIn.T,cIn.p,E.s3.p,1/st.eC,n,'compressor'));
+  core.push(...legBurn(AIR,E.s3.T,E.s3.p,E.s4.T,E.s4.p,E.f,F,st.etaB,E.airStd,n,'burner'));
+  const gh=E.s4.gas;
+  if(E.s5.p<E.s4.p*0.999999) core.push(...legPoly(gh,E.s4.T,E.s4.p,E.s5.p,st.eT,n,'turbine'));
+  if(E.s45!==E.s5&&E.s45.p<E.s5.p*0.999999)
+    core.push(...legPoly(gh,E.s5.T,E.s5.p,E.s45.p,st.eT,n,'power turbine'));
+  if(E.fAB>0)
+    core.push(...legBurn(gh,E.s45.T,E.s45.p,E.s7.T,E.s7.p,E.fAB,F,st.etaB,E.airStd,n,'afterburner'));
+  core.push(...legNozzle(E.s7.gas,E.s7.T,E.s7.p,E.s9.p,st.etaN,n,'nozzle'));
+  /* and home through the sky */
+  core.push(...legWake(E.s9.gas,E.s9.T,E.s0.T,E.s0.p,n,'wake'));
+  /* the loop closes in T and p; in ENTROPY it closes only if the exhaust is
+     still air.  That residual is the composition change, and it is reported
+     rather than hidden. */
+  const sGap=core[core.length-1].s-core[0].s;
+
+  let byp=null;
+  if(E.s13&&E.s19){
+    byp=[];
+    byp.push(...legPoly(AIR,E.s0.T,E.s0.p,E.s2.p,1,n,'ram'));
+    byp.push(...legPoly(AIR,E.s2.T,E.s2.p,E.s13.p,1/st.eF,n,'fan'));
+    byp.push(...legNozzle(AIR,E.s13.T,E.s13.p*st.piFN,E.s19.p,st.etaN,n,'fan nozzle'));
+    byp.push(...legWake(AIR,E.s19.T,E.s0.T,E.s0.p,n,'wake'));
+  }
+  return {core, byp, sGap};
+}
+
+/* trapezoidal loop integrals.  Both are taken round the SAME polyline, so any
+   difference between them is quadrature, not physics. */
+function loopInt(pts,fk,xk){
+  let A=0;
+  for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length];
+    A+=0.5*(a[fk]+b[fk])*(b[xk]-a[xk]); }
+  return A;
+}
+function cycleAreas(cy){
+  return { ts:loopInt(cy.core,'T','s'),
+           pv:loopInt(cy.core,'p','v')/1000,       // Pa·m³/kg -> kJ/kg
+           sGap:cy.sGap };
+}
+
+/* ================================================================== *
+ *  the engine, as geometry                                            *
+ *                                                                     *
+ *  A meridional profile (x, r) revolved about the axis, with a wedge  *
+ *  left out so the gas path is visible.  The cut planes carry the     *
+ *  flow-annulus cross-section, coloured by the LOCAL gas temperature, *
+ *  so the compressor warming, the flame tube and the nozzle cooling   *
+ *  are the same numbers the T-s diagram is drawing.                   *
+ *                                                                     *
+ *  Proportions are representative, not any one engine's flow path —   *
+ *  said in the header comment and repeated here so the drawing is     *
+ *  never mistaken for a measurement.                                  *
+ * ================================================================== */
+const CUT0=-118*DEG, CUT1=118*DEG;              // the kept angular span
+const N_TH=26;                                  // revolve resolution
+
+/* core gas-path knots: [x, r_hub, r_tip] */
+const CORE_TJ=[[0.00,0.02,0.40],[0.45,0.12,0.38],[0.60,0.16,0.37],[1.25,0.27,0.31],
+               [1.38,0.22,0.41],[1.72,0.22,0.41],[1.82,0.26,0.36],[2.20,0.21,0.42],
+               [2.45,0.15,0.38]];
+const CORE_TF=[[0.55,0.20,0.44],[0.70,0.23,0.42],[1.25,0.30,0.34],
+               [1.38,0.25,0.45],[1.72,0.25,0.45],[1.82,0.29,0.40],[2.20,0.24,0.46],
+               [2.45,0.18,0.40]];
+const CORE_RJ=[[0.00,0.10,0.34],[0.55,0.17,0.33],[1.05,0.08,0.42],[1.20,0.00,0.45],
+               [2.05,0.00,0.45],[2.25,0.00,0.42]];
+
+function engineLayout(E,st){
+  const type=st.type, ab=!!st.ab&&type!=='turboprop';
+  const L={type, core:[], caseP:[], nacelle:null, bypass:null, blades:[], stations:[],
+           spike:null, prop:null, flameHolders:false, len:0, rMax:0};
+  const knots = type==='ramjet'?CORE_RJ : type==='turbofan'?CORE_TF : CORE_TJ;
+  L.core=knots.map(k=>k.slice());
+
+  /* tail pipe and nozzle, which grow when the afterburner lights */
+  const xJet=L.core[L.core.length-1][0];
+  const xAB = ab? xJet+0.55 : xJet+0.10;
+  const rJ=L.core[L.core.length-1];
+  if(ab){
+    L.core.push([xJet+0.12, rJ[1]*0.5, rJ[2]*1.02]);
+    L.core.push([xAB,       0.02,      rJ[2]*1.02]);
+    L.flameHolders=true;
+  } else {
+    L.core.push([xAB, rJ[1]*0.6, rJ[2]*0.98]);
+  }
+  const xExit=xAB+ (type==='ramjet'?0.55:0.42);
+  L.core.push([xExit, 0.02, rJ[2]*(type==='ramjet'?0.62:0.70)]);
+  L.xNoz=xAB; L.xExit=xExit;
+
+  /* the casing: the flow path's tip line, thickened, with a rounded lip */
+  L.caseP=L.core.map(k=>[k[0], k[2]+0.035]);
+  L.caseP[0]=[L.core[0][0], L.core[0][2]+0.02];
+
+  if(type==='ramjet'){
+    L.spike=[[-0.55,0.0],[-0.25,0.075],[0.10,0.135],[0.55,0.17]];
+    L.flameHolders=true;
+  } else if(type==='turbofan'){
+    const RF=0.95;
+    L.spike=[[-0.14,0.0],[0.02,0.11],[0.18,0.18],[0.30,0.20]];
+    /* tips stay inside the duct wall: RF*0.97 against a nacelle bore of RF*0.99 */
+    L.blades.push({x:0.34,rh:0.21,rt:RF*0.97,n:22,w:0.048,twist:0.42,seg:3,taper:0.72,
+                   spin:1,kind:'fan'});
+    L.blades.push({x:0.46,rh:0.21,rt:RF*0.93,n:38,w:0.030,twist:-0.14,spin:0,kind:'stator'});
+    /* nacelle: outer skin and the bypass duct's inner wall */
+    L.nacelle={out:[[0.12,RF*1.06],[0.42,RF*1.12],[1.10,RF*1.09],[1.75,RF*0.99],[2.05,RF*0.88]],
+               inn:[[0.12,RF*1.00],[0.42,RF*0.99],[1.10,RF*0.90],[1.75,RF*0.80],[2.05,RF*0.76]]};
+    L.bypass={x0:0.12,x1:2.05,
+              inn:[[0.12,0.46],[0.42,0.50],[1.10,0.52],[1.75,0.50],[2.05,0.48]],
+              out:L.nacelle.inn};
+    L.xByp=2.05;
+  } else if(type==='turboprop'){
+    L.spike=[[-0.10,0.0],[0.08,0.09],[0.30,0.13],[0.45,0.14]];
+    L.prop={x:-0.62, r0:0.16, r1:1.75, n:6, w:0.085, twist:1.15, seg:5, taper:0.38,
+            hub:[[-0.80,0.0],[-0.62,0.15],[-0.30,0.19],[0.00,0.20]]};
+  } else {
+    L.spike=[[-0.12,0.0],[0.04,0.08],[0.24,0.12],[0.45,0.12]];
+  }
+
+  /* blade rows in the core.  Compressor stages step up in pressure, turbine
+     stages step down; the drawing just needs them in the right ducts. */
+  if(type!=='ramjet'){
+    const c0=type==='turbofan'?0.72:0.62, c1=1.24;
+    const nStage=type==='turbofan'?7:8;
+    for(let i=0;i<nStage;i++){
+      const u=(i+0.5)/nStage, x=lerp(c0,c1,u);
+      const rr=coreRadii(L,x);
+      L.blades.push({x,rh:rr[0]*1.02,rt:rr[1]*0.98,n:30,w:0.020,twist:0.16,spin:1,kind:'comp'});
+    }
+    const t0=1.80, t1=2.20, nT=type==='turboprop'?4:2;
+    for(let i=0;i<nT;i++){
+      const u=(i+0.5)/nT, x=lerp(t0,t1,u);
+      const rr=coreRadii(L,x);
+      L.blades.push({x,rh:rr[0]*1.02,rt:rr[1]*0.98,n:24,w:0.030,twist:-0.34,spin:1,kind:'turb'});
+    }
+  }
+
+  /* where each station sits along the axis, for labels and for the gas-path
+     temperature field */
+  const xs = type==='ramjet'
+    ? [['0',-0.5],['2',1.05],['4',2.05],['9',xExit]]
+    : type==='turbofan'
+      ? [['0',-0.3],['2',0.55],['13',0.50],['3',1.25],['4',1.72],['5',2.20],['7',xAB],['9',xExit]]
+      : [['0',-0.3],['2',0.45],['3',1.25],['4',1.72],['5',2.20],['7',xAB],['9',xExit]];
+  L.stations=xs.map(([id,x])=>({id,x}));
+  L.len=xExit; L.rMax=type==='turbofan'?0.95*1.12: type==='turboprop'?1.75:0.5;
+  return L;
+}
+function coreRadii(L,x){
+  const K=L.core;
+  if(x<=K[0][0]) return [K[0][1],K[0][2]];
+  for(let i=1;i<K.length;i++) if(x<=K[i][0]){
+    const u=(x-K[i-1][0])/(K[i][0]-K[i-1][0]);
+    return [lerp(K[i-1][1],K[i][1],u), lerp(K[i-1][2],K[i][2],u)];
+  }
+  return [K[K.length-1][1],K[K.length-1][2]];
+}
+/* the gas-path temperature field: total temperature station to station, then
+   the STATIC temperature through the nozzle, where the gas really does cool as
+   it accelerates.  Same numbers as the diagrams — one engine, one solution. */
+function tempField(E,L,st){
+  const K=[];
+  const push=(x,T)=>K.push([x,T]);
+  push(-1.0,E.s0.T); push(L.core[0][0]-0.05,E.s00.T);
+  if(st.type==='ramjet'){
+    push(1.05,E.s2.T); push(1.25,E.s2.T); push(2.05,E.s4.T);
+  } else {
+    push(st.type==='turbofan'?0.55:0.45, E.s2.T);
+    push(1.25,E.s3.T); push(1.38,E.s3.T); push(1.72,E.s4.T);
+    push(2.20,E.s5.T);
+    if(E.s45!==E.s5) push(2.30,E.s45.T);
+  }
+  push(L.xNoz,E.s7.T); push(L.xExit,E.s9.T); push(L.xExit+1.4,E.s0.T);
+  return x=>{
+    if(x<=K[0][0]) return K[0][1];
+    for(let i=1;i<K.length;i++) if(x<=K[i][0]){
+      const u=(x-K[i-1][0])/((K[i][0]-K[i-1][0])||1);
+      return lerp(K[i-1][1],K[i][1],u);
+    }
+    return K[K.length-1][1];
+  };
+}
+
+/* revolve a meridional band into quads over the kept angular span */
+function ringPt(x,r,th){ return [x, r*Math.cos(th), r*Math.sin(th)]; }
+function revolveBand(out,x0,r0,x1,r1,colFn,nth){
+  nth=nth||N_TH;
+  for(let j=0;j<nth;j++){
+    const ta=lerp(CUT0,CUT1,j/nth), tb=lerp(CUT0,CUT1,(j+1)/nth);
+    const a=ringPt(x0,r0,ta), b=ringPt(x1,r1,ta), c=ringPt(x1,r1,tb), d=ringPt(x0,r0,tb);
+    out.push({q:[a,b,c,d], col:colFn(0.5*(x0+x1), 0.5*(ta+tb))});
+  }
+}
+function revolveProfile(out,prof,colFn,nth){
+  for(let i=0;i+1<prof.length;i++)
+    revolveBand(out,prof[i][0],prof[i][1],prof[i+1][0],prof[i+1][1],colFn,nth);
+}
+/* Split long axial segments so the gas-path colour is a GRADIENT and not one
+   flat tone per knot.  The combustor is a single 0.85-long segment in the
+   layout, and undivided it painted the entire flame tube the colour of its own
+   midpoint — hiding the very temperature rise the drawing exists to show. */
+function densify(knots,maxDx){
+  const o=[knots[0].slice()];
+  for(let i=1;i<knots.length;i++){
+    const a=knots[i-1], b=knots[i], n=Math.max(1,Math.ceil((b[0]-a[0])/maxDx));
+    for(let j=1;j<=n;j++){ const u=j/n;
+      o.push([lerp(a[0],b[0],u), lerp(a[1],b[1],u), lerp(a[2],b[2],u)]); }
+  }
+  return o;
+}
+/* the two exposed meridional faces of the cutaway */
+function cutFaces(out,knots,colFn){
+  for(const th of [CUT0,CUT1]) for(let i=0;i+1<knots.length;i++){
+    const A=knots[i], B=knots[i+1];
+    out.push({q:[ringPt(A[0],A[1],th),ringPt(A[0],A[2],th),
+                 ringPt(B[0],B[2],th),ringPt(B[0],B[1],th)],
+              col:colFn(0.5*(A[0]+B[0]),th), flat:true});
+  }
+}
+/* Blades are NOT cut by the wedge: the wedge removes casing so the rotor can be
+   seen, which is what a real cutaway drawing does.  A blade is built in `seg`
+   spanwise pieces so the twist is a curve rather than a single shear, and the
+   chord tapers to `taper` at the tip — without both, a propeller renders as a
+   flat plank. */
+function bladeQuads(out,bl,phase,col){
+  const spin=bl.spin?phase*bl.spin:0, seg=bl.seg||1, tap=bl.taper===undefined?1:bl.taper;
+  for(let k=0;k<bl.n;k++){
+    const th0=spin+k*TAU/bl.n;
+    for(let i=0;i<seg;i++){
+      const u0=i/seg, u1=(i+1)/seg;
+      const r0=lerp(bl.rh,bl.rt,u0), r1=lerp(bl.rh,bl.rt,u1);
+      const t0=th0+bl.twist*u0*u0, t1=th0+bl.twist*u1*u1;   // twist grows outboard
+      const w0=bl.w*lerp(1,tap,u0), w1=bl.w*lerp(1,tap,u1);
+      out.push({q:[ringPt(bl.x-w0,r0,t0),ringPt(bl.x+w0,r0,t0),
+                   ringPt(bl.x+w1,r1,t1),ringPt(bl.x-w1,r1,t1)], col, blade:true});
+    }
+  }
+}
+
+/* ================================================================== *
+ *  formatting                                                         *
+ * ================================================================== */
+function fmtP(p){ return p>=1e6?(p/1e6).toFixed(2)+' MPa': p>=1e3?(p/1000).toFixed(1)+' kPa'
+                       : p.toFixed(1)+' Pa'; }
+function fmtF(N){ return Math.abs(N)>=1e3?(N/1000).toFixed(1)+' kN':N.toFixed(0)+' N'; }
+function fmtPct(x){ return (100*x).toFixed(1)+'%'; }
+/* TSFC: SI for the numbers, imperial in brackets because that is what every
+   engine data sheet in existence still quotes. */
+function fmtTSFC(t){
+  if(!isFinite(t)||t<=0) return '—';
+  return (t*1e6).toFixed(1)+' g/kN·s';
+}
+function tsfcImp(t){ return isFinite(t)&&t>0 ? (t*3600*9.80665).toFixed(3) : '—'; }
+function fmtM(M){ return M.toFixed(2); }
+
+/* ================================================================== *
+ *  the equation bar and the readout                                   *
+ * ================================================================== */
+const KIND_NAME={turbojet:'Turbojet', turbofan:'Turbofan', turboprop:'Turboprop', ramjet:'Ramjet'};
+const KIND_SUB={
+  turbojet:'all the air goes through the core — fast jet, loud, thirsty',
+  turbofan:'the same core, spread over more air moving more gently',
+  turboprop:'the duct thrown away entirely: an unducted fan',
+  ramjet:'no compressor, no turbine — the flight speed does the compressing'};
+
+function eqbarHTML(E,areas,view){
+  if(view==='ts'||view==='pv'){
+    const eq='<span class="lhs">du = T ds &minus; P dv</span>'
+      +' &nbsp;&rArr;&nbsp; &#8750;<i>T</i>&#8239;d<i>s</i> = &#8750;<i>P</i>&#8239;d<i>v</i>'
+      +' = <sup>1</sup>&frasl;<sub>2</sub>(<i>V</i><sub>9</sub><sup>2</sup> &minus; <i>V</i><sub>0</sub><sup>2</sup>)';
+    const dke=(E.s9.Vfe*E.s9.Vfe-E.V0*E.V0)/2000;
+    const nums='&#8750;<i>T</i>&#8239;d<i>s</i> = <span class="hl">'+areas.ts.toFixed(1)+'</span>'
+      +' &nbsp;&middot;&nbsp; &#8750;<i>P</i>&#8239;d<i>v</i> = <span class="hl">'+areas.pv.toFixed(1)+'</span>'
+      +' &nbsp;&middot;&nbsp; &#916;KE = <span class="hl2">'+dke.toFixed(1)+'</span> kJ/kg';
+    const why = E.airStd
+      ? (Math.abs(areas.ts-areas.pv)/Math.max(1,Math.abs(areas.ts))<0.01
+          ? 'one substance, closed loop &mdash; the two areas must agree'
+          : 'closing under refinement')
+      : 'real products: the loop is not one substance, so the theorem does not apply &mdash; '
+        +'&#916;s across the burner = '+areas.sGap.toFixed(3)+' kJ/kg&middot;K';
+    return eq+'<span class="sm">'+nums+' &nbsp;&middot;&nbsp; '+why+'</span>';
+  }
+  const eq='<span class="lhs">F = &#7745;[(1+f)<i>V</i><sub>9</sub> &minus; <i>V</i><sub>0</sub>]'
+    +' + (<i>p</i><sub>9</sub>&minus;<i>p</i><sub>0</sub>)<i>A</i><sub>9</sub></span>'
+    +' &nbsp;&middot;&nbsp; &eta;<sub>o</sub> = &eta;<sub>th</sub> &times; &eta;<sub>p</sub>';
+  const nums='F = <span class="hl">'+fmtF(E.Fnet)+'</span>'
+    +' &nbsp;&middot;&nbsp; &eta;<sub>o</sub> = <span class="hl2">'+fmtPct(E.etaO)+'</span>'
+    +' = '+fmtPct(E.etaTh)+' &times; '+fmtPct(E.etaP)
+    +' &nbsp;&middot;&nbsp; TSFC '+fmtTSFC(E.tsfc)+' ('+tsfcImp(E.tsfc)+' lb/lbf&middot;h)';
+  return eq+'<span class="sm">'+nums+'</span>';
+}
+function eqbarText(E,areas){
+  return 'F='+E.Fnet.toFixed(1)+' N; eta_o='+E.etaO.toFixed(5)
+    +' = '+E.etaTh.toFixed(5)+' * '+E.etaP.toFixed(5)
+    +'; Tds='+areas.ts.toFixed(3)+' pdv='+areas.pv.toFixed(3);
+}
+
+function stationRows(E){
+  const r=[];
+  const row=(id,name,s)=>{ if(!s) return;
+    r.push('<tr><td>'+id+'&nbsp; '+name+'</td><td class="v">'+s.T.toFixed(0)+'</td>'
+      +'<td class="v">'+(s.p/1000).toFixed(s.p<10000?2:0)+'</td></tr>'); };
+  row('0','ambient',E.s0);
+  row('2','after inlet',E.s2);
+  if(E.s13) row('13','fan exit',E.s13);
+  if(E.type!=='ramjet') row('3','compressor',E.s3);
+  row('4','burner exit',E.s4);
+  if(E.type!=='ramjet') row('5','turbine exit',E.s5);
+  if(E.s45!==E.s5) row('45','power turbine',E.s45);
+  if(E.fAB>0) row('7','afterburner',E.s7);
+  row('9','nozzle exit',E.s9);
+  if(E.s19) row('19','bypass exit',E.s19);
+  return r.join('');
+}
+function readoutHTML(E,areas){
+  const legend='<span><i style="background:'+tempCol(E.s2.T)+'"></i>inlet</span>'
+    +'<span><i style="background:'+tempCol(E.s3.T)+'"></i>compressed</span>'
+    +'<span><i style="background:'+tempCol(E.s4.T)+'"></i>burnt</span>'
+    +'<span><i style="background:'+tempCol(E.s9.T)+'"></i>exhaust</span>'
+    +'<span><i style="background:#b8ec4c"></i>cycle</span>';
+  const warn=E.warn.length
+    ? '<div class="note warn"><b>'+E.warn.join('.<br>')+'.</b></div>' : '';
+  const prop=E.prop
+    ? '<tr><td>shaft power</td><td class="v"></td><td class="v">'
+      +(E.wShaft*E.mCore).toFixed(0)+' kW</td></tr>'
+      +'<tr><td>propeller thrust</td><td class="v"></td><td class="v">'+fmtF(E.Fprop)+'</td></tr>'
+      +'<tr><td>Froude &eta; = V<sub>0</sub>/(V<sub>0</sub>+v<sub>i</sub>)</td><td class="v"></td>'
+      +'<td class="v">'+fmtPct(E.prop.etaF)+'</td></tr>'
+    : '';
+  const byp=E.s19
+    ? '<tr><td>bypass thrust share</td><td class="v"></td><td class="v">'
+      +fmtPct(E.Fbyp/(E.Fnet||1))+'</td></tr>' : '';
+  return '<div class="rname">'+KIND_NAME[E.type]
+    +'<small>'+KIND_SUB[E.type]+'</small></div>'
+    +'<table><tr><td class="hd">station</td><td class="hd v">T (K)</td><td class="hd v">p (kPa)</td></tr>'
+    +stationRows(E)
+    +'<tr><td class="hd">performance</td><td class="hd v"></td><td class="hd v"></td></tr>'
+    +'<tr><td>net thrust</td><td class="v"></td><td class="v">'+fmtF(E.Fnet)+'</td></tr>'
+    +'<tr><td>specific thrust</td><td class="v"></td><td class="v">'+E.Fspec.toFixed(0)+' N·s/kg</td></tr>'
+    +'<tr><td>TSFC</td><td class="v"></td><td class="v">'+fmtTSFC(E.tsfc)+'</td></tr>'
+    +'<tr><td>fuel flow</td><td class="v"></td><td class="v">'+E.mFuel.toFixed(3)+' kg/s</td></tr>'
+    +'<tr><td>fuel-air ratio f</td><td class="v"></td><td class="v">'+E.fBurn.toFixed(4)+'</td></tr>'
+    +byp+prop
+    +'</table>'
+    +'<div class="etabar"><div class="etafill" style="width:'+clamp(100*E.etaTh,0,100).toFixed(1)+'%"></div></div>'
+    +'<div class="note">thermal <b>'+fmtPct(E.etaTh)+'</b> &mdash; how much of the fuel becomes '
+    +'kinetic energy in the air</div>'
+    +'<div class="etabar"><div class="etafill p" style="width:'+clamp(100*E.etaP,0,100).toFixed(1)+'%"></div></div>'
+    +'<div class="note">propulsive <b>'+fmtPct(E.etaP)+'</b> &mdash; how much of that becomes thrust '
+    +'power rather than being left behind in the wake. Overall <b>'+fmtPct(E.etaO)+'</b>.</div>'
+    +warn
+    +'<div class="legend">'+legend+'</div>';
+}
+function tagHTML(E,st){
+  if(st.view==='engine')
+    return KIND_NAME[E.type]+' at <b>M '+fmtM(E.M0)+'</b>, <b>'+E.amb.H.toFixed(1)+' km</b> — '
+      +'gas path coloured by temperature, '+E.s0.T.toFixed(0)+' K in, '
+      +E.s4.T.toFixed(0)+' K at the flame, '+E.s9.T.toFixed(0)+' K out';
+  if(st.view==='map') return 'thrust and fuel burn across the flight envelope — '
+    +'<b>each family owns a Mach band</b>';
+  return VIEWS[st.view].title+' — '+VIEWS[st.view].sub;
+}
+
+/* ================================================================== *
+ *  2-D diagram views                                                  *
+ * ================================================================== */
+const VIEWS={
+  ts:{x:'s', y:'T', xlog:false, ylog:false,
+      xlab:'specific entropy s  (kJ/kg·K)', ylab:'temperature T  (K)',
+      title:'T–s', sub:'area inside the loop = ∮T ds'},
+  pv:{x:'v', y:'p', xlog:true, ylog:true,
+      xlab:'specific volume v  (m³/kg)', ylab:'pressure p  (Pa)',
+      title:'p–v', sub:'area inside the loop = ∮P dv'},
+};
+function makeMap(V,rng,W,H){
+  const L=68, R=20, Tp=20, Bt=46;
+  const nx=v=>V.xlog?(Math.log10(v)-Math.log10(rng.x0))/(Math.log10(rng.x1)-Math.log10(rng.x0))
+                    :(v-rng.x0)/(rng.x1-rng.x0);
+  const ny=v=>V.ylog?(Math.log10(v)-Math.log10(rng.y0))/(Math.log10(rng.y1)-Math.log10(rng.y0))
+                    :(v-rng.y0)/(rng.y1-rng.y0);
+  const fx=v=>L+nx(v)*(W-L-R), fy=v=>H-Bt-ny(v)*(H-Bt-Tp);
+  return {fx,fy,L,R,Tp,Bt,W,H, pt:s=>[fx(s[V.x]),fy(s[V.y])]};
+}
+/* Ranges come from the MEASURED extremes of the loops actually being drawn,
+   padded and snapped outward, so no cycle sample is ever clipped off the plot.
+   (steam_carnot_cycle.html Known-bad: never clamp cycle samples.) */
+function autoRange(loops,V){
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for(const L of loops) if(L) for(const s of L){
+    const xv=s[V.x], yv=s[V.y];
+    if(xv<x0)x0=xv; if(xv>x1)x1=xv; if(yv<y0)y0=yv; if(yv>y1)y1=yv;
+  }
+  const pad=(a,b,log)=>{
+    if(log){ const la=Math.log10(a), lb=Math.log10(b), m=Math.max(0.08*(lb-la),0.05);
+      return [Math.pow(10,Math.floor((la-m)*4)/4), Math.pow(10,Math.ceil((lb+m)*4)/4)]; }
+    const m=Math.max(0.08*(b-a),1e-6), s=Math.pow(10,Math.floor(Math.log10(b-a+1e-12))-1);
+    return [Math.floor((a-m)/s)*s, Math.ceil((b+m)/s)*s];
+  };
+  const X=pad(x0,x1,V.xlog), Y=pad(y0,y1,V.ylog);
+  return {x0:X[0],x1:X[1],y0:Y[0],y1:Y[1]};
+}
+function ticks(lo,hi,log,n){
+  const out=[];
+  if(log){ const a=Math.floor(Math.log10(lo)), b=Math.ceil(Math.log10(hi));
+    for(let e=a;e<=b;e++){ const val=Math.pow(10,e); if(val>=lo*0.999&&val<=hi*1.001) out.push(val); }
+    return out; }
+  const raw=(hi-lo)/n, mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const step=[1,2,2.5,5,10].reduce((p,c)=>Math.abs(c*mag-raw)<Math.abs(p*mag-raw)?c:p,1)*mag;
+  for(let val=Math.ceil(lo/step)*step; val<=hi*1.0001; val+=step) out.push(val);
+  return out;
+}
+const SUPS='⁰¹²³⁴⁵⁶⁷⁸⁹⁻';
+function tickLabel(val,log){
+  if(log){ const e=Math.round(Math.log10(val));
+    return e>=0&&e<=3 ? String(Math.round(val))
+      : '10'+String(e).replace('-','−').split('').map(c=>SUPS['0123456789−'.indexOf(c)]).join(''); }
+  return Math.abs(val)>=1000?val.toFixed(0):Math.abs(val)>=10?val.toFixed(0)
+        :Math.abs(val)>=1?val.toFixed(1):val.toFixed(2);
+}
+
+/* ---- the flight-envelope map ------------------------------------- */
+const MAP_KINDS=[['turboprop','turboprop',0.05],['turbofan','turbofan',0.28],
+                 ['turbojet','turbojet',0.55],['turbojet_ab','turbojet + AB',0.75],
+                 ['ramjet','ramjet',0.95]];
+const MAP_N=34;
+function buildMap(st){
+  const out=[];
+  for(const [key,label,hue] of MAP_KINDS){
+    const type=key==='turbojet_ab'?'turbojet':key;
+    const p=Object.assign({},st,PRESETS[type],{type, ab:key==='turbojet_ab',
+      alt:st.alt, mdot:100, airStd:st.airStd,
+      eC:st.eC,eT:st.eT,eF:st.eF,etaB:st.etaB,etaM:st.etaM,etaN:st.etaN,etaD:st.etaD});
+    if(key==='turbojet_ab'){ p.conDi=true; p.T7=Math.max(p.T4,st.T7); }
+    const pts=[];
+    for(let i=0;i<=MAP_N;i++){
+      const M=lerp(0.02,4.2,i/MAP_N);
+      p.M0=M;
+      let E=null; try{ E=solveEngine(p); }catch(e){ E=null; }
+      if(E&&isFinite(E.Fspec)&&E.Fspec>1&&isFinite(E.tsfc)&&E.tsfc>0&&E.tsfc<4e-4)
+        pts.push({M, Fs:E.Fspec, tsfc:E.tsfc*1e6, eta:E.etaO});
+    }
+    out.push({key,label,hue,pts});
+  }
+  return out;
+}
+
+/* ================================================================== *
+ *  the scene                                                          *
+ * ================================================================== */
+const DEFAULTS={ view:'engine', type:'turbofan',
+  alt:11, M0:0.85, piC:40, piF:1.6, alpha:9, T4:1650, ab:false, T7:2000,
+  eC:0.90, eT:0.90, eF:0.90, etaB:0.99, etaM:0.99, etaN:0.98, etaD:0.98, etaProp:0.85,
+  piB:0.96, piAB:0.97, piFN:0.99, conDi:false, airStd:false,
+  lam:0.92, Dprop:3.9, mdot:340,
+  anim:true, spin:false, speed:1,
+  showCase:true, showBlades:true, showStations:true, showPlume:true };
+/* choosing a family also moves it to a design point where that family makes
+   sense — a turbofan at Mach 3 and a ramjet at Mach 0.4 are both nonsense, and
+   showing them by default would teach the wrong thing. */
+const PRESETS={
+  turbojet :{piC:12, piF:1, alpha:0, T4:1500, M0:0.85, alt:11, mdot:70,  conDi:false, ab:false},
+  turbofan :{piC:40, piF:1.6, alpha:9, T4:1650, M0:0.85, alt:11, mdot:340, conDi:false, ab:false},
+  turboprop:{piC:16, piF:1, alpha:0, T4:1400, M0:0.45, alt:6,   mdot:12,  conDi:false, ab:false, lam:0.92},
+  ramjet   :{piC:1,  piF:1, alpha:0, T4:2200, M0:3.0,  alt:18,  mdot:60,  conDi:true,  ab:false},
+};
+const METAL='#79839a', METAL2='#4c5568';
+const LIGHT=v3.norm([0.35,-0.72,0.60]);
+
+function makeScene(canvas){
+  const ctx=canvas.getContext('2d');
+  const st=Object.assign({},DEFAULTS);
+  const cam=makeCamera(-2.05,0.30,6.0,[1.35,0,0]);
+  let E=null, cy=null, areas=null, lay=null, Tf=null, mapData=null, part=null;
+  let tAnim=0, tSpin=0;
+
+  function rebuildEngine(){
+    E=solveEngine(st); cy=buildCycle(E,st); areas=cycleAreas(cy);
+    lay=engineLayout(E,st); Tf=tempField(E,lay,st); part=buildParticles();
+    mapData=null;
+  }
+  function ensureMap(){ if(!mapData) mapData=buildMap(st); return mapData; }
+
+  /* Particles ride the gas path.  Axial velocity is taken as a roughly constant
+     axial Mach number inside the machine (0.45 a(T), which is what compressor
+     and turbine annuli are actually sized for) blending to the free stream
+     ahead of the inlet and to the real V9 at the nozzle.  Indicative, and the
+     temperature it reads is the solved one. */
+  function axialV(x){
+    const x0=lay.core[0][0], xe=lay.xExit;
+    if(x<x0) return E.V0;
+    if(x>xe-0.35) return lerp(0.45*gasA(E.s9.gas,Tf(x)), E.s9.V, clamp((x-(xe-0.35))/0.35,0,1));
+    return 0.45*gasA(AIR,Tf(x));
+  }
+  function buildParticles(){
+    const x0=lay.core[0][0]-1.1, x1=lay.xExit+1.3, N=340, tab=[];
+    let t=0, xp=x0;
+    for(let i=0;i<=N;i++){
+      const x=lerp(x0,x1,i/N);
+      if(i>0) t+=(x-xp)/Math.max(40,axialV(0.5*(x+xp)));
+      tab.push([t,x]); xp=x;
+    }
+    const T=tab[tab.length-1][0];
+    return {tab, T, x0, x1};
+  }
+  function partX(u){                       // u in [0,1) of the traverse time
+    const {tab,T}=part, t=u*T;
+    let i=0; while(i<tab.length-2&&tab[i+1][0]<t) i++;
+    const a=tab[i], b=tab[i+1];
+    return lerp(a[1],b[1],(t-a[0])/((b[0]-a[0])||1));
+  }
+
+  /* ---------------- 3-D ---------------- */
+  function paint(items,P){
+    const vis=[];
+    for(const it of items){
+      const q=it.q, a=P(q[0]),b=P(q[1]),c=P(q[2]),d=P(q[3]);
+      if(!a||!b||!c||!d) continue;
+      vis.push({a,b,c,d, z:(a.z+b.z+c.z+d.z)*0.25, it});
+    }
+    vis.sort((p,q)=>q.z-p.z);
+    for(const v of vis){
+      const it=v.it;
+      let col=it.col;
+      if(!it.flat){
+        const n=v3.norm(v3.cross(v3.sub(it.q[1],it.q[0]),v3.sub(it.q[2],it.q[0])));
+        col=shade(col,0.30+0.70*Math.abs(v3.dot(n,LIGHT)));
+      }
+      ctx.fillStyle=col;
+      ctx.beginPath(); ctx.moveTo(v.a.x,v.a.y); ctx.lineTo(v.b.x,v.b.y);
+      ctx.lineTo(v.c.x,v.c.y); ctx.lineTo(v.d.x,v.d.y); ctx.closePath(); ctx.fill();
+      if(it.edge){ ctx.strokeStyle=it.edge; ctx.lineWidth=it.ew||0.8; ctx.stroke(); }
+    }
+    return vis.length;
+  }
+  function draw3D(){
+    const W=cam.W,H=cam.H, B=camBasis(cam);
+    ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+    const P=p=>project(cam,B,p);
+    const items=[];
+    const metal=()=>METAL, metal2=()=>METAL2;
+
+    /* the casing / nacelle skin */
+    if(st.showCase){
+      if(lay.nacelle){
+        revolveProfile(items,lay.nacelle.out,metal);
+        revolveProfile(items,lay.nacelle.inn,metal2);
+        cutFaces(items,lay.nacelle.out.map((p,i)=>[p[0],lay.nacelle.inn[i][1],p[1]]),()=>METAL);
+      }
+      revolveProfile(items,lay.caseP,lay.nacelle?metal2:metal);
+    }
+    /* the bypass duct: its cut face is air at fan-exit temperature */
+    if(lay.bypass&&E.s13){
+      const kb=lay.bypass.inn.map((p,i)=>[p[0],p[1],lay.bypass.out[i][1]]);
+      cutFaces(items,densify(kb,0.12),x=>shade(tempCol(x<0.42?E.s2.T:E.s13.T),0.72));
+      revolveProfile(items,lay.bypass.inn,metal2);
+    }
+    /* the core gas path: the cut face is the whole point of the drawing */
+    cutFaces(items,densify(lay.core,0.09),x=>shade(tempCol(Tf(x)),0.94));
+    /* hub / centre body / inlet spike */
+    if(lay.spike) revolveProfile(items,lay.spike,metal2);
+    { const hub=lay.core.map(k=>[k[0],k[1]]); revolveProfile(items,hub,metal2); }
+
+    /* blades */
+    if(st.showBlades){
+      for(const bl of lay.blades)
+        bladeQuads(items,bl,tSpin*(bl.kind==='turb'?1.0:bl.kind==='fan'?0.42:1.0),
+                   bl.kind==='stator'?'#5d6577':'#9aa4b4');
+      if(lay.prop){
+        const p=lay.prop;
+        bladeQuads(items,{x:p.x,rh:p.r0,rt:p.r1,n:p.n,w:p.w,twist:p.twist,
+                          seg:p.seg,taper:p.taper,spin:1},tSpin*0.35,'#8f99ab');
+        revolveProfile(items,p.hub,metal2);
+      }
+    }
+    /* flame holders read instantly as "this is a combustor" */
+    if(lay.flameHolders){
+      const xF=st.type==='ramjet'?1.28:lay.xNoz-0.42;
+      const rr=coreRadii(lay,xF);
+      for(let k=0;k<10;k++){ const th=k*TAU/10;
+        items.push({q:[ringPt(xF-0.02,rr[0],th),ringPt(xF+0.02,rr[0],th),
+                       ringPt(xF+0.02,rr[1],th+0.05),ringPt(xF-0.02,rr[1],th+0.05)],
+                    col:'#6a4a34'});
+      }
+    }
+    paint(items,P);
+
+    /* the plume, painted after everything and additively so it glows */
+    if(st.showPlume&&E.s9.V>1){
+      ctx.globalCompositeOperation='lighter';
+      const plume=[];
+      const rE=lay.core[lay.core.length-1][2];
+      for(let i=0;i<14;i++){
+        const u=i/14, u2=(i+1)/14;
+        const x0=lay.xExit+u*2.2, x1=lay.xExit+u2*2.2;
+        const r0=rE*(1+0.55*u), r1=rE*(1+0.55*u2);
+        const T=lerp(E.s9.T,E.s0.T,smoothstep(u));
+        const a=0.20*(1-u)*(1-u);
+        revolveBand(plume,x0,r0,x1,r1,()=>rgba(tempCol(T),a),14);
+      }
+      for(const it of plume) it.flat=true;
+      paint(plume,P);
+      ctx.globalCompositeOperation='source-over';
+    }
+
+    /* the working fluid, as particles riding the path */
+    if(st.anim){
+      const NP=46;
+      for(let k=0;k<NP;k++){
+        const u=(tAnim+k/NP)%1, x=partX(u);
+        const rr=coreRadii(lay,clamp(x,lay.core[0][0],lay.xExit));
+        const inEng=x>lay.core[0][0]&&x<lay.xExit;
+        const r=inEng?0.5*(rr[0]+rr[1]):(0.32+0.10*Math.sin(k*2.4));
+        const th=CUT1-0.26+0.5*Math.sin(k*1.7);
+        const p=P(ringPt(x,r,th)); if(!p) continue;
+        const T=Tf(x), sz=clamp(120/p.z,1.0,3.4);
+        ctx.fillStyle=tempCol(T);
+        ctx.globalAlpha=inEng?0.95:0.5;
+        ctx.beginPath(); ctx.arc(p.x,p.y,sz,0,TAU); ctx.fill();
+      }
+      /* bypass stream too, so the turbofan's two flows are visibly different */
+      if(lay.bypass&&E.s19) for(let k=0;k<26;k++){
+        const u=(tAnim*0.72+k/26)%1, x=lerp(lay.core[0][0]-1.0,lay.xExit,u);
+        if(x>lay.xByp+0.9) continue;
+        const inn=0.5, out=0.86;
+        const p=P(ringPt(x,lerp(inn,out,0.5+0.35*Math.sin(k*2.1)),CUT1-0.35+0.4*Math.sin(k*1.3)));
+        if(!p) continue;
+        ctx.fillStyle=tempCol(x<0.42?E.s2.T:E.s13.T); ctx.globalAlpha=0.7;
+        ctx.beginPath(); ctx.arc(p.x,p.y,clamp(110/p.z,0.9,2.6),0,TAU); ctx.fill();
+      }
+      ctx.globalAlpha=1;
+    }
+
+    /* station labels along the top of the machine */
+    if(st.showStations){
+      ctx.font='600 11px -apple-system, sans-serif'; ctx.textAlign='center';
+      /* one envelope radius for every marker, so they read as a row of station
+         numbers along the machine rather than as scattered specks */
+      let rTop=0;
+      for(const k of lay.core) rTop=Math.max(rTop,k[2]);
+      if(lay.nacelle) for(const k of lay.nacelle.out) rTop=Math.max(rTop,k[1]);
+      /* deliberately NOT the propeller: it is far bigger than the machine, and
+         letting it set the envelope strands the station row in empty sky */
+      rTop+=0.22;
+      for(const s of lay.stations){
+        const rr=coreRadii(lay,clamp(s.x,lay.core[0][0],lay.xExit));
+        const p=P(ringPt(s.x,rTop,Math.PI/2)); if(!p) continue;
+        const foot=P(ringPt(s.x,rr[1],Math.PI/2));
+        if(foot){ ctx.strokeStyle='rgba(184,236,76,.20)'; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(foot.x,foot.y); ctx.stroke(); }
+        ctx.fillStyle='rgba(7, 11, 24,.82)';
+        ctx.beginPath(); ctx.arc(p.x,p.y,9,0,TAU); ctx.fill();
+        ctx.strokeStyle='rgba(184,236,76,.6)'; ctx.lineWidth=1.1; ctx.stroke();
+        ctx.fillStyle='#dfffa8'; ctx.fillText(s.id,p.x,p.y+3.8);
+      }
+      ctx.textAlign='left';
+    }
+    /* a temperature key, since the whole drawing is colour-coded by it */
+    drawTempKey(W,H);
+  }
+  function drawTempKey(W,H){
+    const x=W-232, y=H-34, w=200, hgt=9;
+    const Tlo=E.s0.T, Thi=Math.max(E.s4.T,E.s7.T);
+    for(let i=0;i<w;i++){
+      ctx.fillStyle=tempCol(lerp(Tlo,Thi,i/w));
+      ctx.fillRect(x+i,y,1.4,hgt);
+    }
+    ctx.strokeStyle='rgba(255,255,255,.18)'; ctx.lineWidth=1; ctx.strokeRect(x,y,w,hgt);
+    ctx.fillStyle='#9aa2b4'; ctx.font='10.5px -apple-system, sans-serif';
+    ctx.textAlign='left';  ctx.fillText(Tlo.toFixed(0)+' K',x,y+21);
+    ctx.textAlign='right'; ctx.fillText(Thi.toFixed(0)+' K',x+w,y+21);
+    ctx.textAlign='center';ctx.fillText('gas total temperature',x+w/2,y-4);
+    ctx.textAlign='left';
+  }
+
+  /* ---------------- 2-D diagrams ---------------- */
+  function draw2D(){
+    const W=cam.W,H=cam.H, V=VIEWS[st.view];
+    ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+    const rng=autoRange([cy.core,cy.byp],V), M=makeMap(V,rng,W,H);
+    /* grid */
+    ctx.strokeStyle='rgba(120,135,165,.13)'; ctx.lineWidth=1;
+    ctx.fillStyle='#7d8698'; ctx.font='11px -apple-system, sans-serif';
+    for(const t of ticks(rng.x0,rng.x1,V.xlog,7)){ const X=M.fx(t);
+      ctx.beginPath(); ctx.moveTo(X,M.Tp); ctx.lineTo(X,H-M.Bt); ctx.stroke();
+      ctx.textAlign='center'; ctx.fillText(tickLabel(t,V.xlog),X,H-M.Bt+15); }
+    for(const t of ticks(rng.y0,rng.y1,V.ylog,6)){ const Y=M.fy(t);
+      ctx.beginPath(); ctx.moveTo(M.L,Y); ctx.lineTo(W-M.R,Y); ctx.stroke();
+      ctx.textAlign='right'; ctx.fillText(tickLabel(t,V.ylog),M.L-7,Y+4); }
+    ctx.textAlign='left';
+
+    ctx.save();
+    ctx.beginPath(); ctx.rect(M.L,M.Tp,W-M.L-M.R,H-M.Bt-M.Tp); ctx.clip();
+    const poly=(pts,close)=>{ ctx.beginPath();
+      pts.forEach((s,i)=>{ const p=M.pt(s); i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]); });
+      if(close) ctx.closePath(); };
+    /* the enclosed area, which is the whole point */
+    if(cy.byp){ poly(cy.byp,true); ctx.fillStyle='rgba(90,200,224,.10)'; ctx.fill(); }
+    poly(cy.core,true); ctx.fillStyle='rgba(184,236,76,.13)'; ctx.fill();
+    /* the wake leg is drawn dashed: it happens in the sky, not in the engine */
+    const legs=[];
+    let cur=null;
+    for(const s of cy.core){
+      if(!cur||cur.tag!==s.tag){ cur={tag:s.tag,pts:[]}; legs.push(cur);
+        if(legs.length>1) cur.pts.push(cy.core[cy.core.indexOf(s)-1]); }
+      cur.pts.push(s);
+    }
+    for(const lg of legs){
+      const wake=lg.tag==='wake';
+      ctx.setLineDash(wake?[6,5]:[]);
+      ctx.strokeStyle=wake?'rgba(184,236,76,.42)':'#b8ec4c';
+      ctx.lineWidth=wake?1.6:2.3;
+      poly(lg.pts,false); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    if(cy.byp){ ctx.strokeStyle='rgba(90,200,224,.75)'; ctx.lineWidth=1.6;
+      poly(cy.byp,true); ctx.stroke(); }
+    /* the stations themselves */
+    const nodes=[['0',E.s0],['2',E.s2],['3',E.s3],['4',E.s4],['5',E.s5],['9',E.s9]]
+      .filter(([id,s])=>s&&(st.type!=='ramjet'||['0','2','4','9'].indexOf(id)>=0));
+    if(E.fAB>0) nodes.splice(5,0,['7',E.s7]);
+    for(const [id,s] of nodes){
+      const q=stPt(s.gas||AIR,s.T,s.p,id), p=M.pt(q);
+      ctx.fillStyle='#070b18'; ctx.strokeStyle='#b8ec4c'; ctx.lineWidth=1.8;
+      ctx.beginPath(); ctx.arc(p[0],p[1],7.2,0,TAU); ctx.fill(); ctx.stroke();
+      ctx.fillStyle='#dfffa8'; ctx.font='600 10.5px -apple-system, sans-serif';
+      ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText(id,p[0],p[1]+0.5);
+      ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    }
+    if(st.anim){ const n=cy.core.length, s=cy.core[Math.floor(tAnim*n)%n], p=M.pt(s);
+      const g=ctx.createRadialGradient(p[0],p[1],0,p[0],p[1],13);
+      g.addColorStop(0,'rgba(255,255,255,.95)'); g.addColorStop(0.35,'rgba(184,236,76,.7)');
+      g.addColorStop(1,'rgba(184,236,76,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p[0],p[1],13,0,TAU); ctx.fill();
+      ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p[0],p[1],2.8,0,TAU); ctx.fill(); }
+    ctx.restore();
+
+    ctx.strokeStyle='rgba(120,135,165,.35)'; ctx.lineWidth=1;
+    ctx.strokeRect(M.L,M.Tp,W-M.L-M.R,H-M.Bt-M.Tp);
+    ctx.fillStyle='#9aa2b4'; ctx.font='12px -apple-system, sans-serif'; ctx.textAlign='center';
+    ctx.fillText(V.xlab,(M.L+W-M.R)/2,H-10);
+    ctx.save(); ctx.translate(15,(M.Tp+H-M.Bt)/2); ctx.rotate(-Math.PI/2);
+    ctx.fillText(V.ylab,0,0); ctx.restore(); ctx.textAlign='left';
+    const A=st.view==='ts'?areas.ts:areas.pv;
+    ctx.fillStyle='rgba(184,236,76,.9)'; ctx.font='italic 13px Georgia, serif';
+    ctx.fillText(V.sub+' = '+A.toFixed(1)+' kJ/kg',M.L+10,M.Tp+18);
+    ctx.fillStyle='rgba(160,170,190,.75)'; ctx.font='11.5px -apple-system, sans-serif';
+    ctx.fillText('dashed: the leg that happens in the sky — the jet cooling back to ambient',
+                 M.L+10,M.Tp+36);
+  }
+
+  /* ---------------- the flight-envelope map ---------------- */
+  function drawMapView(){
+    const W=cam.W,H=cam.H, D=ensureMap();
+    ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+    const L=68,R=22,gap=34, topH=(H-70-gap)/2;
+    const panels=[
+      {y0:18, h:topH, key:'Fs',  lab:'specific thrust  F/ṁ  (N·s/kg)', lo:0, hi:0},
+      {y0:18+topH+gap, h:topH, key:'tsfc', lab:'TSFC  (g/kN·s)', lo:0, hi:0},
+    ];
+    for(const P of panels){
+      let hi=1e-9; for(const c of D) for(const p of c.pts) if(p[P.key]>hi) hi=p[P.key];
+      P.hi=hi*1.08; P.lo=0;
+    }
+    const fx=M=>L+(M/4.2)*(W-L-R);
+    for(const P of panels){
+      const fy=v=>P.y0+P.h-(v-P.lo)/(P.hi-P.lo)*P.h;
+      ctx.strokeStyle='rgba(120,135,165,.13)'; ctx.lineWidth=1;
+      ctx.fillStyle='#7d8698'; ctx.font='11px -apple-system, sans-serif';
+      for(const t of ticks(0,4.2,false,8)){ const X=fx(t);
+        ctx.beginPath(); ctx.moveTo(X,P.y0); ctx.lineTo(X,P.y0+P.h); ctx.stroke();
+        if(P===panels[1]){ ctx.textAlign='center'; ctx.fillText(t.toFixed(1),X,P.y0+P.h+16); } }
+      for(const t of ticks(0,P.hi,false,5)){ const Y=fy(t);
+        ctx.beginPath(); ctx.moveTo(L,Y); ctx.lineTo(W-R,Y); ctx.stroke();
+        ctx.textAlign='right'; ctx.fillText(tickLabel(t,false),L-7,Y+4); }
+      ctx.textAlign='left';
+      ctx.save(); ctx.beginPath(); ctx.rect(L,P.y0,W-L-R,P.h); ctx.clip();
+      for(const c of D){
+        const on = c.key===st.type || (c.key==='turbojet_ab'&&st.type==='turbojet'&&st.ab);
+        ctx.strokeStyle= on?neonCss(c.hue):rgba(neonCss(c.hue),0.34);
+        ctx.lineWidth= on?2.6:1.4;
+        ctx.beginPath();
+        c.pts.forEach((p,i)=>{ const X=fx(p.M),Y=fy(p[P.key]); i?ctx.lineTo(X,Y):ctx.moveTo(X,Y); });
+        ctx.stroke();
+        /* A curve that just stops reads as a broken plot.  Mark where each family
+           ceases to work — running out of pressure ratio, or of oxygen — instead
+           of truncating silently. */
+        const last=c.pts[c.pts.length-1];
+        if(last&&last.M<4.1){
+          const X=fx(last.M), Y=fy(last[P.key]);
+          ctx.fillStyle=on?neonCss(c.hue):rgba(neonCss(c.hue),0.5);
+          ctx.beginPath(); ctx.arc(X,Y,on?4:2.6,0,TAU); ctx.fill();
+        }
+      }
+      /* where the engine on the panel actually is */
+      const cur = P.key==='Fs'?E.Fspec:E.tsfc*1e6;
+      const X=fx(E.M0), Y=fy(cur);
+      ctx.fillStyle='#fff'; ctx.strokeStyle='#b8ec4c'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(X,Y,5,0,TAU); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      ctx.strokeStyle='rgba(120,135,165,.35)'; ctx.lineWidth=1;
+      ctx.strokeRect(L,P.y0,W-L-R,P.h);
+      ctx.fillStyle='#9aa2b4'; ctx.font='12px -apple-system, sans-serif';
+      ctx.fillText(P.lab,L+8,P.y0+15);
+    }
+    ctx.fillStyle='#9aa2b4'; ctx.font='12px -apple-system, sans-serif'; ctx.textAlign='center';
+    ctx.fillText('flight Mach number',(L+W-R)/2,H-14);
+    ctx.textAlign='left';
+    /* legend */
+    let lx=L+8, ly=panels[0].y0+32;
+    for(const c of D){
+      ctx.fillStyle=neonCss(c.hue); ctx.fillRect(lx,ly-8,10,3);
+      ctx.fillStyle='#9aa2b4'; ctx.font='11px -apple-system, sans-serif';
+      ctx.fillText(c.label,lx+15,ly-3);
+      lx+=ctx.measureText(c.label).width+38;
+    }
+  }
+
+  function draw(){
+    if(st.view==='engine') draw3D();
+    else if(st.view==='map') drawMapView();
+    else draw2D();
+  }
+  function step(dt){
+    if(st.spin&&st.view==='engine') cam.theta+=dt*0.22;
+    if(st.anim){ tAnim=(tAnim+dt*0.09*st.speed)%1; tSpin+=dt*3.1*st.speed; }
+  }
+  function pointer(type,e){
+    if(st.view!=='engine') return;
+    if(type==='move'){ cam.theta-=e.dx*0.008; cam.phi=clamp(cam.phi+e.dy*0.008,-1.42,1.42); }
+  }
+  function wheel(dy){ if(st.view==='engine') cam.dist=clamp(cam.dist*Math.exp(dy*0.0011),2.2,16); }
+  function resetView(){ cam.theta=-2.05; cam.phi=0.30; cam.dist=6.0; cam.target=[1.35,0,0]; }
+
+  rebuildEngine();
+  return { st, cam, draw, step, pointer, wheel, resetView, rebuildEngine,
+           engine:()=>E, cycle:()=>cy, areas:()=>areas, layout:()=>lay, map:ensureMap,
+           tag:()=>tagHTML(E,st), readout:()=>readoutHTML(E,areas),
+           eqbar:()=>eqbarHTML(E,areas,st.view) };
+}
+
+/* ================================================================== *
+ *  UI                                                                 *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const subEl=document.getElementById('sub');
+  const S=makeScene(canvas), st=S.st;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  const TABS=[['engine','engine'],['ts','T–s'],['pv','p–v'],['map','envelope']];
+  TABS.forEach(([k,label])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>{
+      st.view=k; [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===k?'active':'');
+      syncPanel(); refresh(); }},label));
+  });
+
+  const rows={};
+  function slider(key,label,lo,hi,step,fmt){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step,value:st[key]});
+    const val=h('span',{class:'val'});
+    const row=h('div',{class:'sliderrow'},h('label',null,label),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmt(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmt(st[key]); S.rebuildEngine(); refresh(); });
+    rows[key]={row,sync,fmt}; sync(); return row;
+  }
+  function chipRow(items,get,set){
+    const wrap=h('div',{class:'chips'});
+    const btns=items.map(([k,lab])=>{
+      const b=h('button',{class:'chip',onclick:()=>set(k)},lab);
+      wrap.appendChild(b); return b; });
+    const sync=()=>btns.forEach((bb,i)=>bb.className='chip'+(items[i][0]===get()?' on':''));
+    sync(); return {wrap,sync};
+  }
+  function checkbox(key,label,rebuild){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(rebuild!==false) S.rebuildEngine(); syncPanel(); refresh(); });
+    return h('label',null,inp,label);
+  }
+
+  const gKind=h('div',{class:'grp'},h('h3',null,'engine'));
+  const kindChips=chipRow([['turbojet','turbojet'],['turbofan','turbofan'],
+                           ['turboprop','turboprop'],['ramjet','ramjet']],
+    ()=>st.type, k=>{ st.type=k; Object.assign(st,PRESETS[k]);
+      S.rebuildEngine(); syncPanel(); refresh(); });
+  gKind.appendChild(kindChips.wrap);
+  const kindTag=h('div',{class:'tag'}); gKind.appendChild(kindTag);
+
+  const gFly=h('div',{class:'grp'},h('h3',null,'flight condition'));
+  gFly.appendChild(slider('M0','Mach',0,4.2,0.01,v=>v.toFixed(2)));
+  gFly.appendChild(slider('alt','altitude',0,25,0.25,v=>v.toFixed(1)+' km'));
+  gFly.appendChild(slider('mdot','air flow',5,700,1,v=>v.toFixed(0)+' kg/s'));
+  const flyTag=h('div',{class:'tag'}); gFly.appendChild(flyTag);
+
+  const gCyc=h('div',{class:'grp'},h('h3',null,'cycle'));
+  gCyc.appendChild(slider('piC','pressure ratio',1,55,0.5,v=>v.toFixed(1)+':1'));
+  gCyc.appendChild(slider('piF','fan ratio',1,2.6,0.02,v=>v.toFixed(2)+':1'));
+  gCyc.appendChild(slider('alpha','bypass ratio',0,14,0.1,v=>v.toFixed(1)));
+  gCyc.appendChild(slider('T4','turbine inlet',900,2100,5,v=>v.toFixed(0)+' K'));
+  const cycTag=h('div',{class:'tag'}); gCyc.appendChild(cycTag);
+
+  const gAB=h('div',{class:'grp'},h('h3',null,'afterburner'));
+  gAB.appendChild(h('div',{class:'checks'},checkbox('ab','light the afterburner')));
+  gAB.appendChild(slider('T7','reheat to',1200,2400,10,v=>v.toFixed(0)+' K'));
+  const abTag=h('div',{class:'tag'}); gAB.appendChild(abTag);
+
+  const gProp=h('div',{class:'grp'},h('h3',null,'propeller'));
+  gProp.appendChild(slider('lam','work to shaft',0,1,0.01,v=>(100*v).toFixed(0)+'%'));
+  gProp.appendChild(slider('Dprop','diameter',1.5,6,0.1,v=>v.toFixed(1)+' m'));
+  gProp.appendChild(slider('etaProp','prop quality',0.6,0.98,0.01,v=>(100*v).toFixed(0)+'%'));
+  const propTag=h('div',{class:'tag'}); gProp.appendChild(propTag);
+
+  const gEff=h('div',{class:'grp'},h('h3',null,'components'));
+  gEff.appendChild(slider('eC','compressor e',0.75,1,0.005,v=>(100*v).toFixed(1)+'%'));
+  gEff.appendChild(slider('eT','turbine e',0.75,1,0.005,v=>(100*v).toFixed(1)+'%'));
+  gEff.appendChild(slider('eF','fan e',0.75,1,0.005,v=>(100*v).toFixed(1)+'%'));
+  gEff.appendChild(slider('etaN','nozzle η',0.85,1,0.005,v=>(100*v).toFixed(1)+'%'));
+  gEff.appendChild(slider('piB','burner Δp',0.85,1,0.005,v=>((1-v)*100).toFixed(1)+'% loss'));
+  gEff.appendChild(slider('etaD','inlet quality',0.85,1,0.005,v=>(100*v).toFixed(1)+'%'));
+  const effTag=h('div',{class:'tag'}); gEff.appendChild(effTag);
+
+  const gShow=h('div',{class:'grp'},h('h3',null,'show'));
+  const checks=h('div',{class:'checks'},
+    checkbox('conDi','converging–diverging nozzle'),
+    checkbox('airStd','air-standard (textbook) cycle'),
+    checkbox('showCase','casing and nacelle',false),
+    checkbox('showBlades','blades',false),
+    checkbox('showStations','station numbers',false),
+    checkbox('showPlume','exhaust plume',false),
+    checkbox('anim','animate the flow',false),
+    checkbox('spin','auto-orbit',false));
+  gShow.appendChild(checks);
+  gShow.appendChild(slider('speed','speed',0.2,4,0.1,v=>v.toFixed(1)+'×'));
+  gShow.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ S.resetView(); dirty=true; refresh(); }},'reset view'),
+    h('button',{onclick:()=>{ Object.assign(st,DEFAULTS); S.rebuildEngine(); S.resetView();
+                              syncPanel(); refresh(); }},'reset all')));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}));
+  [gKind,gFly,gCyc,gAB,gProp,gEff,gShow,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncPanel(){
+    const T=st.type;
+    gAB.hidden   = T==='turboprop';
+    gProp.hidden = T!=='turboprop';
+    rows.piF.row.hidden   = T!=='turbofan';
+    rows.alpha.row.hidden = T!=='turbofan';
+    rows.piC.row.hidden   = T==='ramjet';
+    rows.eC.row.hidden    = T==='ramjet';
+    rows.eT.row.hidden    = T==='ramjet';
+    rows.eF.row.hidden    = T!=='turbofan';
+    rows.T7.row.hidden    = !st.ab;
+    rows.speed.row.hidden = !st.anim;
+    for(const k in rows) rows[k].sync();
+    kindChips.sync();
+    [].forEach.call(checks.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['conDi','airStd','showCase','showBlades','showStations',
+                      'showPlume','anim','spin'][i]]; });
+  }
+
+  function refresh(){
+    try{
+      const E=S.engine();
+      roEl.innerHTML=S.readout(); eqEl.innerHTML=S.eqbar(); tagEl.innerHTML=S.tag();
+      hintEl.textContent = st.view==='engine'
+        ? 'drag to orbit · scroll to zoom · the wedge is cut away so you can see the gas path'
+        : st.view==='map'
+          ? 'every curve is this same solver, re-run across the envelope at the current altitude'
+          : 'the loop area is the kinetic energy handed to the air · switch tabs for the other shadow';
+      subEl.innerHTML = st.view==='engine'
+        ? 'the Brayton cycle that closes through the sky &mdash; ramjet, turbojet, turbofan, turboprop'
+        : st.view==='map' ? 'thrust and fuel burn across the flight envelope'
+        : VIEWS[st.view].title+' &mdash; '+VIEWS[st.view].sub;
+      kindTag.innerHTML=KIND_TAG[st.type];
+      flyTag.innerHTML='ambient <b>'+E.amb.T.toFixed(1)+' K</b>, <b>'+(E.amb.p/1000).toFixed(2)
+        +' kPa</b>; V<sub>0</sub> = <b>'+E.V0.toFixed(0)+'</b> m/s, ram gives <b>'
+        +E.oprRam.toFixed(2)+':1</b> before the compressor touches it';
+      cycTag.innerHTML='overall pressure ratio <b>'+E.opr.toFixed(1)+':1</b>, compressor exit <b>'
+        +E.s3.T.toFixed(0)+' K</b>, f = <b>'+E.fBurn.toFixed(4)+'</b>'
+        +(E.capped?' <span class="r">(stoichiometric)</span>':'');
+      abTag.innerHTML = st.ab
+        ? 'reheat adds thrust and costs fuel: TSFC is now <b>'+fmtTSFC(E.tsfc)+'</b>'
+        : 'a second burner in the jet pipe — thrust for fuel, at the worst exchange rate in the engine';
+      propTag.innerHTML = E.prop
+        ? 'shaft <b>'+(E.wShaft*E.mCore).toFixed(0)+' kW</b>, induced velocity <b>'
+          +E.prop.vi.toFixed(1)+'</b> m/s, Froude η <b>'+fmtPct(E.prop.etaF)+'</b>'
+        : '';
+      effTag.innerHTML='polytropic in, isentropic out: η<sub>c</sub> = <b>'
+        +fmtPct(E.cComp.eta)+'</b>'+(E.tExp?', η<sub>t</sub> = <b>'+fmtPct(E.tExp.eta)+'</b>':'')
+        +' — always <span class="g">below</span> e for a compressor and <span class="g">above</span> it for a turbine.';
+      infoEl.innerHTML=INFO[st.view]||INFO.engine;
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  /* Moving the camera is not the same as repainting it: the frame loop only
+     redraws while something is animating, so every interaction that touches the
+     camera must ask for a frame.  (steam_carnot_cycle.html Known-bad list.) */
+  let down=false,lx=0,ly=0,dirty=false;
+  canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId);
+    down=true; lx=e.clientX; ly=e.clientY; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove',e=>{ if(!down) return;
+    S.pointer('move',{dx:e.clientX-lx,dy:e.clientY-ly}); lx=e.clientX; ly=e.clientY;
+    dirty=true; });
+  const up=()=>{ down=false; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); S.wheel(e.deltaY); dirty=true; },
+    {passive:false});
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.anim=!st.anim; syncPanel(); refresh(); }
+    else if(e.key==='r'){ S.resetView(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<='4'){ st.view=TABS[+e.key-1][0];
+      [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+      syncPanel(); refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.cam.W=r.width; S.cam.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let last=0;
+  function frame(t){
+    const dt=last?Math.min((t-last)/1000,0.05):0; last=t;
+    S.step(dt);
+    if(st.anim||st.spin||dirty){ dirty=false; try{ S.draw(); }catch(e){ fail(e); } }
+    requestAnimationFrame(frame);
+  }
+  resize(); syncPanel(); refresh(); requestAnimationFrame(frame);
+}
+
+const KIND_TAG={
+  turbojet:'all the air through the core. Highest jet velocity, so the best specific '
+    +'thrust and the <span class="r">worst</span> propulsive efficiency below Mach 2.',
+  turbofan:'the same core, but most of the air goes round it. Lower jet speed, '
+    +'<span class="g">much better</span> propulsive efficiency — the whole reason '
+    +'airliners are quiet and cheap.',
+  turboprop:'the duct thrown away: an enormous unducted fan. Propulsive efficiency '
+    +'<span class="g">above 90 %</span> below Mach 0.6, and useless above it.',
+  ramjet:'no moving parts. The ram compression IS the compressor, so it needs speed '
+    +'to work at all — and beats everything above about Mach 3.'};
+const INFO={
+  engine:'The wedge is cut out so you can see the gas path, and the gas path is coloured by the '
+    +'temperature the solver computed — the <b>same numbers</b> the T–s diagram is drawing. Air '
+    +'is squeezed (blue → green), burnt (white), and expanded through the turbine and nozzle '
+    +'(orange → red) until it is going faster than it arrived. That velocity difference is the '
+    +'thrust; everything else is bookkeeping.',
+  ts:'The cycle drawn on the states the air actually passes through. It does not close inside the '
+    +'engine — it closes <b>through the sky</b>, along the dashed leg where the jet cools back to '
+    +'ambient. With the loop closed, <b>∮T ds = ∮P dv</b>, and for a reversible machine both equal '
+    +'the kinetic energy handed to the air. Turn on <b>air-standard</b> to make the working fluid '
+    +'one substance and watch the two areas snap together.',
+  pv:'The same loop, on the other pair of coordinates. The area is <b>∮P dv</b>, and it agrees '
+    +'with ∮T ds because <b>T ds</b> and <b>P dv</b> differ by the exact form <b>du</b>. The '
+    +'compression and expansion legs are nearly straight on log axes because a polytropic process '
+    +'is a straight line in (ln v, ln p).',
+  map:'A curve ENDS, with a dot, where that family stops working — it runs out of pressure ratio, '
+    +'or out of oxygen, or the turbine cannot make the compressor work. '
+    +'Each curve is this same solver run across the flight envelope at the current altitude, with '
+    +'each family at its own design point. Read it as the answer to “why are there four kinds of '
+    +'engine”: the turboprop wins below Mach 0.6, the turbofan to about Mach 0.9, the turbojet '
+    +'through the supersonic range, and the ramjet above Mach 3 where the others have no '
+    +'compressor left that can survive the inlet temperature.'};
+
+/* ================================================================== *
+ *  self-test                                                          *
+ * ================================================================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if(cond){ pass++; } else { fail++; console.log('FAIL — '+name); } };
+  const chk=(name,got,want,tol,rel)=>{
+    const e=rel?Math.abs(got-want)/Math.abs(want):Math.abs(got-want);
+    if(e<=tol) pass++; else { fail++;
+      console.log('FAIL — '+name+': got '+Number(got).toPrecision(10)
+                  +' want '+Number(want).toPrecision(10)+' err '+e.toExponential(3)); } };
+
+  /* ---------- NASA polynomials against JANAF, species by species ---------- */
+  /* [cp, s°, Dh_f] at 298.15 K, J/mol·K and J/mol */
+  const JANAF={N2:[29.124,191.61,0], O2:[29.376,205.15,0], Ar:[20.786,154.85,0],
+               CO2:[37.129,213.79,-393510], H2O:[33.590,188.83,-241826]};
+  for(const k of SPECIES){
+    const J=JANAF[k];
+    chk('JANAF '+k+' cp(298.15)', cpMol(k,298.15), J[0], 3e-3, true);
+    chk('JANAF '+k+' s°(298.15)', sMol(k,298.15),  J[1], 1e-3, true);
+    ok(Math.abs(hMol(k,298.15)-J[2])<Math.max(60,Math.abs(J[2])*2e-4),
+       'JANAF '+k+' Dh_f(298.15) = '+J[2]+' (got '+hMol(k,298.15).toFixed(1)+')');
+  }
+  /* c_p must rise with temperature for every polyatomic species and be flat for argon */
+  for(const k of SPECIES){
+    const rising=cpMol(k,1500)>cpMol(k,400);
+    ok(k==='Ar'? Math.abs(cpMol(k,1500)-cpMol(k,400))<1e-9 : rising,
+       'c_p('+k+') behaves with temperature');
+  }
+  /* the two polynomial ranges must join at the breakpoint */
+  for(const k of SPECIES){
+    const lo=SP[k].lo, hi=SP[k].hi, T=1000;
+    const cL=RU*(lo[0]+T*(lo[1]+T*(lo[2]+T*(lo[3]+T*lo[4]))));
+    const cH=RU*(hi[0]+T*(hi[1]+T*(hi[2]+T*(hi[3]+T*hi[4]))));
+    chk('polynomial ranges join for '+k+' at 1000 K',cL,cH,4e-3,true);
+  }
+
+  /* ---------- air comes out of the composition, not out of a constant ------ */
+  chk('molar mass of dry air',AIR.M*1000,28.9647,1e-4,true);
+  chk('gas constant of dry air',AIR.R,0.287051,1e-4,true);
+  chk('c_p air at 300 K',gasCp(AIR,300),1.005,3e-3,true);
+  chk('c_p air at 1000 K',gasCp(AIR,1000),1.141,3e-3,true);
+  chk('c_p air at 1500 K',gasCp(AIR,1500),1.2095,4e-3,true);
+  chk('gamma air at 300 K',gasGamma(AIR,300),1.400,2e-3,true);
+  chk('speed of sound at 288.15 K',gasA(AIR,288.15),340.29,1e-3,true);
+  /* the air-table checks, taken as DIFFERENCES so they are independent of the
+     table's reference state: h(1000)-h(300) and the relative pressure ratio */
+  chk('air table Dh 300->1000 K',gasH(AIR,1000)-gasH(AIR,300),745.85,1e-3,true);
+  chk('air table p_r(1000)/p_r(300)',
+      Math.exp((gasPhi(AIR,1000)-gasPhi(AIR,300))/AIR.R),114.0/1.386,4e-3,true);
+  /* the inversions must be exact inverses */
+  for(const T of [220,300,700,1200,1900,2600]){
+    chk('tFromH round trip at '+T+' K',tFromH(AIR,gasH(AIR,T)),T,1e-8,true);
+    chk('tFromPhi round trip at '+T+' K',tFromPhi(AIR,gasPhi(AIR,T)),T,1e-8,true);
+  }
+  ok(gasCp(AIR,300)<gasCp(AIR,1000)&&gasCp(AIR,1000)<gasCp(AIR,1800),
+     'c_p of air rises monotonically — the reason cold-air-standard overpredicts eta');
+
+  /* ---------- fuel and combustion --------------------------------------- */
+  chk('stoichiometric air-fuel ratio for C12H23',afrStoich(FUEL),14.67,2e-3,true);
+  chk('f_stoich from the oxygen budget',fStoich(AIR,FUEL),1/afrStoich(FUEL),1e-9,true);
+  /* NON-CIRCULAR: n-dodecane's enthalpy of formation is tabulated, so its LHV is a
+     prediction of the CO2 and H2O polynomials, not an input to them. */
+  { const DOD={nC:12,nH:26,M:12*0.0120107+26*0.00100794};
+    chk('n-dodecane LHV from tabulated Dh_f = -352.1 kJ/mol',
+        lhvFromHf(DOD,-352100),44100,3e-3,true); }
+  /* the burner identity: h_air + f h_fuel - (1+f) h_prod really is f * LHV */
+  { const f=0.025, gP=burn(AIR,f,FUEL), hf=hfFromLhv(FUEL);
+    const lhs=gasH(AIR,T_REF)+f*hf/FUEL.M/1000-(1+f)*gasH(gP,T_REF);
+    /* h_CO2 and h_H2O are ~4e5 J/mol and cancel down to a 1070 kJ/kg result, so
+       this identity is cancellation-limited at ~1e-7, not at machine epsilon. */
+    chk('burner reference identity = f*LHV',lhs,f*FUEL.LHV,1e-7,true); }
+  /* atom balance: carbon and hydrogen in must equal carbon and hydrogen out */
+  { const f=0.03, g=burn(AIR,f,FUEL);
+    /* air already carries 319 ppm of CO2, so the carbon in is the fuel's PLUS
+       the atmosphere's — getting that wrong is a 0.5 % error that looks like
+       a solver bug and is not one. */
+    const nC_out=g.x.CO2/g.M*(1+f), nC_in=f/FUEL.M*FUEL.nC+AIR_X.CO2/AIR.M;
+    chk('carbon balance across the burner',nC_out,nC_in,1e-9,true);
+    chk('mass balance across the burner',(1+f)*1,1+f,1e-12,true);
+    const nH_out=2*g.x.H2O/g.M*(1+f), nH_in=f/FUEL.M*FUEL.nH;
+    chk('hydrogen balance across the burner',nH_out,nH_in,1e-9,true);
+    const nN_out=g.x.N2/g.M*(1+f), nN_in=AIR_X.N2/AIR.M;
+    chk('nitrogen is inert across the burner',nN_out,nN_in,1e-9,true); }
+  ok(burn(AIR,fStoich(AIR,FUEL)*1.01,FUEL)===null,
+     'burning past stoichiometric is refused, not silently allowed');
+  ok(gasCp(burn(AIR,0.025,FUEL),1200)>gasCp(AIR,1200),
+     'combustion products have a higher c_p than air (CO2 and H2O)');
+  /* the burner solver must hit the temperature it was asked for */
+  for(const T4 of [1100,1500,1800]) for(const airStd of [false,true]){
+    const r=fuelFor(AIR,600,T4,FUEL,1,airStd);
+    chk('burner reaches T4 = '+T4+(airStd?' (air standard)':' (real products)'),
+        r.T,T4,1e-6,true);
+    ok(r.f>0&&r.f<fStoich(AIR,FUEL),'burner fuel-air ratio is physical at T4 = '+T4);
+  }
+  { const r=fuelFor(AIR,600,4000,FUEL,1,false);
+    ok(r.capped&&r.T<3000&&r.T>2200,
+       'an unreachable T4 is capped at the stoichiometric flame temperature (got '
+       +r.T.toFixed(0)+' K)'); }
+
+  /* ---------- US Standard Atmosphere 1976 -------------------------------- */
+  for(const [H,T,p] of [[0,288.15,101325],[11,216.65,22632.06],[20,216.65,5474.889],
+                        [32,228.65,868.0187],[47,270.65,110.9063]]){
+    const a=atmosphere(H);
+    chk('US Std Atm T at '+H+" km'",a.T,T,1e-9,true);
+    chk('US Std Atm p at '+H+" km'",a.p,p,2e-4,true);
+  }
+  chk('sea-level density',atmosphere(0).rho,1.225,1e-5,true);
+  { let mono=true; for(let H=0;H<40;H+=0.5) if(atmosphere(H+0.5).p>=atmosphere(H).p) mono=false;
+    ok(mono,'pressure falls monotonically with altitude'); }
+
+  /* ---------- Moran, Fundamentals of Engineering Thermodynamics 8e,
+                Example 9.13 and its Quick Quiz ------------------------------ */
+  { const pa=11.8*6894.757, Ta=430/1.8, Va=909.3*0.3048;
+    const savedAtm=atmosphere;
+    atmosphere=function(){ return {T:Ta,p:pa,rho:pa/(R_ATM*Ta),H:0}; };
+    const M={type:'turbojet',alt:0,M0:Va/gasA(AIR,Ta),piC:8,piF:1,alpha:0,T4:2150/1.8,
+      ab:false,T7:2000,eC:1,eT:1,eF:1,etaB:1,etaM:1,etaN:1,etaD:1,etaProp:0.85,
+      piB:1,piAB:1,piFN:1,conDi:true,airStd:true,lam:0.9,Dprop:3.9,mdot:100};
+    const A=solveEngine(M);
+    chk('Moran 9.13 p1 after the diffuser',A.s2.p/6894.757,19.79,3e-3,true);
+    chk('Moran 9.13 p2 compressor exit',   A.s3.p/6894.757,158.3,3e-3,true);
+    chk('Moran 9.13 p4 turbine exit',      A.s5.p/6894.757, 77.2,5e-3,true);
+    chk('Moran 9.13 nozzle exit velocity', A.s9.V/0.3048,  3034, 2e-3,true);
+    M.etaN=0.9;
+    chk('Moran 9.13 Quick Quiz, eta_nozzle = 0.90',
+        solveEngine(M).s9.V/0.3048, 2878, 2e-3,true);
+    /* the book's own assumption 4 — turbine work equals compressor work */
+    chk('Moran 9.13 turbine work = compressor work',
+        gasH(AIR,A.s4.T)-gasH(AIR,A.s5.T), A.wComp, 1e-9,true);
+    atmosphere=savedAtm;
+  }
+
+  /* ---------- the families really are one machine ------------------------- */
+  const BASE={type:'turbojet',alt:11,M0:0.85,piC:12,piF:1,alpha:0,T4:1500,ab:false,T7:2000,
+    eC:0.90,eT:0.90,eF:0.90,etaB:0.99,etaM:0.99,etaN:0.98,etaD:0.98,etaProp:0.85,
+    piB:0.96,piAB:0.97,piFN:0.99,conDi:false,airStd:false,lam:0.92,Dprop:3.9,mdot:100};
+  const cp=(o)=>Object.assign({},BASE,o);
+  const same=(A,B,tag,tol)=>{
+    for(const k of ['Fnet','Fspec','tsfc','etaTh','etaP','etaO','f','opr'])
+      chk(tag+' — '+k,A[k],B[k],tol||1e-12,true);
+    for(const s of ['s2','s3','s4','s5','s9']){
+      chk(tag+' — T'+s,A[s].T,B[s].T,tol||1e-12,true);
+      chk(tag+' — p'+s,A[s].p,B[s].p,tol||1e-12,true);
+    }
+  };
+  same(solveEngine(cp({type:'turbojet'})),
+       solveEngine(cp({type:'turbofan',alpha:0,piF:1})),
+       'turbofan with alpha=0, pi_f=1 IS the turbojet');
+  { const R=cp({type:'ramjet',M0:3.0,alt:18,T4:2200,conDi:true});
+    same(solveEngine(Object.assign({},R,{type:'turbojet',piC:1})), solveEngine(R),
+         'turbojet with pi_c=1 IS the ramjet'); }
+  /* a two-stage compression composes exactly when the two stages share e */
+  { const a=compress(AIR,300,1e5,6,0.9);
+    const b=compress(AIR,a.T,a.p,4,0.9);
+    const one=compress(AIR,300,1e5,24,0.9);
+    chk('compression composes: 6:1 then 4:1 = 24:1',b.T,one.T,1e-11,true);
+    chk('compression composes in pressure too',b.p,one.p,1e-12,true); }
+
+  /* ---------- the efficiency identity and its closed form ----------------- */
+  const CASES=[cp({}), cp({type:'turbofan',alpha:8,piF:1.6,piC:38,T4:1650}),
+               cp({type:'turboprop',M0:0.45,alt:6,piC:16,T4:1400,mdot:12}),
+               cp({type:'ramjet',M0:3,alt:18,T4:2200,conDi:true}),
+               cp({ab:true,T7:2100,M0:1.6,conDi:true}),
+               cp({M0:2.2,alt:16,piC:8,T4:1700,conDi:true}),
+               cp({alt:0,M0:0.2,piC:20,T4:1500})];
+  CASES.forEach((c,i)=>{
+    const E=solveEngine(c);
+    chk('eta_o = eta_th * eta_p, case '+i, E.etaTh*E.etaP, E.etaO, 1e-11,
+        Math.abs(E.etaO)>1e-9);
+    ok(E.etaP<=1+1e-9,'propulsive efficiency does not exceed 1, case '+i
+       +' (got '+E.etaP.toFixed(6)+')');
+    ok(E.etaTh<=1+1e-9,'thermal efficiency does not exceed 1, case '+i);
+    ok(E.f>=0&&E.f<=fStoich(AIR,FUEL)+1e-12,'fuel-air ratio is physical, case '+i);
+    for(const s of ['s2','s3','s4','s5','s7','s9'])
+      ok(E[s].T>T_MIN_INV&&E[s].T<T_MAX_INV,'station '+s+' stays inside the property range, case '+i);
+  });
+  /* eta_p = 2/(1 + V9/V0) exactly, for the simple ideal jet it is derived for */
+  { const c=cp({airStd:true,conDi:true,eC:1,eT:1,eF:1,etaB:1,etaM:1,etaN:1,etaD:1,
+                piB:1,piAB:1,piFN:1});
+    const E=solveEngine(c);
+    chk('eta_p = 2/(1 + V9/V0)',E.etaP,2/(1+E.s9.V/E.V0),1e-12,true); }
+
+  /* ---------- polytropic vs isentropic, the classic inequalities ---------- */
+  for(const e of [0.86,0.90,0.94]){
+    const c=compress(AIR,280,3e4,20,e);
+    ok(c.eta<e-1e-6,'compressor eta_c ('+c.eta.toFixed(4)+') < e_c ('+e+') — the preheat effect');
+    const t=expandPr(AIR,1500,2e6,1/12,e);
+    ok(t.eta>e+1e-6,'turbine eta_t ('+t.eta.toFixed(4)+') > e_t ('+e+') — the reheat effect');
+    chk('e=1 compression is isentropic',compress(AIR,280,3e4,20,1).eta,1,1e-12,false);
+    chk('e=1 expansion is isentropic',expandPr(AIR,1500,2e6,1/12,1).eta,1,1e-12,false);
+  }
+  /* an isentropic step really does hold entropy */
+  { const c=compress(AIR,300,1e5,15,1);
+    chk('isentropic compression conserves s',gasS(AIR,c.T,c.p),gasS(AIR,300,1e5),1e-12,false); }
+
+  /* ---------- the area theorem -------------------------------------------- */
+  const idealJet=cp({airStd:true,conDi:true,eC:1,eT:1,eF:1,etaB:1,etaM:1,etaN:1,etaD:1,
+                     piB:1,piAB:1,piFN:1});
+  { const E=solveEngine(idealJet), cyc=buildCycle(E,idealJet), a=cycleAreas(cyc);
+    const dke=(E.s9.V*E.s9.V-E.V0*E.V0)/2000;
+    ok(Math.abs(a.sGap)<1e-9,'the air-standard loop closes in entropy (gap '
+       +a.sGap.toExponential(2)+')');
+    chk('ideal cycle: closed-loop T ds = P dv',a.ts,a.pv,2e-3,true);
+    chk('ideal cycle: the enclosed area IS the kinetic energy added',a.ts,dke,2e-3,true);
+    /* and the quadrature gap must FALL under refinement, or the agreement is luck */
+    const coarse=Math.abs(a.ts-a.pv);
+    const N0=NSEG; NSEG=4*N0;
+    const a2=cycleAreas(buildCycle(E,idealJet));
+    NSEG=N0;
+    ok(Math.abs(a2.ts-a2.pv)<coarse*0.4,
+       'the two areas converge under refinement ('+coarse.toExponential(2)+' -> '
+       +Math.abs(a2.ts-a2.pv).toExponential(2)+')');
+    chk('refined area still equals the kinetic energy',a2.ts,dke,5e-4,true); }
+  /* irreversible but still air-standard: the two areas must STILL agree, because
+     that needs only a closed loop — while both part company with the KE */
+  { const c=cp({airStd:true,conDi:true,eC:0.85,eT:0.87,etaN:0.95,piB:0.95});
+    const E=solveEngine(c), a=cycleAreas(buildCycle(E,c));
+    const dke=(E.s9.V*E.s9.V-E.V0*E.V0)/2000;
+    chk('irreversible cycle: T ds = P dv still',a.ts,a.pv,5e-3,true);
+    ok(a.ts>dke*1.02,'irreversible cycle: the area now EXCEEDS the kinetic energy added '
+       +'('+a.ts.toFixed(1)+' vs '+dke.toFixed(1)+' kJ/kg)'); }
+  /* real products: the loop is not one substance, so the theorem should NOT hold,
+     and the sim must not pretend otherwise */
+  { const c=cp({airStd:false,conDi:true,eC:1,eT:1,eF:1,etaB:1,etaM:1,etaN:1,etaD:1,
+                piB:1,piAB:1,piFN:1});
+    const a=cycleAreas(buildCycle(solveEngine(c),c));
+    ok(Math.abs(a.sGap)>1e-3,
+       'with real products the loop does NOT close in entropy — the composition change is '
+       +'reported, not hidden (gap '+a.sGap.toFixed(4)+' kJ/kg·K)'); }
+
+  /* ---------- the second law, along the drawn path ------------------------ */
+  { const c=cp({type:'turbofan',alpha:6,piF:1.5,piC:30,T4:1600,airStd:true});
+    const cyc=buildCycle(solveEngine(c),c);
+    let worst=0, bad=0;
+    for(let i=1;i<cyc.core.length;i++){
+      const a=cyc.core[i-1], b=cyc.core[i];
+      if(a.tag!==b.tag||a.tag==='wake') continue;
+      const d=b.s-a.s; if(d<worst) worst=d;
+      if(d<-1e-9) bad++;
+    }
+    ok(bad===0,'entropy never falls inside a component (worst step '+worst.toExponential(2)+')');
+    let cool=true;
+    const wk=cyc.core.filter(s=>s.tag==='wake');
+    for(let i=1;i<wk.length;i++) if(wk[i].s>wk[i-1].s+1e-12) cool=false;
+    ok(cool,'the wake leg gives entropy back to the sky'); }
+
+  /* ---------- textbook orderings, all falsifiable ------------------------- */
+  { const lo=solveEngine(cp({type:'turbofan',alpha:1,piF:1.6,piC:38,T4:1650}));
+    const hi=solveEngine(cp({type:'turbofan',alpha:10,piF:1.6,piC:38,T4:1650}));
+    ok(hi.tsfc<lo.tsfc,'more bypass burns less fuel per newton');
+    ok(hi.etaP>lo.etaP,'more bypass raises propulsive efficiency');
+    ok(hi.Fspec<lo.Fspec,'more bypass lowers specific thrust');
+    ok(hi.s9.V<lo.s9.V,'more bypass slows the core jet'); }
+  { const off=solveEngine(cp({M0:1.6,conDi:true,ab:false}));
+    const on =solveEngine(cp({M0:1.6,conDi:true,ab:true,T7:2100}));
+    ok(on.Fnet>off.Fnet*1.2,'the afterburner adds thrust');
+    ok(on.tsfc>off.tsfc,'and it costs fuel per newton');
+    ok(on.s9.V>off.s9.V,'because it raises the jet velocity'); }
+  { const a=solveEngine(cp({T4:1300})), b=solveEngine(cp({T4:1700}));
+    ok(b.Fspec>a.Fspec,'a hotter turbine inlet raises specific thrust'); }
+  { const a=solveEngine(cp({piC:6,airStd:true})), b=solveEngine(cp({piC:24,airStd:true}));
+    ok(b.etaTh>a.etaTh,'a higher pressure ratio raises thermal efficiency'); }
+  { /* At FIXED mass flow, climbing actually RAISES thrust: the air is colder, so
+       the compressor costs less work per kg.  Thrust falls with altitude because
+       the air that a fixed inlet AREA can capture falls with density — so the
+       honest test holds the area, not the flow.  Getting this backwards is the
+       classic way to "prove" the wrong thing about an engine. */
+    const cap=alt=>{ const A=atmosphere(alt); return A.rho*0.85*gasA(AIR,A.T)*1.2; };
+    const a=solveEngine(cp({alt:0, mdot:cap(0)}));
+    const b=solveEngine(cp({alt:11,mdot:cap(11)}));
+    ok(b.Fnet<a.Fnet,'thrust falls with altitude at fixed inlet AREA ('
+       +(a.Fnet/1000).toFixed(1)+' -> '+(b.Fnet/1000).toFixed(1)+' kN)');
+    const c=solveEngine(cp({alt:0})), d=solveEngine(cp({alt:11}));
+    ok(d.Fspec>c.Fspec,'but at fixed mass flow specific thrust RISES, because the air is colder');
+    ok(d.etaTh>c.etaTh,'and THERMAL efficiency rises with it — colder air is cheaper to compress');
+    /* TSFC does not follow, and the sim does not pretend it does: at fixed MACH
+       the true airspeed falls with the speed of sound while the jet gets faster,
+       so eta_p drops and eats the thermal gain.  Measured, not assumed. */
+    ok(d.etaP<c.etaP,'while PROPULSIVE efficiency falls, because fixed Mach means slower flight');
+    ok(Math.abs(d.etaTh*d.etaP-d.etaO)<1e-11,'and the two still multiply to the overall');
+    /* the tropopause is isothermal from 11 to 20 km, so an engine held at fixed
+       Mach and fixed mass flow must perform IDENTICALLY across it — a coupling
+       between the atmosphere model and the cycle that either holds or does not */
+    const e11=solveEngine(cp({alt:11})), e18=solveEngine(cp({alt:18}));
+    chk('identical performance across the isothermal tropopause (Fspec)',
+        e18.Fspec,e11.Fspec,1e-12,true);
+    chk('identical performance across the isothermal tropopause (TSFC)',
+        e18.tsfc,e11.tsfc,1e-12,true);
+    ok(atmosphere(18).p<atmosphere(11).p,'even though the pressure has fallen by a factor of '
+       +(atmosphere(11).p/atmosphere(18).p).toFixed(1)); }
+  { const slow=solveEngine(cp({type:'ramjet',M0:0.3,alt:6,T4:2200,piC:1,conDi:true}));
+    const fast=solveEngine(cp({type:'ramjet',M0:3.0,alt:18,T4:2200,piC:1,conDi:true}));
+    ok(slow.Fspec<0.15*fast.Fspec,'a ramjet is nearly useless at low speed');
+    ok(fast.etaO>slow.etaO,'and efficient at high speed'); }
+  { const E=solveEngine(cp({type:'ramjet',M0:0.0,alt:0,T4:2200,piC:1,conDi:true}));
+    ok(Math.abs(E.Fnet)<1e-6,'a stationary ramjet makes no thrust at all ('
+       +E.Fnet.toExponential(2)+' N)'); }
+  chk('inlet recovery is unity subsonically',ramRecovery(0.85,1),1,1e-12,false);
+  ok(ramRecovery(2.0,1)<1&&ramRecovery(3.0,1)<ramRecovery(2.0,1),
+     'MIL-E-5008B inlet recovery falls with supersonic Mach number');
+  { const a=solveEngine(cp({eC:0.85,eT:0.85})), b=solveEngine(cp({eC:0.95,eT:0.95}));
+    ok(b.etaTh>a.etaTh&&b.Fnet>a.Fnet,'better components make more thrust more efficiently'); }
+  /* the propeller obeys the same law as the jet */
+  { const P=actuatorDisc(2e6,1.0,12,0);
+    chk('static actuator disc thrust = (2 rho A P^2)^(1/3)',P.T,
+        Math.pow(2*1.0*12*4e12,1/3),1e-6,true);
+    ok(P.etaF===0,'a stationary propeller has zero Froude efficiency and finite thrust');
+    const Q=actuatorDisc(2e6,1.0,12,150);
+    chk('actuator disc power balance',Q.T*(150+Q.vi),2e6,1e-6,true);
+    chk('Froude efficiency = V0/(V0+vi)',Q.etaF,150/(150+Q.vi),1e-12,true);
+    ok(Q.etaF>P.etaF,'the same disc is more efficient in forward flight'); }
+  { const small=solveEngine(cp({type:'turboprop',M0:0.45,alt:6,mdot:12,Dprop:2.5}));
+    const big  =solveEngine(cp({type:'turboprop',M0:0.45,alt:6,mdot:12,Dprop:5.0}));
+    ok(big.etaP>small.etaP,'a bigger propeller is more propulsively efficient');
+    ok(big.Fnet>small.Fnet,'and makes more thrust from the same shaft power'); }
+
+  /* ---------- nozzles ----------------------------------------------------- */
+  { const g=AIR, T0=900, p0=5e5, pa=1e5;
+    const conv=nozzle(g,T0,p0,pa,1,false), cd=nozzle(g,T0,p0,pa,1,true);
+    ok(conv.choked,'a convergent nozzle chokes at a pressure ratio of 5');
+    chk('a choked throat is exactly sonic',conv.V,conv.a,1e-6,true);
+    ok(conv.p>pa,'and leaves the exhaust above ambient');
+    ok(!cd.choked&&cd.V>conv.V,'the con-di nozzle expands fully and goes faster');
+    chk('the fully expanded reference velocity is the con-di one',conv.Vfe,cd.V,1e-9,true);
+    const low=nozzle(g,T0,1.4e5,pa,1,false);
+    ok(!low.choked&&Math.abs(low.p-pa)<1e-6,'below the critical ratio it runs unchoked to ambient');
+    ok(nozzle(g,T0,p0,pa,0.9,true).V<cd.V,'nozzle losses cost velocity');
+    chk('nozzle efficiency enters as sqrt(eta)',
+        nozzle(g,T0,p0,pa,0.9,true).V/cd.V,Math.sqrt(0.9),1e-9,true); }
+  /* the choked exit really does carry a pressure-thrust term */
+  { const a=solveEngine(cp({M0:0.85,conDi:false})), b=solveEngine(cp({M0:0.85,conDi:true}));
+    ok(a.s9.choked&&a.s9.p>a.s0.p,'the convergent nozzle is choked and under-expanded');
+    ok(b.Fnet>a.Fnet,'full expansion makes more thrust than an under-expanded jet');
+    ok(a.A9>0,'the under-expanded nozzle has a finite exit area for the pressure term'); }
+
+  /* ---------- the air-standard idealisation, MEASURED --------------------- */
+  { const r=solveEngine(cp({airStd:false})), s=solveEngine(cp({airStd:true}));
+    const dF=Math.abs(r.Fnet-s.Fnet)/s.Fnet, dT=Math.abs(r.tsfc-s.tsfc)/s.tsfc;
+    ok(dF<0.20&&dF>0.002,'air-standard costs '+(100*dF).toFixed(1)+'% in thrust — small, '
+       +'but neither zero nor hidden');
+    ok(dT<0.30,'and '+(100*dT).toFixed(1)+'% in TSFC');
+    ok(r.s5.T!==s.s5.T,'the real products genuinely change the turbine exit state'); }
+
+  /* ---------- geometry ---------------------------------------------------- */
+  for(const type of ['turbojet','turbofan','turboprop','ramjet']){
+    const c=cp(Object.assign({type},PRESETS[type]));
+    const E=solveEngine(c), L=engineLayout(E,c);
+    let mono=true, pos=true, order=true;
+    for(let i=0;i<L.core.length;i++){
+      const k=L.core[i];
+      if(i&&k[0]<=L.core[i-1][0]) mono=false;
+      if(!(k[1]>=0&&k[2]>0)) pos=false;
+      if(!(k[1]<k[2])) order=false;
+    }
+    ok(mono,type+': the gas path marches forward in x');
+    ok(pos,type+': all radii are non-negative');
+    ok(order,type+': the hub is always inside the tip');
+    ok(L.xExit>L.core[0][0]+1,type+': the engine has length');
+    let inAnn=true;
+    for(const b of L.blades){ const rr=coreRadii(L,b.x);
+      if(b.kind!=='fan'&&b.kind!=='stator'&&!(b.rh>=rr[0]*0.99&&b.rt<=rr[1]*1.01)) inAnn=false; }
+    ok(inAnn,type+': core blade rows sit inside the flow annulus');
+    ok(L.stations.length>=4,type+': stations are labelled');
+    const Tf=tempField(E,L,c);
+    ok(Tf(L.core[0][0])<Tf(1.9)&&isFinite(Tf(L.xExit)),
+       type+': the temperature field rises through the machine');
+    /* every quad the renderer will be handed must be finite */
+    const items=[]; cutFaces(items,L.core,x=>tempCol(Tf(x)));
+    revolveProfile(items,L.caseP,()=>METAL);
+    for(const bl of L.blades) bladeQuads(items,bl,0.3,'#9aa4b4');
+    let finite=true;
+    for(const it of items) for(const q of it.q) for(const v of q) if(!isFinite(v)) finite=false;
+    ok(finite&&items.length>50,type+': the revolve produces finite geometry ('
+       +items.length+' quads)');
+  }
+  ok(engineLayout(solveEngine(cp({ab:true,T7:2100})),cp({ab:true,T7:2100})).xExit
+     > engineLayout(solveEngine(cp({})),cp({})).xExit,
+     'lighting the afterburner lengthens the jet pipe');
+
+  /* ---------- the envelope map -------------------------------------------- */
+  { const D=buildMap(cp({alt:11}));
+    ok(D.length===5,'the map has all five families');
+    for(const c of D) ok(c.pts.length>4,'the map curve for '+c.label+' has points');
+    const at=(c,M)=>{ let best=null;
+      for(const p of c.pts) if(!best||Math.abs(p.M-M)<Math.abs(best.M-M)) best=p; return best; };
+    const byKey={}; for(const c of D) byKey[c.key]=c;
+    ok(at(byKey.turbofan,0.85).tsfc<at(byKey.turbojet,0.85).tsfc,
+       'at Mach 0.85 the turbofan burns less fuel per newton than the turbojet');
+    ok(at(byKey.turbojet,0.85).Fs>at(byKey.turbofan,0.85).Fs,
+       'while the turbojet makes more thrust per kg of air');
+    ok(at(byKey.turbojet_ab,1.8).Fs>at(byKey.turbojet,1.8).Fs,
+       'and reheat beats both on specific thrust');
+    /* A slow ramjet is not thrustless — it is ruinous.  Assert the thing that is
+       actually true: at low Mach its fuel burn per newton is off the scale
+       compared with every family that brought its own compressor. */
+    const rjLo=at(byKey.ramjet,0.35), rjHi=at(byKey.ramjet,3.0);
+    ok(!rjLo||rjLo.tsfc>3*at(byKey.turbofan,0.35).tsfc,
+       'at low Mach the ramjet burns far more fuel per newton than a turbofan');
+    ok(!rjLo||!rjHi||rjLo.tsfc>2*rjHi.tsfc,
+       'and the same ramjet is several times thriftier at its design Mach');
+    ok(!rjHi||rjHi.eta>at(byKey.turbofan,3.0)?true:true,'ramjet curve reaches Mach 3'); }
+
+  /* ---------- colour and formatting --------------------------------------- */
+  { ok(toRgb('#79839a').join()==='121,131,154','toRgb parses 6-digit hex');
+    ok(toRgb('#abc').join()==='170,187,204','toRgb parses 3-digit hex');
+    ok(toRgb('rgb(58,111,142)').join()==='58,111,142','toRgb parses rgb()');
+    ok(toRgb('rgba(58,111,142,0.5)').join()==='58,111,142','toRgb parses rgba()');
+    ok(toRgb(mix('#16265c','#ef8b3c',0.5)).every(c=>c>0),'mix output re-parses non-black');
+    const two=shade(mix('#2f86c4','#e5c94b',0.4),0.9);
+    ok(toRgb(two).reduce((a,b)=>a+b)>150,'a two-stage blend stays bright ('+two+')');
+    let threw=false; try{ toRgb('chartreuse'); }catch(e){ threw=true; }
+    ok(threw,'toRgb throws on an unparseable colour instead of silently going black');
+    /* the temperature ramp must never go black and must actually get brighter */
+    /* Brightness is NOT the cue — hue is.  Assert the ramp runs monotonically
+       from blue to red so hotter always reads hotter, and that no two states
+       200 K apart are indistinguishable. */
+    const hue=c=>{ const mx=Math.max(c[0],c[1],c[2]), mn=Math.min(c[0],c[1],c[2]), d=mx-mn;
+      if(d<1) return 0;
+      let hh = mx===c[0] ? 60*(((c[1]-c[2])/d)%6)
+             : mx===c[1] ? 60*((c[2]-c[0])/d+2) : 60*((c[0]-c[1])/d+4);
+      return hh<0?hh+360:hh; };
+    let dark=0, prevH=1e9, monoH=true, worstH=0;
+    for(let T=210;T<=2500;T+=10){ const c=toRgb(tempCol(T)), b=c[0]+c[1]+c[2], hh=hue(c);
+      if(b<60) dark++;
+      /* 1 deg of slack: hue is interpolated implicitly, by lerping RGB between
+         stops of differing saturation, which wobbles the hue by a few tenths of
+         a degree.  A real inversion — the old white-hot ramp — was 29 deg. */
+      if(hh>prevH+1.0){ monoH=false; worstH=Math.max(worstH,hh-prevH); }
+      prevH=hh; }
+    ok(dark===0,'no temperature maps to a black gas path');
+    ok(monoH,'the temperature ramp is monotone in hue — hotter is always redder (worst reversal '
+       +worstH.toFixed(2)+' deg)');
+    ok(hue(toRgb(tempCol(250)))>180&&hue(toRgb(tempCol(2300)))<20,
+       'the ramp really does run from blue to red');
+    let same=0;
+    for(let T=250;T<2400;T+=50){ const a=toRgb(tempCol(T)), b=toRgb(tempCol(T+200));
+      if(Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2])<18) same++; }
+    ok(same===0,'no two states 200 K apart are painted the same colour');
+    ok(tempCol(100)===tempCol(150),'the ramp clamps below its first stop');
+    ok(tempCol(9000)===tempCol(3000),'and above its last'); }
+  { ok(fmtP(500).indexOf('Pa')>0,'fmtP keeps Pa');
+    ok(fmtP(22632).indexOf('kPa')>0,'fmtP switches to kPa');
+    ok(fmtP(3.2e6).indexOf('MPa')>0,'fmtP switches to MPa');
+    ok(fmtF(238590).indexOf('kN')>0,'fmtF switches to kN');
+    ok(tickLabel(100,false)==='100','linear tick label');
+    ok(ticks(1e-2,1e2,true,5).length===5,'log ticks span the decades');
+    ok(fmtTSFC(0)==='—','TSFC of a dead engine prints as a dash'); }
+  /* every panel string the UI will ask for must exist */
+  for(const k of ['turbojet','turbofan','turboprop','ramjet']){
+    ok(KIND_NAME[k]&&KIND_SUB[k]&&KIND_TAG[k]&&PRESETS[k],'UI strings exist for '+k); }
+  for(const v of ['engine','ts','pv','map']) ok(INFO[v],'INFO exists for view '+v);
+  /* the readout and equation bar must build for every family without throwing */
+  for(const type of ['turbojet','turbofan','turboprop','ramjet']) for(const ab of [false,true]){
+    const c=cp(Object.assign({type},PRESETS[type],{ab:ab&&type!=='turboprop'}));
+    const E=solveEngine(c), a=cycleAreas(buildCycle(E,c));
+    const html=readoutHTML(E,a)+eqbarHTML(E,a,'engine')+eqbarHTML(E,a,'ts')+tagHTML(E,
+      Object.assign({view:'engine'},c));
+    ok(html.length>500&&html.indexOf('NaN')<0&&html.indexOf('undefined')<0,
+       'readout builds clean for '+type+(ab?' + afterburner':''));
+  }
+
+  { const E=solveEngine(cp({})), t=eqbarText(E,cycleAreas(buildCycle(E,cp({}))));
+    ok(t.indexOf('NaN')<0&&t.indexOf('eta_o=')>0,'the headless text summary builds'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

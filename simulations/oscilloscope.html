@@ -1,0 +1,2684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oscilloscope — a function generator, a scope, and everything between</title>
+<!--
+  ===================================================================
+  OSCILLOSCOPE
+  a two-channel function generator driving a digital storage scope
+  ===================================================================
+
+  Built to the same house rules as the rest of this collection: one flat
+  file, no build step, no network, works opened straight off the disk as
+  file://.
+
+  ------------------------------------------------------------------
+  WHAT THIS SOLVES
+  ------------------------------------------------------------------
+  The whole signal path from the generator's amplitude knob to the pixel,
+  treated honestly as LTI circuit theory plus a real acquisition:
+
+  (1) THE GENERATOR.  Five waveforms (sine, square, triangle, sawtooth,
+      pulse with settable duty) as exact Fourier series:
+        square    b_n = 4/(n pi)                      n odd
+        triangle  b_n = 8 (-1)^((n-1)/2) / (n pi)^2   n odd
+        sawtooth  b_n = 2 (-1)^(n+1) / (n pi)
+        pulse(d)  a_n = 2 sin(2 pi n d)/(n pi),
+                  b_n = 2 (1 - cos(2 pi n d))/(n pi),  DC = 2d - 1
+      behind a 50 ohm source.  The amplitude knob is the INTO-50-OHM
+      value, so the open-circuit EMF is twice it - which is the doubling
+      trap "the path" view exists to show.
+
+  (2) THE PATH.  Every stage is a complex transfer function applied per
+      harmonic - exact LTI steady state, no time stepping anywhere.
+      Loading: a 50 ohm feed-through terminator (matched, so the only
+      lump left is the scope's own 15 pF), a 1x coax into 1 Mohm with
+      115 pF of cable+input and its 27.68 MHz pole, or a 10x probe -
+      9 Mohm against the trimmer C1, dividing against 1 Mohm and that
+      same 115 pF: H = Y1/(Y1+Y2) exactly, compensated iff R1C1 = R2C2
+      (C1 = 12.78 pF here).  Then AC coupling as a 10 Hz one-pole
+      high-pass, and the front end as a one-pole low-pass at 100 MHz
+      (20 MHz with the limit in).
+
+  (3) THE ACQUISITION.  2500 points at fs = min(1 GSa/s, 2500/(10 t_div))
+      - tied to the timebase exactly as in a real DSO, which is why a slow
+      timebase aliases a fast signal: the record shows
+      |f - fs round(f/fs)|.  8-bit quantisation over the 8 divisions when
+      enabled.  Edge triggering is root-finding on the analytic series;
+      holdoff skips crossings; AUTO free-runs at (deterministic) arbitrary
+      phases when nothing crosses.  The spectrum is a radix-2 FFT of the
+      record (asserted against a direct DFT), Hann or rectangular, with
+      the exact series lines drawn over it - folded to where they alias
+      when they do.
+
+  Truncation: the series is cut at 1000 harmonics (a sine needs 1).  For
+  the worst screen case here (1 kHz square, full bandwidth) the first
+  dropped harmonic is ~2.5 mV on a 15.6 mV LSB - below the ADC's own
+  resolution, and selfTest asserts exactly that.
+
+  ------------------------------------------------------------------
+  WHAT IS EXACT, WHAT IS TYPICAL, WHAT IS NOT MODELLED
+  ------------------------------------------------------------------
+  EXACT, asserted in selfTest against values computed OUTSIDE this file
+  with scipy 1.18 / numpy 2.5 (build_scope/derive.py, quoted to 12+
+  digits, labelled "(scipy)"): the Fourier coefficients and partial sums;
+  the RMS closed forms (sine 1/sqrt2, triangle and saw 1/sqrt3, square
+  and pulse 1, pulse AC 2 sqrt(d(1-d))); the THD closed forms (square
+  sqrt(pi^2/8 - 1), saw sqrt(pi^2/6 - 1), triangle sqrt(pi^4/96 - 1));
+  the Gibbs limit (2/pi) Si(pi) = 1.17898; the probe constants
+  kC = C1/(C1+C2), kR = R2/(R1+R2), tau = (R1||R2)(C1+C2) and the
+  cal-square steady state; the one-pole rise time ln9/(2 pi f_bw) and
+  the ~8% failure of the quadrature rise-time rule for two equal real
+  poles; AC droop 1 - e^(-T/2 tau); the folding law; the Hann sums N/2
+  and 3N/8 and ENBW = 1.5 bins; FFT = DFT; Parseval; the trigger instant
+  asin(L/A)/2pi; and the loading factors 1.9999 (1 Mohm) and 1.99999
+  (10 Mohm).
+
+  TYPICAL VALUES (representative bench hardware, not one instrument's
+  datasheet; used only as parameters and printed in the panel): 50 ohm
+  source; 1 Mohm || 15 pF input; 100 pF of cable on the 1x path; 9 Mohm
+  probe with a 3-30 pF trimmer; 100 MHz front end; 20 MHz limit switch;
+  2500-point record; 1 GSa/s ceiling; 8-bit ADC.
+
+  NOT MODELLED, deliberately: noise and trigger jitter, trigger
+  hysteresis, transmission-line reflections (the terminated path is taken
+  as the matched line it is built to be; the unterminated coax is lumped,
+  the usual bench treatment below ~30 MHz), sin(x)/x DAC artefacts beyond
+  the display interpolation shown, generator slew and output distortion,
+  ADC differential nonlinearity.  Channel 2 always rides the 1x hi-Z
+  path, DC-coupled, and shares channel 1's vertical scale - stated in
+  the panel.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    --plate:#39404f; --beam:#5ac8e0; --envelope:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Oscilloscope</h1>
+  <span class="sub" id="sub">a generator promises, a scope reports &mdash; the path between them edits both</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities                                                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — same camera as lattice.html / steam_carnot_cycle.html            *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+
+/* ================================================================== *
+ *  number formatting                                                  *
+ * ================================================================== */
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function fmtSI(x,unit,n){
+  if(!isFinite(x)) return '—';
+  const a=Math.abs(x);
+  if(a>=1e9)    return fmt(x/1e9,n===undefined?2:n)+' G'+unit;
+  if(a>=1e6)    return fmt(x/1e6,n===undefined?2:n)+' M'+unit;
+  if(a>=1e3)    return fmt(x/1e3,n===undefined?2:n)+' k'+unit;
+  if(a>=1||a===0) return fmt(x,n===undefined?2:n)+' '+unit;
+  if(a>=1e-3)   return fmt(x*1e3,n===undefined?2:n)+' m'+unit;
+  if(a>=1e-6)   return fmt(x*1e6,n===undefined?2:n)+' µ'+unit;
+  if(a>=1e-9)   return fmt(x*1e9,n===undefined?2:n)+' n'+unit;
+  return fmt(x*1e12,n===undefined?2:n)+' p'+unit;
+}
+
+/* ================================================================== *
+ *  the hardware — typical bench values, used only as parameters       *
+ *  (see the header comment: these are representative, not one         *
+ *  instrument's datasheet)                                            *
+ * ================================================================== */
+const HW={
+  RS:50,                 /* generator source impedance, ohm                 */
+  RIN:1e6, CIN:15e-12,   /* scope input: 1 Mohm in parallel with 15 pF      */
+  CCABLE:100e-12,        /* a metre of coax on the 1x path                  */
+  RPR:9e6,               /* the 10x probe's series resistor                 */
+  FBW:100e6, FBWL:20e6,  /* front-end pole, and the 20 MHz limit switch     */
+  FAC:10,                /* AC-coupling corner, Hz                          */
+  NREC:2500,             /* record length, points                           */
+  FSMAX:1e9,             /* the digitiser's ceiling, Sa/s                   */
+  NFFT:2048, BITS:8,
+  DIVH:10, DIVV:8,       /* the graticule                                   */
+  NHMAX:1000,            /* series truncation — see header                  */
+};
+const C2TOT=HW.CCABLE+HW.CIN;          /* what the probe trimmer works against */
+const TRIM_COMP=HW.RIN*C2TOT/HW.RPR*1e12;  /* pF; R1C1 = R2C2 => C1 = R2C2/R1 */
+
+/* the detented knobs */
+const TDIV=[1e-8,2e-8,5e-8,1e-7,2e-7,5e-7,1e-6,2e-6,5e-6,
+            1e-5,2e-5,5e-5,1e-4,2e-4,5e-4,1e-3,2e-3,5e-3,1e-2];
+const VDIV=[0.01,0.02,0.05,0.1,0.2,0.5,1,2,5];
+
+/* ================================================================== *
+ *  the generator's waveforms — exact samples and exact Fourier        *
+ *  coefficients.  Conventions (unit amplitude, u = t/T in [0,1)):     *
+ *    sine     sin(2 pi u)                                             *
+ *    square   +1 for u<1/2, -1 after                                  *
+ *    triangle 4u | 2-4u | 4u-4   (peak +1 at u=1/4, in phase w/ sine) *
+ *    saw      2u | 2u-2          (rising, jump at u=1/2)              *
+ *    pulse(d) +1 for u<d, -1 after                                    *
+ * ================================================================== */
+const WAVES=[
+  {id:'sine',     name:'sine'},
+  {id:'square',   name:'square'},
+  {id:'triangle', name:'triangle'},
+  {id:'saw',      name:'sawtooth'},
+  {id:'pulse',    name:'pulse'},
+];
+function wfSample(kind,u,duty){
+  u-=Math.floor(u);
+  if(kind==='sine')     return Math.sin(TAU*u);
+  if(kind==='square')   return u<0.5?1:-1;
+  if(kind==='triangle') return u<0.25?4*u:(u<0.75?2-4*u:4*u-4);
+  if(kind==='saw')      return u<0.5?2*u:2*u-2;
+  if(kind==='pulse')    return u<duty?1:-1;
+  throw new Error('wfSample: unknown waveform "'+kind+'"');
+}
+/* [a_n, b_n] of  x(u) = DC + sum a_n cos(2 pi n u) + b_n sin(2 pi n u) */
+function wfCoef(kind,n,duty){
+  if(kind==='sine')     return [0, n===1?1:0];
+  if(kind==='square')   return [0, n%2? 4/(n*PI) : 0];
+  if(kind==='triangle') return [0, n%2? 8*((n-1)/2%2?-1:1)/((n*PI)*(n*PI)) : 0];
+  if(kind==='saw')      return [0, 2*(n%2?1:-1)/(n*PI)];
+  if(kind==='pulse')    return [2*Math.sin(TAU*n*duty)/(n*PI),
+                                2*(1-Math.cos(TAU*n*duty))/(n*PI)];
+  throw new Error('wfCoef: unknown waveform "'+kind+'"');
+}
+function wfDC(kind,duty){ return kind==='pulse'?2*duty-1:0; }
+/* rms of the zero-mean part, closed form */
+function wfRmsAC(kind,duty){
+  if(kind==='sine')     return Math.SQRT1_2;
+  if(kind==='square')   return 1;
+  if(kind==='triangle') return 1/Math.sqrt(3);
+  if(kind==='saw')      return 1/Math.sqrt(3);
+  if(kind==='pulse')    return 2*Math.sqrt(duty*(1-duty));
+  throw new Error('wfRmsAC: unknown waveform "'+kind+'"');
+}
+/* total harmonic distortion, closed form where one exists (sqrt of the
+   power above the fundamental over the power in it) */
+function wfThd(kind,duty){
+  if(kind==='sine')     return 0;
+  if(kind==='square')   return Math.sqrt(PI*PI/8-1);
+  if(kind==='saw')      return Math.sqrt(PI*PI/6-1);
+  if(kind==='triangle') return Math.sqrt(PI*PI*PI*PI/96-1);
+  if(kind==='pulse'){                     /* no closed form worth quoting */
+    const [a1,b1]=wfCoef('pulse',1,duty);
+    const f2=a1*a1+b1*b1;
+    const tot=wfRmsAC('pulse',duty)**2*2; /* sum(a^2+b^2) = 2 rms_ac^2 */
+    return f2>0?Math.sqrt(Math.max(0,tot-f2)/f2):Infinity;
+  }
+  throw new Error('wfThd: unknown waveform "'+kind+'"');
+}
+
+/* ================================================================== *
+ *  complex arithmetic (pairs [re,im]) and the transfer functions      *
+ * ================================================================== */
+const cxMul=(a,b)=>[a[0]*b[0]-a[1]*b[1], a[0]*b[1]+a[1]*b[0]];
+const cxAbs=a=>Math.hypot(a[0],a[1]);
+const cxScale=(a,s)=>[a[0]*s,a[1]*s];
+function cxDiv(a,b){ const d=b[0]*b[0]+b[1]*b[1];
+  return [(a[0]*b[0]+a[1]*b[1])/d,(a[1]*b[0]-a[0]*b[1])/d]; }
+
+/* one-pole low pass 1/(1 + i f/fc) and high pass (i f/fc)/(1 + i f/fc) */
+function Hlp(f,fc){ const x=f/fc, d=1+x*x; return [1/d,-x/d]; }
+function Hhp(f,fc){ const x=f/fc, d=1+x*x; return [x*x/d,x/d]; }
+/* the exact two-impedance divider: Z2/(Z1+Z2) = Y1/(Y1+Y2),
+   Y = 1/R + i w C — this is the whole 10x probe */
+function Hdivider(f,R1,C1,R2,C2){
+  const w=TAU*f;
+  return cxDiv([1/R1,w*C1],[1/R1+1/R2,w*(C1+C2)]);
+}
+/* the probe's step-response constants, for the probe view and the tests */
+function probeConsts(C1pF){
+  const C1=C1pF*1e-12;
+  const kC=C1/(C1+C2TOT), kR=HW.RIN/(HW.RPR+HW.RIN);
+  const tau=(HW.RPR*HW.RIN/(HW.RPR+HW.RIN))*(C1+C2TOT);
+  return {C1,kC,kR,tau};
+}
+/* steady state of a +-1 square of period T through the divider:
+   value just after the + edge, and at the end of the + half period */
+function probeCalSS(C1pF,T){
+  const {kC,kR,tau}=probeConsts(C1pF);
+  const E=Math.exp(-T/2/tau);
+  const V1=(kR*(1-E)+2*kC*E)/(1+E);
+  return {v0:-V1+2*kC, v1:V1, kC,kR,tau,E};
+}
+
+/* connection gain, generator EMF -> volts the scope displays (the 10x
+   probe's front-panel factor is folded in, so a perfect path reads 1:1
+   with the voltage at the tip).  f=0 is the DC branch.  */
+function connGain(st,f){
+  if(st.conn==='term'){
+    /* feed-through terminator AT the input: a matched line, so the only
+       lump left is the scope's own 15 pF against 50||50 */
+    const g=50/(HW.RS+50);
+    return f===0?[g,0]:cxScale(Hlp(f,1/(TAU*(HW.RS*50/(HW.RS+50))*HW.CIN)),g);
+  }
+  if(st.conn==='coax'){
+    const g=HW.RIN/(HW.RIN+HW.RS);
+    if(f===0) return [g,0];
+    const Rp=HW.RS*HW.RIN/(HW.RS+HW.RIN);
+    return cxScale(Hlp(f,1/(TAU*Rp*C2TOT)),g);
+  }
+  if(st.conn==='probe'){
+    const {C1}=probeConsts(st.trim);
+    const Rtip=HW.RPR+HW.RIN;
+    const g=Rtip/(Rtip+HW.RS);
+    if(f===0) return [g*(HW.RIN/Rtip)*10,0];
+    const Ctip=C1*C2TOT/(C1+C2TOT);
+    const tip=Hlp(f,1/(TAU*(HW.RS*Rtip/(HW.RS+Rtip))*Ctip));
+    return cxScale(cxMul(Hdivider(f,HW.RPR,C1,HW.RIN,C2TOT),tip),g*10);
+  }
+  throw new Error('connGain: unknown connection "'+st.conn+'"');
+}
+/* the analog front end: coupling, then the one-pole bandwidth */
+function frontGain(st,f){
+  const fbw=st.bwlim?HW.FBWL:HW.FBW;
+  if(f===0) return [st.coup==='ac'?0:1,0];
+  const lp=Hlp(f,fbw);
+  return st.coup==='ac'?cxMul(Hhp(f,HW.FAC),lp):lp;
+}
+function chainGain(st,f,stage){
+  /* stage: 'emf' | 'tip' | 'screen' (default) */
+  if(stage==='emf') return f===0?[1,0]:[1,0];
+  const c=connGain(st,f);
+  if(stage==='tip') return c;
+  return f===0?[c[0]*frontGain(st,0)[0],0]:cxMul(c,frontGain(st,f));
+}
+
+/* ================================================================== *
+ *  the signal as a filtered Fourier series — exact LTI steady state   *
+ * ================================================================== */
+/* channel descriptor from state: what the generator is set to */
+function chan1(st){ return {wave:st.wave,f0:Math.pow(10,st.freqExp),
+                            amp:st.amp,off:st.off,duty:st.duty,ph:0}; }
+function chan2(st){
+  const [p,q]=st.ratio.split(':').map(Number);
+  return {wave:st.wave2,f0:Math.pow(10,st.freqExp)*p/q,
+          amp:st.amp2,off:0,duty:0.5,ph:st.ph2*DEG};
+}
+/* Build the series SEEN ON SCREEN for a channel.  ch2 always rides the
+   1x hi-Z path (stated in the panel); ch1 takes st.conn.
+   x(t) = dc + sum Re( (re_n + i im_n) e^{i n w0 t} )                   */
+function buildSeries(st,ch,fs,stage){
+  const g=ch===2?chan2(st):chan1(st);
+  const stC=ch===2?Object.assign({},st,{conn:'coax'}):st;
+  const NH=g.wave==='sine'?1:
+    Math.min(HW.NHMAX,Math.max(64,Math.ceil(2.5*fs/g.f0)));
+  const re=new Float64Array(NH), im=new Float64Array(NH);
+  /* Lanczos sigma on a TRUNCATED series (never on a complete one, i.e. a
+     sine): a hard cut rings at every jump - the classic Gibbs ears - and
+     the instrument's single-pole front end is monotone, so that ringing
+     would be a numerical artefact wearing the costume of overshoot.  The
+     untapered partial sums live in the spectrum view, where Gibbs is the
+     SUBJECT rather than a bug. */
+  const taper=g.wave!=='sine';
+  for(let n=1;n<=NH;n++){
+    const [a,b]=wfCoef(g.wave,n,g.duty);
+    /* EMF is twice the set value; phase shift rotates harmonic n by n*ph */
+    let c=[2*g.amp*a,-2*g.amp*b];
+    if(g.ph){ const cp=Math.cos(n*g.ph),sp=Math.sin(n*g.ph);
+              c=cxMul(c,[cp,sp]); }
+    c=cxMul(c,chainGain(stC,n*g.f0,stage));
+    if(taper){ const x=PI*n/(NH+1), sg=Math.sin(x)/x; c[0]*=sg; c[1]*=sg; }
+    re[n-1]=c[0]; im[n-1]=c[1];
+  }
+  const dc=2*(g.off+g.amp*wfDC(g.wave,g.duty))*chainGain(stC,0,stage)[0];
+  return {f0:g.f0,dc,re,im,NH};
+}
+function seriesEval(ser,t){
+  const th=TAU*ser.f0*t;
+  const c1=Math.cos(th),s1=Math.sin(th);
+  let cn=c1,sn=s1,x=ser.dc;
+  const re=ser.re,im=ser.im,N=re.length;
+  for(let n=0;n<N;n++){
+    x+=re[n]*cn-im[n]*sn;
+    const c2=cn*c1-sn*s1; sn=sn*c1+cn*s1; cn=c2;
+  }
+  return x;
+}
+/* the same sum by direct trig, no recurrence — selfTest pins one
+   against the other, which is what catches a typo in either */
+function seriesEvalDirect(ser,t){
+  const th=TAU*ser.f0*t;
+  let x=ser.dc;
+  for(let n=1;n<=ser.re.length;n++)
+    x+=ser.re[n-1]*Math.cos(n*th)-ser.im[n-1]*Math.sin(n*th);
+  return x;
+}
+
+/* ================================================================== *
+ *  triggering — root finding on the analytic series                   *
+ * ================================================================== */
+/* rising/falling crossings of `lev` in [t0, t0+span], holdoff applied */
+function findTriggers(ser,lev,slope,t0,span,holdoff){
+  const NSC=2400, out=[];
+  let tp=t0, xp=seriesEval(ser,t0), last=-Infinity;
+  for(let i=1;i<=NSC;i++){
+    const t=t0+span*i/NSC, x=seriesEval(ser,t);
+    const hit=slope==='rise'?(xp<lev&&x>=lev):(xp>lev&&x<=lev);
+    if(hit){
+      let a=tp,b=t;
+      for(let k=0;k<48;k++){
+        const m=0.5*(a+b), xm=seriesEval(ser,m);
+        if((slope==='rise')===(xm<lev)) a=m; else b=m;
+      }
+      const tc=0.5*(a+b);
+      if(tc-last>=holdoff){ out.push(tc); last=tc; }
+      if(out.length>=64) break;
+    }
+    tp=t; xp=x;
+  }
+  return out;
+}
+
+/* ================================================================== *
+ *  acquisition — the record the scope actually digitises              *
+ * ================================================================== */
+function sampleRate(st){ const span=HW.DIVH*TDIV[st.tdivI];
+  return Math.min(HW.FSMAX,HW.NREC/span); }
+/* golden-ratio sequence: the deterministic stand-in for "whenever the
+   sweep happens to restart" in free-run */
+function freerunPhase(k){ const x=k*0.6180339887498949; return x-Math.floor(x); }
+
+function acquire(st,ser,sweep){
+  const tdiv=TDIV[st.tdivI], span=HW.DIVH*tdiv;
+  const fs=sampleRate(st), dt=1/fs;
+  const lev=st.tlev*VDIV[st.vdivI];
+  const hold=st.hold>0?st.hold/ser.f0:0;
+  const searchSpan=Math.max(4/ser.f0,2*span)+2*hold;
+  const trigs=findTriggers(ser,lev,st.tslope,sweep.tbase,searchSpan,hold);
+  const trig=trigs.length>0;
+  let tref;
+  if(trig) tref=trigs[0];
+  else if(st.tmode==='normal') return {none:true,fs,dt,span,trigs,trig:false};
+  else tref=sweep.tbase+freerunPhase(sweep.k)/ser.f0;      /* auto: free run */
+  const t0=tref-(HW.DIVH/2-st.hpos)*tdiv;
+  const y=new Float64Array(HW.NREC);
+  for(let i=0;i<HW.NREC;i++) y[i]=seriesEval(ser,t0+i*dt);
+  /* the ADC: clip to the 8 divisions, quantise to 8 bits if asked.
+     vpos shifts BEFORE the converter, exactly like the front-panel knob */
+  const vdiv=VDIV[st.vdivI], half=HW.DIVV/2;
+  const lsbDiv=HW.DIVV/Math.pow(2,HW.BITS);
+  const d=new Float64Array(HW.NREC);
+  let clipped=0;
+  for(let i=0;i<HW.NREC;i++){
+    let dd=y[i]/vdiv+st.vpos;
+    if(dd>half){dd=half;clipped++;} else if(dd<-half){dd=-half;clipped++;}
+    if(st.quant8) dd=clamp(Math.round(dd/lsbDiv)*lsbDiv,-half,half);
+    d[i]=dd;
+  }
+  return {t0,dt,fs,span,y:d,yv:y,trig,trigs,tref,clipped,
+          lsb:lsbDiv*vdiv,none:false};
+}
+
+/* measurements off the record — what the scope SEES, not what was sent */
+function measure(rec,st){
+  if(rec.none) return null;
+  const vdiv=VDIV[st.vdivI];
+  const nOn=Math.min(HW.NREC,Math.max(2,Math.round(rec.span/rec.dt)));
+  let mn=Infinity,mx=-Infinity,s=0,s2=0;
+  const v=new Float64Array(nOn);
+  for(let i=0;i<nOn;i++){
+    const vv=(rec.y[i]-st.vpos)*vdiv;
+    v[i]=vv; s+=vv; s2+=vv*vv;
+    if(vv<mn)mn=vv; if(vv>mx)mx=vv;
+  }
+  const mean=s/nOn, rms=Math.sqrt(s2/nOn);
+  /* frequency: rising crossings of the mean, linearly interpolated */
+  const cr=[];
+  for(let i=1;i<nOn;i++) if(v[i-1]<mean&&v[i]>=mean)
+    cr.push((i-1+(mean-v[i-1])/(v[i]-v[i-1]))*rec.dt);
+  const freq=cr.length>=2?(cr.length-1)/(cr[cr.length-1]-cr[0]):null;
+  /* 10-90 rise on the first clean rising edge */
+  let rise=null;
+  const lo=mn+0.1*(mx-mn), hi=mn+0.9*(mx-mn);
+  for(let i=1;i<nOn;i++){
+    if(v[i-1]<lo&&v[i]>=lo){
+      const t1=(i-1+(lo-v[i-1])/(v[i]-v[i-1]))*rec.dt;
+      for(let j=i;j<nOn;j++){
+        if(v[j]<lo&&v[j]<v[j-1]) break;          /* fell back: not this edge */
+        if(v[j-1]<hi&&v[j]>=hi){
+          rise=(j-1+(hi-v[j-1])/(v[j]-v[j-1]))*rec.dt-t1; break; }
+      }
+      if(rise!==null) break;
+    }
+  }
+  return {vpp:mx-mn,mean,rms,freq,rise,nOn};
+}
+
+/* ================================================================== *
+ *  aliasing and reconstruction                                        *
+ * ================================================================== */
+function foldFreq(f,fs){ return Math.abs(f-fs*Math.round(f/fs)); }
+/* Whittaker-Shannon interpolation from the record's own samples */
+function sincRecon(rec,t){
+  const x=(t-rec.t0)/rec.dt;
+  const i0=Math.max(0,Math.ceil(x)-24), i1=Math.min(HW.NREC-1,Math.floor(x)+24);
+  let s=0;
+  for(let i=i0;i<=i1;i++){
+    const a=PI*(x-i);
+    s+=rec.y[i]*(Math.abs(a)<1e-9?1:Math.sin(a)/a);
+  }
+  return s;
+}
+
+/* ================================================================== *
+ *  the spectrum — radix-2 FFT, asserted against a direct DFT          *
+ * ================================================================== */
+function fftRadix2(re,im){
+  const N=re.length;
+  if(N&(N-1)) throw new Error('fftRadix2: N must be a power of two');
+  for(let i=1,j=0;i<N;i++){
+    let bit=N>>1;
+    for(;j&bit;bit>>=1) j^=bit;
+    j|=bit;
+    if(i<j){ let t=re[i];re[i]=re[j];re[j]=t; t=im[i];im[i]=im[j];im[j]=t; }
+  }
+  for(let len=2;len<=N;len<<=1){
+    const ang=-TAU/len, wr=Math.cos(ang), wi=Math.sin(ang);
+    for(let i=0;i<N;i+=len){
+      let cr=1,ci=0;
+      for(let k=0;k<len/2;k++){
+        const j=i+k, m=i+k+len/2;
+        const tr=re[m]*cr-im[m]*ci, ti=re[m]*ci+im[m]*cr;
+        re[m]=re[j]-tr; im[m]=im[j]-ti;
+        re[j]+=tr; im[j]+=ti;
+        const nr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=nr;
+      }
+    }
+  }
+}
+function dftDirect(x){
+  const N=x.length, re=new Float64Array(N), im=new Float64Array(N);
+  for(let k=0;k<N;k++){ let sr=0,si=0;
+    for(let n=0;n<N;n++){ const a=-TAU*k*n/N;
+      sr+=x[n]*Math.cos(a); si+=x[n]*Math.sin(a); }
+    re[k]=sr; im[k]=si; }
+  return {re,im};
+}
+function hannWin(N){ const w=new Float64Array(N);
+  for(let n=0;n<N;n++) w[n]=0.5-0.5*Math.cos(TAU*n/N);
+  return w; }
+/* one-sided amplitude spectrum of the record, in volts (window-corrected) */
+function spectrumOf(rec,st){
+  const N=HW.NFFT, vdiv=VDIV[st.vdivI];
+  const re=new Float64Array(N), im=new Float64Array(N);
+  const w=st.winf==='hann'?hannWin(N):null;
+  let wsum=0;
+  for(let n=0;n<N;n++){
+    const wn=w?w[n]:1; wsum+=wn;
+    re[n]=(rec.y[n]-st.vpos)*vdiv*wn;
+  }
+  fftRadix2(re,im);
+  const half=N>>1, amp=new Float64Array(half), binHz=rec.fs/N;
+  for(let k=0;k<half;k++)
+    amp[k]=(k===0?1:2)*Math.hypot(re[k],im[k])/wsum;
+  return {amp,binHz,N,enbwBins:st.winf==='hann'?1.5:1};
+}
+
+/* ================================================================== *
+ *  state                                                              *
+ * ================================================================== */
+const DEFAULTS={
+  view:'trace',
+  /* generator, channel 1.  freq is stored as log10(Hz): the knob is
+     logarithmic and everything reads it through chan1() */
+  wave:'sine', freqExp:3, amp:1.0, off:0, duty:0.3,
+  /* channel 2 (always on the 1x hi-Z path) */
+  ch2:false, wave2:'sine', ratio:'1:1', ph2:90, amp2:1.0,
+  /* connection between the two instruments */
+  conn:'coax', trim:12.8,
+  /* vertical */
+  vdivI:5, vpos:0, coup:'dc', bwlim:false,
+  /* horizontal */
+  tdivI:13, hpos:0,
+  /* trigger */
+  tlev:0.5, tslope:'rise', tmode:'auto', hold:0,
+  /* display + spectrum */
+  disp:'yt', recon:'linear', quant8:true, persist:true,
+  winf:'hann', klines:9,
+  anim:false, speed:1,
+};
+const CONNS=[
+  {id:'term', name:'50 Ω feed-through'},
+  {id:'coax', name:'1× coax'},
+  {id:'probe',name:'10× probe'},
+];
+const RATIOS=['1:1','2:1','3:2','5:4','5:3'];
+const PRESETS=[
+  {id:'clean',  name:'clean sine',
+   patch:{view:'trace',wave:'sine',freqExp:3,amp:1,off:0,conn:'term',coup:'dc',
+          bwlim:false,tdivI:13,vdivI:5,tlev:0.5,tslope:'rise',tmode:'auto',
+          hold:0,disp:'yt',ch2:false,vpos:0,hpos:0}},
+  {id:'double', name:'the doubling trap',
+   patch:{view:'path',wave:'sine',freqExp:3,amp:1,off:0,conn:'coax',coup:'dc',
+          tdivI:13,vdivI:5,disp:'yt',ch2:false,vpos:0,hpos:0,tlev:0.5}},
+  {id:'cal',    name:'the cal square',
+   patch:{view:'probe',wave:'square',freqExp:3,amp:2.5,off:0,conn:'probe',
+          trim:6,coup:'dc',tdivI:13,vdivI:6,disp:'yt',ch2:false,vpos:0,hpos:0,
+          tlev:0.5}},
+  {id:'alias',  name:'the alias trap',
+   patch:{view:'sampling',wave:'sine',freqExp:5.398808,amp:1,off:0,conn:'coax',
+          coup:'dc',tdivI:15,vdivI:6,disp:'yt',ch2:false,vpos:0,hpos:0,tlev:0.5}},
+  {id:'droop',  name:'AC droop',
+   patch:{view:'trace',wave:'square',freqExp:1.69897,amp:1,off:0,conn:'coax',
+          coup:'ac',tdivI:17,vdivI:6,disp:'yt',ch2:false,vpos:0,hpos:0,tlev:0}},
+  {id:'lines',  name:'built from lines',
+   patch:{view:'spectrum',wave:'square',freqExp:3,amp:1,off:0,conn:'term',
+          coup:'dc',winf:'hann',klines:9,tdivI:13,vdivI:5,disp:'yt',ch2:false,
+          vpos:0,hpos:0,tlev:0.5}},
+  {id:'liss',   name:'Lissajous 3:2',
+   patch:{view:'trace',disp:'xy',ch2:true,wave2:'sine',ratio:'3:2',ph2:90,
+          amp2:1,wave:'sine',freqExp:3,amp:1,off:0,conn:'coax',coup:'dc',
+          vdivI:6,vpos:0,hpos:0}},
+];
+
+/* ================================================================== *
+ *  the model — everything the views and the readout print             *
+ * ================================================================== */
+function buildModel(st,sweep){
+  sweep=sweep||{k:0,tbase:0};
+  const fs=sampleRate(st);
+  const g1=chan1(st);
+  const ser1=buildSeries(st,1,fs);
+  const xy=st.disp==='xy';
+  const ser2=(st.ch2||xy)?buildSeries(st,2,fs):null;
+  const rec=acquire(st,ser1,sweep);
+  const vdiv=VDIV[st.vdivI], tdiv=TDIV[st.tdivI];
+  /* channel 2 rides the same timebase and the same trigger — that is
+     what "two channels of one scope" means */
+  let y2=null;
+  if(ser2&&!rec.none){
+    y2=new Float64Array(HW.NREC);
+    const half=HW.DIVV/2, lsb=HW.DIVV/Math.pow(2,HW.BITS);
+    for(let i=0;i<HW.NREC;i++){
+      let dd=seriesEval(ser2,rec.t0+i*rec.dt)/vdiv;
+      dd=clamp(dd,-half,half);
+      if(st.quant8) dd=clamp(Math.round(dd/lsb)*lsb,-half,half);
+      y2[i]=dd;
+    }
+  }
+  const meas=measure(rec,st);
+
+  /* landmarks worth printing */
+  const fdisp=foldFreq(g1.f0,fs);
+  const aliased=g1.f0>fs/2*(1+1e-12);
+  const foldH=!aliased&&g1.wave!=='sine'&&ser1.NH*g1.f0>fs/2;
+  const gain0=2*cxAbs(chainGain(st,g1.f0));      /* set value -> screen */
+  const fbw=st.bwlim?HW.FBWL:HW.FBW;
+  const pr=probeConsts(st.trim);
+  const comp=Math.abs(st.trim-TRIM_COMP);
+  const droop=(st.coup==='ac')?1-Math.exp(-1/(2*g1.f0*(1/(TAU*HW.FAC)))):0;
+
+  const warns=[];
+  if(rec.none) warns.push({cls:'bad',txt:'NORMAL mode and no crossing of the level: the screen holds nothing at all.'});
+  if(aliased) warns.push({cls:'bad',txt:'f exceeds f<sub>s</sub>/2 — the trace is an <b>alias</b> at '+fmtSI(fdisp,'Hz')+'. The sine is real; the frequency is fiction.'});
+  else if(foldH) warns.push({cls:'bad',txt:'the fundamental fits, but harmonics beyond '+fmtSI(fs/2,'Hz')+' fold back into the record.'});
+  if(rec.clipped>0) warns.push({cls:'bad',txt:rec.clipped+' samples clipped at the ADC rail — the measurements below are of the CLIPPED trace.'});
+  if(st.conn==='coax') warns.push({cls:'',txt:'unterminated hi-Z load: the generator promised '+fmt(2*chan1(st).amp,2)+' V<sub>pp</sub> into 50 Ω, the screen reads ×'+fmt(gain0,3)+' of the set value.'});
+  if(st.conn==='probe'&&comp>0.2) warns.push({cls:'bad',txt:'probe '+(st.trim<TRIM_COMP?'UNDER':'OVER')+'-compensated ('+fmt(st.trim,1)+' pF against '+fmt(TRIM_COMP,2)+' pF): flat only at DC and at ∞.'});
+  if(st.coup==='ac'&&droop>0.005&&(g1.wave==='square'||g1.wave==='pulse'))
+    warns.push({cls:'',txt:'AC coupling tilts each half-period by '+fmt(droop*100,1)+'% — the 10 Hz high-pass forgetting the level.'});
+  if(cxAbs(frontGain(st,g1.f0))<0.99&&!aliased)
+    warns.push({cls:'',txt:'the '+fmtSI(fbw,'Hz',0)+' front end passes only ×'+fmt(cxAbs(frontGain(st,g1.f0)),3)+' of the fundamental.'});
+
+  const M={st,sweep,fs,g1,ser1,ser2,rec,y2,meas,vdiv,tdiv,
+           fdisp,aliased,foldH,gain0,fbw,pr,comp,droop,warns,
+           lsb:8*vdiv/256,
+           thd:wfThd(g1.wave,g1.duty),
+           setrms:Math.sqrt(Math.pow(g1.amp*wfRmsAC(g1.wave,g1.duty),2)+g1.off*g1.off)};
+  if(st.view==='spectrum'&&!rec.none){
+    M.spec=spectrumOf(rec,st);
+    M.lines=[];
+    for(let n=1;n<=ser1.NH;n++){
+      const a=Math.hypot(ser1.re[n-1],ser1.im[n-1]);
+      if(a<1e-5) continue;
+      const f=n*g1.f0, ff=foldFreq(f,fs);
+      M.lines.push({n,f,ff,amp:a,folded:f>fs/2});
+      if(M.lines.length>=320) break;
+    }
+  }
+  if(st.view==='path'){
+    M.stages={emf:buildSeries(st,1,fs,'emf'),tip:buildSeries(st,1,fs,'tip')};
+  }
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / equation bar / captions                                  *
+ * ================================================================== */
+function readoutHTML(M){
+  const st=M.st, meas=M.meas;
+  const nm=(function(){
+    if(st.view==='trigger') return {t:'the trigger',s:'why the picture stands still'};
+    if(st.view==='sampling')return {t:'sampling',s:fmtSI(M.fs,'Sa/s')+' — Nyquist '+fmtSI(M.fs/2,'Hz')};
+    if(st.view==='probe')   return {t:'the probe',s:'R₁C₁ = R₂C₂ or it lies'};
+    if(st.view==='spectrum')return {t:'the spectrum',s:(st.winf==='hann'?'Hann':'rectangular')+' window, '+HW.NFFT+' points'};
+    if(st.view==='path')    return {t:'the path',s:'what happens between the knob and the pixel'};
+    if(st.disp==='xy')      return {t:'X–Y',s:'channel 1 against channel 2'};
+    return {t:'the trace',s:fmtSI(TDIV[st.tdivI],'s')+'/div · '+fmtSI(VDIV[st.vdivI],'V')+'/div'};
+  })();
+  let s='<div class="rname">'+nm.t+'<small>'+nm.s+'</small></div><table>';
+  const r=(k,v,c)=>{ s+='<tr><td>'+k+'</td><td class="v'+(c?' '+c:'')+'">'+v+'</td></tr>'; };
+  const hd=t=>{ s+='<tr><td class="hd" colspan="2">'+t+'</td></tr>'; };
+
+  hd('the scope measures');
+  if(meas){
+    r('V<sub>pp</sub>',fmtSI(meas.vpp,'V'));
+    r('V<sub>rms</sub>',fmtSI(meas.rms,'V'));
+    r('mean',fmtSI(meas.mean,'V'));
+    r('frequency',meas.freq!==null?fmtSI(meas.freq,'Hz'):'—',M.aliased?'bad':'');
+    r('rise 10–90',meas.rise!==null?fmtSI(meas.rise,'s'):'—');
+  } else r('screen','empty','bad');
+
+  hd('the generator sent');
+  r('waveform',WAVES.find(w=>w.id===M.g1.wave).name+(M.g1.wave==='pulse'?' ('+Math.round(M.g1.duty*100)+'%)':''));
+  r('f<sub>0</sub>',fmtSI(M.g1.f0,'Hz'),M.aliased?'good':'');
+  r('set amplitude','±'+fmt(M.g1.amp,2)+' V into 50 Ω');
+  if(M.g1.off) r('offset',fmtSI(M.g1.off,'V'));
+  r('true V<sub>rms</sub>',fmtSI(M.setrms,'V')+' into 50 Ω');
+  if(M.thd>0&&isFinite(M.thd)) r('THD',fmt(M.thd*100,1)+' %');
+
+  hd('acquisition');
+  r('sample rate',fmtSI(M.fs,'Sa/s'));
+  r('record',HW.NREC+' pts · '+(meas?meas.nOn:0)+' on screen');
+  if(st.quant8) r('8-bit LSB',fmtSI(M.lsb,'V'));
+  r('bandwidth',fmtSI(M.fbw,'Hz',0)+(st.bwlim?' (limit in)':''));
+
+  hd('path and trigger');
+  r('connection',CONNS.find(c=>c.id===st.conn).name);
+  r('set → screen','×'+fmt(M.gain0,4),st.conn==='term'?'good':'');
+  r('coupling',st.coup.toUpperCase());
+  r('trigger',M.rec.none?'none (normal)':(M.rec.trig?'triggered':'free-run'),
+    M.rec.none?'bad':(M.rec.trig?'good':'bad'));
+
+  s+='</table>';
+  for(const w of M.warns)
+    s+='<div class="note">'+(w.cls==='bad'?'<b>◆</b> ':'')+w.txt+'</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const v=M.st.view, xy=M.st.disp==='xy';
+  let eq,sm;
+  if(v==='trace'&&xy){
+    eq='<span class="lhs">x = sin(2π f t)</span>, &nbsp; y = sin(2π <span class="hl2">(p/q)</span> f t + <span class="hl">φ</span>)';
+    sm='a closed figure exactly when p/q is rational — the lobe counts read the ratio, the openness reads the phase';
+  } else if(v==='trace'){
+    eq='<span class="lhs">v<sub>screen</sub>(t)</span> = Σ<sub>n</sub> <span class="hl2">H(n f<sub>0</sub>)</span> <span class="hl">c<sub>n</sub></span> e<sup>i 2π n f<sub>0</sub> t</sup>';
+    sm='every trace is a sum of sines; the instrument decides how many arrive, and how bent';
+  } else if(v==='trigger'){
+    eq='<span class="lhs">t*</span> :&nbsp; v(t*) = <span class="hl">L</span>, &nbsp; v′(t*) '+(M.st.tslope==='rise'?'&gt;':'&lt;')+' 0';
+    sm='a stable picture is the same picture, started at the same phase every sweep — that is all a trigger is';
+  } else if(v==='sampling'){
+    eq='<span class="lhs">f<sub>seen</sub></span> = | f − f<sub>s</sub> · <span class="hl">round</span>(f / f<sub>s</sub>) |';
+    sm='the sampler cannot tell any of these apart — every f in the accordion lands on the same dots';
+  } else if(v==='probe'){
+    eq='<span class="lhs">R₁C₁</span> = <span class="hl">R₂C₂</span> &nbsp;⇒&nbsp; H = R₂/(R₁+R₂) at every frequency';
+    sm='one condition makes the divider forget frequency; the trimmer is '+fmt(TRIM_COMP,2)+' pF here, and the cal square is how you find it';
+  } else if(v==='spectrum'){
+    eq='<span class="lhs">X<sub>k</sub></span> = Σ<sub>n=0</sub><sup>N−1</sup> x<sub>n</sub> <span class="hl">e<sup>−i 2π k n / N</sup></span>';
+    sm='the record resolved into the lines it is made of — and the window decides how honest each line is';
+  } else {
+    eq='<span class="lhs">V<sub>load</sub></span> = EMF · <span class="hl">Z<sub>L</sub> / (Z<sub>L</sub> + 50 Ω)</span>';
+    sm='the amplitude knob is a promise about a 50 Ω load; break the condition and the number doubles';
+  }
+  return eq+'<span class="sm">'+sm+'</span>';
+}
+
+function tagHTML(M){
+  const st=M.st;
+  if(st.view==='probe')
+    return '<b>'+fmt(st.trim,1)+' pF</b> against '+fmt(TRIM_COMP,2)+' pF · τ = '+fmtSI(M.pr.tau,'s')
+      +' · kC = '+fmt(M.pr.kC,3)+' · kR = '+fmt(M.pr.kR,3);
+  if(st.view==='sampling')
+    return '<b>'+fmtSI(M.g1.f0,'Hz')+'</b> sampled at <b>'+fmtSI(M.fs,'Sa/s')+'</b> → seen at '
+      +fmtSI(M.fdisp,'Hz')+(M.aliased?' — an alias':'');
+  if(st.view==='spectrum')
+    return '<b>'+fmtSI(M.spec?M.spec.binHz:M.fs/HW.NFFT,'Hz')+'</b>/bin · '
+      +(st.winf==='hann'?'Hann (ENBW 1.5 bins)':'rectangular (ENBW 1.0 bin)');
+  if(st.view==='path')
+    return '<b>'+CONNS.find(c=>c.id===st.conn).name+'</b> · set → screen ×'+fmt(M.gain0,4);
+  return '<b>'+WAVES.find(w=>w.id===M.g1.wave).name+' '+fmtSI(M.g1.f0,'Hz')+'</b> · '
+    +fmtSI(TDIV[st.tdivI],'s')+'/div · '+fmtSI(VDIV[st.vdivI],'V')+'/div · fs '
+    +fmtSI(M.fs,'Sa/s');
+}
+/* ================================================================== *
+ *  drawing helpers                                                    *
+ *                                                                     *
+ *  Text is wrapped on a MEASURED width, never on a character count —   *
+ *  a character budget overran the panel edge in wind_tunnel.html and   *
+ *  is on this project's Known-bad list.                                *
+ * ================================================================== */
+/* Canvas text is not HTML: fillText draws "&rsquo;" as seven characters on the
+   screen.  The readout and the info panel ARE HTML and use entities correctly,
+   and prose gets copied between the two, so rather than trusting nobody ever
+   pastes the wrong way, caption() decodes the handful this file uses. */
+const ENTS={'&rsquo;':'\u2019','&lsquo;':'\u2018','&mdash;':'\u2014','&ndash;':'\u2013',
+            '&times;':'\u00d7','&deg;':'\u00b0','&nbsp;':' ','&minus;':'\u2212',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'\u2026'};
+/* strips TAGS as well as decoding entities — canvas has no markup parser,
+   and both holes are on the Known-bad list (drum_head.html) */
+function plain(s){ return String(s).replace(/<\/?[a-z][^>]{0,24}>/gi,'')
+  .replace(/&[a-z]+;/g,m=>ENTS[m]!==undefined?ENTS[m]:m); }
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  const xt=o.xticks||ticksFor(xlo,xhi,6), yt=o.yticks||ticksFor(ylo,yhi,5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-6); }
+  ctx.restore();
+}
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  let started=false;
+  const n=Math.min(xs.length,ys.length);
+  for(let i=0;i<n;i++){
+    const X=b.x+b.w*(xs[i]-xlo)/(xhi-xlo||1);
+    const Y=b.y1-b.h*(ys[i]-ylo)/(yhi-ylo||1);
+    if(!isFinite(X)||!isFinite(Y)) { started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else ctx.lineTo(X,Y);
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  the scope screen — graticule and trace plumbing                    *
+ * ================================================================== */
+const COL={ch1:'#b8ec4c',ch2:'#cd35c4',truth:'#e8843a',struct:'#5ac8e0',
+           grid:'#161c29',gridC:'#25304a',screen:'#060a11'};
+/* the floating readout lives top-right: about 320 px wide and up to 560
+   tall including margins.  Views RESERVE that corner (Known-bad list). */
+const RO_W=336, RO_H=568;
+
+function gridBox(ctx,G,ndx,ndy){
+  ctx.fillStyle=COL.screen;
+  ctx.fillRect(G.x,G.y,G.w,G.h);
+  ctx.lineWidth=1;
+  ctx.strokeStyle=COL.grid;
+  for(let i=0;i<=ndx;i++){ const X=Math.round(G.x+G.w*i/ndx)+0.5;
+    ctx.beginPath(); ctx.moveTo(X,G.y); ctx.lineTo(X,G.y1); ctx.stroke(); }
+  for(let j=0;j<=ndy;j++){ const Y=Math.round(G.y+G.h*j/ndy)+0.5;
+    ctx.beginPath(); ctx.moveTo(G.x,Y); ctx.lineTo(G.x1,Y); ctx.stroke(); }
+  /* centre crosshair with 1/5-division minor ticks, like the real glass */
+  const cx0=Math.round(G.x+G.w/2)+0.5, cy0=Math.round(G.y+G.h/2)+0.5;
+  ctx.strokeStyle=COL.gridC;
+  ctx.beginPath(); ctx.moveTo(cx0,G.y); ctx.lineTo(cx0,G.y1); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(G.x,cy0); ctx.lineTo(G.x1,cy0); ctx.stroke();
+  ctx.beginPath();
+  for(let i=0;i<=ndx*5;i++){ const X=G.x+G.w*i/(ndx*5);
+    ctx.moveTo(X,cy0-3); ctx.lineTo(X,cy0+3); }
+  for(let j=0;j<=ndy*5;j++){ const Y=G.y+G.h*j/(ndy*5);
+    ctx.moveTo(cx0-3,Y); ctx.lineTo(cx0+3,Y); }
+  ctx.stroke();
+  frame(ctx,G,'#2a3145');
+}
+const divX=(G,xd)=>G.x+G.w*xd/HW.DIVH;
+const divY=(G,yd)=>G.y+G.h*(HW.DIVV/2-yd)/HW.DIVV;
+
+/* draw one channel of a record into graticule G.  yArr is in divisions. */
+function drawRecord(ctx,G,rec,yArr,col,mode){
+  const nOn=Math.min(HW.NREC,Math.round(rec.span/rec.dt));
+  const step=Math.max(1,Math.floor(nOn/2400));
+  ctx.save();
+  ctx.beginPath(); ctx.rect(G.x,G.y,G.w,G.h); ctx.clip();
+  if(mode==='dots'||nOn<=64){
+    ctx.fillStyle=col;
+    for(let i=0;i<nOn;i+=step){
+      const X=divX(G,i*rec.dt/rec.span*HW.DIVH), Y=divY(G,yArr[i]);
+      ctx.fillRect(X-1.5,Y-1.5,3,3);
+    }
+  }
+  if(mode==='sinc'){
+    const xs=[],ys=[];
+    const NPX=Math.min(1400,Math.round(G.w));
+    for(let p=0;p<=NPX;p++){
+      const t=rec.t0+rec.span*p/NPX;
+      xs.push(p/NPX*HW.DIVH);
+      ys.push(clamp(sincRecon(rec,t),-HW.DIVV/2,HW.DIVV/2));
+    }
+    polyline(ctx,G,xs,ys,0,HW.DIVH,-HW.DIVV/2,HW.DIVV/2,col,1.7);
+  } else if(mode!=='dots'){
+    const xs=[],ys=[];
+    for(let i=0;i<nOn;i+=step){ xs.push(i*rec.dt/rec.span*HW.DIVH); ys.push(yArr[i]); }
+    polyline(ctx,G,xs,ys,0,HW.DIVH,-HW.DIVV/2,HW.DIVV/2,col,1.7);
+  }
+  ctx.restore();
+}
+
+/* trigger-level arrow, trigger-instant caret, ground marker */
+function trigMarks(ctx,G,M){
+  const st=M.st;
+  const yl=divY(G,st.tlev+st.vpos);
+  if(yl>G.y&&yl<G.y1){
+    ctx.strokeStyle=COL.truth; ctx.lineWidth=1; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.moveTo(G.x,yl); ctx.lineTo(G.x1,yl); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle=COL.truth;
+    ctx.beginPath(); ctx.moveTo(G.x1+2,yl); ctx.lineTo(G.x1+10,yl-5);
+    ctx.lineTo(G.x1+10,yl+5); ctx.closePath(); ctx.fill();
+    ctx.font='10px -apple-system, sans-serif'; ctx.textAlign='left';
+    ctx.textBaseline='middle'; ctx.fillText('T',G.x1+13,yl);
+  }
+  if(M.rec.trig){
+    const xd=(M.rec.tref-M.rec.t0)/M.rec.dt*(M.rec.dt/M.rec.span)*HW.DIVH;
+    const X=divX(G,xd);
+    if(X>G.x&&X<G.x1){
+      ctx.fillStyle=COL.truth;
+      ctx.beginPath(); ctx.moveTo(X,G.y+9); ctx.lineTo(X-5,G.y+1);
+      ctx.lineTo(X+5,G.y+1); ctx.closePath(); ctx.fill();
+    }
+  }
+  const yg=divY(G,M.st.vpos);
+  if(yg>G.y&&yg<G.y1){
+    ctx.fillStyle=COL.ch1; ctx.font='10px -apple-system, sans-serif';
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText('1▸',G.x-3,yg);
+  }
+}
+
+/* ================================================================== *
+ *  view: the trace                                                    *
+ * ================================================================== */
+function drawTrace(ctx,W,H,M,S){
+  const st=M.st;
+  if(st.disp==='xy') return drawXY(ctx,W,H,M,S);
+  const G=box(64,60,W-64-RO_W-34,H-60-158);
+  gridBox(ctx,G,HW.DIVH,HW.DIVV);
+  if(M.rec.none){
+    caption(ctx,G.x+G.w*0.28,G.y+G.h*0.45,
+      'NORMAL trigger mode, and the signal never crosses '+fmt(st.tlev,2)
+      +' div — the scope is holding the screen blank on purpose. Drop the '
+      +'level, or switch back to AUTO.',G.w*0.44,'#8b93a6',
+      'italic 13px Georgia, serif');
+    trigMarks(ctx,G,M);
+    return;
+  }
+  /* free-run ghosts: what "untriggered" actually looks like */
+  if(!M.rec.trig&&st.persist){
+    for(let j=5;j>=1;j--){
+      const ph=freerunPhase(M.sweep.k-j)/M.g1.f0;
+      const xs=[],ys=[];
+      for(let p=0;p<=300;p++){
+        const t=M.rec.tref-(HW.DIVH/2-st.hpos)*M.tdiv+ph
+               +(p/300)*M.rec.span-freerunPhase(M.sweep.k)/M.g1.f0;
+        xs.push(p/300*HW.DIVH);
+        ys.push(clamp(seriesEval(M.ser1,t)/M.vdiv+st.vpos,-4,4));
+      }
+      polyline(ctx,G,xs,ys,0,HW.DIVH,-4,4,mix(COL.screen,COL.ch1,0.10+0.07*(5-j)),1.2);
+    }
+  }
+  drawRecord(ctx,G,M.rec,M.rec.y,COL.ch1,st.recon);
+  if(M.y2) drawRecord(ctx,G,M.rec,M.y2,COL.ch2,st.recon);
+  trigMarks(ctx,G,M);
+  /* measurement strip, like the bottom of a real screen */
+  const m=M.meas, ty=G.y1+16;
+  ctx.font='12px "SF Mono", Menlo, monospace';
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillStyle=COL.ch1;
+  ctx.fillText(plain('CH1  '+fmtSI(m.vpp,'V')+'pp   '+fmtSI(m.rms,'V')+'rms   mean '
+    +fmtSI(m.mean,'V')+'   f '+(m.freq!==null?fmtSI(m.freq,'Hz'):'—')
+    +'   rise '+(m.rise!==null?fmtSI(m.rise,'s'):'—')),G.x,ty);
+  ctx.fillStyle=M.rec.trig?'#8b93a6':COL.truth;
+  ctx.fillText(plain((M.rec.trig?'Trig’d':'AUTO — free run')+'   '
+    +fmtSI(M.tdiv,'s')+'/div   '+fmtSI(M.vdiv,'V')+'/div   fs '
+    +fmtSI(M.fs,'Sa/s')),G.x,ty+19);
+  if(M.aliased){
+    ctx.fillStyle=COL.truth;
+    ctx.fillText(plain('◆ ALIAS: showing '+fmtSI(M.fdisp,'Hz')+', the input is '
+      +fmtSI(M.g1.f0,'Hz')),G.x,ty+38);
+  } else if(M.rec.clipped>0){
+    ctx.fillStyle=COL.truth;
+    ctx.fillText(plain('◆ CLIPPING: '+M.rec.clipped+' samples at the rail'),G.x,ty+38);
+  }
+  caption(ctx,G.x,G.y-26,'the screen — '+HW.DIVH+' × '+HW.DIVV
+    +' divisions, centre-triggered',G.w,'#767e92','italic 13px Georgia, serif');
+}
+
+/* ---- X-Y mode -------------------------------------------------- */
+function drawXY(ctx,W,H,M,S){
+  const st=M.st;
+  const avail=Math.min(W-64-RO_W-40,H-60-140);
+  const G=box(64+(W-64-RO_W-40-avail)/2,60,avail,avail);
+  ctx.fillStyle=COL.screen; ctx.fillRect(G.x,G.y,G.w,G.h);
+  ctx.lineWidth=1; ctx.strokeStyle=COL.grid;
+  for(let i=0;i<=8;i++){
+    const X=Math.round(G.x+G.w*i/8)+0.5, Y=Math.round(G.y+G.h*i/8)+0.5;
+    ctx.beginPath(); ctx.moveTo(X,G.y); ctx.lineTo(X,G.y1); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(G.x,Y); ctx.lineTo(G.x1,Y); ctx.stroke();
+  }
+  frame(ctx,G,'#2a3145');
+  const toX=v=>G.x+G.w*(v+4)/8, toY=v=>G.y+G.h*(4-v)/8;
+  /* the analytic figure, closed over q cycles of channel 1 — the truth */
+  const [p,q]=st.ratio.split(':').map(Number);
+  ctx.save(); ctx.beginPath(); ctx.rect(G.x,G.y,G.w,G.h); ctx.clip();
+  ctx.strokeStyle=mix(COL.screen,COL.truth,0.55); ctx.lineWidth=1.1;
+  ctx.beginPath();
+  const NP=1200, Tclose=q/M.g1.f0;
+  for(let i=0;i<=NP;i++){
+    const t=Tclose*i/NP;
+    const X=toX(clamp(seriesEval(M.ser1,t)/M.vdiv,-4.2,4.2));
+    const Y=toY(clamp(seriesEval(M.ser2,t)/M.vdiv,-4.2,4.2));
+    if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y);
+  }
+  ctx.stroke();
+  /* what the record actually holds (dots so aliasing shows) */
+  if(!M.rec.none&&M.y2){
+    ctx.fillStyle=COL.ch1;
+    const nOn=Math.min(HW.NREC,Math.round(M.rec.span/M.rec.dt));
+    const step=Math.max(1,Math.floor(nOn/1600));
+    for(let i=0;i<nOn;i+=step){
+      const X=toX(M.rec.y[i]-st.vpos), Y=toY(M.y2[i]);
+      ctx.fillRect(X-1.4,Y-1.4,2.8,2.8);
+    }
+  }
+  ctx.restore();
+  caption(ctx,G.x,G.y-26,'X–Y — channel 1 drives x, channel 2 drives y · ratio '
+    +st.ratio+' · Δφ = '+fmt(st.ph2,0)+'°',G.w+80,'#767e92',
+    'italic 13px Georgia, serif');
+  /* phase from the ellipse, the way it was read before counters existed */
+  let ph=null;
+  if(p===1&&q===1&&st.wave==='sine'&&st.wave2==='sine'){
+    let xmax=0,x0=null;
+    for(let i=0;i<=NP;i++){
+      const t=Tclose*i/NP, x=seriesEval(M.ser1,t), y=seriesEval(M.ser2,t);
+      if(Math.abs(x)>xmax) xmax=Math.abs(x);
+      if(i>0){
+        const tp=Tclose*(i-1)/NP, yp=seriesEval(M.ser2,tp);
+        if(yp<0&&y>=0) x0=Math.abs(x);
+      }
+    }
+    if(xmax>0&&x0!==null) ph=Math.asin(clamp(x0/xmax,0,1))*RAD;
+  }
+  const cy=G.y1+14;
+  ctx.font='12px "SF Mono", Menlo, monospace'; ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillStyle='#8b93a6';
+  ctx.fillText(plain(ph!==null
+    ?'sin φ = x(y=0)/x_max  ⇒  φ = '+fmt(ph,1)+'° (set '
+      +fmt(st.ph2>180?360-st.ph2:st.ph2,1)+'°, quadrant-folded)'
+    :'lobes touching the top : lobes touching the side = f₂ : f₁ = '+st.ratio),
+    G.x,cy);
+}
+
+/* ================================================================== *
+ *  view: the trigger                                                  *
+ * ================================================================== */
+function drawTrigger(ctx,W,H,M,S){
+  const st=M.st;
+  const lev=st.tlev*M.vdiv;
+  const wTop=W-64-RO_W-34;
+  const A=box(64,66,wTop,Math.round((H-260)*0.46));
+  const B=box(64,A.y1+92,wTop,H-158-(A.y1+92));
+  /* -- the raw signal, running free ------------------------------- */
+  const R=Math.max(3/M.g1.f0,2*M.rec.span);
+  const t0=M.sweep.tbase;
+  const xs=[],ys=[];
+  let ymax=1e-12;
+  for(let i=0;i<=900;i++){
+    const v=seriesEval(M.ser1,t0+R*i/900);
+    xs.push(R*i/900); ys.push(v);
+    if(Math.abs(v)>ymax) ymax=Math.abs(v);
+  }
+  const yr=Math.max(ymax*1.15,Math.abs(lev)*1.3+1e-9);
+  axes(ctx,A,0,R,-yr,yr,{title:'the signal, before anybody chooses when to look',
+    xfmt:t=>fmtSI(t,'s',1),yfmt:v=>fmtSI(v,'V',1)});
+  ctx.save(); ctx.beginPath(); ctx.rect(A.x,A.y,A.w,A.h); ctx.clip();
+  /* holdoff shading first, trace on top */
+  const hold=st.hold>0?st.hold/M.g1.f0:0;
+  const trigs=M.rec.trigs;
+  if(hold>0){
+    ctx.fillStyle=mix(COL.screen,COL.truth,0.16);
+    for(const tc of trigs){
+      const x1=A.x+A.w*clamp((tc-t0)/R,0,1), x2=A.x+A.w*clamp((tc+hold-t0)/R,0,1);
+      if(x2>x1) ctx.fillRect(x1,A.y,x2-x1,A.h);
+    }
+  }
+  polyline(ctx,A,xs,ys,0,R,-yr,yr,COL.ch1,1.5);
+  const yL=A.y1-A.h*(lev+yr)/(2*yr);
+  ctx.strokeStyle=COL.truth; ctx.setLineDash([5,4]); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(A.x,yL); ctx.lineTo(A.x1,yL); ctx.stroke();
+  ctx.setLineDash([]);
+  /* every crossing of the level, and the ones the trigger ACCEPTS */
+  const all=findTriggers(M.ser1,lev,st.tslope,t0,R,0);
+  ctx.fillStyle='#6f7789';
+  for(const tc of all){
+    const X=A.x+A.w*(tc-t0)/R;
+    ctx.beginPath(); ctx.arc(X,yL,3,0,TAU); ctx.fill();
+  }
+  ctx.fillStyle=COL.truth;
+  for(const tc of trigs){
+    if(tc<t0||tc>t0+R) continue;
+    const X=A.x+A.w*(tc-t0)/R;
+    ctx.beginPath(); ctx.arc(X,yL,4.5,0,TAU); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(X,A.y+10); ctx.lineTo(X-4,A.y+2);
+    ctx.lineTo(X+4,A.y+2); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  caption(ctx,A.x,A.y1+30,'grey dots: every '+(st.tslope==='rise'?'rising':'falling')
+    +' crossing of L = '+fmtSI(lev,'V')+'.  Orange: the crossings the trigger accepts'
+    +(hold>0?' — holdoff '+fmtSI(hold,'s')+' (shaded) swallows the rest.':'.')
+    +(st.tmode==='auto'?'  AUTO mode sweeps anyway when nothing crosses.':
+      '  NORMAL mode waits, for ever if need be.'),A.w,'#767e92');
+  /* -- what accumulates on the phosphor --------------------------- */
+  gridBox(ctx,B,HW.DIVH,HW.DIVV);
+  const NSW=7;
+  for(let j=NSW-1;j>=0;j--){
+    let tref;
+    if(M.rec.trig&&trigs.length>0) tref=trigs[Math.min(j,trigs.length-1)];
+    else if(M.rec.none) break;
+    else tref=t0+freerunPhase(M.sweep.k+j)/M.g1.f0;
+    const xs2=[],ys2=[];
+    for(let p2=0;p2<=340;p2++){
+      const t=tref-(HW.DIVH/2-st.hpos)*M.tdiv+(p2/340)*M.rec.span;
+      xs2.push(p2/340*HW.DIVH);
+      ys2.push(clamp(seriesEval(M.ser1,t)/M.vdiv+st.vpos,-4,4));
+    }
+    const c=j===0?COL.ch1:mix(COL.screen,COL.ch1,0.14+0.6*Math.pow(0.7,j));
+    polyline(ctx,B,xs2,ys2,0,HW.DIVH,-4,4,c,j===0?1.8:1.2);
+  }
+  if(M.rec.none)
+    caption(ctx,B.x+B.w*0.3,B.y+B.h*0.44,'nothing: NORMAL mode with no crossing '
+      +'draws no sweep at all',B.w*0.4,'#8b93a6','italic 13px Georgia, serif');
+  trigMarks(ctx,B,M);
+  caption(ctx,B.x,B.y1+10,M.rec.trig
+    ?'seven consecutive sweeps, every one started at the same phase — they land '
+     +'exactly on top of one another, which is why the picture stands still.'
+    :'seven consecutive sweeps started wherever the free-running timebase happened '
+     +'to be: the same signal, smeared into ghosts. This is what "untriggered" means.',
+    B.w,'#767e92');
+}
+
+/* ================================================================== *
+ *  view: sampling                                                     *
+ * ================================================================== */
+function drawSampling(ctx,W,H,M,S){
+  const st=M.st, rec=M.rec;
+  const wTop=W-64-RO_W-34;
+  const A=box(64,66,wTop,Math.round((H-300)*0.52));
+  const yr=4*M.vdiv;
+  axes(ctx,A,0,rec.span,-yr,yr,{title:'what the wire carries, and what the record keeps',
+    xfmt:t=>fmtSI(t,'s',1),yfmt:v=>fmtSI(v,'V',1)});
+  ctx.save(); ctx.beginPath(); ctx.rect(A.x,A.y,A.w,A.h); ctx.clip();
+  /* the analog truth, densely (from t=0 if NORMAL mode kept no record) */
+  const T0=rec.none?0:rec.t0;
+  {
+    const xs=[],ys=[];
+    for(let i=0;i<=1100;i++){
+      const t=T0+rec.span*i/1100;
+      xs.push(t-T0); ys.push(seriesEval(M.ser1,t));
+    }
+    polyline(ctx,A,xs,ys,0,rec.span,-yr,yr,COL.truth,1.3);
+  }
+  /* the reconstruction the display draws between the dots */
+  if(!rec.none){
+    const nOn=Math.min(HW.NREC,Math.round(rec.span/rec.dt));
+    if(st.recon==='sinc'){
+      const xs=[],ys=[];
+      for(let p=0;p<=1000;p++){
+        const t=rec.t0+rec.span*p/1000;
+        xs.push(t-rec.t0); ys.push((sincRecon(rec,t)-st.vpos)*M.vdiv);
+      }
+      polyline(ctx,A,xs,ys,0,rec.span,-yr,yr,COL.ch1,1.6);
+    } else if(st.recon==='linear'){
+      const xs=[],ys=[];
+      for(let i=0;i<nOn;i++){ xs.push(i*rec.dt); ys.push((rec.y[i]-st.vpos)*M.vdiv); }
+      polyline(ctx,A,xs,ys,0,rec.span,-yr,yr,COL.ch1,1.6);
+    }
+    ctx.fillStyle=COL.ch1;
+    const step=Math.max(1,Math.floor(nOn/700));
+    for(let i=0;i<nOn;i+=step){
+      const X=A.x+A.w*(i*rec.dt)/rec.span, Y=A.y1-A.h*((rec.y[i]-st.vpos)*M.vdiv+yr)/(2*yr);
+      ctx.fillRect(X-1.6,Y-1.6,3.2,3.2);
+    }
+  }
+  ctx.restore();
+  caption(ctx,A.x,A.y1+30,'orange: the analog signal at the front end, drawn from '
+    +'the series itself.  Green dots: the '+fmtSI(M.fs,'Sa/s')+' record — '
+    +(M.aliased?'and they trace out '+fmtSI(M.fdisp,'Hz')+', not '
+      +fmtSI(M.g1.f0,'Hz')+'. Both curves pass through every dot; the record cannot '
+      +'know which one it saw.'
+     :'at this timebase they follow the signal faithfully (Nyquist is '
+      +fmtSI(M.fs/2,'Hz')+').'),A.w,'#767e92');
+
+  /* -- the folding accordion --------------------------------------- */
+  const By=A.y1+96;
+  const B=box(64,By,Math.round(wTop*0.56),H-140-By);
+  const fmax=Math.max(3*M.fs,M.g1.f0*1.15);
+  axes(ctx,B,0,fmax,0,M.fs/2,{title:'the accordion: every input frequency lands somewhere in [0, fs/2]',
+    xfmt:f=>fmtSI(f,'Hz',0),yfmt:f=>fmtSI(f,'Hz',0)});
+  {
+    const xs=[],ys=[];
+    for(let i=0;i<=800;i++){ const f=fmax*i/800; xs.push(f); ys.push(foldFreq(f,M.fs)); }
+    polyline(ctx,B,xs,ys,0,fmax,0,M.fs/2,COL.struct,1.5);
+    ctx.save(); ctx.beginPath(); ctx.rect(B.x,B.y,B.w,B.h); ctx.clip();
+    ctx.strokeStyle='#3a4152'; ctx.setLineDash([4,4]); ctx.lineWidth=1;
+    for(let k=1;k*M.fs/2<=fmax;k++){
+      const X=B.x+B.w*(k*M.fs/2)/fmax;
+      ctx.beginPath(); ctx.moveTo(X,B.y); ctx.lineTo(X,B.y1); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    /* the harmonics of a non-sine input each fold on their own */
+    if(M.g1.wave!=='sine'){
+      ctx.fillStyle=mix(COL.screen,COL.ch2,0.55);
+      for(let n=2;n<=M.ser1.NH;n++){
+        const f=n*M.g1.f0; if(f>fmax) break;
+        const X=B.x+B.w*f/fmax, Y=B.y1-B.h*foldFreq(f,M.fs)/(M.fs/2);
+        ctx.fillRect(X-1.5,Y-1.5,3,3);
+      }
+    }
+    ctx.restore();
+    const X=B.x+B.w*Math.min(M.g1.f0,fmax)/fmax, Y=B.y1-B.h*M.fdisp/(M.fs/2);
+    ctx.fillStyle=COL.ch2;
+    ctx.beginPath(); ctx.arc(X,Y,5,0,TAU); ctx.fill();
+  }
+  const cx0=B.x1+18, cw=wTop-(B.w+18);
+  let cy=By+4;
+  cy+=caption(ctx,cx0,cy,'f seen = |f − fs·round(f/fs)|',cw,'#aeb6c6',
+    'italic 13px Georgia, serif')+6;
+  cy+=caption(ctx,cx0,cy,'fs is not a free choice: the record is '+HW.NREC
+    +' points spread over 10 divisions, so fs = '+HW.NREC+' / (10 × '
+    +fmtSI(M.tdiv,'s')+') = '+fmtSI(HW.NREC/(10*M.tdiv),'Sa/s')
+    +(HW.NREC/(10*M.tdiv)>HW.FSMAX?', capped at the digitiser’s '
+    +fmtSI(HW.FSMAX,'Sa/s')+'.':'.')
+    +' Slow the timebase and the sample rate falls with it — the alias trap '
+    +'is set by the most innocent knob on the panel.',cw,'#767e92')+8;
+  if(M.g1.wave!=='sine')
+    caption(ctx,cx0,cy,'magenta dots: each harmonic of the '
+      +WAVES.find(w=>w.id===M.g1.wave).name+' folds separately — a waveform '
+      +'can come back wearing a spectrum no generator would ever emit.',cw,'#767e92');
+}
+
+/* ================================================================== *
+ *  view: the probe                                                    *
+ * ================================================================== */
+function drawProbe(ctx,W,H,M,S){
+  const st=M.st;
+  const wAll=W-64-RO_W-34;
+  const CIR=box(64,70,Math.round(wAll*0.44),190);
+  /* --- the divider, drawn ---------------------------------------- */
+  frame(ctx,CIR,'#242a3a');
+  ctx.save();
+  const midY=CIR.y+CIR.h*0.52, nodeX=CIR.x+CIR.w*0.56;
+  const rl=(x,y,w2,h2,lab,val)=>{
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.4;
+    ctx.strokeRect(x,y,w2,h2);
+    ctx.fillStyle='#aeb6c6'; ctx.font='11px -apple-system, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='bottom';
+    ctx.fillText(plain(lab),x+w2/2,y-4);
+    ctx.textBaseline='top'; ctx.fillText(plain(val),x+w2/2,y+h2+4);
+  };
+  const capSym=(x,y,lab,val)=>{
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.6;
+    ctx.beginPath(); ctx.moveTo(x-9,y-5); ctx.lineTo(x+9,y-5);
+    ctx.moveTo(x-9,y+5); ctx.lineTo(x+9,y+5); ctx.stroke();
+    ctx.fillStyle='#aeb6c6'; ctx.font='11px -apple-system, sans-serif';
+    ctx.textAlign='left'; ctx.textBaseline='middle';
+    ctx.fillText(plain(lab+' '+val),x+14,y);
+  };
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1.4;
+  ctx.beginPath();
+  ctx.moveTo(CIR.x+16,midY); ctx.lineTo(CIR.x+52,midY);
+  ctx.moveTo(nodeX,midY); ctx.lineTo(CIR.x1-40,midY);
+  ctx.stroke();
+  ctx.fillStyle='#aeb6c6'; ctx.font='11px -apple-system, sans-serif';
+  ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText('tip',CIR.x+16,midY-6);
+  ctx.textAlign='right'; ctx.fillText('scope',CIR.x1-40,midY-6);
+  rl(CIR.x+52,midY-13,nodeX-CIR.x-52-8,26,'R₁ 9 MΩ','');
+  /* C1 in parallel below R1; its label sits BELOW the branch wire */
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1.6;
+  ctx.beginPath();
+  ctx.moveTo(CIR.x+71,midY+39); ctx.lineTo(CIR.x+89,midY+39);
+  ctx.moveTo(CIR.x+71,midY+49); ctx.lineTo(CIR.x+89,midY+49); ctx.stroke();
+  ctx.fillStyle='#aeb6c6'; ctx.font='11px -apple-system, sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillText(plain('C₁ trim '+fmt(st.trim,1)+' pF'),CIR.x+80,midY+56);
+  ctx.lineWidth=1.4;
+  ctx.beginPath();
+  ctx.moveTo(CIR.x+52,midY); ctx.lineTo(CIR.x+52,midY+44); ctx.lineTo(CIR.x+71,midY+44);
+  ctx.moveTo(CIR.x+89,midY+44); ctx.lineTo(nodeX-8,midY+44); ctx.lineTo(nodeX-8,midY);
+  ctx.stroke();
+  /* R2 vertical, label beside it where no wire can cross it */
+  ctx.strokeRect(nodeX+30,midY+18,20,28);
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText(plain('R₂ 1 MΩ'),nodeX+56,midY+32);
+  capSym(nodeX+120,midY+37,'C₂',fmt(C2TOT*1e12,0)+' pF');
+  ctx.beginPath();
+  ctx.moveTo(nodeX+40,midY); ctx.lineTo(nodeX+40,midY+18);
+  ctx.moveTo(nodeX+40,midY+46); ctx.lineTo(nodeX+40,midY+62);
+  ctx.moveTo(nodeX+120,midY); ctx.lineTo(nodeX+120,midY+32);
+  ctx.moveTo(nodeX+120,midY+42); ctx.lineTo(nodeX+120,midY+62);
+  ctx.moveTo(nodeX+30,midY+62); ctx.lineTo(nodeX+144,midY+62);
+  ctx.stroke();
+  for(let g=0;g<3;g++){
+    ctx.beginPath();
+    ctx.moveTo(nodeX+87-10+g*4,midY+66+g*3); ctx.lineTo(nodeX+87+10-g*4,midY+66+g*3);
+    ctx.stroke();
+  }
+  ctx.restore();
+  caption(ctx,CIR.x,CIR.y1+8,'R₂C₂ is the scope and its cable — fixed. '
+    +'R₁C₁ is the probe — and C₁ is the screw. Equal time constants: '
+    +'a pure ÷10 at every frequency.',CIR.w,'#767e92');
+
+  /* --- the cal square, from the closed form ----------------------- */
+  const CAL=box(CIR.x1+64,70,wAll-CIR.w-64,H-70-330);
+  const T=1/M.g1.f0;
+  const ss=probeCalSS(st.trim,T);
+  const A0=M.g1.amp*2*(HW.RPR+HW.RIN)/(HW.RPR+HW.RIN+HW.RS); /* EMF at the tip */
+  const ymax=Math.max(ss.v0,ss.kR*1.02,0.115)*A0*10*1.25;
+  axes(ctx,CAL,0,2*T,-ymax,ymax,{title:'a ±'+fmt(A0,2)+' V square at '
+    +fmtSI(M.g1.f0,'Hz',0)+', through the divider (×10 shown)',
+    xfmt:t=>fmtSI(t,'s',1),yfmt:v=>fmtSI(v,'V',1)});
+  ctx.save(); ctx.beginPath(); ctx.rect(CAL.x,CAL.y,CAL.w,CAL.h); ctx.clip();
+  {
+    const xs=[],ys=[],xo=[],yo=[];
+    for(let i=0;i<=1200;i++){
+      const t=2*T*i/1200;
+      const u=(t/T)%1, sgn=u<0.5?1:-1, tin=(u<0.5?u:u-0.5)*T;
+      xo.push(t); yo.push(sgn*A0);
+      const v=ss.kR+(ss.v0-ss.kR)*Math.exp(-tin/ss.tau);
+      xs.push(t); ys.push(sgn*v*A0*10);
+    }
+    polyline(ctx,CAL,xo,yo,0,2*T,-ymax,ymax,mix(COL.screen,COL.truth,0.6),1.2,[6,4]);
+    polyline(ctx,CAL,xs,ys,0,2*T,-ymax,ymax,COL.ch1,1.8);
+  }
+  ctx.restore();
+  caption(ctx,CAL.x,CAL.y1+30,'dashed: the square at the tip.  Green: what the scope '
+    +'shows (probe ×10 folded in).  Each edge jumps to the CAPACITIVE ratio '
+    +'C₁/(C₁+C₂) = '+fmt(ss.kC,3)+' and settles to the RESISTIVE one '
+    +'R₂/(R₁+R₂) = '+fmt(ss.kR,3)+' with τ = '+fmtSI(ss.tau,'s')
+    +' — '+(M.comp<=0.2?'and they agree: compensated.'
+      :(st.trim<TRIM_COMP?'the spike-and-sag of an under-compensated probe.'
+        :'the overshoot of an over-compensated probe.')),CAL.w,'#767e92');
+
+  /* --- |H| over frequency ----------------------------------------- */
+  const BO=box(64,Math.max(CIR.y1,CAL.y1)+92,wAll,H-140-(Math.max(CIR.y1,CAL.y1)+92));
+  const lf0=2,lf1=8;
+  axes(ctx,BO,lf0,lf1,0,2,{title:'|H(f)| × 10 — what "flat" means',
+    xticks:[2,3,4,5,6,7,8],xfmt:e=>fmtSI(Math.pow(10,e),'Hz',0),yfmt:v=>fmt(v,1)});
+  {
+    const xs=[],ys=[];
+    for(let i=0;i<=700;i++){
+      const lf=lf0+(lf1-lf0)*i/700;
+      xs.push(lf); ys.push(cxAbs(Hdivider(Math.pow(10,lf),HW.RPR,st.trim*1e-12,HW.RIN,C2TOT))*10);
+    }
+    polyline(ctx,BO,xs,ys,lf0,lf1,0,2,COL.ch1,1.8);
+    polyline(ctx,BO,[lf0,lf1],[1,1],lf0,lf1,0,2,mix(COL.screen,COL.truth,0.6),1,[6,4]);
+    polyline(ctx,BO,[lf0,lf1],[ss.kC*10,ss.kC*10],lf0,lf1,0,2,
+             mix(COL.screen,COL.truth,0.6),1,[2,4]);
+  }
+  caption(ctx,BO.x+10,BO.y+8,'DC asymptote 10·kR = 1.  HF asymptote 10·kC = '
+    +fmt(10*ss.kC,2)+'.  The two meet only when R₁C₁ = R₂C₂, i.e. '
+    +'C₁ = '+fmt(TRIM_COMP,2)+' pF.',BO.w-260,'#767e92');
+}
+
+/* ================================================================== *
+ *  view: the spectrum                                                 *
+ * ================================================================== */
+function drawSpectrum(ctx,W,H,M,S){
+  const st=M.st;
+  const wAll=W-64-RO_W-34;
+  const A=box(64,66,wAll,Math.round((H-300)*0.55));
+  if(!M.spec){
+    caption(ctx,A.x+40,A.y+40,'no record to transform (NORMAL mode, no trigger).',
+      500,'#8b93a6','italic 13px Georgia, serif');
+    return;
+  }
+  const spec=M.spec, half=spec.amp.length;
+  const dbOf=v=>20*Math.log10(Math.max(v,1e-9));
+  let dmax=-200;
+  for(let k=1;k<half;k++) dmax=Math.max(dmax,dbOf(spec.amp[k]));
+  const yTop=Math.ceil(dmax/10)*10+10, yBot=yTop-100;
+  axes(ctx,A,0,M.fs/2,yBot,yTop,{title:'the record, transformed ('
+    +(st.winf==='hann'?'Hann':'rectangular')+' window, '+HW.NFFT+' points)',
+    xfmt:f=>fmtSI(f,'Hz',0),yfmt:v=>fmt(v,0)+' dBV'});
+  ctx.save(); ctx.beginPath(); ctx.rect(A.x,A.y,A.w,A.h); ctx.clip();
+  /* exact series lines first (orange), FFT on top (green) */
+  for(const L of M.lines){
+    const X=A.x+A.w*L.ff/(M.fs/2);
+    const Y=A.y1-A.h*clamp((dbOf(L.amp)-yBot)/(yTop-yBot),0,1);
+    ctx.strokeStyle=L.folded?mix(COL.screen,COL.truth,0.75):COL.truth;
+    ctx.lineWidth=L.folded?1:1.6;
+    if(L.folded) ctx.setLineDash([3,3]);
+    ctx.beginPath(); ctx.moveTo(X+1.5,A.y1); ctx.lineTo(X+1.5,Y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  {
+    const xs=[],ys=[];
+    for(let k=0;k<half;k++){ xs.push(k*spec.binHz); ys.push(dbOf(spec.amp[k])); }
+    polyline(ctx,A,xs,ys,0,M.fs/2,yBot,yTop,COL.ch1,1.2);
+  }
+  ctx.restore();
+  const cyc=M.g1.f0/spec.binHz;
+  caption(ctx,A.x,A.y1+30,'orange stems: the exact series lines |cₙ| after the '
+    +'analog path — dashes are lines that live ABOVE Nyquist, drawn where they '
+    +'fold to.  Green: the FFT of the record.  The transform window holds '+fmt(cyc,2)
+    +' cycles of f₀'+(Math.abs(cyc-Math.round(cyc))<1e-6
+      ?' — an integer, so each line sits in one bin.'
+      :' — not an integer, so every line LEAKS into its neighbours; the window '
+       +'decides how far.'),A.w,'#767e92');
+
+  /* --- built from lines: the partial sum -------------------------- */
+  const By=A.y1+92;
+  const B=box(64,By,wAll,H-140-By);
+  const K=Math.max(1,Math.round(st.klines));
+  axes(ctx,B,0,2,-1.5,1.5,{title:'the first '+K+' harmonics of the bare '
+    +WAVES.find(w=>w.id===M.g1.wave).name+', summed — Gibbs at every jump',
+    xfmt:t=>fmt(t,1)+' T',yfmt:v=>fmt(v,1)});
+  ctx.save(); ctx.beginPath(); ctx.rect(B.x,B.y,B.w,B.h); ctx.clip();
+  {
+    const xs=[],ys=[],xf=[],yf=[];
+    for(let i=0;i<=1400;i++){
+      const u=2*i/1400;
+      let sum=wfDC(M.g1.wave,M.g1.duty);
+      for(let n=1;n<=K;n++){
+        const [a,b]=wfCoef(M.g1.wave,n,M.g1.duty);
+        sum+=a*Math.cos(TAU*n*u)+b*Math.sin(TAU*n*u);
+      }
+      xs.push(u); ys.push(sum);
+      xf.push(u); yf.push(wfSample(M.g1.wave,u,M.g1.duty));
+    }
+    polyline(ctx,B,xf,yf,0,2,-1.5,1.5,mix(COL.screen,COL.truth,0.5),1.1,[5,4]);
+    polyline(ctx,B,xs,ys,0,2,-1.5,1.5,COL.ch1,1.6);
+    if(M.g1.wave==='square'){
+      const gb=1.1789797444721675;   /* (2/pi) Si(pi), scipy */
+      polyline(ctx,B,[0,2],[gb,gb],0,2,-1.5,1.5,'#6f7789',1,[2,4]);
+      ctx.fillStyle='#6f7789'; ctx.font='10.5px -apple-system, sans-serif';
+      ctx.textAlign='left'; ctx.textBaseline='bottom';
+      ctx.fillText(plain('(2/π) Si(π) = 1.1790 — the ears never come down'),
+        B.x+8,B.y1-B.h*(gb+1.5)/3-4);
+    }
+  }
+  ctx.restore();
+}
+
+/* ================================================================== *
+ *  view: the path                                                     *
+ * ================================================================== */
+function drawPath(ctx,W,H,M,S){
+  const st=M.st;
+  const wAll=W-64-RO_W-34;
+  const gap=46;
+  const pw=Math.floor((wAll-2*gap)/3);
+  const ph=Math.floor((H-260)/2)-30;
+  const rowY=[66,66+ph+130];
+  const stages=[
+    {b:box(64,rowY[0],pw,ph),ser:M.stages.emf,t:'1 · inside the generator',
+     n:'EMF = 2 × the set value, behind 50 Ω. The knob assumes a 50 Ω '
+      +'load will take half.'},
+    {b:box(64+pw+gap,rowY[0],pw,ph),ser:M.stages.tip,t:'2 · at the scope input',
+     n:CONNS.find(c=>c.id===st.conn).name+': ×'
+      +fmt(2*cxAbs(chainGain(st,M.g1.f0,'tip')),3)+' of the set value at f₀'
+      +(st.conn==='coax'?', one pole at '+fmtSI(1/(TAU*(HW.RS*HW.RIN/(HW.RS+HW.RIN))*C2TOT),'Hz',1)
+       :st.conn==='probe'?', divider ÷10 re-multiplied by the scope':', matched: flat')+'.'},
+    {b:box(64+2*(pw+gap),rowY[0],pw,ph),ser:M.ser1,t:'3 · after the front end',
+     n:st.coup.toUpperCase()+' coupling, one pole at '+fmtSI(M.fbw,'Hz',0)
+      +(st.bwlim?' (limit in)':'')+'. Rise time ≥ ln9/(2πf) = '
+      +fmtSI(Math.log(9)/(TAU*M.fbw),'s')+'.'},
+    {b:box(64,rowY[1],pw,ph),rec:true,t:'4 · the record',
+     n:fmtSI(M.fs,'Sa/s')+' × '+HW.NREC+' points'
+      +(st.quant8?', 8-bit steps of '+fmtSI(M.lsb,'V'):'')
+      +(M.aliased?' — ALIASED':'')+'.'},
+    {b:box(64+pw+gap,rowY[1],pw,ph),scr:true,t:'5 · the screen',
+     n:(M.meas?fmtSI(M.meas.vpp,'V')+'pp drawn at '+fmtSI(M.vdiv,'V')+'/div — '
+      +'set was '+fmt(2*M.g1.amp,2)+' Vpp into 50 Ω.':'(no trigger)')},
+  ];
+  const Tw=2/M.g1.f0;
+  for(const sg of stages){
+    const b=sg.b;
+    let ymax=1e-9;
+    const xs=[],ys=[];
+    if(sg.rec||sg.scr){
+      if(!M.rec.none){
+        const nOn=Math.min(HW.NREC,Math.round(M.rec.span/M.rec.dt));
+        const step=Math.max(1,Math.floor(nOn/500));
+        for(let i=0;i<nOn;i+=step){
+          const v=(M.rec.y[i]-st.vpos)*M.vdiv;
+          xs.push(i*M.rec.dt); ys.push(v);
+          if(Math.abs(v)>ymax) ymax=Math.abs(v);
+        }
+      }
+    } else {
+      for(let i=0;i<=420;i++){
+        const t=Tw*i/420, v=seriesEval(sg.ser,t);
+        xs.push(t); ys.push(v);
+        if(Math.abs(v)>ymax) ymax=Math.abs(v);
+      }
+    }
+    const yr=(sg.scr||sg.rec)?4*M.vdiv:ymax*1.2;
+    const xspan=(sg.rec||sg.scr)?M.rec.span:Tw;
+    axes(ctx,b,0,xspan,-yr,yr,{xfmt:t=>fmtSI(t,'s',1),yfmt:v=>fmtSI(v,'V',0)});
+    ctx.save(); ctx.beginPath(); ctx.rect(b.x,b.y,b.w,b.h); ctx.clip();
+    if(sg.rec){
+      ctx.fillStyle=COL.ch1;
+      for(let i=0;i<xs.length;i++){
+        const X=b.x+b.w*xs[i]/xspan, Y=b.y1-b.h*(ys[i]+yr)/(2*yr);
+        ctx.fillRect(X-1.2,Y-1.2,2.4,2.4);
+      }
+    } else if(xs.length)
+      polyline(ctx,b,xs,ys,0,xspan,-yr,yr,sg.scr?COL.ch1:COL.truth,1.5);
+    ctx.restore();
+    ctx.fillStyle='#aeb6c6'; ctx.font='italic 12.5px Georgia, serif';
+    ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.fillText(plain(sg.t),b.x,b.y-24);
+    caption(ctx,b.x,b.y1+26,sg.n,b.w+14,'#767e92');
+  }
+  /* arrows along the chain */
+  ctx.strokeStyle='#3a4152'; ctx.fillStyle='#3a4152'; ctx.lineWidth=1.4;
+  const arrow=(x1,y1,x2,y2)=>{
+    ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+    const a=Math.atan2(y2-y1,x2-x1);
+    ctx.beginPath(); ctx.moveTo(x2,y2);
+    ctx.lineTo(x2-9*Math.cos(a-0.4),y2-9*Math.sin(a-0.4));
+    ctx.lineTo(x2-9*Math.cos(a+0.4),y2-9*Math.sin(a+0.4));
+    ctx.closePath(); ctx.fill();
+  };
+  const midr=rowY[0]+ph/2;
+  arrow(stages[0].b.x1+8,midr,stages[1].b.x-34,midr);
+  arrow(stages[1].b.x1+8,midr,stages[2].b.x-34,midr);
+  arrow(stages[2].b.x+pw*0.55,rowY[0]+ph+74,stages[3].b.x+pw*0.8,rowY[1]-32);
+  arrow(stages[3].b.x1+8,rowY[1]+ph/2,stages[4].b.x-34,rowY[1]+ph/2);
+  /* the payoff line */
+  caption(ctx,stages[4].b.x1+30,rowY[1]+ph/2-20,
+    'five honest stages — and three of them have a knob that can quietly '
+    +'change the answer.',wAll-(stages[4].b.x1+30-64)-10,'#8b93a6',
+    'italic 13px Georgia, serif');
+}
+
+/* ================================================================== *
+ *  dispatch                                                           *
+ * ================================================================== */
+function drawView(ctx,W,H,M,S){
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  const v=M.st.view;
+  if(v==='trace')    return drawTrace(ctx,W,H,M,S);
+  if(v==='trigger')  return drawTrigger(ctx,W,H,M,S);
+  if(v==='sampling') return drawSampling(ctx,W,H,M,S);
+  if(v==='probe')    return drawProbe(ctx,W,H,M,S);
+  if(v==='spectrum') return drawSpectrum(ctx,W,H,M,S);
+  if(v==='path')     return drawPath(ctx,W,H,M,S);
+  return drawTrace(ctx,W,H,M,S);
+}
+
+/* ================================================================== *
+ *  autoset — the front-panel button                                   *
+ * ================================================================== */
+function autoSet(st){
+  const ser=buildSeries(st,1,1e9);
+  let mn=1e30,mx=-1e30;
+  for(let i=0;i<512;i++){
+    const v=seriesEval(ser,i/(512*ser.f0));
+    if(v<mn)mn=v; if(v>mx)mx=v;
+  }
+  const vpp=Math.max(1e-6,mx-mn);
+  let vi=VDIV.length-1;
+  for(let i=0;i<VDIV.length;i++) if(vpp<=6*VDIV[i]){ vi=i; break; }
+  let ti=TDIV.length-1;
+  for(let i=0;i<TDIV.length;i++) if(3/ser.f0<=HW.DIVH*TDIV[i]){ ti=i; break; }
+  st.vdivI=vi; st.tdivI=ti; st.vpos=0; st.hpos=0;
+  st.tlev=clamp(0.5*(mn+mx)/VDIV[vi],-3.9,3.9);
+  st.tmode='auto';
+  return {vpp,vi,ti};
+}
+
+/* ================================================================== *
+ *  the scene                                                          *
+ * ================================================================== */
+function makeScene(canvas){
+  const st=Object.assign({},DEFAULTS);
+  /* a scope's "camera" is its position knobs; cam only carries W/H */
+  const cam=makeCamera(0,0.001,10,[0,0,0]);
+  const sweep={k:7,tbase:0};
+  let M=null;
+  const S={
+    st,cam,sweep,
+    model(){ if(!M) S.rebuild(); return M; },
+    rebuild(){ M=buildModel(st,sweep); },
+    fit(){},
+    resetView(){ st.hpos=0; st.vpos=0; S.rebuild(); },
+    pointer(kind,d){
+      if(kind!=='move') return;
+      const pxDivX=Math.max(20,(cam.W-64-RO_W-34)/HW.DIVH);
+      const pxDivY=Math.max(20,(cam.H-60-158)/HW.DIVV);
+      st.hpos=clamp(st.hpos-d.dx/pxDivX,-5,5);
+      st.vpos=clamp(st.vpos-d.dy/pxDivY,-4,4);
+      S.rebuild();
+    },
+    wheel(dy){
+      st.tdivI=clamp(st.tdivI+(dy>0?1:-1),0,TDIV.length-1);
+      S.rebuild();
+    },
+    step(dt){
+      if(!st.anim) return;
+      sweep.k++;
+      const m=S.model();
+      sweep.tbase+=dt*st.speed*Math.max(m.rec.span,2/m.g1.f0);
+      S.rebuild();
+    },
+    draw(){
+      const ctx=canvas.getContext('2d');
+      const r=canvas.getBoundingClientRect?canvas.getBoundingClientRect():{width:cam.W,height:cam.H};
+      const Wd=r.width||cam.W, Hd=r.height||cam.H;
+      cam.W=Wd; cam.H=Hd;
+      if(!M) S.rebuild();
+      drawView(ctx,Wd,Hd,M,S);
+    },
+    readout(){ return readoutHTML(S.model()); },
+    eqbar(){ return eqbarHTML(S.model()); },
+    tag(){ return tagHTML(S.model()); },
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  UI                                                                 *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const subEl=document.getElementById('sub');
+  const S=makeScene(canvas), st=S.st;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  const TABS=[['trace','the trace'],['trigger','the trigger'],['sampling','sampling'],
+              ['probe','the probe'],['spectrum','the spectrum'],['path','the path']];
+  function setView(k){
+    st.view=k;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===k?'active':'');
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>{
+      setView(k); S.rebuild(); syncPanel(); refresh(); }},lab));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step,value:st[key]});
+    const val=h('span',{class:'val'});
+    const row=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); S.rebuild(); syncPanel(); refresh(); });
+    rows[key]={row,sync}; sync(); return row;
+  }
+  function checkbox(key,lab){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      S.rebuild(); syncPanel(); refresh(); });
+    return h('label',null,inp,lab);
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>
+          b.className='chip'+(list[i].id===st[key]?' on':''));
+        S.rebuild(); syncPanel(); refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+
+  const gPre=h('div',{class:'grp'},h('h3',null,'set-ups'));
+  gPre.appendChild(chipRow(PRESETS,'preset',o=>{
+    Object.assign(st,o.patch); setView(st.view); syncChips(); }));
+
+  const gGen=h('div',{class:'grp'},h('h3',null,'the generator — channel 1'));
+  gGen.appendChild(chipRow(WAVES,'wave'));
+  gGen.appendChild(slider('freqExp','frequency',1,7.699,0.001,
+    v=>fmtSI(Math.pow(10,v),'Hz')));
+  gGen.appendChild(slider('amp','amplitude',0.05,5,0.01,v=>'±'+fmt(v,2)+' V'));
+  gGen.appendChild(slider('off','offset',-2.5,2.5,0.01,v=>fmt(v,2)+' V'));
+  gGen.appendChild(slider('duty','duty',0.05,0.95,0.01,v=>fmt(v*100,0)+' %'));
+  const genTag=h('div',{class:'tag'}); gGen.appendChild(genTag);
+
+  const gCh2=h('div',{class:'grp'},h('h3',null,'channel 2 (1× hi-Z path)'));
+  gCh2.appendChild(h('div',{class:'checks'},checkbox('ch2','channel 2 on')));
+  gCh2.appendChild(chipRow(WAVES,'wave2'));
+  gCh2.appendChild(chipRow(RATIOS.map(r=>({id:r,name:r})),'ratio'));
+  gCh2.appendChild(slider('ph2','phase',0,360,1,v=>fmt(v,0)+'°'));
+  gCh2.appendChild(slider('amp2','amplitude',0.05,5,0.01,v=>'±'+fmt(v,2)+' V'));
+
+  const gConn=h('div',{class:'grp'},h('h3',null,'the connection'));
+  gConn.appendChild(chipRow(CONNS,'conn'));
+  gConn.appendChild(slider('trim','trimmer C₁',3,30,0.1,v=>fmt(v,1)+' pF'));
+  const connTag=h('div',{class:'tag'}); gConn.appendChild(connTag);
+
+  const gVert=h('div',{class:'grp'},h('h3',null,'vertical'));
+  gVert.appendChild(slider('vdivI','scale',0,VDIV.length-1,1,
+    v=>fmtSI(VDIV[Math.round(v)],'V')+'/div'));
+  gVert.appendChild(slider('vpos','position',-4,4,0.05,v=>fmt(v,2)+' div'));
+  gVert.appendChild(chipRow([{id:'dc',name:'DC'},{id:'ac',name:'AC'}],'coup'));
+  gVert.appendChild(h('div',{class:'checks'},
+    checkbox('bwlim','20 MHz bandwidth limit')));
+
+  const gHor=h('div',{class:'grp'},h('h3',null,'horizontal'));
+  gHor.appendChild(slider('tdivI','timebase',0,TDIV.length-1,1,
+    v=>fmtSI(TDIV[Math.round(v)],'s')+'/div'));
+  gHor.appendChild(slider('hpos','position',-5,5,0.05,v=>fmt(v,2)+' div'));
+  const horTag=h('div',{class:'tag'}); gHor.appendChild(horTag);
+
+  const gTrig=h('div',{class:'grp'},h('h3',null,'trigger'));
+  gTrig.appendChild(slider('tlev','level',-4,4,0.05,v=>fmt(v,2)+' div'));
+  gTrig.appendChild(chipRow([{id:'rise',name:'rising'},{id:'fall',name:'falling'}],'tslope'));
+  gTrig.appendChild(chipRow([{id:'auto',name:'auto'},{id:'normal',name:'normal'}],'tmode'));
+  gTrig.appendChild(slider('hold','holdoff',0,5,0.05,v=>fmt(v,2)+' periods'));
+
+  const gSpec=h('div',{class:'grp'},h('h3',null,'the spectrum'));
+  gSpec.appendChild(chipRow([{id:'hann',name:'Hann'},{id:'rect',name:'rectangular'}],'winf'));
+  gSpec.appendChild(slider('klines','harmonics drawn',1,99,1,v=>fmt(v,0)));
+
+  const gDisp=h('div',{class:'grp'},h('h3',null,'display'));
+  gDisp.appendChild(chipRow([{id:'yt',name:'Y–T'},{id:'xy',name:'X–Y'}],'disp'));
+  gDisp.appendChild(chipRow([{id:'dots',name:'dots'},{id:'linear',name:'vectors'},
+    {id:'sinc',name:'sin x / x'}],'recon'));
+  const dchecks=h('div',{class:'checks'},
+    checkbox('quant8','8-bit ADC'),
+    checkbox('persist','persistence ghosts'),
+    checkbox('anim','animate (run)'));
+  gDisp.appendChild(dchecks);
+  gDisp.appendChild(slider('speed','speed',0.2,5,0.1,v=>fmt(v,1)+'×'));
+  gDisp.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ autoSet(st); S.rebuild(); syncPanel(); dirty=true; refresh(); }},'auto set'),
+    h('button',{onclick:()=>{ Object.assign(st,DEFAULTS); S.sweep.k=7; S.sweep.tbase=0;
+      setView(st.view); S.rebuild(); S.resetView(); syncChips(); syncPanel();
+      dirty=true; refresh(); }},'reset all')));
+  gDisp.appendChild(h('div',{class:'src'},
+    'every reference number in this file is a mathematical closed form, '
+    +'checked against scipy — the hardware values (1 MΩ ‖ 15 pF input, 9 MΩ '
+    +'probe, 115 pF of cable, 100 MHz front end) are typical bench parts.'));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}));
+  [gPre,gGen,gCh2,gConn,gVert,gHor,gTrig,gSpec,gDisp,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    [[gPre,PRESETS,'preset'],[gGen,WAVES,'wave'],[gConn,CONNS,'conn']].forEach(([g,list,key])=>{
+      const cw=g.querySelector('.chips'); if(!cw) return;
+      [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+    });
+    /* rows with two chip groups sync coarsely: rebuild classes from state */
+    const pairs=[[gCh2,[WAVES,'wave2'],[RATIOS.map(r=>({id:r})),'ratio']],
+                 [gVert,[[{id:'dc'},{id:'ac'}],'coup']],
+                 [gTrig,[[{id:'rise'},{id:'fall'}],'tslope'],[[{id:'auto'},{id:'normal'}],'tmode']],
+                 [gSpec,[[{id:'hann'},{id:'rect'}],'winf']],
+                 [gDisp,[[{id:'yt'},{id:'xy'}],'disp'],
+                        [[{id:'dots'},{id:'linear'},{id:'sinc'}],'recon']]];
+    for(const [g,...specs] of pairs){
+      const cws=[];
+      const walk=n=>{ for(const ch of n.children||[]){
+        if(ch.className==='chips') cws.push(ch); walk(ch); } };
+      walk(g);
+      specs.forEach(([list,key],i)=>{
+        const cw=cws[i]; if(!cw) return;
+        [].forEach.call(cw.children,(b,j)=>
+          b.className='chip'+(list[j].id===st[key]?' on':''));
+      });
+    }
+  }
+  function syncPanel(){
+    const v=st.view;
+    rows.duty.row.hidden = (st.wave!=='pulse');
+    gCh2.hidden  = (v!=='trace');
+    gSpec.hidden = (v!=='spectrum');
+    gTrig.hidden = (v==='probe'||v==='spectrum'||v==='path');
+    rows.trim.row.hidden = (st.conn!=='probe');
+    rows.speed.row.hidden= !st.anim;
+    rows.ph2.row.hidden  = rows.amp2.row.hidden = !(st.ch2||st.disp==='xy');
+    for(const k in rows) rows[k].sync();
+    [].forEach.call(dchecks.querySelectorAll('input'),(inp,i)=>{
+      inp.checked=st[['quant8','persist','anim'][i]]; });
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=S.readout(); eqEl.innerHTML=S.eqbar(); tagEl.innerHTML=S.tag();
+      hintEl.textContent = st.view==='trace'
+        ? 'drag to move the trace (position knobs) · scroll to step the timebase · a auto-sets · r recentres'
+        : st.view==='trigger' ? 'slide the level through the peaks and watch the picture let go'
+        : st.view==='sampling' ? 'scroll the timebase slower and watch the dots stop keeping up'
+        : st.view==='probe' ? 'the trimmer slider is the screw on the side of a real probe'
+        : st.view==='spectrum' ? 'switch windows on a non-integer cycle count — the leakage is the window, not the signal'
+        : 'switch the connection and watch stage 2 break its promise';
+      subEl.innerHTML = st.view==='path'
+        ? 'the amplitude knob is a promise about a 50 Ω load &mdash; stage 2 is where it is kept or broken'
+        : st.view==='spectrum'
+        ? 'one record, two honest descriptions &mdash; and the window is the treaty between them'
+        : M.aliased
+        ? 'f<sub>s</sub>/2 = '+fmtSI(M.fs/2,'Hz')+' and the signal is past it &mdash; the trace is real, the frequency is fiction'
+        : 'a generator promises, a scope reports &mdash; the path between them edits both';
+      genTag.innerHTML='f₀ = <b>'+fmtSI(M.g1.f0,'Hz')+'</b> &nbsp; set <b>±'
+        +fmt(M.g1.amp,2)+' V</b> into 50 Ω'
+        +(M.thd>0&&isFinite(M.thd)?' &nbsp; THD <b>'+fmt(M.thd*100,1)+'%</b>':'');
+      connTag.innerHTML=(st.conn==='term'
+          ?'matched: <b>×1.000</b> of set, flat'
+          :st.conn==='coax'
+          ?'hi-Z: <b>×'+fmt(M.gain0,4)+'</b> of set &nbsp; pole <b>'
+            +fmtSI(1/(TAU*(HW.RS*HW.RIN/(HW.RS+HW.RIN))*C2TOT),'Hz',1)+'</b>'
+          :'probe ÷10, re-gained ×10 &nbsp; '
+            +(M.comp<=0.2?'<span class="g">compensated</span>'
+              :'<span class="r">'+(st.trim<TRIM_COMP?'under':'over')+'-compensated</span>'))
+        +'<br>set → screen <b>×'+fmt(M.gain0,4)+'</b> at f₀';
+      horTag.innerHTML='f<sub>s</sub> = <b>'+fmtSI(M.fs,'Sa/s')+'</b> &nbsp; Nyquist <b>'
+        +fmtSI(M.fs/2,'Hz')+'</b>'
+        +(M.aliased?' &nbsp;<span class="r">ALIASED</span>'
+          :M.foldH?' &nbsp;<span class="r">harmonics fold</span>':'');
+      infoEl.innerHTML=INFO[st.view]||INFO.trace;
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  /* Interactions mark the loop dirty; the loop repaints on dirty || run.
+     (Known-bad list: a camera that moves without asking for a frame.) */
+  let down=false,lx=0,ly=0,dirty=false;
+  canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId);
+    down=true; lx=e.clientX; ly=e.clientY; canvas.classList.add('dragging'); });
+  canvas.addEventListener('pointermove',e=>{ if(!down) return;
+    S.pointer('move',{dx:e.clientX-lx,dy:e.clientY-ly}); lx=e.clientX; ly=e.clientY;
+    dirty=true; });
+  const up=()=>{ down=false; canvas.classList.remove('dragging'); };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); S.wheel(e.deltaY);
+    dirty=true; refresh(); },{passive:false});
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.anim=!st.anim; syncPanel(); refresh(); }
+    else if(e.key==='r'){ S.resetView(); dirty=true; refresh(); }
+    else if(e.key==='a'){ autoSet(st); S.rebuild(); syncPanel(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<='6'){ setView(TABS[+e.key-1][0]);
+      S.rebuild(); syncPanel(); refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.cam.W=r.width; S.cam.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let last=0;
+  function frameLoop(tm){
+    const dt=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    S.step(dt);
+    if(st.anim||dirty){
+      dirty=false; try{ S.draw(); }catch(e){ fail(e); } }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); S.fit(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+}
+
+const INFO={
+  trace:'The instrument as you meet it: ten divisions of time, eight of voltage, '
+    +'and a record of <b>2500 samples</b> redrawn each sweep. Everything on this '
+    +'screen has already been edited — loaded by the connection, bent by the '
+    +'front end, sampled, and (if the box is ticked) crushed to 8 bits. The '
+    +'measurements under the graticule are made on the <b>record</b>, never on '
+    +'the signal; the readout compares them with what the generator was told to '
+    +'send. When they disagree, the interesting part of this sim is deciding '
+    +'which stage to blame. In X&ndash;Y mode the timebase is abandoned and '
+    +'channel 1 drives x against channel 2 on y &mdash; the old way to read a '
+    +'phase or a frequency ratio before counters were cheap.',
+  trigger:'A sweep is a decision about <b>when to start looking</b>. The top '
+    +'panel is the signal running free, with every crossing of the level marked; '
+    +'the bottom panel is what accumulates on the screen. Triggered, every sweep '
+    +'starts at the same phase and seven traces land as one &mdash; that '
+    +'stillness is the entire invention. In AUTO with no crossing the scope '
+    +'sweeps anyway, from wherever the timebase happens to be, and the same '
+    +'signal smears into ghosts. NORMAL waits instead, holding the last screen '
+    +'&mdash; or nothing. <b>Holdoff</b> refuses triggers for a set time after '
+    +'each accepted one: on a repetitive burst it is how you pick the same edge '
+    +'out of a family of identical ones.',
+  sampling:'The record is 2500 points spread over ten divisions, so the sample '
+    +'rate is set by the <b>timebase knob</b>: slow the sweep and f<sub>s</sub> '
+    +'falls with it. Once the signal passes f<sub>s</sub>/2 the dots stop '
+    +'meaning what they seem to: the accordion plot shows where every input '
+    +'frequency lands, and the current one is the magenta dot. Both curves in '
+    +'the upper panel pass through <b>every sample</b> &mdash; the record '
+    +'genuinely cannot tell them apart, which is why no amount of cleverness '
+    +'downstream can undo aliasing. The reconstruction chips show what the '
+    +'display draws between dots: vectors (straight lines), or the '
+    +'sin&thinsp;x/x interpolation a real DSO uses.',
+  probe:'A 10&times; probe is not a wire &mdash; it is a <b>frequency-'
+    +'compensated divider</b>. Resistors alone would divide correctly at DC and '
+    +'lose everything fast to the 115 pF of cable and input; the trimmer C&#8321; '
+    +'puts a capacitive divider in parallel, and when R&#8321;C&#8321; = '
+    +'R&#8322;C&#8322; the two dividers agree at every frequency. The square '
+    +'wave shows the mismatch instantly: each edge lands on the capacitive '
+    +'ratio and relaxes to the resistive one with &tau; &asymp; 115 &micro;s, '
+    +'so a mis-set screw turns a flat top into a spike or a sag. That is why '
+    +'every scope has a calibrator output, and why the first thing you do with '
+    +'a probe is trim it.',
+  spectrum:'The same record, described by its lines. Orange stems are the '
+    +'<b>exact</b> Fourier series after the analog path &mdash; ground truth '
+    +'this sim can draw because it computed the signal that way. Green is the '
+    +'FFT of the record: when the window holds an integer number of cycles the '
+    +'two agree bin for bin, and when it does not, each line smears into '
+    +'<b>leakage</b> whose shape is the window&rsquo;s own transform. Hann '
+    +'trades a factor 1.5 in noise bandwidth for sidelobes that fall fast '
+    +'enough to see a small line beside a big one. The lower panel rebuilds '
+    +'the waveform from the first K lines: the ears at every jump are '
+    +'Gibbs&rsquo;, they narrow but never shrink below (2/&pi;)Si(&pi;) '
+    +'&minus; 1 &asymp; 9% of the step.',
+  path:'Five stages between the amplitude knob and the pixel. The generator '
+    +'keeps its promise only into 50 &Omega;: its EMF is <b>twice</b> the set '
+    +'value behind a 50 &Omega; source, so a hi-Z scope input reads &times;2.00 '
+    +'&mdash; the oldest trap on the bench, and the feed-through terminator is '
+    +'the cure. The 1&times; coax path adds a pole at 27.7 MHz (the cable IS '
+    +'the capacitor); the 10&times; probe buys that back with a divider. Then '
+    +'the front end&rsquo;s single pole charges 3.5 ns per 100 MHz of rise '
+    +'time, the sampler keeps 2500 points of it, and the ADC rounds to one '
+    +'part in 256. Nothing here is exotic: every stage is one resistor, one '
+    +'capacitor, or one rounding &mdash; and each one shows on the screen.',
+};
+
+/* ================================================================== *
+ *  self-test                                                          *
+ *                                                                     *
+ *  Reference values marked (scipy) were computed OUTSIDE this file    *
+ *  with scipy 1.18 / numpy 2.5 (build_scope/derive.py) and pasted in. *
+ *  Values are asserted off BUILT models wherever possible, never off  *
+ *  a re-typed formula (Known-bad list, drum_head.html).               *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,n)=>{ if(c){pass++;} else {fail++; console.log('FAIL: '+n);} };
+  const close=(a,b,tol,n)=>ok(isFinite(a)&&Math.abs(a-b)<=tol,
+    n+' ['+a+' vs '+b+' tol '+tol+']');
+  const rel=(a,b,rt,n)=>ok(isFinite(a)&&Math.abs(a-b)<=rt*Math.abs(b),
+    n+' ['+a+' vs '+b+' rel '+rt+']');
+
+  /* ---------- A. waveforms and series ---------- */
+  {
+    const KINDS=['sine','square','triangle','saw','pulse'];
+    /* RMS closed forms vs midpoint integration (scipy: same numbers) */
+    const REF={sine:7.07106781186547e-01,square:1,triangle:5.77350269189626e-01,
+               saw:5.77350269189626e-01,pulse:1};
+    for(const k of KINDS){
+      let s2=0; const N=40000;
+      for(let i=0;i<N;i++){ const v=wfSample(k,(i+0.5)/N,0.3); s2+=v*v; }
+      rel(Math.sqrt(s2/N),REF[k],1e-6,'rms['+k+'] closed form (scipy)');
+      rel(wfRmsAC(k,0.3),k==='pulse'?9.16515138991168e-01:REF[k],1e-12,
+        'wfRmsAC['+k+'] (scipy)');
+    }
+    /* mean of the pulse is 2d-1 */
+    { let s=0; const N=40000;
+      for(let i=0;i<N;i++) s+=wfSample('pulse',(i+0.5)/N,0.3);
+      close(s/N,-0.4,1e-6,'pulse mean d=0.3 = 2d-1'); }
+    /* Fourier coefficients: closed form vs numeric integrals */
+    for(const [k,n,ai,bi] of [
+      ['square',1,0, 1.273239544735e+00],['square',3,0, 4.244131815784e-01],
+      ['square',2,0,0],
+      ['triangle',3,0,-9.006327434874e-02],['triangle',5,0,3.242277876555e-02],
+      ['saw',2,0,-3.183098861838e-01],['saw',5,0,1.273239544735e-01],
+      ['pulse',1,6.054613829125e-01,8.333461009843e-01],
+      ['pulse',5,0,2.546479089470e-01],
+      ['pulse',8,4.677446418943e-02,1.439569983960e-01]]){
+      const [a,b]=wfCoef(k,n,0.3);
+      close(a,ai,1e-11,'a_'+n+'['+k+'] (scipy)');
+      close(b,bi,1e-11,'b_'+n+'['+k+'] (scipy)');
+      let na=0,nb=0; const N=20000;
+      for(let i=0;i<N;i++){ const u=(i+0.5)/N, v=wfSample(k,u,0.3);
+        na+=2*v*Math.cos(TAU*n*u)/N; nb+=2*v*Math.sin(TAU*n*u)/N; }
+      close(na,a,2e-4,'a_'+n+'['+k+'] numeric integral agrees');
+      close(nb,b,2e-4,'b_'+n+'['+k+'] numeric integral agrees');
+    }
+    /* partial sums, 21 harmonics (scipy) */
+    const PS={square:[9.82090182357003e-01,9.72877154352397e-01],
+              triangle:[4.00992806525703e-01,9.24042918363069e-01],
+              saw:[2.12654691556058e-01,4.53702194787869e-01],
+              pulse:[9.76438986872583e-01,1.04587158063169e+00]};
+    for(const k in PS) for(const [j,u] of [[0,0.10],[1,0.23]]){
+      let s=k==='pulse'?wfDC(k,0.3):0;
+      for(let n=1;n<=21;n++){ const [a,b]=wfCoef(k,n,0.3);
+        s+=a*Math.cos(TAU*n*u)+b*Math.sin(TAU*n*u); }
+      close(s,PS[k][j],1e-11,'partial21['+k+'](u='+u+') (scipy)');
+    }
+    /* Gibbs: the 49-harmonic max on the derive.py grid, and the limit */
+    { let mx=-9;
+      for(let i=0;i<=4000;i++){ const u=0.5*i/4000; let s=0;
+        for(let n=1;n<50;n+=2) s+=(4/(n*PI))*Math.sin(TAU*n*u);
+        if(s>mx)mx=s; }
+      close(mx,1.17911310188829e+00,1e-9,'Gibbs partial49 max (scipy)');
+      close(mx,1.1789797444721675,3e-4,'…approaches (2/pi) Si(pi) (scipy)'); }
+    /* THD closed forms vs coefficient sums */
+    for(const k of ['square','saw','triangle']){
+      let p1=0,pt=0;
+      for(let n=1;n<=20000;n++){ const [a,b]=wfCoef(k,n,0.3);
+        const p=a*a+b*b; if(n===1)p1=p; pt+=p; }
+      rel(Math.sqrt((pt-p1)/p1),wfThd(k,0.3),5e-4,'THD['+k+'] closed form');
+    }
+    close(wfThd('square',0.5),4.83425847608679e-01,1e-9,'THD[square] value');
+    close(wfThd('sine',0.5),0,1e-15,'THD[sine] = 0');
+    /* the recurrence in seriesEval against direct trig */
+    { const st0=Object.assign({},DEFAULTS,{wave:'square'});
+      const ser=buildSeries(st0,1,120*Math.pow(10,st0.freqExp)); /* NH=300 */
+      ok(ser.NH===300,'NH follows 2.5 fs/f0 ('+ser.NH+')');
+      for(const t of [0,1.3e-4,7.7e-4,2.5e-3])
+        close(seriesEval(ser,t),seriesEvalDirect(ser,t),1e-9,
+          'recurrence = direct trig at t='+t); }
+    /* phase: a sine shifted 90 deg is a cosine */
+    { const st0=Object.assign({},DEFAULTS,{ch2:true,wave2:'sine',ratio:'1:1',
+        ph2:90,amp2:1,conn:'term'});
+      const ser=buildSeries(st0,2,1e6);
+      const g=cxAbs(chainGain(Object.assign({},st0,{conn:'coax'}),1000));
+      rel(seriesEval(ser,0)/(2*g),Math.cos(Math.atan2(
+        -chainGain(Object.assign({},st0,{conn:'coax'}),1000)[1],
+         chainGain(Object.assign({},st0,{conn:'coax'}),1000)[0])),2e-3,
+        'ph2=90 deg turns sin into cos (up to the path phase)'); }
+  }
+
+  /* ---------- B. the analog path ---------- */
+  {
+    close(TRIM_COMP*1e-12,1.27777777777778e-11,1e-23,'compensated C1 (scipy)');
+    const u6=probeConsts(6), uc=probeConsts(TRIM_COMP), o25=probeConsts(25);
+    close(u6.kC,0.049586776860,1e-9,'kC at 6 pF');
+    close(u6.tau,108.9e-6,1e-12,'tau at 6 pF = 108.9 us');
+    close(o25.tau,126.0e-6,1e-12,'tau at 25 pF = 126.0 us');
+    close(uc.kC,0.1,1e-12,'compensated: kC = kR = 1/10');
+    close(uc.kR,0.1,1e-12,'kR = R2/(R1+R2) = 1/10');
+    /* step responses (scipy solve_ivp cross-checked) */
+    const step=(pc,t)=>pc.kR+(pc.kC-pc.kR)*Math.exp(-t/pc.tau);
+    close(step(u6,1e-6),5.00475892042433e-02,1e-12,'step 6pF @1us (scipy)');
+    close(step(u6,100e-6),7.98746571533423e-02,1e-12,'step 6pF @100us (scipy)');
+    close(step(o25,5e-6),1.75514567864411e-01,1e-12,'step 25pF @5us (scipy)');
+    close(step(uc,20e-6),0.1,1e-12,'step comp @20us stays 1/10');
+    /* cal-square steady state (scipy) */
+    const s6=probeCalSS(6,1e-3), s25=probeCalSS(25,1e-3);
+    close(s6.v0,1.85569875408423e-04,1e-12,'cal square v(0+) 6pF (scipy)');
+    close(s6.v1,9.89879838435998e-02,1e-12,'cal square v(T/2-) 6pF (scipy)');
+    close(s25.v0,2.54226977813706e-01,1e-12,'cal square v(0+) 25pF (scipy)');
+    close(s25.v1,1.02915879329152e-01,1e-12,'cal square v(T/2-) 25pF (scipy)');
+    /* |H| of the divider (scipy) */
+    close(cxAbs(Hdivider(1e5,HW.RPR,6e-12,HW.RIN,C2TOT)),
+      4.96030122393664e-02,1e-12,'|H(100kHz)| 6pF (scipy)');
+    close(cxAbs(Hdivider(1e5,HW.RPR,25e-12,HW.RIN,C2TOT)),
+      1.78561651674701e-01,1e-12,'|H(100kHz)| 25pF (scipy)');
+    /* compensated: flat over 7 decades */
+    { let worst=0;
+      for(let i=0;i<=70;i++){
+        const f=Math.pow(10,1+6*i/70);
+        worst=Math.max(worst,Math.abs(cxAbs(Hdivider(f,HW.RPR,TRIM_COMP*1e-12,
+          HW.RIN,C2TOT))*10-1)); }
+      ok(worst<1e-9,'compensated divider flat to 1e-9 over 10 Hz - 10 MHz ('+worst+')'); }
+    /* the series through the divider lands on the closed form */
+    { const T=1e-3, ss=probeCalSS(6,T);
+      const re=new Float64Array(1000), im=new Float64Array(1000);
+      for(let n=1;n<=1000;n++){
+        const [a,b]=wfCoef('square',n,0.5);
+        const c=cxMul([a,-b],Hdivider(n/T,HW.RPR,6e-12,HW.RIN,C2TOT));
+        re[n-1]=c[0]; im[n-1]=c[1];
+      }
+      const ser={f0:1/T,dc:0,re,im};
+      for(const tf of [0.05,0.2,0.45]){
+        const want=ss.kR+(ss.v0-ss.kR)*Math.exp(-tf*T/ss.tau);
+        rel(seriesEval(ser,tf*T),want,1e-2,
+          'series through divider = closed-form exponential at t='+tf+'T'); }
+    }
+    /* one-pole magnitudes and phases (scipy) */
+    close(cxAbs(Hlp(1e7,2e7)),8.94427190999916e-01,1e-12,'|Hlp| f=fbw/2 (scipy)');
+    close(Math.atan2(Hlp(1e7,2e7)[1],Hlp(1e7,2e7)[0]),-4.63647609000806e-01,
+      1e-12,'arg Hlp f=fbw/2 (scipy)');
+    close(cxAbs(Hhp(10,10)),Math.SQRT1_2,1e-12,'|Hhp| at fc = 1/sqrt2');
+    /* rise time: ln9/(2 pi fbw).  Built by hand, untapered, with the pole
+       three decades below the truncation so the pole is all there is */
+    { const fbw=2e7, f0=1e5, T=1/f0, NH=3000;
+      const re=new Float64Array(NH), im=new Float64Array(NH);
+      for(let n=1;n<=NH;n++){ const [a,b]=wfCoef('square',n,0.5);
+        const c=cxMul([a,-b],Hlp(n*f0,fbw)); re[n-1]=c[0]; im[n-1]=c[1]; }
+      const ser={f0,dc:0,re,im};
+      const vset=seriesEval(ser,T/4);              /* the settled plateau */
+      rel(vset,1,1e-3,'plateau settles to the full step');
+      const l10=-0.8*vset, l90=0.8*vset;
+      let t10=null,t90=null,vp=seriesEval(ser,0);
+      for(let i=1;i<=1600;i++){
+        const t=80e-9*i/1600, v=seriesEval(ser,t);
+        if(t10===null&&vp<l10&&v>=l10)
+          t10=80e-9*(i-1)/1600+80e-9/1600*(l10-vp)/(v-vp);
+        if(t10!==null&&vp<l90&&v>=l90){
+          t90=80e-9*(i-1)/1600+80e-9/1600*(l90-vp)/(v-vp); break; }
+        vp=v;
+      }
+      ok(t10!==null&&t90!==null,'found the 10-90 edge');
+      rel(t90-t10,3.49699152566060e-01/2e7,1e-2,
+        'rise time = ln9/(2 pi fbw) on the 20 MHz limit (scipy)');
+    }
+    /* two equal poles: quadrature under-reads by 8% (scipy) */
+    { const stp=t=>1-(1+t)*Math.exp(-t);
+      const cross=y=>{ let a=1e-6,b=60;
+        for(let i=0;i<80;i++){ const m=0.5*(a+b); if(stp(m)<y)a=m; else b=m; }
+        return 0.5*(a+b); };
+      const tr=cross(0.9)-cross(0.1);
+      close(tr,3.35790856147782e+00,1e-9,'exact 10-90 of two equal poles (scipy)');
+      close(Math.log(9)*Math.SQRT2,3.10734479684837e+00,1e-9,
+        'quadrature estimate (scipy)');
+      ok(tr/(Math.log(9)*Math.SQRT2)>1.08,'quadrature under-reads by >8%'); }
+    /* AC coupling: droop and steady state (scipy) */
+    { const tau=1/(TAU*HW.FAC);
+      close(1-Math.exp(-0.5e-3/tau),3.09275736951894e-02,1e-12,
+        'droop of a 1 kHz square at fc=10 Hz (scipy)');
+      const re=new Float64Array(800), im=new Float64Array(800);
+      for(let n=1;n<=800;n++){ const [a,b]=wfCoef('square',n,0.5);
+        const c=cxMul([a,-b],Hhp(n*1e3,HW.FAC)); re[n-1]=c[0]; im[n-1]=c[1]; }
+      const ser={f0:1e3,dc:0,re,im};
+      const v0=1.01570667146725;
+      for(const tf of [0.05,0.25,0.45])
+        rel(seriesEval(ser,tf*1e-3),v0*Math.exp(-tf*1e-3/tau),1.5e-2,
+          'hp series = v0 exp(-t/tau) at t='+tf+'T (scipy v0)');
+      ok(chainGain(Object.assign({},DEFAULTS,{coup:'ac'}),0)[0]===0,
+        'AC coupling kills DC dead');
+    }
+    /* loading (scipy) */
+    close(2*connGain(Object.assign({},DEFAULTS,{conn:'term'}),0)[0],1,1e-12,
+      'terminated: set -> screen exactly 1');
+    close(2*connGain(Object.assign({},DEFAULTS,{conn:'coax'}),0)[0],
+      1.99990000499975,1e-11,'hi-Z: the doubling trap (scipy)');
+    close(2*connGain(Object.assign({},DEFAULTS,{conn:'probe',trim:12.8}),0)[0],
+      1.99999000005000,1e-11,'probe: 10 Mohm loading (scipy)');
+    { const fp=2.76805044937478e+07;   /* scipy: the 1x coax pole */
+      const st0=Object.assign({},DEFAULTS,{conn:'coax'});
+      rel(cxAbs(connGain(st0,fp))/connGain(st0,0)[0],Math.SQRT1_2,1e-9,
+        'coax path is -3 dB exactly at its pole (scipy)'); }
+  }
+
+  /* ---------- C. acquisition and trigger ---------- */
+  {
+    const mk=(p)=>buildModel(Object.assign({},DEFAULTS,p),{k:3,tbase:0});
+    close(sampleRate(Object.assign({},DEFAULTS)),1.25e6,1e-6,
+      'fs = 2500/(10 x 200us) = 1.25 MSa/s');
+    close(sampleRate(Object.assign({},DEFAULTS,{tdivI:0})),1e9,1e-3,
+      'fast timebase pins fs at the 1 GSa/s ceiling');
+    /* trigger point on a sine (scipy asin) */
+    { const M=mk({conn:'term',wave:'sine',tlev:0.6,vdivI:5,quant8:false});
+      ok(M.rec.trig,'sine triggers');
+      const tT=(M.rec.tref*M.g1.f0)%1;
+      /* the 100 MHz pole delays 1 kHz by ~2e-6 of a period - real, tiny */
+      close(Math.min(tT,1-tT),4.84933420103391e-02,1e-5,
+        'trigger instant asin(0.3)/2pi into the period (scipy)');
+      close(seriesEval(M.ser1,M.rec.tref),0.6*0.5,1e-6,
+        'the signal really is AT the level there'); }
+    { const M=mk({conn:'term',wave:'sine',tlev:0.6,vdivI:5,tslope:'fall',quant8:false});
+      const tT=(M.rec.tref*M.g1.f0)%1;
+      close(tT,4.51506657989661e-01,1e-5,'falling edge at 0.5 - asin/2pi (scipy)'); }
+    /* triggered sweeps are identical; free-run sweeps are not */
+    { const a=mk({}), b=buildModel(Object.assign({},DEFAULTS),{k:11,tbase:0.000737});
+      ok(a.rec.trig&&b.rec.trig,'both sweeps triggered');
+      let d=0; for(let i=0;i<HW.NREC;i++) d=Math.max(d,Math.abs(a.rec.y[i]-b.rec.y[i]));
+      ok(d<1e-6,'two triggered sweeps draw the SAME picture (max div diff '+d+')'); }
+    { const a=mk({tlev:3.9,tmode:'auto',conn:'term'}),
+        b=buildModel(Object.assign({},DEFAULTS,{tlev:3.9,tmode:'auto',conn:'term'}),{k:4,tbase:0});
+      ok(!a.rec.trig&&!b.rec.trig,'level above the peaks: free-run');
+      let d=0; for(let i=0;i<HW.NREC;i++) d=Math.max(d,Math.abs(a.rec.y[i]-b.rec.y[i]));
+      ok(d>0.5,'free-run sweeps land at different phases ('+d+' div apart)'); }
+    { const M=mk({tlev:3.9,tmode:'normal',conn:'term'});
+      ok(M.rec.none===true&&M.meas===null,'NORMAL with no crossing holds nothing'); }
+    /* holdoff: 1.5 periods -> every second crossing */
+    { const st0=Object.assign({},DEFAULTS,{conn:'term',hold:1.5,quant8:false});
+      const ser=buildSeries(st0,1,1e6);
+      const tr=findTriggers(ser,0.25,'rise',0,8e-3,1.5e-3);
+      ok(tr.length>=3,'holdoff run found triggers');
+      let sp=0; for(let i=1;i<tr.length;i++) sp=Math.max(sp,Math.abs(tr[i]-tr[i-1]-2e-3));
+      ok(sp<1e-6,'holdoff 1.5T accepts every SECOND crossing (spacing 2T)'); }
+    /* aliasing: fold law (scipy) and the record agreeing with it */
+    close(foldFreq(1.9,1.0),0.1,1e-12,'fold(1.9,1) (scipy)');
+    close(foldFreq(0.55,1.0),0.45,1e-12,'fold(0.55,1) (scipy)');
+    close(foldFreq(2.05,1.0),0.05,1e-12,'fold(2.05,1) (scipy)');
+    close(foldFreq(1.0,1.0),0,1e-12,'fold(1,1) (scipy)');
+    close(foldFreq(0.3,1.0),0.3,1e-12,'fold below Nyquist is the identity');
+    { const M=mk({tdivI:15,freqExp:Math.log10(475000),conn:'term',vdivI:5,
+                  tlev:0.4,quant8:false});
+      ok(M.aliased,'475 kHz at 250 kSa/s is flagged as an alias');
+      close(M.fdisp,25000,1e-6,'folds to 25 kHz');
+      ok(M.meas.freq!==null,'the scope still measures a frequency');
+      rel(M.meas.freq,25000,1e-2,'and it measures the FOLDED one'); }
+    /* quantisation and clipping */
+    { const M=mk({quant8:true,conn:'term'});
+      let worst=0;
+      const nOn=Math.round(M.rec.span/M.rec.dt);
+      for(let i=0;i<nOn;i++)
+        worst=Math.max(worst,Math.abs((M.rec.y[i]-M.st.vpos)*M.vdiv-M.rec.yv[i]));
+      ok(worst<=M.lsb/2+1e-12,'8-bit error never exceeds LSB/2 ('+worst+')');
+      close(M.lsb,1.5625e-2,1e-15,'LSB at 0.5 V/div (scipy)'); }
+    { const M=mk({vdivI:0,conn:'coax'});
+      ok(M.rec.clipped>0,'2 V onto 10 mV/div clips');
+      let mx=0; for(let i=0;i<HW.NREC;i++) mx=Math.max(mx,Math.abs(M.rec.y[i]));
+      ok(mx<=4+1e-12,'clipped samples stay on the graticule'); }
+    /* and the rail is AT 4 divisions, not merely somewhere: a peak asking
+       for 5 div must clip (found by the mutation sweep: a rail at 6 div
+       passed every earlier test) */
+    { const M=mk({conn:'term',amp:2.5,vdivI:5,quant8:false});
+      ok(M.rec.clipped>0,'a 5-division peak clips at the 4-division rail');
+      let mx=0; for(let i=0;i<HW.NREC;i++) mx=Math.max(mx,Math.abs(M.rec.y[i]));
+      ok(mx<=4+1e-12,'and never draws past it'); }
+    /* autoset */
+    for(const w of ['sine','square','saw'])
+      for(const fe of [2.3,4.1,6.2]){
+        const st0=Object.assign({},DEFAULTS,{wave:w,freqExp:fe,amp:0.37,conn:'coax'});
+        autoSet(st0);
+        const f0=Math.pow(10,fe), span=10*TDIV[st0.tdivI];
+        ok(span>=3/f0-1e-15,'autoset '+w+' 10^'+fe+': >= 3 periods on screen');
+        ok(st0.tdivI===0||10*TDIV[st0.tdivI-1]<3/f0,'autoset picks the TIGHTEST such timebase');
+        ok(f0<sampleRate(st0)/2,'autoset never leaves an alias');
+      }
+  }
+
+  /* ---------- D. DSP ---------- */
+  {
+    const N=256, w=hannWin(N);
+    let s=0,s2=0;
+    for(let i=0;i<N;i++){ s+=w[i]; s2+=w[i]*w[i]; }
+    close(s,128,1e-9,'sum hann = N/2 (scipy)');
+    close(s2,96,1e-9,'sum hann^2 = 3N/8 (scipy)');
+    close(N*s2/(s*s),1.5,1e-12,'ENBW hann = 1.5 bins (scipy)');
+    /* FFT against the direct DFT, on a deliberately messy signal */
+    { const x=new Float64Array(N);
+      for(let n=0;n<N;n++)
+        x[n]=Math.sin(TAU*8.3*n/N)+0.4*Math.cos(TAU*31*n/N)+0.2*wfSample('saw',n/N*3.7,0.3);
+      const re=Float64Array.from(x), im=new Float64Array(N);
+      fftRadix2(re,im);
+      const D=dftDirect(x);
+      let worst=0;
+      for(let k=0;k<N;k++) worst=Math.max(worst,
+        Math.hypot(re[k]-D.re[k],im[k]-D.im[k]));
+      ok(worst<1e-8,'radix-2 FFT = direct DFT ('+worst+')');
+      /* Parseval */
+      let px=0,pX=0;
+      for(let n=0;n<N;n++){ px+=x[n]*x[n]; pX+=re[n]*re[n]+im[n]*im[n]; }
+      rel(pX/N,px,1e-10,'Parseval'); }
+    /* the reference bins (scipy) */
+    { const x8=new Float64Array(N), x83=new Float64Array(N);
+      for(let n=0;n<N;n++){ x8[n]=Math.sin(TAU*8*n/N); x83[n]=Math.sin(TAU*8.3*n/N); }
+      const mag=(x,win,k)=>{ const re=new Float64Array(N),im=new Float64Array(N);
+        for(let n=0;n<N;n++) re[n]=x[n]*(win?w[n]:1);
+        fftRadix2(re,im); return Math.hypot(re[k],im[k]); };
+      close(mag(x8,false,8),128,1e-9,'|X8| rect 8.0 cycles = N/2 (scipy)');
+      close(mag(x8,true,8),64,1e-9,'|X8| hann 8.0 cycles = N/4 (scipy)');
+      close(mag(x83,false,8),1.10117619487276e+02,1e-8,'|X8| rect 8.3 cyc (scipy)');
+      close(mag(x83,false,9),4.69168223720273e+01,1e-8,'|X9| rect 8.3 cyc (scipy)');
+      close(mag(x83,false,16),4.35596419496715e+00,1e-8,'rect leakage floor (scipy)');
+      close(mag(x83,true,8),6.03693651256328e+01,1e-8,'|X8| hann 8.3 cyc (scipy)');
+      close(mag(x83,true,16),3.63809274194619e-02,1e-8,
+        'hann floor: 120x below rect (scipy)'); }
+    /* spectrumOf calibration: a 2 V sine on an integer bin reads 2 V */
+    { const st0=Object.assign({},DEFAULTS,{quant8:false});
+      const fs=1e6, rec={y:new Float64Array(HW.NREC),t0:0,dt:1/fs,fs,
+                         span:HW.NREC/fs,none:false};
+      const kbin=8, f=kbin*fs/HW.NFFT, vdiv=VDIV[st0.vdivI];
+      for(let i=0;i<HW.NREC;i++) rec.y[i]=2*Math.sin(TAU*f*i/fs)/vdiv;
+      for(const wf of ['rect','hann']){
+        const sp=spectrumOf(rec,Object.assign({},st0,{winf:wf}));
+        rel(sp.amp[kbin],2,1e-6,'spectrumOf reads 2 V amplitude ('+wf+')');
+        let peak=0,kp=0;
+        for(let k=1;k<sp.amp.length;k++) if(sp.amp[k]>peak){peak=sp.amp[k];kp=k;}
+        ok(kp===kbin,'peak in the right bin ('+wf+')');
+      } }
+    /* sinc reconstruction */
+    { const fs=1e6, rec={y:new Float64Array(HW.NREC),t0:0,dt:1/fs,fs,
+                         span:HW.NREC/fs,none:false};
+      const f=97e3;
+      for(let i=0;i<HW.NREC;i++) rec.y[i]=Math.sin(TAU*f*i/fs);
+      close(sincRecon(rec,1250/fs),rec.y[1250],1e-12,'sinc recon hits the samples');
+      let worst=0;
+      for(let j=0;j<40;j++){
+        const t=(1100+j*7.37)/fs;
+        worst=Math.max(worst,Math.abs(sincRecon(rec,t)-Math.sin(TAU*f*t))); }
+      ok(worst<2e-2,'sinc recon follows a band-limited sine between samples ('+worst+')'); }
+  }
+
+  /* ---------- E. the model, and every panel ---------- */
+  {
+    const mk=(p,sw)=>buildModel(Object.assign({},DEFAULTS,p),sw||{k:3,tbase:0});
+    /* measurements off the BUILT model, terminated so gain is exactly 1 */
+    { const M=mk({conn:'term',quant8:false});
+      rel(M.meas.vpp,2,2e-3,'measured Vpp = 2 x set amplitude (terminated)');
+      rel(M.meas.rms,Math.SQRT1_2,2e-3,'measured rms = A/sqrt2');
+      rel(M.meas.freq,1000,1e-4,'measured f = f0');
+      close(M.meas.mean,0,2e-3,'measured mean = 0');
+      close(M.gain0,1,1e-4,'set -> screen x1.0000 terminated');
+      ok(!M.aliased&&!M.rec.none&&M.rec.trig,'default state: triggered, no alias'); }
+    { const M=mk({conn:'coax',quant8:false});
+      rel(M.meas.vpp,2*1.99990000499975,2e-3,
+        'unterminated: measured Vpp doubles (scipy factor)');
+      rel(M.gain0,1.99990000499975,1e-6,'gain0 prints the doubling'); }
+    { const M=mk({wave:'square',conn:'term',quant8:false});
+      rel(M.meas.vpp,2,2e-2,'square Vpp reads 2A - no truncation ringing');
+      rel(M.meas.rms,1,5e-3,'square rms = A');
+      close(M.thd,4.83425847608679e-01,1e-9,'THD in the model'); }
+    /* XY: phase off the ellipse (scipy sin 40) */
+    { const st0=Object.assign({},DEFAULTS,{disp:'xy',ch2:true,ratio:'1:1',
+        ph2:40,conn:'term',quant8:false});
+      const M=buildModel(st0,{k:3,tbase:0});
+      const Tc=1/M.g1.f0;
+      let xmax=0,x0=null;
+      for(let i=1;i<=2400;i++){
+        const t=Tc*i/2400, x=seriesEval(M.ser1,t), y=seriesEval(M.ser2,t);
+        const yp=seriesEval(M.ser2,Tc*(i-1)/2400);
+        if(Math.abs(x)>xmax) xmax=Math.abs(x);
+        if(yp<0&&y>=0) x0=Math.abs(x);
+      }
+      rel(Math.asin(x0/xmax)*RAD,40,2e-2,'Lissajous 1:1: sin(phi) intercept reads 40 deg');
+    }
+    /* series truncation really is sub-LSB for the worst screen case */
+    { const M=mk({wave:'square',conn:'term'});
+      const n=M.ser1.NH+1;
+      const drop=2*M.g1.amp*(4/(n*PI))*cxAbs(chainGain(M.st,n*M.g1.f0));
+      ok(M.ser1.NH===HW.NHMAX,'1 kHz square hits the 1000-harmonic cap');
+      ok(drop<M.lsb,'first dropped harmonic ('+fmtSI(drop,'V')+') is below one LSB ('
+        +fmtSI(M.lsb,'V')+')'); }
+    /* every view x every preset builds clean */
+    { let bad=0,badp='';
+      for(const P of PRESETS) for(const V of ['trace','trigger','sampling','probe','spectrum','path']){
+        const st0=Object.assign({},DEFAULTS,P.patch,{view:V});
+        let M;
+        try{ M=buildModel(st0,{k:3,tbase:0}); }catch(e){ bad++; badp+=' '+P.id+'/'+V+':'+e; continue; }
+        const txt=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+        if(/NaN|undefined|Infinity/.test(txt)){ bad++; badp+=' '+P.id+'/'+V; }
+        if(M.rec&&!M.rec.none)
+          for(let i=0;i<HW.NREC;i+=97) if(!isFinite(M.rec.y[i])){ bad++; break; }
+      }
+      ok(bad===0,'every preset x every view builds and prints clean'+badp); }
+    /* slider extremes never produce a non-finite record */
+    { let bad=0;
+      for(const fe of [1,7.699]) for(const ti of [0,18]) for(const vi of [0,8])
+        for(const cn of ['term','coax','probe']) for(const w of ['sine','square','pulse']){
+          const M=mk({freqExp:fe,tdivI:ti,vdivI:vi,conn:cn,wave:w,trim:3});
+          if(M.rec.none) continue;
+          for(let i=0;i<HW.NREC;i+=53) if(!isFinite(M.rec.y[i])) bad++;
+          if(M.meas&&!isFinite(M.meas.vpp)) bad++;
+        }
+      ok(bad===0,'no slider corner produces a non-finite record ('+bad+')'); }
+    /* formatter sanity */
+    ok(fmtSI(1.25e6,'Sa/s')==='1.25 MSa/s','fmtSI mega');
+    ok(fmtSI(2e-4,'s')==='200.00 µs','fmtSI micro');
+    ok(fmt(NaN)==='—','fmt of NaN is an em dash, not NaN');
+  }
+
+  /* ---------- F. added while designing the mutation sweep ---------- */
+  {
+    const mk=(p,sw)=>buildModel(Object.assign({},DEFAULTS,p),sw||{k:3,tbase:0});
+    /* phase must rotate harmonic n by n*ph: then a phase IS a time shift */
+    { const stA=Object.assign({},DEFAULTS,{ch2:true,wave2:'square',ratio:'1:1',ph2:57,amp2:1});
+      const stB=Object.assign({},stA,{ph2:0});
+      const sa=buildSeries(stA,2,1e6), sb=buildSeries(stB,2,1e6);
+      let worst=0;
+      for(const t of [0,1.7e-4,4.4e-4])
+        worst=Math.max(worst,Math.abs(seriesEval(sa,t)-seriesEval(sb,t+(57/360)/sa.f0)));
+      ok(worst<1e-9,'a phase knob is a time shift, harmonic by harmonic ('+worst+')'); }
+    /* the bandwidth-limit switch maps to the right pole */
+    rel(cxAbs(frontGain({coup:'dc',bwlim:true},HW.FBWL)),Math.SQRT1_2,1e-12,
+      'limit in: -3 dB exactly at 20 MHz');
+    rel(cxAbs(frontGain({coup:'dc',bwlim:false},HW.FBW)),Math.SQRT1_2,1e-12,
+      'limit out: -3 dB exactly at 100 MHz');
+    close(freerunPhase(1),0.6180339887498949,1e-15,'free-run phases walk the golden ratio');
+    /* centre trigger: the sample at mid-screen sits ON the level */
+    { const M=mk({conn:'term',quant8:false,hpos:0});
+      const i0=Math.round((M.rec.tref-M.rec.t0)/M.rec.dt);
+      ok(Math.abs(i0-HW.NREC/2*(M.rec.span/(HW.NREC*M.rec.dt)))<=1,
+        'the trigger sample sits at mid-screen (i='+i0+')');
+      close(M.rec.y[i0]-M.st.vpos,M.st.tlev,2e-3,
+        'and the trace passes through the level there'); }
+    /* a DC offset survives DC coupling and reads on the mean */
+    { const M=mk({off:0.5,conn:'term',coup:'dc',quant8:false});
+      close(M.meas.mean,0.5,2e-3,'offset 0.5 V reads 0.5 V terminated (EMF 1 V, halved)'); }
+    /* crossing interpolation, on a grid the signal does NOT divide evenly:
+       at 10^3.0007 Hz the truncated-crossing estimate is 1.05e-5 off and the
+       interpolated one 9e-12 (found by the mutation sweep: at an even 1000 Hz
+       the truncation error cancels between crossings and pins nothing) */
+    { const M=mk({conn:'term',quant8:false,freqExp:3.0007});
+      rel(M.meas.freq,Math.pow(10,3.0007),1e-6,
+        'interpolated crossings resolve an incommensurate frequency'); }
+    /* measured 10-90 "rise" of a sine is 2 asin(0.8)/2pi of a period */
+    { const M=mk({conn:'term',quant8:false});
+      rel(M.meas.rise,2.95167235300867e-04,1e-2,
+        'sine rise 10-90 = 2 asin(0.8)/(2 pi f) (scipy)'); }
+    /* the alias flag must fire in the first fold zone too */
+    { const M=mk({tdivI:15,freqExp:5.13830269816628,conn:'term',vdivI:5,
+                  tlev:0.3,quant8:false});
+      ok(M.aliased,'0.55 fs is an alias as well');
+      rel(M.fdisp,112500,1e-9,'0.55 fs folds to 0.45 fs (scipy)');
+      rel(M.meas.freq,112500,1e-2,'and the record measures the folded value'); }
+    /* ratio chips: p:q means f2 = (p/q) f1 */
+    { const st0=Object.assign({},DEFAULTS,{ratio:'5:4'});
+      rel(chan2(st0).f0/chan1(st0).f0,1.25,1e-12,'ratio 5:4 puts channel 2 at 1.25 f1'); }
+    /* vertical position shifts the record BEFORE the converter */
+    { const M=mk({vpos:2,conn:'term',quant8:false});
+      let s=0; const nOn=Math.round(M.rec.span/M.rec.dt);
+      for(let i=0;i<nOn;i++) s+=M.rec.y[i];
+      close(s/nOn,2,5e-3,'vpos = +2 div lifts the displayed mean to +2 div');
+      close(M.meas.mean,0,3e-3,'while the measured VOLTS stay zero'); }
+    /* the spectrum model carries the right ENBW */
+    { const M=mk({view:'spectrum',winf:'hann'});
+      ok(M.spec&&M.spec.enbwBins===1.5,'hann ENBW 1.5 bins in the model'); }
+    /* the terminated path has its (harmless) pole where it should be */
+    { const st0=Object.assign({},DEFAULTS,{conn:'term'});
+      rel(cxAbs(connGain(st0,4.24413181578388e+08))/connGain(st0,0)[0],
+        Math.SQRT1_2,1e-9,'terminated: -3 dB only at 424 MHz (scipy)'); }
+    /* a compensated probe passes AC at the same x2 the DC branch promises */
+    { const st0=Object.assign({},DEFAULTS,{conn:'probe',trim:TRIM_COMP});
+      rel(2*cxAbs(connGain(st0,1e3)),1.99999000005000,1e-6,
+        'compensated probe: x2 of set at 1 kHz too (scipy)'); }
+  }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================== entry ============================= */
+if(typeof document!=='undefined'){
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

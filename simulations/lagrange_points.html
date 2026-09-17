@@ -1,0 +1,2279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lagrange points &mdash; the five balance points of two orbiting bodies, and the spacecraft that live there</title>
+<!--
+  ===================================================================
+  lagrange_points.html — the circular restricted three-body problem
+  in the rotating frame: the five Lagrange points, the effective
+  potential they sit on, which of them are stable and why, and the
+  orbits real spacecraft fly about them — SOHO and JWST about the
+  Sun–Earth L1 and L2, the Queqiao relay and the Lunar Gateway about
+  the Earth–Moon L2, Jupiter's trojans and the horseshoe companions
+  ===================================================================
+
+  Six views.  THE FIVE POINTS: the rotating frame of any of five real
+  pairs (Sun–Earth, Earth–Moon, Sun–Jupiter, Sun–Mars, Pluto–Charon)
+  or a custom mass ratio; L1, L2, L3 by bisection on the gradient of
+  the effective potential, L4, L5 at the equilateral points; the zero-
+  velocity curve 2 Omega = C for a Jacobi constant you slide, with the
+  forbidden region shaded — the necks at L1, L2, L3 open in that order
+  as C falls.  THE POTENTIAL: the same effective potential as a surface
+  in a camera you can orbit — the wells at the primaries, the ridge of
+  the unit circle, the saddles at L1–L3 and the hilltops at L4, L5.
+  STABILITY: the linearised motion about each point, its four roots in
+  the complex plane, the e-folding time at the saddles and the two
+  libration periods at L4, Routh's threshold mu < 0.03852 (M1/M2 >
+  24.96) with the five systems placed on it; release a particle at rest
+  beside any point and watch.  SUN–EARTH MISSIONS: a SOHO-like halo
+  about L1 and a JWST-like halo about L2, both closed orbits from a
+  differential corrector, with Gaia's Lissajous, the Moon's orbit for
+  scale and Earth's penumbra, which a spacecraft parked exactly at L2
+  would sit inside; let the halo drift with a perturbation and see the
+  station-keeping problem (a multiplier of ~1260 per orbit).  EARTH–
+  MOON: the Queqiao-like halo about L2, from which the far side and
+  Earth are both in view (the relay's line of sight clears the Moon by
+  ~11,500 km), and the Gateway's 9:2 near-rectilinear halo, perilune
+  3,249 km over the north pole, apolune 71,222 km over the south — the
+  same family continued until its period locks to 2/9 of a synodic
+  month, and nearly stable (multiplier 2.2).  TROJANS & HORSESHOES:
+  test particles released in the Sun–Jupiter, Sun–Earth or Earth–Moon
+  frame librate about L4 or L5 (tadpoles, the Greek and Trojan camps,
+  ~147 years a cycle for Jupiter) or swing around L3 between the two
+  (horseshoes), with the zero-velocity curve that walls them off.
+
+  WHAT IS MEASURED (sources in build_lagr/derive.py)
+  --------------------------------------------------
+  GM of the Sun, Earth, Moon, Mars, Jupiter, Pluto and Charon's mass
+  (Wikipedia "Standard gravitational parameter", "Charon"); the
+  separations (1 AU, 384,399 km, 5.2038 AU, 1.52368 AU, 19,595.764 km);
+  the bodies' radii; the synodic month 29.530589 d for the 9:2
+  resonance; the mission figures the orbits are sized to — JWST's halo
+  reaching 832,000 km from L2, Gaia's 707,000 × 263,000 km Lissajous,
+  the Gateway NRHO's period 2/9 of a synodic month.  The SOHO-like and
+  Queqiao-like amplitudes are chosen, not measured.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The collinear roots (80 halvings, checked against brentq), the
+  eigenvalues (closed-form quartic against numpy eig), Routh's value,
+  the halo, Lissajous-seed and NRHO initial states (Richardson's third-
+  order seed, Howell's single-shooting corrector on the state
+  transition matrix, solve_ivp at rtol 1e-12, residual < 1e-13), the
+  RK4 twins pinned at quarter periods, the monodromy multipliers (RK4
+  on the 42-vector, power iteration, against numpy on solve_ivp's
+  STM), the coorbital runs against solve_ivp.  The CR3BP period of each
+  pair is Kepler's from GM and a (27.28 d for the Moon against the
+  27.32 d sidereal month: the Sun's perturbation is the difference).
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  Circular orbits, massless test bodies, no third-body or radiation
+  perturbations; the Earth–Moon pair is treated as a point mass in the
+  Sun–Earth frame; the Lissajous is the linearised one; the live
+  particles are RK4 at a fixed step, so a chaotic horseshoe is
+  faithful only for a few hundred periods.  The clock advances a fixed
+  amount per frame so the headless suites are deterministic.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed orbit or curve, orange = a reference
+       value, a warning or the unstable branch, magenta = the live particle or
+       spacecraft, cyan = structure (the primaries, the frame, the axes). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Lagrange points</h1>
+  <span class="sub" id="sub">Two bodies orbit; five places move with them &mdash; where they are, which are stable, and the halo, near-rectilinear and tadpole orbits that SOHO, JWST, Queqiao, the Lunar Gateway and Jupiter&rsquo;s trojans fly about them</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  tables generated from refvals.txt by gen_tables.py — the periodic  *
+ *  orbits' initial states (derive.py's differential corrector), the   *
+ *  Earth-Moon L2 southern halo family, and REF, the reference numbers *
+ *  selfTest pins the physics against                                 *
+ * ================================================================== */
+/* x0, z0, ydot0 at the x-z plane crossing; period in units of 1/n; N RK4 steps per period */
+const ORBITS={
+  jwst:{sys:'sunearth',pt:'L2',name:'JWST-like halo',sat:'JWST',x0:1.0076626061333243,z0:0.0025509521542440264,ydot0:0.012232134298708845,period:3.090917626285505,N:2400},
+  soho:{sys:'sunearth',pt:'L1',name:'SOHO-like halo',sat:'SOHO',x0:0.9888395008652882,z0:0.0009588561909538893,ydot0:0.008980835807833706,period:3.059477534024848,N:2400},
+  queqiao:{sys:'earthmoon',pt:'L2',name:'Queqiao-like halo',sat:'Queqiao',x0:1.111867051363654,z0:-0.033632916510223154,ydot0:0.20046654815294732,period:3.396182172262336,N:2400},
+  nrho:{sys:'earthmoon',pt:'L2',name:'9:2 southern NRHO',sat:'Gateway',x0:1.0220286614424623,z0:-0.1821017029878117,ydot0:-0.10327192257979022,period:1.511205335812735,N:3600}
+};
+/* the family continued from the Queqiao-like halo (apolune crossing) to the NRHO: every 6th member */
+const FAMILY=[
+  {z0:0.04838578700586,x0:1.178422880909,ydot0:-0.1680857400218,periodD:14.74779509838,periKm:49394.22000813},
+  {z0:0.09382341719284,x0:1.170153613309,ydot0:-0.1922792841699,periodD:14.49927091861,periKm:45582.53560615},
+  {z0:0.1393571441588,x0:1.153576775302,ydot0:-0.2153247747452,periodD:13.98962377191,periKm:39702.13243382},
+  {z0:0.1805978300697,x0:1.126478089534,ydot0:-0.2255108768124,periodD:12.90686497867,periKm:31008.25654091},
+  {z0:0.2020603911462,x0:1.086714801256,ydot0:-0.2047921687493,periodD:10.59571634806,periKm:18527.88540128},
+  {z0:0.1921093418014,x0:1.039732214444,ydot0:-0.1387397713824,periodD:7.591864111981,periKm:6458.483622915}
+];
+const REF={"sys":{"sunearth":{"mu":3.040423452162e-06,"T_d":365.256343058,"a_km":149597870.7,"L1":0.98998598229,"L2":1.010075200076,"L3":-1.000001266843,"L4x":0.4999969595765,"L4y":0.8660254037844,"hill":0.01004471470832,"L1_from_M2_km":1497620.885692,"L2_from_M2_km":1507683.319134,"L3_from_M1_km":149597605.3762},"earthmoon":{"mu":0.01215058420521,"T_d":27.28449911556,"a_km":384399.0,"L1":0.8369151326828,"L2":1.155682160043,"L3":-1.005062645225,"L4x":0.4878494157948,"L4y":0.8660254037844,"hill":0.1594013401129,"L1_from_M2_km":58018.98749396,"L2_from_M2_km":64514.73905642,"L3_from_M1_km":381674.403344},"sunjupiter":{"mu":0.0009536838826437,"T_d":4333.832612816,"a_km":778477399.5487,"L1":0.9323701352583,"L2":1.068825941009,"L3":-1.000397368237,"L4x":0.4990463161174,"L4y":0.8660254037844,"hill":0.06824870200525,"L1_from_M2_km":51905899.88702,"L2_from_M2_km":54321860.92701,"L3_from_M1_km":778044320.3917},"sunmars":{"mu":3.227154603221e-07,"T_d":686.9719542479,"a_km":227939283.6282,"L1":0.9952513270385,"L2":1.004763106546,"L3":-1.000000134465,"L4x":0.4999996772845,"L4y":0.8660254037844,"hill":0.004755901364799,"L1_from_M2_km":1082335.553487,"L2_from_M2_km":1085772.653411,"L3_from_M1_km":227939240.7184},"plutocharon":{"mu":0.1085878628813,"T_d":6.381747552656,"a_km":19595.764,"L1":0.5929007245157,"L2":1.262539142002,"L3":-1.045170583829,"L4x":0.3914121371187,"L4y":0.8660254037844,"hill":0.330790740074,"L1_from_M2_km":5849.559192676,"L2_from_M2_km":7272.517201715,"L3_from_M1_km":18353.05396618}},"stab":{"sunearth":{"L1":{"C":3.000897941494,"Oxx":9.122148033239,"Oyy":-3.06107401662,"Oxy":0.0,"Ozz":-4.06107401662,"lam_real":2.532659174198,"omega_inplane":2.086453564311,"omega_z":2.015210663087,"efold_d":22.95308941906,"Tinplane_d":175.0608541238,"Tz_d":181.249707412},"L2":{"C":3.000893887554,"Oxx":8.88104436958,"Oyy":-2.94052218479,"Oxy":0.0,"Ozz":-3.94052218479,"lam_real":2.484316720044,"omega_inplane":2.057014190689,"omega_z":1.985074856218,"efold_d":23.39973483427,"Tinplane_d":177.5662728586,"Tz_d":184.0012944166},"L3":{"C":3.000003040423,"Oxx":3.000005320748,"Oyy":-2.660374227868e-06,"Oxy":-0.0,"Ozz":-1.000002660374,"lam_real":0.002825083073744,"omega_inplane":1.000002660357,"omega_z":1.000001330186,"efold_d":20577.21878469,"Tinplane_d":365.2553713485,"Tz_d":365.2558571997},"L4":{"C":2.999996959586,"Oxx":0.75,"Oyy":2.25,"Oxy":1.299030206425,"Ozz":-1.0,"stable":1.0,"omega_long":0.004530255743927,"omega_short":0.9999897383388,"Tlong_d":80625.98751685,"Tshort_d":365.2600912333}},"earthmoon":{"L1":{"C":3.188341104799,"Oxx":11.2951889734,"Oyy":-4.147594486699,"Oxy":0.0,"Ozz":-5.147594486699,"lam_real":2.932055916252,"omega_inplane":2.334385874128,"omega_z":2.268831083774,"efold_d":1.481030044467,"Tinplane_d":11.68808439853,"Tz_d":12.0257957107},"L2":{"C":3.172160449884,"Oxx":7.380850481529,"Oyy":-2.190425240765,"Oxy":0.0,"Ozz":-3.190425240765,"lam_real":2.158674333133,"omega_inplane":1.86264586966,"omega_z":1.786176150542,"efold_d":2.011634102179,"Tinplane_d":14.64824825802,"Tz_d":15.27536861764},"L3":{"C":3.012147149277,"Oxx":3.021382554354,"Oyy":-0.01069127717681,"Oxy":-0.0,"Ozz":-1.010691277177,"lam_real":0.1778753487785,"omega_inplane":1.010419894166,"omega_z":1.005331426534,"efold_d":24.41295510507,"Tinplane_d":27.00312936542,"Tz_d":27.13980523779},"L4":{"C":2.987997052491,"Oxx":0.75,"Oyy":2.25,"Oxy":1.267469961899,"Ozz":-1.0,"stable":1.0,"omega_long":0.298208154193,"omega_short":0.954500862636,"Tlong_d":91.49481237157,"Tshort_d":28.58509634052}},"sunjupiter":{"L1":{"C":3.038755860831,"Oxx":9.892252623676,"Oyy":-3.446126311838,"Oxy":0.0,"Ozz":-4.446126311838,"lam_real":2.681128420811,"omega_inplane":2.177687603179,"omega_z":2.108583958925,"efold_d":257.2614118402,"Tinplane_d":1990.107583149,"Tz_d":2055.328456081},"L2":{"C":3.037484029164,"Oxx":8.245738528181,"Oyy":-2.62286926409,"Oxy":0.0,"Ozz":-3.62286926409,"lam_real":2.352069558401,"omega_inplane":1.977210647217,"omega_z":1.903383635553,"efold_d":293.2527570874,"Tinplane_d":2191.892208813,"Tz_d":2276.909673839},"L3":{"C":3.000953664762,"Oxx":3.001669676595,"Oyy":-0.0008348382975662,"Oxy":-0.0,"Ozz":-1.000834838298,"lam_real":0.05001738351426,"omega_inplane":1.000833103148,"omega_z":1.000417332066,"efold_d":13790.22320642,"Tinplane_d":4330.225088665,"Tz_d":4332.024719991},"L4":{"C":2.99904722563,"Oxx":0.75,"Oyy":2.25,"Oxy":1.296560362268,"Ozz":-1.0,"stable":1.0,"omega_long":0.08045575421655,"omega_short":0.9967581811119,"Tlong_d":53866.03674302,"Tshort_d":4347.927807306}},"sunmars":{"L1":{"C":3.00020249216,"Oxx":9.05743241802,"Oyy":-3.02871620901,"Oxy":0.0,"Ozz":-4.02871620901,"lam_real":2.519776338024,"omega_inplane":2.078594858229,"omega_z":2.007166213598,"efold_d":43.39074886693,"Tinplane_d":330.4982457395,"Tz_d":342.259624337},"L2":{"C":3.000202061871,"Oxx":8.943287515025,"Oyy":-2.971643757512,"Oxy":0.0,"Ozz":-3.971643757512,"lam_real":2.496888294703,"omega_inplane":2.064656726604,"omega_z":1.992898330952,"efold_d":43.7884956712,"Tinplane_d":332.7293808196,"Tz_d":344.7099852403},"L3":{"C":3.000000322715,"Oxx":3.000000564752,"Oyy":-2.823760691177e-07,"Oxy":-0.0,"Ozz":-1.000000282376,"lam_real":0.0009203955065341,"omega_inplane":1.000000282376,"omega_z":1.000000141188,"efold_d":118791.3038556,"Tinplane_d":686.9717602637,"Tz_d":686.9718572557},"L4":{"C":2.999999677285,"Oxx":0.75,"Oyy":2.25,"Oxy":1.299037267237,"Ozz":-1.0,"stable":1.0,"omega_long":0.001475917815593,"omega_short":0.9999989108327,"Tlong_d":465454.0699965,"Tshort_d":686.9727024761}},"plutocharon":{"L1":{"C":3.620547535617,"Oxx":14.32919788166,"Oyy":-5.66459894083,"Oxy":0.0,"Ozz":-6.66459894083,"lam_real":3.411551450426,"omega_inplane":2.640849173669,"omega_z":2.581588453032,"efold_d":0.2977198741772,"Tinplane_d":2.416551318525,"Tz_d":2.472023588872},"L2":{"C":3.479446025626,"Oxx":5.940210797859,"Oyy":-1.47010539893,"Oxy":0.0,"Ozz":-2.47010539893,"lam_real":1.788716410984,"omega_inplane":1.652089888594,"omega_z":1.571656896059,"efold_d":0.5678299043563,"Tinplane_d":3.862833128339,"Tz_d":4.060522095286},"L3":{"C":3.108067049243,"Oxx":3.199954070068,"Oyy":-0.09997703503402,"Oxy":-0.0,"Ozz":-1.099977035034,"lam_real":0.5222865786342,"omega_inplane":1.082961788424,"omega_z":1.048797899995,"efold_d":1.94469226306,"Tinplane_d":5.892864938421,"Tz_d":6.084821062939},"L4":{"C":2.903203461084,"Oxx":0.75,"Oyy":2.25,"Oxy":1.016918562283,"Ozz":-1.0,"stable":0.0,"lam_re":0.3926303376214,"lam_im":0.8088007059967,"efold_d":2.586877709763}}},"halo":{"jwst":{"rk4":[{"N":2400,"step":600,"x":1.009078994944,"y":0.005398158945129,"z":-0.0008093542743394,"vx":0.003727805482172,"vy":-0.0007729496394588,"vz":-0.005779461887448},{"N":2400,"step":1200,"x":1.011133881037,"y":1.878607268661e-15,"z":-0.003386978060838,"vx":7.513226711375e-13,"vy":-0.01041937548146,"vz":-1.254940941474e-13},{"N":2400,"step":1800,"x":1.009078994945,"y":-0.005398158946326,"z":-0.0008093542746479,"vx":-0.003727805479193,"vy":-0.0007729496434596,"vz":0.005779461886851},{"N":2400,"step":2400,"x":1.007662606143,"y":-9.805822115665e-12,"z":0.002550952155779,"vx":2.900070201768e-11,"vy":0.0122321342799,"vz":1.143294540054e-11}],"sys":"sunearth","pt":"L2","x0":1.0076626061333243,"z0":0.0025509521542440264,"ydot0":0.012232134298708845,"period":3.090917626285505,"period_d":179.6823129791,"resid":6.728246398338e-13,"ext":{"xmin":150744180.2616,"xmax":151263475.1824,"ymax":809658.498585,"zmin":-506684.267651,"zmax":381617.0107169,"r2min":1208594.281558,"r2max":1741402.902222,"closure":3.130255527635e-11,"seed_x0":1.007767042083,"seed_ydot0":0.01209852867554,"seed_T":3.089376143011},"dL":{"min":525256.1341607,"max":832000.1524106},"rk4_closure":3.891947483616e-11,"ivp_closure":3.130255527635e-11,"jacobi":3.000759922816,"rk4_drift":-4.440892098501e-16},"soho":{"rk4":[{"N":2400,"step":600,"x":0.9905756982553,"y":0.004486796504919,"z":0.000184031291277,"vx":0.003038396057222,"vy":0.0003691416796718,"vz":-0.001718878897733},{"N":2400,"step":1200,"x":0.9916408827544,"y":-8.972545471365e-15,"z":-0.0007697972579614,"vx":4.999722678375e-14,"vy":-0.009849741912374,"vz":2.702057971631e-15},{"N":2400,"step":1800,"x":0.9905756982554,"y":-0.004486796504962,"z":0.0001840312912826,"vx":-0.003038396056905,"vy":0.0003691416796013,"vz":0.001718878897737},{"N":2400,"step":2400,"x":0.9888395008661,"y":-2.627871319394e-13,"z":0.0009588561909327,"vx":1.744501151676e-12,"vy":0.008980835807016,"vz":-1.145500210461e-13}],"sys":"sunearth","pt":"L1","x0":0.9888395008652882,"z0":0.0009588561909538893,"ydot0":0.008980835807833706,"period":3.059477534024848,"period_d":177.8546264534,"resid":1.017015773219e-14,"ext":{"xmin":147928283.7935,"xmax":148347364.4723,"ymax":671774.1055555,"zmin":-115159.8225815,"zmax":143442.8444742,"r2min":1255345.182009,"r2max":1675284.364559,"closure":3.838047223846e-12,"seed_x0":0.9888755238617,"seed_ydot0":0.008925984863225,"seed_T":3.056839196682},"dL":{"min":223588.7617933,"max":679797.9160512},"rk4_closure":2.092127102789e-12,"ivp_closure":3.838047223846e-12,"jacobi":3.000825508617,"rk4_drift":-4.440892098501e-16},"queqiao":{"rk4":[{"N":2400,"step":600,"x":1.136905607745,"y":0.09569404142156,"z":0.01416661535196,"vx":0.06660680005816,"vy":-0.01304136874709,"vz":0.07145904299707},{"N":2400,"step":1200,"x":1.178422880909,"y":1.978730493259e-13,"z":0.04838578700583,"vx":1.298793158525e-13,"vy":-0.1680857400217,"vz":1.160499647768e-13},{"N":2400,"step":1800,"x":1.136905607745,"y":-0.09569404142143,"z":0.01416661535211,"vx":-0.06660680005845,"vy":-0.0130413687475,"vz":-0.07145904299702},{"N":2400,"step":2400,"x":1.111867051363,"y":3.51870225665e-13,"z":-0.03363291651012,"vx":-2.111327409291e-12,"vy":0.2004665481543,"vz":2.275572850811e-13}],"sys":"earthmoon","pt":"L2","x0":1.111867051363654,"z0":-0.033632916510223154,"ydot0":0.20046654815294732,"period":3.396182172262336,"period_d":14.74779509837,"resid":2.244415218185e-14,"ext":{"xmin":427400.5826765,"xmax":452984.5551447,"ymax":36890.77568864,"zmin":-12928.45947361,"zmax":18599.43349377,"r2min":49394.22000746,"r2max":75580.53198712,"closure":6.65112833819e-12,"seed_x0":1.113491627643,"seed_ydot0":0.1983126009922,"seed_T":3.392578865259},"dL":{"min":20551.29095846,"max":38078.22427672},"rk4_closure":2.655375224974e-12,"ivp_closure":6.65112833819e-12,"jacobi":3.14210493797,"rk4_drift":8.881784197001e-16}},"nrho":{"rk4":[{"N":3600,"step":900,"x":1.012710336248,"y":-0.03473269149101,"z":-0.1449079916775,"vx":-0.0486922968277,"vy":-0.06752569734748,"vz":0.2047826018631},{"N":3600,"step":1800,"x":0.9873800546265,"y":-3.559635589762e-10,"z":0.008440097285278,"vx":6.254587355849e-09,"vy":1.667271048318,"vz":-2.483152923977e-07},{"N":3600,"step":2700,"x":1.012710279291,"y":0.03473255618236,"z":-0.1449079823122,"vx":0.04869203179068,"vy":-0.0675258804408,"vz":-0.204782398972},{"N":3600,"step":3600,"x":1.022028483627,"y":-1.41216060163e-07,"z":-0.182101583083,"vx":-3.499844967836e-07,"vy":-0.1032717652836,"vz":3.898093184281e-07}],"target":{"units":1.511205335807,"days":6.562353111111},"members":34,"x0":1.0220286614424623,"z0":-0.1821017029878117,"ydot0":-0.10327192257979022,"period":1.511205335812735,"period_d":6.562353111136,"resid":9.27897082087e-14,"ext":{"perilune_r":3253.729744388,"apolune_r":71222.04076898,"perilune_alt":1516.329744388,"apolune_alt":69484.64076898,"zmin":-69999.71252731,"zmax":3239.706962539,"ymax":16210.12870698,"closure":3.883753312315e-12},"perilune_refined_km":3249.378139163,"t_peri":0.7556026679063,"apolune_refined_km":71222.04076898,"closure":6.042516527527e-07,"jacobi":3.046493303738,"drift":1.2668813687e-07},"family":[{"z0":0.04838578700586,"x0":1.178422880909,"ydot0":-0.1680857400218,"period_d":14.74779509838,"peri_km":49394.22000813},{"z0":0.09382341719284,"x0":1.170153613309,"ydot0":-0.1922792841699,"period_d":14.49927091861,"peri_km":45582.53560615},{"z0":0.1393571441588,"x0":1.153576775302,"ydot0":-0.2153247747452,"period_d":13.98962377191,"peri_km":39702.13243382},{"z0":0.1805978300697,"x0":1.126478089534,"ydot0":-0.2255108768124,"period_d":12.90686497867,"peri_km":31008.25654091},{"z0":0.2020603911462,"x0":1.086714801256,"ydot0":-0.2047921687493,"period_d":10.59571634806,"peri_km":18527.88540128},{"z0":0.1921093418014,"x0":1.039732214444,"ydot0":-0.1387397713824,"period_d":7.591864111981,"peri_km":6458.483622915}],"mono":{"nrho":2.189276980754,"queqiao":1015.731936482,"jwst":1261.666787741,"soho":1722.507937714},"coorbital":{"tadpole_jup":{"steps":[{"step":256,"x":0.2863177062726,"y":0.963175250486,"vx":0.007311405777164,"vy":-0.002250849632556},{"step":1024,"x":0.5581217347528,"y":0.8440752186829,"vx":0.01487324932573,"vy":-0.01122706794066},{"step":3072,"x":0.2626278577054,"y":0.9618473129569,"vx":-0.003810791566447,"vy":0.0009706677563142}],"sys":"sunjupiter","start_deg":75.0,"dr_hill":0.0,"kind":"tadpole","ang_min":47.61673495168,"ang_max":75.00297341861,"C":2.999166475733,"CL3":3.000953664762,"drift":6.661338147751e-15,"end_x":0.2626278577054,"end_y":0.9618473129569,"ivp_end_x":0.2626278576192,"ivp_end_y":0.9618473127754},"bigtadpole_jup":{"steps":[{"step":256,"x":-0.9956276993159,"y":0.1126994883687,"vx":0.0001664789357918,"vy":0.001548200796262},{"step":1024,"x":-0.9706815250653,"y":0.2702309639084,"vx":0.002650338740493,"vy":0.009645035803874},{"step":3072,"x":0.8288736898737,"y":0.6389047238166,"vx":0.04011978322379,"vy":-0.05856991887424}],"sys":"sunjupiter","start_deg":175.0,"dr_hill":0.0,"kind":"tadpole","ang_min":37.59356827018,"ang_max":175.0000012534,"C":3.000948243846,"CL3":3.000953664762,"drift":6.63469279516e-13,"end_x":0.8288736898737,"end_y":0.6389047238166,"ivp_end_x":0.8288736902517,"ivp_end_y":0.6389047231217},"horseshoe_jup":{"steps":[{"step":256,"x":-0.92895684229,"y":0.5067277606199,"vx":0.04040592681928,"vy":0.07509637832395},{"step":1024,"x":0.7241653387782,"y":0.7971148489298,"vx":0.08382213157439,"vy":-0.07821354192681},{"step":3072,"x":0.3162781680051,"y":-0.841724481826,"vx":0.1627241525922,"vy":0.04407308399618}],"sys":"sunjupiter","start_deg":180.0,"dr_hill":0.8,"kind":"horseshoe","ang_min":13.27206614149,"ang_max":290.6505854721,"C":3.003157968082,"CL3":3.000953664762,"drift":1.293898321819e-11,"end_x":0.3162781680051,"end_y":-0.841724481826,"ivp_end_x":0.316278198027,"ivp_end_y":-0.8417244755994},"tadpole_earth":{"steps":[{"step":256,"x":0.3746577852894,"y":0.9271728351344,"vx":1.404661212472e-05,"vy":-5.676667880061e-06},{"step":1024,"x":0.3753494061621,"y":0.9269256864249,"vx":5.608591112329e-05,"vy":-2.27201958566e-05},{"step":3072,"x":0.3810263563309,"y":0.9246922268471,"vx":0.0001657636324183,"vy":-6.83807195563e-05}],"sys":"sunearth","start_deg":68.0,"dr_hill":0.0,"kind":"tadpole","ang_min":67.6053620969,"ang_max":68.00000658828,"C":2.999997078401,"CL3":3.000003040423,"drift":-4.440892098501e-16,"end_x":0.3810263563309,"end_y":0.9246922268471,"ivp_end_x":0.3810263563304,"ivp_end_y":0.924692226847},"bigtadpole_earth":{"steps":[{"step":256,"x":-0.9975639908309,"y":0.06983420048249,"vx":2.442602105301e-07,"vy":3.490459883596e-06},{"step":1024,"x":-0.9975454097397,"y":0.07019917616846,"vx":9.843277857511e-07,"vy":1.399252282335e-05},{"step":3072,"x":-0.9974254249159,"y":0.0721476816781,"vx":3.066941716103e-06,"vy":4.241427047654e-05}],"sys":"sunearth","start_deg":176.0,"dr_hill":0.0,"kind":"tadpole","ang_min":175.862765174,"ang_max":176.0000000017,"C":3.000003027473,"CL3":3.000003040423,"drift":4.440892098501e-16,"end_x":-0.9974254249159,"end_y":0.0721476816781,"ivp_end_x":-0.9974254249163,"ivp_end_y":0.07214768167539},"horseshoe_earth":{"steps":[{"step":256,"x":-1.005473051136,"y":0.1317479206775,"vx":0.00273122807343,"vy":0.02084726111045},{"step":1024,"x":-0.8792751918348,"y":0.5052459290575,"vx":0.01049794529258,"vy":0.01827249663306},{"step":15360,"x":0.636392742846,"y":-0.7502682499422,"vx":0.02278853458389,"vy":0.01108404010829}],"sys":"sunearth","start_deg":180.0,"dr_hill":1.4,"kind":"horseshoe","ang_min":1.732226495338,"ang_max":310.305420397,"C":3.000149045313,"CL3":3.000003040423,"drift":1.576516694968e-12,"end_x":0.636392742846,"end_y":-0.7502682499422,"ivp_end_x":0.6363927517536,"ivp_end_y":-0.7502682492574}},"depart":[{"step":150,"t_d":15.01053464622,"dx_km":1304.003558209,"dy_km":-51.26823991208},{"step":300,"t_d":30.02106929244,"dx_km":2319.977106857,"dy_km":-419.0131147041},{"step":600,"t_d":60.04213858488,"dx_km":8365.45426866,"dy_km":-3736.172838618}],"jacobi":{"sunearth":{"CL1":3.000897941494,"CL2":3.000893887554,"CL3":3.000003040423,"CL4":2.999996959586},"earthmoon":{"CL1":3.188341104799,"CL2":3.172160449884,"CL3":3.012147149277,"CL4":2.987997052491},"sunjupiter":{"CL1":3.038755860831,"CL2":3.037484029164,"CL3":3.000953664762,"CL4":2.99904722563},"plutocharon":{"CL1":3.620547535617,"CL2":3.479446025626,"CL3":3.108067049243,"CL4":2.903203461084}},"liss":{"wp":2.057014190689,"wz":1.985074856218,"k":-3.187229288361,"Ax":0.001482793570172,"Ay":0.004726003095444,"Az":0.001758046413157},"lissT":[{"t":0.0,"x":1.011557993646,"y":-0.0,"z":0.001758046413157},{"t":1.0,"x":1.009382312249,"y":-0.004178290125879,"z":-0.0007076657124536},{"t":2.5,"x":1.010693530864,"y":0.004295486283293,"z":0.0004354555077608}],"shadow":{"umbra_km":1382631.565232,"penumbra_at_L2_km":13446.64038575,"L2_km":1507683.319134},"queqiao":{"los_clear_km":11496.86208981},"check":{"0":"Kepler periods: Moon 27.284499 d (27.321661 sidereal), Jupiter 4333.833 d (4332.59), Charon 6.381748 d (6.387221)","1":"Sun-Earth L1, L2 from Earth: 1497621 km, 1507683 km (article: ~1.5 million km)","2":"Earth-Moon L1, L2 from the Moon: 58019 km, 64515 km; from Earth 326380, 448914 km","3":"Sun-Jupiter L4 long libration period 147.5 yr (trojans: ~150 yr)","4":"Pluto-Charon M1/M2 = 8.209 < 24.96: L4/L5 unstable","5":"L1/L2 Hill approximations, Sun-Earth: exact 0.989985982 1.010075200 vs 1-mu-+(mu/3)^(1/3) 0.989952245 1.010041674"},"mu_routh":0.03852089650455,"routh_ratio":24.95993579438,"jwst_Az_km":428575.1433345};
+
+/* ================================================================== *
+ *  the circular restricted three-body problem — rotating frame,       *
+ *  normalised units (the primaries' separation, 1/n, M1 + M2)         *
+ *  twin: build_lagr/derive.py                                         *
+ * ================================================================== */
+const DEG=PI/180;
+const AU_KM=149597870.7, DAY_S=86400, G_CONST=6.67430e-11;
+/* GM in m^3/s^2 (Wikipedia "Standard gravitational parameter"); Charon from its mass 1.5897e21 kg */
+const GMV={sun:1.32712440042e20, earth:3.986004418e14, moon:4.902800118e12, mars:4.282837e13,
+           jupiter:1.26686534e17, pluto:8.71e11, charon:G_CONST*1.5897e21};
+const RADII_KM={sun:695700, earth:6371, moon:1737.4, mars:3389.5, jupiter:69886, pluto:1188.3, charon:606};
+const SYSTEMS=[
+  {id:'sunearth',   name:'Sun &ndash; Earth',   m1:'Sun',   m2:'Earth',  b1:'sun',   b2:'earth',  gm1:GMV.sun,   gm2:GMV.earth+GMV.moon, aKm:AU_KM,         note:'Earth and Moon taken as one body'},
+  {id:'earthmoon',  name:'Earth &ndash; Moon',  m1:'Earth', m2:'Moon',   b1:'earth', b2:'moon',   gm1:GMV.earth, gm2:GMV.moon,           aKm:384399,        note:'a = 384,399 km'},
+  {id:'sunjupiter', name:'Sun &ndash; Jupiter', m1:'Sun',   m2:'Jupiter',b1:'sun',   b2:'jupiter',gm1:GMV.sun,   gm2:GMV.jupiter,        aKm:5.2038*AU_KM,  note:'a = 5.2038 AU'},
+  {id:'sunmars',    name:'Sun &ndash; Mars',    m1:'Sun',   m2:'Mars',   b1:'sun',   b2:'mars',   gm1:GMV.sun,   gm2:GMV.mars,           aKm:1.52368*AU_KM, note:'a = 1.52368 AU'},
+  {id:'plutocharon',name:'Pluto &ndash; Charon',m1:'Pluto', m2:'Charon', b1:'pluto', b2:'charon', gm1:GMV.pluto, gm2:GMV.charon,         aKm:19595.764,     note:'the barycentre lies outside Pluto'},
+  {id:'custom',     name:'custom &mu;',         m1:'M&#8321;', m2:'M&#8322;', b1:null, b2:null,   gm1:null,      gm2:null,               aKm:null,          note:'set the mass ratio with the slider'},
+];
+function sysById(id){ const s=SYSTEMS.find(s=>s.id===id); if(!s) throw new Error('unknown system '+id); return s; }
+/* the system as the physics sees it: mu, the period (Kepler, from GM and a) in days, the scale */
+function sysInfo(id,muCustomLog){
+  const s=sysById(id);
+  if(id==='custom'){ const mu=Math.pow(10,muCustomLog); return {id,name:s.name,m1:s.m1,m2:s.m2,b1:null,b2:null,mu,aKm:null,Td:null,note:s.note,ratio:(1-mu)/mu}; }
+  const mu=s.gm2/(s.gm1+s.gm2), Ts=TAU*Math.sqrt(Math.pow(s.aKm*1e3,3)/(s.gm1+s.gm2));
+  return {id,name:s.name,m1:s.m1,m2:s.m2,b1:s.b1,b2:s.b2,mu,aKm:s.aKm,Td:Ts/DAY_S,note:s.note,ratio:(1-mu)/mu};
+}
+/* units -> km and days for a system (null-safe for the custom system) */
+function toKm(S,x){ return S.aKm===null?null:x*S.aKm; }
+function toDays(S,t){ return S.Td===null?null:t*S.Td/TAU; }
+
+/* ---- the effective potential Omega, its gradient and Hessian ------------------------------- */
+function omega(mu,x,y,z){
+  z=z||0; const r1=Math.sqrt((x+mu)*(x+mu)+y*y+z*z), r2=Math.sqrt((x-1+mu)*(x-1+mu)+y*y+z*z);
+  return 0.5*(x*x+y*y)+(1-mu)/r1+mu/r2;
+}
+function grad(mu,x,y,z){
+  z=z||0; const r1=Math.sqrt((x+mu)*(x+mu)+y*y+z*z), r2=Math.sqrt((x-1+mu)*(x-1+mu)+y*y+z*z);
+  const r13=r1*r1*r1, r23=r2*r2*r2;
+  return [x-(1-mu)*(x+mu)/r13-mu*(x-1+mu)/r23, y-(1-mu)*y/r13-mu*y/r23, -(1-mu)*z/r13-mu*z/r23];
+}
+function hess(mu,x,y,z){
+  z=z||0; const r1=Math.sqrt((x+mu)*(x+mu)+y*y+z*z), r2=Math.sqrt((x-1+mu)*(x-1+mu)+y*y+z*z);
+  const r13=r1*r1*r1, r15=r13*r1*r1, r23=r2*r2*r2, r25=r23*r2*r2, d1=x+mu, d2=x-1+mu;
+  const base=-(1-mu)/r13-mu/r23;
+  return {xx:1+base+3*(1-mu)*d1*d1/r15+3*mu*d2*d2/r25, yy:1+base+3*(1-mu)*y*y/r15+3*mu*y*y/r25,
+          zz:base+3*(1-mu)*z*z/r15+3*mu*z*z/r25, xy:3*(1-mu)*d1*y/r15+3*mu*d2*y/r25,
+          xz:3*(1-mu)*d1*z/r15+3*mu*d2*z/r25, yz:3*(1-mu)*y*z/r15+3*mu*y*z/r25};
+}
+function jacobi(mu,s){ return 2*omega(mu,s[0],s[1],s[2])-(s[3]*s[3]+s[4]*s[4]+s[5]*s[5]); }
+
+/* ---- the five points --------------------------------------------------------------------- */
+function bisect(f,lo,hi,n){
+  let flo=f(lo); n=n||80;
+  for(let i=0;i<n;i++){ const m=0.5*(lo+hi), fm=f(m); if((fm>0)===(flo>0)){ lo=m; flo=fm; } else hi=m; }
+  return 0.5*(lo+hi);
+}
+function collinear(mu){
+  const fx=x=>grad(mu,x,0,0)[0];
+  return [bisect(fx,-mu+1e-9,1-mu-1e-9), bisect(fx,1-mu+1e-9,2), bisect(fx,-2,-mu-1e-9)];
+}
+function triangular(mu){ return [[0.5-mu,Math.sqrt(3)/2],[0.5-mu,-Math.sqrt(3)/2]]; }
+function hillRadius(mu){ return Math.pow(mu/3,1/3); }
+const MU_ROUTH=(1-Math.sqrt(23/27))/2;                 /* 27 mu (1 - mu) = 1 */
+const LPTS_MEMO={};
+function lagrangePoints(mu){
+  if(LPTS_MEMO.mu===mu) return LPTS_MEMO.pts;
+  const c=collinear(mu), t=triangular(mu);
+  const pts=[{id:'L1',x:c[0],y:0},{id:'L2',x:c[1],y:0},{id:'L3',x:c[2],y:0},{id:'L4',x:t[0][0],y:t[0][1]},{id:'L5',x:t[1][0],y:t[1][1]}];
+  for(const p of pts) p.C=2*omega(mu,p.x,p.y,0);
+  LPTS_MEMO.mu=mu; LPTS_MEMO.pts=pts; return pts;
+}
+function lpt(mu,id){ const p=lagrangePoints(mu).find(p=>p.id===id); if(!p) throw new Error('no point '+id); return p; }
+
+/* ---- linear stability: lambda^4 + (4 - Oxx - Oyy) lambda^2 + (Oxx Oyy - Oxy^2) = 0 ----------- */
+function stabAt(mu,x,y){
+  const Hs=hess(mu,x,y,0), b=4-Hs.xx-Hs.yy, c=Hs.xx*Hs.yy-Hs.xy*Hs.xy, disc=b*b-4*c;
+  const out={oxx:Hs.xx,oyy:Hs.yy,oxy:Hs.xy,ozz:Hs.zz,b,c,disc,wZ:Math.sqrt(Math.max(0,-Hs.zz))};
+  if(disc>=0){
+    const l2a=(-b+Math.sqrt(disc))/2, l2b=(-b-Math.sqrt(disc))/2;      /* l2a >= l2b */
+    out.lam2=[l2a,l2b];
+    if(l2a>0){ out.kind='saddle'; out.lamReal=Math.sqrt(l2a); out.wIn=Math.sqrt(-l2b); out.stable=false; }
+    else { out.kind='centre'; out.wLong=Math.sqrt(-l2a); out.wShort=Math.sqrt(-l2b); out.stable=true; }
+  } else {
+    /* a complex quartet: lambda^2 = (-b +- i sqrt(-disc))/2, lambda = |lambda^2|^(1/2) e^(i arg/2) */
+    const re=-b/2, im=Math.sqrt(-disc)/2, mod=Math.sqrt(Math.hypot(re,im)), ph=Math.atan2(im,re)/2;
+    out.lam2=[re,im]; out.kind='spiral'; out.lamRe=mod*Math.cos(ph); out.lamIm=mod*Math.sin(ph); out.stable=false;
+  }
+  return out;
+}
+/* the four in-plane roots as [re, im] pairs for the plot */
+function eigRoots(sb){
+  if(sb.kind==='saddle') return [[sb.lamReal,0],[-sb.lamReal,0],[0,sb.wIn],[0,-sb.wIn]];
+  if(sb.kind==='centre') return [[0,sb.wLong],[0,-sb.wLong],[0,sb.wShort],[0,-sb.wShort]];
+  return [[sb.lamRe,sb.lamIm],[sb.lamRe,-sb.lamIm],[-sb.lamRe,sb.lamIm],[-sb.lamRe,-sb.lamIm]];
+}
+
+/* ---- the equations of motion and the sim's integrator (classical RK4, fixed step) ------------ */
+function rhs(mu,s){
+  const g=grad(mu,s[0],s[1],s[2]);
+  return [s[3],s[4],s[5],2*s[4]+g[0],-2*s[3]+g[1],g[2]];
+}
+function rk4Step(mu,s,dt){
+  const k1=rhs(mu,s), s2=new Array(6), s3=new Array(6), s4=new Array(6), out=new Array(6);
+  for(let i=0;i<6;i++) s2[i]=s[i]+0.5*dt*k1[i];
+  const k2=rhs(mu,s2);
+  for(let i=0;i<6;i++) s3[i]=s[i]+0.5*dt*k2[i];
+  const k3=rhs(mu,s3);
+  for(let i=0;i<6;i++) s4[i]=s[i]+dt*k3[i];
+  const k4=rhs(mu,s4);
+  for(let i=0;i<6;i++) out[i]=s[i]+dt*(k1[i]+2*k2[i]+2*k3[i]+k4[i])/6;
+  return out;
+}
+function integrateTrace(mu,s0,dt,n){
+  const out=[s0.slice()]; let s=s0.slice();
+  for(let k=0;k<n;k++){ s=rk4Step(mu,s,dt); out.push(s); }
+  return out;
+}
+/* the state transition matrix carried with the state: 42 equations */
+function rhsSTM(mu,s){
+  const x=s[0],y=s[1],z=s[2], g=grad(mu,x,y,z), Hs=hess(mu,x,y,z);
+  const A=[[0,0,0,1,0,0],[0,0,0,0,1,0],[0,0,0,0,0,1],[Hs.xx,Hs.xy,Hs.xz,0,2,0],[Hs.xy,Hs.yy,Hs.yz,-2,0,0],[Hs.xz,Hs.yz,Hs.zz,0,0,0]];
+  const out=new Array(42); out[0]=s[3]; out[1]=s[4]; out[2]=s[5]; out[3]=2*s[4]+g[0]; out[4]=-2*s[3]+g[1]; out[5]=g[2];
+  for(let i=0;i<6;i++) for(let j=0;j<6;j++){ let v=0; for(let k=0;k<6;k++) v+=A[i][k]*s[6+6*k+j]; out[6+6*i+j]=v; }
+  return out;
+}
+function rk4StepSTM(mu,s,dt){
+  const n=42, k1=rhsSTM(mu,s), s2=new Array(n), s3=new Array(n), s4=new Array(n), out=new Array(n);
+  for(let i=0;i<n;i++) s2[i]=s[i]+0.5*dt*k1[i];
+  const k2=rhsSTM(mu,s2);
+  for(let i=0;i<n;i++) s3[i]=s[i]+0.5*dt*k2[i];
+  const k3=rhsSTM(mu,s3);
+  for(let i=0;i<n;i++) s4[i]=s[i]+dt*k3[i];
+  const k4=rhsSTM(mu,s4);
+  for(let i=0;i<n;i++) out[i]=s[i]+dt*(k1[i]+2*k2[i]+2*k3[i]+k4[i])/6;
+  return out;
+}
+
+/* ---- the periodic orbits: initial states from derive.py's differential corrector ------------- */
+const ORBIT_MEMO={};
+function orbitSys(key){ return sysInfo(ORBITS[key].sys,0); }
+function orbitTrace(key){
+  if(ORBIT_MEMO[key]) return ORBIT_MEMO[key];
+  const o=ORBITS[key]; if(!o) throw new Error('no orbit '+key);
+  const S=orbitSys(key), mu=S.mu, dt=o.period/o.N;
+  const states=integrateTrace(mu,[o.x0,0,o.z0,0,o.ydot0,0],dt,o.N);
+  const s0=states[0], sN=states[o.N];
+  let dd=0; for(let i=0;i<6;i++) dd+=(sN[i]-s0[i])*(sN[i]-s0[i]);
+  let r2max=0, zmin=Infinity, zmax=-Infinity, ymax=0, dLmin=Infinity, dLmax=0;
+  const xL=lpt(mu,o.pt).x;
+  const r2s=states.map(s=>Math.sqrt((s[0]-1+mu)*(s[0]-1+mu)+s[1]*s[1]+s[2]*s[2])); let imin=0;
+  for(let i=0;i<states.length;i++){ const s=states[i], dL=Math.sqrt((s[0]-xL)*(s[0]-xL)+s[1]*s[1]+s[2]*s[2]);
+    if(r2s[i]<r2s[imin]) imin=i; r2max=Math.max(r2max,r2s[i]); zmin=Math.min(zmin,s[2]); zmax=Math.max(zmax,s[2]); ymax=Math.max(ymax,Math.abs(s[1])); dLmin=Math.min(dLmin,dL); dLmax=Math.max(dLmax,dL); }
+  /* the perilune is a sharp minimum: the vertex of the parabola through the three nearest samples */
+  const r2minRaw=r2s[imin], r2min=refineMin(r2s,imin);
+  const T={key,mu,S,dt,N:o.N,period:o.period,states,closure:Math.sqrt(dd),C:jacobi(mu,s0),Cdrift:jacobi(mu,sN)-jacobi(mu,s0),
+           r2min,r2minRaw,r2max,zmin,zmax,ymax,dLmin,dLmax,xL,imin};
+  ORBIT_MEMO[key]=T; return T;
+}
+function refineMin(a,i){ if(i<=0||i>=a.length-1) return a[i]; const d2=a[i+1]-2*a[i]+a[i-1]; if(d2<=0) return a[i]; const d1=(a[i+1]-a[i-1])/2; return a[i]-d1*d1/(2*d2); }
+/* the state on the closed orbit at time t (linear interpolation between the RK4 steps, t mod period) */
+function orbitAt(key,t){
+  const T=orbitTrace(key); let u=t%T.period; if(u<0) u+=T.period;
+  const f=u/T.dt, i=Math.min(T.N-1,Math.floor(f)), a=f-i, s0=T.states[i], s1=T.states[i+1];
+  const out=new Array(6); for(let k=0;k<6;k++) out[k]=s0[k]+(s1[k]-s0[k])*a; return out;
+}
+/* the monodromy matrix's dominant multiplier: RK4 on the 42-vector, then power iteration */
+const MONO_MEMO={};
+function monodromy(key){
+  if(MONO_MEMO[key]!==undefined) return MONO_MEMO[key];
+  const o=ORBITS[key], mu=orbitSys(key).mu, dt=o.period/o.N;
+  let s=new Array(42).fill(0); s[0]=o.x0; s[2]=o.z0; s[4]=o.ydot0; for(let i=0;i<6;i++) s[6+7*i]=1;
+  for(let k=0;k<o.N;k++) s=rk4StepSTM(mu,s,dt);
+  const M=[]; for(let i=0;i<6;i++){ M.push([]); for(let j=0;j<6;j++) M[i].push(s[6+6*i+j]); }
+  let v=[1,0.7,0.3,-0.2,0.5,-0.6], lam=0;
+  for(let it=0;it<400;it++){
+    const w=new Array(6).fill(0); for(let i=0;i<6;i++) for(let j=0;j<6;j++) w[i]+=M[i][j]*v[j];
+    let nw=0; for(let i=0;i<6;i++) nw+=w[i]*w[i]; nw=Math.sqrt(nw); lam=nw; for(let i=0;i<6;i++) v[i]=w[i]/nw;
+  }
+  MONO_MEMO[key]=lam; return lam;
+}
+
+/* ---- the linearised Lissajous about a collinear point --------------------------------------- */
+function lissajousConsts(mu,ptId){
+  const p=lpt(mu,ptId), sb=stabAt(mu,p.x,p.y);
+  const wp=sb.wIn, k=-(wp*wp+sb.oxx)/(2*wp);            /* y = k A_x sin(wp t) for x = A_x cos(wp t) */
+  return {xL:p.x,wp,wz:sb.wZ,k};
+}
+function lissajousAt(L,Ay,Az,t){
+  const Ax=Ay/Math.abs(L.k);
+  return [L.xL+Ax*Math.cos(L.wp*t), L.k*Ax*Math.sin(L.wp*t), Az*Math.cos(L.wz*t), -Ax*L.wp*Math.sin(L.wp*t), L.k*Ax*L.wp*Math.cos(L.wp*t), -Az*L.wz*Math.sin(L.wz*t)];
+}
+
+/* ---- Earth's shadow toward L2: the umbra's length and the penumbra's radius at a distance ---- */
+function shadowGeom(dKm){
+  const RS=RADII_KM.sun, RE=RADII_KM.earth;
+  return {umbraKm:RE*AU_KM/(RS-RE), penumbraKm:RE+dKm*(RS+RE)/AU_KM, umbraKmAt:Math.max(0,RE-dKm*(RS-RE)/AU_KM)};
+}
+/* the closest approach of the line from a point p (units, M2 at the origin) toward M1 at (-1,0,0) to M2's centre */
+function losClear(p){
+  const d=[-1-p[0],-p[1],-p[2]], L=Math.hypot(d[0],d[1],d[2]); d[0]/=L; d[1]/=L; d[2]/=L;
+  const pd=p[0]*d[0]+p[1]*d[1]+p[2]*d[2];
+  return Math.hypot(p[0]-pd*d[0],p[1]-pd*d[1],p[2]-pd*d[2]);
+}
+
+/* ---- zero-velocity curves: marching squares on 2 Omega = C, and the forbidden region as row runs */
+function marchingSquares(f,x0,x1,y0,y1,nx,ny,level){
+  const vals=new Float64Array((nx+1)*(ny+1));
+  for(let j=0;j<=ny;j++) for(let i=0;i<=nx;i++) vals[j*(nx+1)+i]=f(x0+(x1-x0)*i/nx,y0+(y1-y0)*j/ny)-level;
+  const segs=[];
+  const X=i=>x0+(x1-x0)*i/nx, Y=j=>y0+(y1-y0)*j/ny;
+  const ip=(a,b,va,vb)=>a+(b-a)*(va/(va-vb));
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
+    const v00=vals[j*(nx+1)+i], v10=vals[j*(nx+1)+i+1], v01=vals[(j+1)*(nx+1)+i], v11=vals[(j+1)*(nx+1)+i+1];
+    if(!isFinite(v00)||!isFinite(v10)||!isFinite(v01)||!isFinite(v11)) continue;
+    const code=(v00>0?1:0)|(v10>0?2:0)|(v11>0?4:0)|(v01>0?8:0);
+    if(code===0||code===15) continue;
+    /* the four edge crossings: bottom (00-10), right (10-11), top (01-11), left (00-01) */
+    const bot=[ip(X(i),X(i+1),v00,v10),Y(j)], rgt=[X(i+1),ip(Y(j),Y(j+1),v10,v11)], top=[ip(X(i),X(i+1),v01,v11),Y(j+1)], lft=[X(i),ip(Y(j),Y(j+1),v00,v01)];
+    const push=(a,b)=>segs.push([a[0],a[1],b[0],b[1]]);
+    switch(code){
+      case 1: case 14: push(lft,bot); break;
+      case 2: case 13: push(bot,rgt); break;
+      case 3: case 12: push(lft,rgt); break;
+      case 4: case 11: push(rgt,top); break;
+      case 6: case 9:  push(bot,top); break;
+      case 7: case 8:  push(lft,top); break;
+      case 5: { const c=(v00+v10+v01+v11)/4; if(c>0){ push(lft,top); push(bot,rgt); } else { push(lft,bot); push(rgt,top); } break; }
+      case 10:{ const c=(v00+v10+v01+v11)/4; if(c>0){ push(lft,bot); push(rgt,top); } else { push(lft,top); push(bot,rgt); } break; }
+    }
+  }
+  return segs;
+}
+function zvcSegments(mu,C,x0,x1,y0,y1,n){ return marchingSquares((x,y)=>2*omega(mu,x,y,0),x0,x1,y0,y1,n,n,C); }
+/* the forbidden region 2 Omega < C, as merged runs of grid cells (cell centres tested) */
+function forbiddenRuns(mu,C,x0,x1,y0,y1,n){
+  const runs=[], dx=(x1-x0)/n, dy=(y1-y0)/n;
+  for(let j=0;j<n;j++){
+    const yc=y0+(j+0.5)*dy; let start=-1;
+    for(let i=0;i<=n;i++){
+      const inside=i<n&&2*omega(mu,x0+(i+0.5)*dx,yc,0)<C;
+      if(inside&&start<0) start=i;
+      if(!inside&&start>=0){ runs.push([x0+start*dx,y0+j*dy,(i-start)*dx,dy]); start=-1; }
+    }
+  }
+  return runs;
+}
+/* which necks are open at the Jacobi constant C */
+function necksOpen(mu,C){
+  const P=lagrangePoints(mu);
+  return {L1:C<lpt(mu,'L1').C, L2:C<lpt(mu,'L2').C, L3:C<lpt(mu,'L3').C, all:C<lpt(mu,'L4').C, P};
+}
+
+/* ---- the live particles ----------------------------------------------------------------------- */
+function releaseState(mu,ptId,off,dir){
+  const p=lpt(mu,ptId); const d=dir||'x';
+  return d==='y'?[p.x,p.y+off,0,0,0,0]:[p.x+off,p.y,0,0,0,0];
+}
+/* at rest on the circle of radius 1 about M1 (drH = 0), or on a circle drH Hill radii larger at its own circular speed */
+function coorbitalStart(mu,angDeg,drH){
+  const th=angDeg*DEG, r=1+(drH||0)*hillRadius(mu), v=drH?Math.sqrt((1-mu)/r)-r:0;
+  return [-mu+r*Math.cos(th),r*Math.sin(th),0,-v*Math.sin(th),v*Math.cos(th),0];
+}
+function angleFrom(mu,s){ let a=Math.atan2(s[1],s[0]+mu)/DEG; if(a<0) a+=360; return a; }
+
+/* ---- the effective potential as a surface: U = -Omega mapped through tanh about U(L1) ---------- */
+function surfaceRefs(mu){
+  const CL1=lpt(mu,'L1').C, CL4=lpt(mu,'L4').C;
+  return {UL1:-CL1/2, scale:Math.max(1.5*(CL1-CL4),0.06), UL4:-CL4/2};
+}
+function surfaceHeight(mu,R,exag,x,y){
+  const r1=Math.hypot(x+mu,y), r2=Math.hypot(x-1+mu,y);
+  if(r1<1e-6||r2<1e-6) return -0.35*exag;
+  return 0.35*exag*Math.tanh((-omega(mu,x,y,0)-R.UL1)/R.scale);
+}
+
+/* ================================================================== *
+ *  state, the clock and the live runs, the per-view model, readout   *
+ * ================================================================== */
+const TABS=[['points','the five points'],['surface','the potential'],['stab','stability'],
+            ['sunearth','Sun&ndash;Earth missions'],['earthmoon','Earth&ndash;Moon'],['trojan','trojans & horseshoes']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6', off:'#161c2c', edge:'#242a3a',
+           m1:'#f2c14e', m2:'#9fc4e0', forbid:'#141b2c', forbidEdge:'#2a3550', liss:'#5ac8e0', shadow:'#3a3f52', moon:'#b9bcc4', earth:'#4f8fd6'};
+const RO_W=300;
+const SYS_LIST=SYSTEMS.map(s=>({id:s.id,name:s.name}));
+const PT_LIST=['L1','L2','L3','L4','L5'].map(p=>({id:p,name:p}));
+const ZOOM_LIST=[{id:'system',name:'the whole system'},{id:'m2',name:'around M&#8322;'}];
+const MISSION_LIST=[{id:'both',name:'L1 and L2'},{id:'L1',name:'L1: SOHO'},{id:'L2',name:'L2: JWST, Gaia'}];
+const EM_LIST=[{id:'both',name:'both orbits'},{id:'halo',name:'the Queqiao halo'},{id:'nrho',name:'the Gateway NRHO'}];
+const TRO_SYS=[{id:'sunjupiter',name:'Sun &ndash; Jupiter'},{id:'sunearth',name:'Sun &ndash; Earth'},{id:'earthmoon',name:'Earth &ndash; Moon'}];
+const TRO_KIND=[{id:'tadpole',name:'a tadpole'},{id:'horseshoe',name:'a horseshoe'},{id:'swarm',name:'a swarm'}];
+
+const DEFAULTS={view:'points', sys:'earthmoon', muLog:-2, zoom:'system', cRel:0.95,
+                camTheta:-1.0, camPhi:0.62, exag:1,
+                pt:'L1', off:0.01, dir:'x',
+                mission:'both', seTheta:-0.75, sePhi:0.5, perturb:100,
+                em:'both', emTheta:-0.9, emPhi:0.42, los:true,
+                troSys:'sunjupiter', troKind:'tadpole', ang:75, dr:0.8,
+                running:true, speed:2};
+const ST=Object.assign({},DEFAULTS);
+const LIM={muLogMin:-6, muLogMax:Math.log10(0.5), offMax:0.05, perturbMax:2000};
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+/* the system a view uses (the missions are fixed to their pairs) */
+function viewSys(st){
+  if(st.view==='sunearth') return sysInfo('sunearth',0);
+  if(st.view==='earthmoon') return sysInfo('earthmoon',0);
+  if(st.view==='trojan') return sysInfo(st.troSys,0);
+  return sysInfo(st.sys,st.muLog);
+}
+/* kilometres with thousands separators (sigf would go exponential above 1e5) */
+function kmf(x,n){ if(!isFinite(x)) return '—'; if(Math.abs(x)>=1000) return Math.round(x).toString().replace(/\B(?=(\d{3})+(?!\d))/g,','); return sigf(x,n||4); }
+function dayStr(S,t,n){ return S.Td===null?sigf(t/TAU,n||4)+' periods':sigf(t*S.Td/TAU,n||4)+' d'; }
+function kmStr(S,x,n){ return S.aKm===null?sigf(x,n||4)+' a':kmf(x*S.aKm,n||4)+' km'; }
+function yrStr(S,t){ if(S.Td===null) return sigf(t/TAU,4)+' periods'; const d=t*S.Td/TAU; return d>1000?sigf(d/365.25,4)+' yr':sigf(d,4)+' d'; }
+
+/* ---- the clock and the live runs ----------------------------------------------------------------
+   SIM.t is the rotating-frame time (units of 1/n) the spacecraft markers follow along their closed
+   orbits; a RUN is a set of test particles integrated live by RK4: the particle released beside a
+   point (stab), the perturbed halo (drift), the tadpole / horseshoe / swarm (trojan).  Every slider
+   resets; the runs start from their buttons; the mission clocks run on their own. */
+const FRAME_DT=1/60;
+const SIM={t:0, key:''};
+const RUN={kind:null, mu:0, t:0, dt:0, parts:[], traces:[], angT:[], angMin:null, angMax:null, ref:null, sep:[], nSub:0};
+function simKey(st){ return [st.view,st.sys,st.muLog,st.pt,st.off,st.dir,st.mission,st.perturb,st.em,st.troSys,st.troKind,st.ang,st.dr].join('|'); }
+function simReset(st){ SIM.t=0; SIM.key=simKey(st); RUN.kind=null; RUN.t=0; RUN.parts=[]; RUN.traces=[]; RUN.angT=[]; RUN.angMin=null; RUN.angMax=null; RUN.ref=null; RUN.sep=[]; RUN.nSub=0; }
+function viewAnimates(v){ return v==='stab'||v==='sunearth'||v==='earthmoon'||v==='trojan'; }
+function runActive(st){ return RUN.kind!==null&&RUN.kind===st.view; }
+/* the trojan runs cover centuries, so their frames are four times longer */
+function frameDt(st){ return (st.view==='trojan'?0.02:0.005)*Math.max(1,Math.round(st.speed)); }
+function swarmStarts(mu){
+  const out=[];
+  for(let k=0;k<12;k++){ const a=60+16*Math.sin(1.7*k+0.4); out.push(coorbitalStart(mu,a,0)); }
+  for(let k=0;k<12;k++){ const a=300+16*Math.sin(1.7*k+0.9); out.push(coorbitalStart(mu,a,0)); }
+  return out;
+}
+function startRun(st){
+  if(SIM.key!==simKey(st)) simReset(st);
+  const S=viewSys(st), mu=S.mu;
+  if(st.view==='stab'){ RUN.kind='stab'; RUN.mu=mu; RUN.dt=0.005; RUN.parts=[releaseState(mu,st.pt,st.off,st.dir)]; }
+  else if(st.view==='sunearth'){ RUN.kind='sunearth'; RUN.mu=mu; const T=orbitTrace('jwst'); RUN.dt=T.dt;
+    const s=orbitAt('jwst',SIM.t); s[0]+=st.perturb/AU_KM; RUN.parts=[s]; RUN.ref='jwst'; RUN.sep=[[SIM.t,st.perturb]]; }
+  else if(st.view==='trojan'){ RUN.kind='trojan'; RUN.mu=mu; RUN.dt=TAU/256;
+    RUN.parts=st.troKind==='swarm'?swarmStarts(mu):[coorbitalStart(mu,st.ang,st.troKind==='horseshoe'?st.dr:0)];
+    const a=angleFrom(mu,RUN.parts[0]); RUN.angMin=a; RUN.angMax=a; RUN.angT=[[0,a]]; }
+  else return false;
+  RUN.t=0; RUN.traces=RUN.parts.map(p=>[[p[0],p[1],p[2]]]); return true;
+}
+/* one frame: the clock advances frameDt; an active run takes the RK4 steps that cover it */
+function runStep(st){
+  if(!st.running||!viewAnimates(st.view)) return false;
+  const clock=st.view==='sunearth'||st.view==='earthmoon';
+  if(!clock&&!runActive(st)) return false;
+  const h=frameDt(st);
+  SIM.t+=h;
+  if(!runActive(st)) return true;
+  const n=Math.max(1,Math.round(h/RUN.dt)), dt=h/n; RUN.nSub=n;
+  for(let k=0;k<n;k++){
+    for(let i=0;i<RUN.parts.length;i++) RUN.parts[i]=rk4Step(RUN.mu,RUN.parts[i],dt);
+    RUN.t+=dt;
+  }
+  for(let i=0;i<RUN.parts.length;i++){ const p=RUN.parts[i]; if(RUN.traces[i].length<4000) RUN.traces[i].push([p[0],p[1],p[2]]); }
+  if(RUN.kind==='trojan'){ const a=angleFrom(RUN.mu,RUN.parts[0]);
+    RUN.angMin=Math.min(RUN.angMin,a); RUN.angMax=Math.max(RUN.angMax,a); if(RUN.angT.length<6000) RUN.angT.push([RUN.t,a]); }
+  if(RUN.kind==='sunearth'){ const s=orbitAt('jwst',SIM.t), p=RUN.parts[0];
+    if(RUN.sep.length<4000) RUN.sep.push([SIM.t,Math.hypot(p[0]-s[0],p[1]-s[1],p[2]-s[2])*AU_KM]); }
+  return true;
+}
+
+/* ---- the five points ------------------------------------------------------------------------ */
+function pointsWindow(st,S){
+  if(st.zoom==='m2'){ const r=hillRadius(S.mu), w=Math.min(2.6*r,0.9); return {x0:1-S.mu-w,x1:1-S.mu+w,y0:-w,y1:w,w}; }
+  return {x0:-1.6,x1:1.6,y0:-1.6,y1:1.6,w:1.6};
+}
+function pointsModel(st){
+  const S=viewSys(st), mu=S.mu, P=lagrangePoints(mu), W=pointsWindow(st,S);
+  const CL1=lpt(mu,'L1').C, CL4=lpt(mu,'L4').C, C=CL4+st.cRel*(CL1-CL4);
+  const key=[mu,C,W.x0,W.x1,W.y0,W.y1].join('|');
+  const zvc=memo('zvc',key,()=>({segs:zvcSegments(mu,C,W.x0,W.x1,W.y0,W.y1,150), runs:forbiddenRuns(mu,C,W.x0,W.x1,W.y0,W.y1,75)}));
+  const necks=necksOpen(mu,C), rH=hillRadius(mu);
+  const xs=[], ys=[]; for(let i=0;i<=400;i++){ const x=W.x0+(W.x1-W.x0)*i/400; xs.push(x); ys.push(2*omega(mu,x,0,0)); }
+  return {S,mu,P,W,C,CL1,CL4,zvc,necks,rH,prof:{xs,ys},
+          L1fromM2:1-mu-P[0].x, L2fromM2:P[1].x-1+mu, L3fromM1:-mu-P[2].x,
+          hillApproxL1:1-mu-rH, hillApproxL2:1-mu+rH};
+}
+/* ---- the potential surface ------------------------------------------------------------------- */
+const SURF_N=40, SURF_EXT=1.55;
+function surfaceModel(st){
+  const S=viewSys(st), mu=S.mu, R=surfaceRefs(mu), P=lagrangePoints(mu);
+  const grid=memo('surf',[mu,st.exag].join('|'),()=>{
+    const hs=new Float64Array((SURF_N+1)*(SURF_N+1));
+    for(let j=0;j<=SURF_N;j++) for(let i=0;i<=SURF_N;i++){ const x=-SURF_EXT+2*SURF_EXT*i/SURF_N, y=-SURF_EXT+2*SURF_EXT*j/SURF_N; hs[j*(SURF_N+1)+i]=surfaceHeight(mu,R,st.exag,x,y); }
+    return hs; });
+  const hL=P.map(p=>surfaceHeight(mu,R,st.exag,p.x,p.y));
+  return {S,mu,R,P,grid,hL,hmax:0.35*st.exag,relief:(R.UL4-R.UL1),visible:(R.UL4-R.UL1)/R.scale};
+}
+/* ---- stability ---------------------------------------------------------------------------------- */
+function stabModel(st){
+  const S=viewSys(st), mu=S.mu, P=lagrangePoints(mu);
+  const all=P.map(p=>Object.assign({id:p.id,x:p.x,y:p.y},stabAt(mu,p.x,p.y)));
+  const cur=all.find(a=>a.id===st.pt);
+  const curve=memo('stabcurve','1',()=>{
+    const out=[]; for(let k=0;k<=90;k++){ const lg=LIM.muLogMin+(LIM.muLogMax-LIM.muLogMin)*k/90, m=Math.pow(10,lg);
+      const s1=stabAt(m,collinear(m)[0],0), s4=stabAt(m,0.5-m,Math.sqrt(3)/2);
+      out.push({lg,mu:m,efoldL1:1/s1.lamReal/TAU,longL4:s4.stable?1/s4.wLong:null,efoldL4:s4.stable?null:1/s4.lamRe/TAU}); }
+    return out; });
+  const marks=SYSTEMS.filter(s=>s.id!=='custom').map(s=>{ const I=sysInfo(s.id,0); return {id:s.id,name:s.name,mu:I.mu,lg:Math.log10(I.mu)}; });
+  const run=runActive(st)?{t:RUN.t,p:RUN.parts[0],trace:RUN.traces[0]}:null;
+  let dist=null; if(run){ const p=lpt(mu,st.pt); dist=Math.hypot(run.p[0]-p.x,run.p[1]-p.y); }
+  return {S,mu,P,all,cur,curve,marks,run,dist,ratio:(1-mu)/mu,routh:mu<MU_ROUTH,
+          start:releaseState(mu,st.pt,st.off,st.dir),window:Math.max(st.off*12,0.02)};
+}
+/* ---- the Sun-Earth missions ----------------------------------------------------------------------- */
+function sunearthModel(st){
+  const S=sysInfo('sunearth',0), mu=S.mu, P=lagrangePoints(mu);
+  const soho=orbitTrace('soho'), jwst=orbitTrace('jwst');
+  const L=lissajousConsts(mu,'L2'), Ay=707000/AU_KM, Az=263000/AU_KM;
+  const liss=memo('liss','1',()=>{ const pts=[]; const T=4*TAU/L.wp; for(let i=0;i<=900;i++){ const s=lissajousAt(L,Ay,Az,T*i/900); pts.push([s[0],s[1],s[2]]); } return pts; });
+  const t=SIM.t, pos={soho:orbitAt('soho',t),jwst:orbitAt('jwst',t),gaia:lissajousAt(L,Ay,Az,t)};
+  const sh=shadowGeom(P[1].x-1+mu>0?(P[1].x-1+mu)*AU_KM:0);
+  const run=runActive(st)?{t:RUN.t,p:RUN.parts[0],trace:RUN.traces[0],sep:RUN.sep}:null;
+  return {S,mu,P,soho,jwst,L,liss,Ay,Az,pos,t,sh,moonR:384399/AU_KM,run,
+          monoJ:monodromy('jwst'),monoS:monodromy('soho'),
+          sepNow:run?run.sep[run.sep.length-1][1]:null};
+}
+/* ---- Earth-Moon -------------------------------------------------------------------------------- */
+function earthmoonModel(st){
+  const S=sysInfo('earthmoon',0), mu=S.mu, P=lagrangePoints(mu);
+  const halo=orbitTrace('queqiao'), nrho=orbitTrace('nrho');
+  const t=SIM.t, pos={queqiao:orbitAt('queqiao',t),gateway:orbitAt('nrho',t)};
+  const q=pos.queqiao, rel=[q[0]-1+mu,q[1],q[2]], clear=losClear(rel)*S.aKm;
+  const g=pos.gateway, rG=Math.hypot(g[0]-1+mu,g[1],g[2])*S.aKm;
+  return {S,mu,P,halo,nrho,pos,t,clear,clearOK:clear>RADII_KM.moon,rG,altG:rG-RADII_KM.moon,
+          moonR:RADII_KM.moon/S.aKm,periKm:nrho.r2min*S.aKm,apoKm:nrho.r2max*S.aKm,
+          monoH:monodromy('queqiao'),monoN:monodromy('nrho'),synodic:29.530589,
+          nrhoDays:nrho.period*S.Td/TAU,haloDays:halo.period*S.Td/TAU};
+}
+/* ---- trojans and horseshoes ----------------------------------------------------------------------- */
+function trojanModel(st){
+  const S=viewSys(st), mu=S.mu, P=lagrangePoints(mu);
+  const drH=st.troKind==='horseshoe'?st.dr:0, s0=coorbitalStart(mu,st.ang,drH), C0=jacobi(mu,s0);
+  const CL3=lpt(mu,'L3').C, CL4=lpt(mu,'L4').C;
+  const key=[mu,C0].join('|');
+  const zvc=memo('trozvc',key,()=>({segs:zvcSegments(mu,C0,-1.5,1.5,-1.5,1.5,150), runs:forbiddenRuns(mu,C0,-1.5,1.5,-1.5,1.5,75)}));
+  const run=runActive(st)?{t:RUN.t,parts:RUN.parts,traces:RUN.traces,angT:RUN.angT,angMin:RUN.angMin,angMax:RUN.angMax}:null;
+  const s4=stabAt(mu,P[3].x,P[3].y);
+  return {S,mu,P,s0,C0,CL3,CL4,zvc,run,stable:s4.stable,longP:s4.stable?TAU/s4.wLong:null,shortP:s4.stable?TAU/s4.wShort:null,
+          kind:C0<CL3?'tadpole':'horseshoe',drH,nParts:st.troKind==='swarm'?24:1};
+}
+
+function buildModel(){
+  const st=ST, view=st.view;
+  const M={view,st,t:SIM.t};
+  if(view==='points') M.Pt=pointsModel(st);
+  if(view==='surface') M.Sf=surfaceModel(st);
+  if(view==='stab') M.Sb=stabModel(st);
+  if(view==='sunearth') M.Se=sunearthModel(st);
+  if(view==='earthmoon') M.Em=earthmoonModel(st);
+  if(view==='trojan') M.Tr=trojanModel(st);
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function muStr(mu){ return mu<1e-3?mu.toExponential(4):sigf(mu,5); }
+function readoutHTML(M){
+  const st=ST;
+  let s='<div class="rname">Lagrange points<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='points'){
+    const P=M.Pt, S=P.S;
+    s+=hd(S.name)+rrow('&mu; = M&#8322;/(M&#8321;+M&#8322;)',muStr(P.mu))+rrow('M&#8321;/M&#8322;',sigf(S.ratio,5))
+      +(S.Td!==null?rrow('period 2&pi;&radic;(a&sup3;/G(M&#8321;+M&#8322;))',sigf(S.Td,5)+' d'):'')+rrow('Hill radius a(&mu;/3)<sup>1/3</sup>',kmStr(S,P.rH));
+    s+=hd('the points (units of a)')+rrow('L1',sigf(P.P[0].x,6)+' &nbsp; '+kmStr(S,P.L1fromM2,5)+' from '+S.m2)+rrow('L2',sigf(P.P[1].x,6)+' &nbsp; '+kmStr(S,P.L2fromM2,5)+' from '+S.m2)
+      +rrow('L3',sigf(P.P[2].x,6)+' &nbsp; '+kmStr(S,P.L3fromM1,5)+' from '+S.m1)+rrow('L4, L5',sigf(P.P[3].x,5)+', &plusmn;'+sigf(P.P[3].y,5));
+    s+=hd('the Jacobi constant')+rrow('C = 2&Omega; &minus; v&sup2;',sigf(P.C,7),'good')+rrow('C<sub>L1</sub>, C<sub>L2</sub>',sigf(P.CL1,7)+', '+sigf(P.P[1].C,7))+rrow('C<sub>L3</sub>, C<sub>L4</sub>',sigf(P.P[2].C,7)+', '+sigf(P.CL4,7))
+      +rrow('necks open',P.necks.all?'all: nothing is fenced off':(P.necks.L3?'L1, L2, L3 — the outer region too':(P.necks.L2?'L1 and L2 — escape from '+S.m2+' is open':(P.necks.L1?'L1 only — the two wells are joined':'none — the wells are sealed'))),P.necks.L1?'good':'bad');
+  }
+  else if(M.view==='surface'){
+    const F=M.Sf, S=F.S;
+    s+=hd(S.name+', &mu; = '+muStr(F.mu))+rrow('U = &minus;&Omega; at L1',sigf(F.R.UL1,7))+rrow('U at L4, L5 (the hilltops)',sigf(F.R.UL4,7),'good')+rrow('L4 above L1 by',sigf(F.relief,4)+' (units of n&sup2;a&sup2;)')
+      +rrow('height = 0.35 tanh((U &minus; U<sub>L1</sub>)/s), s =',sigf(F.R.scale,4))+rrow('the L1&ndash;L4 relief on screen',sigf(F.visible,3)+' of the tanh scale',F.visible<0.1?'bad':'good')
+      +rrow('U at L2, L3',sigf(-F.P[1].C/2,7)+', '+sigf(-F.P[2].C/2,7));
+    s+=hd('camera')+rrow('azimuth, elevation',fmt(st.camTheta/DEG,0)+'&deg;, '+fmt(st.camPhi/DEG,0)+'&deg;')+rrow('vertical stretch',fmt(st.exag,2)+'&times;');
+  }
+  else if(M.view==='stab'){
+    const B=M.Sb, S=B.S, c=B.cur;
+    s+=hd(S.name+', &mu; = '+muStr(B.mu))+rrow('M&#8321;/M&#8322;',sigf(B.ratio,5)+(B.routh?' &gt; 24.96: L4, L5 stable':' &lt; 24.96: L4, L5 unstable'),B.routh?'good':'bad')
+      +rrow('Routh &mu;<sub>R</sub> = (1 &minus; &radic;(23/27))/2',sigf(MU_ROUTH,6));
+    s+=hd('about '+c.id)+rrow('&Omega;<sub>xx</sub>, &Omega;<sub>yy</sub>, &Omega;<sub>xy</sub>',sigf(c.oxx,5)+', '+sigf(c.oyy,5)+', '+sigf(c.oxy,5))+rrow('&Omega;<sub>zz</sub> (vertical)',sigf(c.ozz,5));
+    if(c.kind==='saddle') s+=rrow('roots &lambda;','&plusmn;'+sigf(c.lamReal,5)+', &plusmn;'+sigf(c.wIn,5)+'i','bad')+rrow('e-folding time 1/&lambda;',yrStr(S,1/c.lamReal),'bad')+rrow('in-plane period 2&pi;/&omega;',yrStr(S,TAU/c.wIn))+rrow('vertical period 2&pi;/&radic;(&minus;&Omega;<sub>zz</sub>)',yrStr(S,TAU/c.wZ));
+    else if(c.kind==='centre') s+=rrow('roots &lambda;','&plusmn;'+sigf(c.wLong,5)+'i, &plusmn;'+sigf(c.wShort,5)+'i','good')+rrow('long libration 2&pi;/&omega;<sub>1</sub>',yrStr(S,TAU/c.wLong),'good')+rrow('short period 2&pi;/&omega;<sub>2</sub>',yrStr(S,TAU/c.wShort))+rrow('verdict','linearly stable','good');
+    else s+=rrow('roots &lambda;','&plusmn;'+sigf(c.lamRe,5)+' &plusmn; '+sigf(c.lamIm,5)+'i','bad')+rrow('e-folding time 1/Re &lambda;',yrStr(S,1/c.lamRe),'bad')+rrow('verdict','a spiral: unstable','bad');
+    if(B.run) s+=hd('the released particle')+rrow('t',dayStr(S,B.run.t))+rrow('distance from '+c.id,kmStr(S,B.dist))+rrow('start offset',kmStr(S,st.off));
+  }
+  else if(M.view==='sunearth'){
+    const E=M.Se, S=E.S;
+    s+=hd('Sun &ndash; Earth, &mu; = '+muStr(E.mu))+rrow('L1, L2 from Earth',kmf((1-E.mu-E.P[0].x)*AU_KM)+', '+kmf((E.P[1].x-1+E.mu)*AU_KM)+' km')+rrow('t',sigf(E.t*S.Td/TAU,4)+' d');
+    if(st.mission!=='L2') s+=hd('SOHO-like halo about L1')+rrow('period',sigf(E.soho.period*S.Td/TAU,4)+' d')+rrow('A<sub>y</sub>, z range',kmf(E.soho.ymax*AU_KM)+' km, '+kmf(E.soho.zmin*AU_KM)+'&hellip;'+kmf(E.soho.zmax*AU_KM)+' km')
+      +rrow('distance from L1',kmf(E.soho.dLmin*AU_KM)+'&hellip;'+kmf(E.soho.dLmax*AU_KM)+' km')+rrow('closure after one period',E.soho.closure.toExponential(2)+' a','good')+rrow('multiplier per orbit',sigf(E.monoS,5),'bad');
+    if(st.mission!=='L1') s+=hd('JWST-like halo about L2')+rrow('period',sigf(E.jwst.period*S.Td/TAU,4)+' d')+rrow('A<sub>y</sub>, z range',kmf(E.jwst.ymax*AU_KM)+' km, '+kmf(E.jwst.zmin*AU_KM)+'&hellip;'+kmf(E.jwst.zmax*AU_KM)+' km')
+      +rrow('distance from L2',kmf(E.jwst.dLmin*AU_KM)+'&hellip;'+kmf(E.jwst.dLmax*AU_KM)+' km','good')+rrow('multiplier per orbit',sigf(E.monoJ,5),'bad')
+      +rrow('Gaia Lissajous (linear)','A<sub>y</sub> 707,000, A<sub>z</sub> 263,000 km; '+sigf(TAU/E.L.wp*S.Td/TAU,4)+' d')
+      +rrow('Earth&rsquo;s penumbra at L2',kmf(E.sh.penumbraKm)+' km wide; the umbra ends at '+sigf(E.sh.umbraKm/1e6,4)+' Mkm','bad');
+    if(E.run) s+=hd('the drifting spacecraft')+rrow('started '+fmt(st.perturb,0)+' km off the halo','')+rrow('separation now',kmf(E.sepNow)+' km',E.sepNow>1e4?'bad':'')+rrow('after',sigf(E.run.t*S.Td/TAU,4)+' d');
+  }
+  else if(M.view==='earthmoon'){
+    const E=M.Em, S=E.S;
+    s+=hd('Earth &ndash; Moon, &mu; = '+muStr(E.mu))+rrow('L1, L2 from the Moon',kmf((1-E.mu-E.P[0].x)*S.aKm)+', '+kmf((E.P[1].x-1+E.mu)*S.aKm)+' km')+rrow('t',sigf(E.t*S.Td/TAU,4)+' d');
+    if(st.em!=='nrho') s+=hd('Queqiao-like halo about L2')+rrow('period',sigf(E.haloDays,4)+' d')+rrow('distance from the Moon',kmf(E.halo.r2min*S.aKm)+'&hellip;'+kmf(E.halo.r2max*S.aKm)+' km')
+      +rrow('line of sight to Earth clears the Moon by',kmf(E.clear-RADII_KM.moon)+' km',E.clearOK?'good':'bad')+rrow('multiplier per orbit',sigf(E.monoH,5),'bad');
+    if(st.em!=='halo') s+=hd('Gateway 9:2 NRHO (southern)')+rrow('period 2/9 &times; 29.530589 d',sigf(E.nrhoDays,5)+' d','good')+rrow('perilune (radius, altitude)',kmf(E.periKm)+', '+kmf(E.periKm-RADII_KM.moon)+' km')
+      +rrow('apolune (radius)',kmf(E.apoKm)+' km')+rrow('now: distance, altitude',kmf(E.rG)+', '+kmf(E.altG)+' km')+rrow('multiplier per orbit',sigf(E.monoN,4),'good');
+  }
+  else {
+    const T=M.Tr, S=T.S;
+    s+=hd(S.name+', &mu; = '+muStr(T.mu))+rrow('M&#8321;/M&#8322;',sigf(S.ratio,5)+(T.stable?' &gt; 24.96':' &lt; 24.96'),T.stable?'good':'bad')+rrow('period',sigf(S.Td,5)+' d');
+    if(T.stable) s+=rrow('L4 long libration (linear)',yrStr(S,T.longP),'good')+rrow('L4 short period (linear)',yrStr(S,T.shortP));
+    s+=hd('release at '+fmt(st.ang,1)+'&deg; from '+S.m1+(T.drH?', '+fmt(T.drH,2)+' Hill radii out':', at rest in the frame'))+rrow('Jacobi C',sigf(T.C0,7))+rrow('C<sub>L3</sub>, C<sub>L4</sub>',sigf(T.CL3,7)+', '+sigf(T.CL4,7))
+      +rrow('verdict',T.kind==='tadpole'?'C &lt; C<sub>L3</sub>: it cannot reach L3 &mdash; a tadpole about L4 or L5':'C &gt; C<sub>L3</sub>: it passes L3 on one side and turns at the fence about '+S.m2+' &mdash; a horseshoe','good');
+    if(T.run) s+=hd('the run')+rrow('t',yrStr(S,T.run.t))+rrow('angle from '+S.m1+' now',fmt(angleFrom(T.mu,T.run.parts[0]),1)+'&deg;','good')+rrow('range so far',fmt(T.run.angMin,1)+'&deg; &hellip; '+fmt(T.run.angMax,1)+'&deg;')
+      +rrow('nearest '+S.m2+' (angle)',fmt(Math.min(Math.abs(T.run.angMin),Math.abs(360-T.run.angMax)),1)+'&deg;');
+  }
+  s+='</table><div class="note">Measured: the GM values, separations and radii, the mission figures the orbits are sized to (sources in the header). Everything else is computed here and pinned in selfTest to build_lagr/derive.py.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='points') return E('<span class="hl">&Omega; = &frac12;(x&sup2; + y&sup2;) + (1&minus;&mu;)/r<sub>1</sub> + &mu;/r<sub>2</sub></span> &nbsp;&middot;&nbsp; &nabla;&Omega; = 0 at L1&hellip;L5 &nbsp;&middot;&nbsp; C = 2&Omega; &minus; v&sup2; &nbsp;<span class="rm">(forbidden where 2&Omega; &lt; C)</span>',
+    'in the frame that turns with the pair, gravity plus the centrifugal term is a potential; its five stationary points are the Lagrange points, and the Jacobi constant fences off where a body of given energy may go');
+  if(M.view==='surface') return E('U = &minus;&Omega; &nbsp;&middot;&nbsp; <span class="hl">wells at M&#8321;, M&#8322;</span> &nbsp;&middot;&nbsp; saddles at L1, L2, L3 &nbsp;&middot;&nbsp; <span class="hl2">hilltops at L4, L5</span>',
+    'the effective potential is a ridge on the unit circle with two holes in it; L4 and L5 are the ridge’s high points, yet that is where bodies stay — the Coriolis force, absent from the surface, does the holding');
+  if(M.view==='stab') return E('<span class="hl">&lambda;<sup>4</sup> + (4 &minus; &Omega;<sub>xx</sub> &minus; &Omega;<sub>yy</sub>)&lambda;&sup2; + &Omega;<sub>xx</sub>&Omega;<sub>yy</sub> &minus; &Omega;<sub>xy</sub>&sup2; = 0</span> &nbsp;&middot;&nbsp; L4 stable iff 27&mu;(1&minus;&mu;) &lt; 1 &nbsp;<span class="rm">(&mu; &lt; 0.03852, M&#8321;/M&#8322; &gt; 24.96)</span>',
+    'linearise about a point: the collinear ones always carry one real root and depart in e-folding times of weeks, the equilateral ones are stable only for a light enough secondary');
+  if(M.view==='sunearth') return E('x&Prime; &minus; 2y&prime; = &Omega;<sub>x</sub>, &nbsp; y&Prime; + 2x&prime; = &Omega;<sub>y</sub>, &nbsp; z&Prime; = &Omega;<sub>z</sub> &nbsp;&middot;&nbsp; <span class="hl">halo: a closed orbit, x&prime; = z&prime; = 0 at both crossings of y = 0</span>',
+    'a halo orbit is a periodic solution found by shooting: Richardson’s third-order seed, then Newton on the state transition matrix; it never sits at L2 — where Earth’s penumbra is — and it needs correcting every few weeks');
+  if(M.view==='earthmoon') return E('<span class="hl">9 T<sub>NRHO</sub> = 2 T<sub>syn</sub></span> &nbsp;&middot;&nbsp; T<sub>syn</sub> = 29.530589 d &nbsp;&rArr;&nbsp; T = 6.5624 d &nbsp;&middot;&nbsp; perilune 3,249 km, apolune 71,222 km &nbsp;&middot;&nbsp; <span class="hl2">multiplier 2.2 against 1016 for the halo</span>',
+    'continue the L2 southern halo family until the period locks to 2/9 of a synodic month: the orbit stands nearly upright over the poles, passes perilune every seven days, and is almost stable');
+  return E('<span class="hl">C<sub>L4</sub> &lt; C = 2&Omega; &minus; v&sup2; &lt; C<sub>L3</sub></span> &nbsp;&rArr;&nbsp; a tadpole about L4 or L5 &nbsp;&middot;&nbsp; C &gt; C<sub>L3</sub> &nbsp;&rArr;&nbsp; a horseshoe past L3 &nbsp;&middot;&nbsp; T<sub>lib</sub> &asymp; 2&pi;/&radic;(27&mu;/4)',
+    'a body keeps its Jacobi constant: released at rest on the circle it can never reach L3 and librates about L4 or L5; on a slightly different orbit it drifts past L3 and turns at the fence about the secondary — the linear libration period is ~147 years for Jupiter’s trojans');
+}
+function tagHTML(M){
+  const st=ST;
+  if(M.view==='points') return '<b>the five points</b> — '+M.Pt.S.name+(st.zoom==='m2'?', around '+M.Pt.S.m2:'');
+  if(M.view==='surface') return '<b>the potential</b> — '+M.Sf.S.name;
+  if(M.view==='stab') return '<b>stability</b> — '+M.Sb.S.name+', '+st.pt+(M.Sb.run?', released':'');
+  if(M.view==='sunearth') return '<b>Sun&ndash;Earth</b> — '+MISSION_LIST.find(m=>m.id===st.mission).name+(M.Se.run?', drifting':'');
+  if(M.view==='earthmoon') return '<b>Earth&ndash;Moon</b> — '+EM_LIST.find(m=>m.id===st.em).name;
+  return '<b>trojans &amp; horseshoes</b> — '+M.Tr.S.name+', '+TRO_KIND.find(k=>k.id===st.troKind).name+(M.Tr.run?', running':'');
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — extracted from build_buoy/p4_views.js; the camera block from     *
+ *  pulsar.html (v3, makeCamera, camBasis, project)                    *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,x:0,y:0,th:0,ph:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+/* a world polyline from a list of points, clipped to the window in world space (segments that leave are cut) */
+function worldPath(ctx,map,pts,col,lw,dash,win){
+  ctx.beginPath(); let started=false, px=0,py=0, n=0;
+  for(let i=0;i<pts.length;i++){ const p=pts[i];
+    const inside=!win||(p[0]>=win.x0&&p[0]<=win.x1&&p[1]>=win.y0&&p[1]<=win.y1);
+    const X=map.X(p[0]), Y=map.Y(p[1]);
+    if(!inside){ started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); n++; }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  return n;
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+/* Liang-Barsky: the part of segment a-b inside the world window, or null */
+function clipToWin(a,b,win){ let t0=0,t1=1; const dx=b[0]-a[0], dy=b[1]-a[1];
+  const P=[-dx,dx,-dy,dy], Q=[a[0]-win.x0,win.x1-a[0],a[1]-win.y0,win.y1-a[1]];
+  for(let i=0;i<4;i++){ if(P[i]===0){ if(Q[i]<0) return null; } else { const t=Q[i]/P[i]; if(P[i]<0){ if(t>t1) return null; if(t>t0) t0=t; } else { if(t<t0) return null; if(t<t1) t1=t; } } }
+  return [[a[0]+t0*dx,a[1]+t0*dy],[a[0]+t1*dx,a[1]+t1*dy]]; }
+function segClip(ctx,map,a,b,win,col,lw,dash){ const c=clipToWin(a,b,win); if(c) seg(ctx,map,c[0],c[1],col,lw,dash); return !!c; }
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function diamond(ctx,x,y,r,fill,stroke){
+  ctx.beginPath(); ctx.moveTo(x,y-r); ctx.lineTo(x+r,y); ctx.lineTo(x,y+r); ctx.lineTo(x-r,y); ctx.closePath();
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=1.2; ctx.stroke(); }
+}
+function arrowPx(ctx,X0,Y0,X1,Y1,col,lw){
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+  POLY_SEGS.push(X0,Y0,X1,Y1);
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+/* legendAuto's candidates, but a candidate is also rejected over a registered label, and the box is registered */
+function legendR(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0; for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8, mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],[b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],[b.x+8,my],[b.x1-bw-8,my]];
+  let pick=null;
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){ const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue; hit=true; }
+    for(let i=0;i<LABELS.length&&!hit;i++){ const o=LABELS[i]; if(o[0]<cx+bw&&o[2]>cx&&o[1]<cy+bh&&o[3]>cy) hit=true; }
+    if(!hit){ pick=[cx,cy]; break; }
+  }
+  /* nothing clear: in a small box the legend is dropped rather than laid over a curve or a label */
+  if(!pick){ if(b.h<300||b.w<420) return; pick=cands[0]; }
+  legendBox(ctx,pick[0],pick[1],items);
+  LABELS.push([pick[0],pick[1],pick[0]+bw,pick[1]+bh]);
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ---- 3-vector helpers, orbit camera, perspective projection (z-up) — pulsar.html, unchanged ---- */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+/* a camera sized to a box: projected points land in the box's pixel frame */
+function boxCamera(b,theta,phi,dist,target){
+  const cam=makeCamera(theta,phi,dist,target); cam.W=b.w; cam.H=b.h;
+  const B=camBasis(cam);
+  const P=p=>{ const q=project(cam,B,p); return q?{x:b.x+q.x,y:b.y+q.y,z:q.z}:null; };
+  return {cam,B,P};
+}
+/* a 3-D polyline: projected, segments recorded, the parts behind the eye skipped */
+function poly3(ctx,C,pts,col,lw,dash,norec){
+  ctx.beginPath(); let prev=null, n=0;
+  for(const p of pts){ const q=C.P(p); if(!q){ prev=null; continue; }
+    if(prev){ ctx.lineTo(q.x,q.y); if(!norec) POLY_SEGS.push(prev.x,prev.y,q.x,q.y); n++; } else ctx.moveTo(q.x,q.y);
+    prev=q; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.4; ctx.lineJoin='round'; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  return n;
+}
+function seg3(ctx,C,a,b,col,lw,dash,norec){ return poly3(ctx,C,[a,b],col,lw,dash,norec); }
+/* a floor grid on z = 0 for depth: lines x = const and y = const */
+function floorGrid(ctx,C,ext,step,col){
+  for(let v=-ext;v<=ext+1e-9;v+=step){ seg3(ctx,C,[v,-ext,0],[v,ext,0],col,0.8,null,true); seg3(ctx,C,[-ext,v,0],[ext,v,0],col,0.8,null,true); }
+}
+/* the colour of a surface height in [-hmax, hmax] */
+function heightColour(t){ return t<0.5?mix('#1c2c5c','#2a8a8f',t*2):mix('#2a8a8f','#d8e86a',(t-0.5)*2); }
+function ptCol(id){ return id==='L4'||id==='L5'?COL.pos:COL.ref; }
+
+/* ================================================================== *
+ *  view: the five points                                              *
+ * ================================================================== */
+function drawPoints(ctx,W,H,M){
+  const P=M.Pt, S=P.S, st=M.st, mu=P.mu, win=P.W;
+  const L=stageLayout(ctx,W,H,
+    'The rotating frame of '+plain(S.name)+': '+plain(S.m1)+' and '+plain(S.m2)+' sit still, everything else feels gravity plus the centrifugal term. The five points are where the effective potential is flat; the orange curve is the zero-velocity curve 2Ω = C for the Jacobi constant on the slider, and the shaded region is where a body with that C cannot go. Lower C and the necks open at L1, then L2, then L3; below C(L4) nothing is fenced off.',
+    'The rotating frame: L1–L5 where the effective potential is flat; the orange curve is 2Ω = C, shaded where a body of that C cannot go.',1,0.30,1);
+  const b=L.main, map=worldFitUp(b,{xmin:win.x0,xmax:win.x1,ymin:win.y0,ymax:win.y1},0);
+  const vw={x0:map.wx(b.x),x1:map.wx(b.x1),y0:map.wy(b.y1),y1:map.wy(b.y)};
+  /* the forbidden region, then the zero-velocity curve */
+  ctx.fillStyle=COL.forbid;
+  for(const r of P.zvc.runs){ const X0=map.X(r[0]), Y1=map.Y(r[1]), X1=map.X(r[0]+r[2]), Y0=map.Y(r[1]+r[3]); ctx.fillRect(X0,Y0,X1-X0,Y1-Y0); }
+  frame(ctx,b,COL.edge);
+  ctx.beginPath();
+  for(const s of P.zvc.segs){ ctx.moveTo(map.X(s[0]),map.Y(s[1])); ctx.lineTo(map.X(s[2]),map.Y(s[3])); POLY_SEGS.push(map.X(s[0]),map.Y(s[1]),map.X(s[2]),map.Y(s[3])); }
+  ctx.strokeStyle=COL.ref; ctx.lineWidth=1.3; ctx.stroke();
+  /* the orbit circles about the barycentre, the equilateral triangles */
+  { const circ=[]; for(let k=0;k<=240;k++) circ.push([(1-mu)*Math.cos(TAU*k/240),(1-mu)*Math.sin(TAU*k/240)]); worldPath(ctx,map,circ,rgba(COL.struct,0.45),1,[4,4],vw); }
+  const m1=[-mu,0], m2=[1-mu,0];
+  for(const id of ['L4','L5']){ const p=P.P.find(q=>q.id===id); segClip(ctx,map,m1,[p.x,p.y],vw,rgba(COL.dim,0.35),0.8,[2,4]); segClip(ctx,map,m2,[p.x,p.y],vw,rgba(COL.dim,0.35),0.8,[2,4]); }
+  if(st.zoom==='m2') circleW(ctx,map,m2,P.rH,rgba(COL.pos,0.5),1,[3,3]);
+  /* the primaries: to scale when that is more than 3 px */
+  const rad=(body)=>S.aKm===null||!body?3.5:Math.max(3.5,RADII_KM[body]/S.aKm*map.s);
+  if(map.X(m1[0])>=b.x-40&&map.X(m1[0])<=b.x1+40) dot(ctx,map.X(m1[0]),map.Y(0),Math.min(rad(S.b1),60),COL.m1,null);
+  dot(ctx,map.X(m2[0]),map.Y(0),Math.min(rad(S.b2),40),COL.m2,null);
+  /* the barycentre */
+  ctx.strokeStyle=COL.dim; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(map.X(0)-4,map.Y(0)); ctx.lineTo(map.X(0)+4,map.Y(0)); ctx.moveTo(map.X(0),map.Y(0)-4); ctx.lineTo(map.X(0),map.Y(0)+4); ctx.stroke();
+  /* the points */
+  for(const p of P.P){ const X=map.X(p.x), Y=map.Y(p.y); if(X<b.x-2||X>b.x1+2||Y<b.y-2||Y>b.y1+2) continue;
+    diamond(ctx,X,Y,5,ptCol(p.id),'#fff'); lab(ctx,W,H,X+8,Y-9,p.id,ptCol(p.id),LAB_FONT); }
+  if(map.X(m1[0])>=b.x&&map.X(m1[0])<=b.x1) lab(ctx,W,H,map.X(m1[0]),map.Y(0)+Math.min(rad(S.b1),60)+9,S.m1,COL.m1,LAB_FONT,'center','top');
+  lab(ctx,W,H,map.X(m2[0]),map.Y(0)+Math.min(rad(S.b2),40)+9,S.m2,COL.m2,LAB_FONT,'center','top');
+  if(st.zoom==='m2') lab(ctx,W,H,map.X(m2[0]),map.Y(P.rH)-6,'Hill sphere',COL.pos,SM_FONT,'center','bottom');
+  lab(ctx,W,H,b.x+6,b.y+8,plain(S.name)+', μ = '+(mu<1e-3?mu.toExponential(2):fmt(mu,4))+(st.zoom==='m2'?' — around '+plain(S.m2):''),'#aeb6c6','italic 13px Georgia, serif','left','top');
+  lab(ctx,W,H,b.x1-6,b.y1-8,'C = '+fmt(P.C,4)+(P.necks.all?': all open':P.necks.L3?': L1, L2, L3 open':P.necks.L2?': L1, L2 open':P.necks.L1?': L1 open':': sealed'),COL.ref,SM_FONT,'right','bottom');
+  legendR(ctx,b,[[COL.ref,'2Ω = C (zero velocity)'],[COL.forbid,'forbidden, 2Ω < C'],[COL.struct,'the orbit of '+plain(S.m2)],[COL.pos,'L4, L5'],[COL.ref,'L1, L2, L3']]);
+  /* the potential along the x axis */
+  if(L.bottom.length){
+    const bb=L.bottom[0], span=Math.max(P.CL1-P.CL4,1e-6), ylo=P.CL4-0.6*span-0.002, yhi=P.CL1+3*span+0.004;
+    axesR(ctx,bb,vw.x0,vw.x1,ylo,yhi,{title:titleFor(bb,'the potential along the line of the primaries: 2Ω(x, 0), and the level C','2Ω(x, 0) and the level C'),xlab:'x (units of a)',ylab:'2Ω',nx:6,ny:4,yfmt:v=>fmt(v,span<0.01?4:2)});
+    polyline(ctx,bb,P.prof.xs,P.prof.ys,vw.x0,vw.x1,ylo,yhi,COL.struct,1.6);
+    polyline(ctx,bb,[vw.x0,vw.x1],[P.C,P.C],vw.x0,vw.x1,ylo,yhi,COL.ref,1.2,[4,3]);
+    for(const p of P.P.slice(0,3)) if(p.x>vw.x0&&p.x<vw.x1) marker(ctx,bb,vw.x0,vw.x1,ylo,yhi,p.x,p.C,ptCol(p.id));
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: the potential surface                                        *
+ * ================================================================== */
+function drawSurface(ctx,W,H,M){
+  const F=M.Sf, S=F.S, st=M.st, mu=F.mu;
+  const L=stageLayout(ctx,W,H,
+    'The effective potential U = −Ω as a landscape, stretched through a tanh so the ridge shows: the two wells are the primaries, the ridge is the unit circle (−r²/2 − 1/r peaks at r = 1), and on it L1, L2, L3 are the low passes while L4 and L5 are the summits. The relief between L1 and L4 is '+F.relief.toExponential(2)+' in units of n²a² — for the Sun–Earth pair it is a millionth of the depth of the well, which is why the surface here is flattened. Drag to orbit.',
+    'U = −Ω as a landscape: wells at the primaries, a ridge on the unit circle, passes at L1–L3 and summits at L4, L5. Drag to orbit.',0,0,0);
+  const b=L.main;
+  frame(ctx,b,COL.edge);
+  const C=boxCamera(b,st.camTheta,st.camPhi,5.6,[0,0,-0.1]);
+  const n=SURF_N, g=F.grid, hmax=F.hmax;
+  const xy=i=>-SURF_EXT+2*SURF_EXT*i/n;
+  /* project every vertex once */
+  const V=new Array((n+1)*(n+1));
+  for(let j=0;j<=n;j++) for(let i=0;i<=n;i++) V[j*(n+1)+i]=C.P([xy(i),xy(j),g[j*(n+1)+i]]);
+  const light=v3.norm([-0.4,0.5,0.75]);
+  const quads=[];
+  for(let j=0;j<n;j++) for(let i=0;i<n;i++){
+    const a=V[j*(n+1)+i], bq=V[j*(n+1)+i+1], c=V[(j+1)*(n+1)+i+1], d=V[(j+1)*(n+1)+i];
+    if(!a||!bq||!c||!d) continue;
+    const h00=g[j*(n+1)+i], h10=g[j*(n+1)+i+1], h01=g[(j+1)*(n+1)+i], h11=g[(j+1)*(n+1)+i+1];
+    const hm=(h00+h10+h01+h11)/4, dx=2*SURF_EXT/n;
+    const nrm=v3.norm([-(h10-h00+h11-h01)/(2*dx),-(h01-h00+h11-h10)/(2*dx),1]);
+    const sh=0.55+0.45*Math.max(0,v3.dot(nrm,light));
+    quads.push({z:(a.z+bq.z+c.z+d.z)/4,pts:[a,bq,c,d],col:shade(heightColour(clamp((hm/hmax+1)/2,0,1)),sh)});
+  }
+  quads.sort((p,q)=>q.z-p.z);
+  for(const q of quads){
+    ctx.beginPath(); ctx.moveTo(q.pts[0].x,q.pts[0].y); for(let k=1;k<4;k++) ctx.lineTo(q.pts[k].x,q.pts[k].y); ctx.closePath();
+    ctx.fillStyle=q.col; ctx.fill(); ctx.strokeStyle='rgba(255,255,255,0.07)'; ctx.lineWidth=0.6; ctx.stroke();
+  }
+  /* the primaries at the bottom of their wells, the points on pins */
+  const m1=C.P([-mu,0,-hmax]), m2=C.P([1-mu,0,-hmax]);
+  if(m1){ dot(ctx,m1.x,m1.y,5,COL.m1,'#fff'); lab(ctx,W,H,m1.x+8,m1.y,S.m1,COL.m1,LAB_FONT); }
+  if(m2){ dot(ctx,m2.x,m2.y,4,COL.m2,'#fff'); lab(ctx,W,H,m2.x+8,m2.y,S.m2,COL.m2,LAB_FONT); }
+  F.P.forEach((p,k)=>{ const base=C.P([p.x,p.y,F.hL[k]]), top=C.P([p.x,p.y,F.hL[k]+0.22]); if(!base||!top) return;
+    ctx.strokeStyle=ptCol(p.id); ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(base.x,base.y); ctx.lineTo(top.x,top.y); ctx.stroke(); POLY_SEGS.push(base.x,base.y,top.x,top.y);
+    diamond(ctx,top.x,top.y,4,ptCol(p.id),'#fff'); lab(ctx,W,H,top.x+7,top.y-6,p.id,ptCol(p.id),LAB_FONT); });
+  /* the axes tripod at a corner */
+  const o=[-SURF_EXT,-SURF_EXT,-hmax], ax=C.P(o), ex=C.P([-SURF_EXT+0.5,-SURF_EXT,-hmax]), ey=C.P([-SURF_EXT,-SURF_EXT+0.5,-hmax]);
+  if(ax&&ex&&ey){ arrowPx(ctx,ax.x,ax.y,ex.x,ex.y,COL.dim,1.2); arrowPx(ctx,ax.x,ax.y,ey.x,ey.y,COL.dim,1.2); lab(ctx,W,H,ex.x+4,ex.y,'x',COL.dim,SM_FONT); lab(ctx,W,H,ey.x+4,ey.y,'y',COL.dim,SM_FONT); }
+  lab(ctx,W,H,b.x+6,b.y+8,'U = −Ω, '+plain(S.name)+' — height 0.35·'+fmt(st.exag,1)+' tanh((U − U(L1))/'+fmt(F.R.scale,3)+')','#aeb6c6','italic 13px Georgia, serif','left','top');
+  legendR(ctx,b,[[heightColour(0.05),'low: the wells, the outer fall'],[heightColour(0.5),'the ridge at L1'],[heightColour(0.98),'high: L4, L5'],[COL.ref,'L1, L2, L3'],[COL.pos,'L4, L5']]);
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: stability                                                    *
+ * ================================================================== */
+function drawStab(ctx,W,H,M){
+  const B=M.Sb, S=B.S, st=M.st, mu=B.mu, c=B.cur;
+  const L=stageLayout(ctx,W,H,
+    'Linearise about a point and the motion is a sum of exponentials e^{λt} with λ the roots of a quartic. At L1, L2, L3 one root is real and positive: a body placed there at rest slides off in an e-folding time of days to weeks, along the unstable direction (orange), unless it sits exactly on the stable one (cyan). At L4 and L5 all four roots are imaginary when μ < 0.03852 (Routh), so a displaced body circles them for ever — the Earth–Moon, Sun–Earth and Sun–Jupiter pairs qualify, Pluto–Charon does not. Release a particle and watch.',
+    'Roots of the linearised motion: real at L1–L3 (they run away in days), imaginary at L4, L5 when μ < 0.03852. Release a particle and watch.',2,0.42,1);
+  const b=L.main, p0=lpt(mu,st.pt), w=B.window;
+  const map=worldFitUp(b,{xmin:p0.x-w,xmax:p0.x+w,ymin:p0.y-w,ymax:p0.y+w},0);
+  const vw={x0:map.wx(b.x),x1:map.wx(b.x1),y0:map.wy(b.y1),y1:map.wy(b.y)};
+  frame(ctx,b,COL.edge);
+  /* the zero-velocity curve at the released particle's C, faint, and the eigen-directions */
+  const s0=B.start, C0=jacobi(mu,s0);
+  const zv=memo('stabzvc',[mu,C0,vw.x0,vw.x1,vw.y0,vw.y1].join('|'),()=>zvcSegments(mu,C0,vw.x0,vw.x1,vw.y0,vw.y1,90));
+  ctx.beginPath(); for(const s of zv){ ctx.moveTo(map.X(s[0]),map.Y(s[1])); ctx.lineTo(map.X(s[2]),map.Y(s[3])); POLY_SEGS.push(map.X(s[0]),map.Y(s[1]),map.X(s[2]),map.Y(s[3])); }
+  ctx.strokeStyle=rgba(COL.ref,0.35); ctx.lineWidth=1; ctx.stroke();
+  if(c.kind==='saddle'){
+    const sl=(c.lamReal*c.lamReal-c.oxx)/(2*c.lamReal);
+    for(const [sg,col] of [[1,COL.ref],[-1,COL.struct]]){ const d=v3.norm([1,sg*sl,0]); segClip(ctx,map,[p0.x-d[0]*w*4,p0.y-d[1]*w*4],[p0.x+d[0]*w*4,p0.y+d[1]*w*4],vw,col,1,[5,4]); }
+  }
+  /* the primaries if they are in the window, with the direction to them otherwise */
+  for(const [x,col,name,body] of [[-mu,COL.m1,S.m1,S.b1],[1-mu,COL.m2,S.m2,S.b2]]){
+    const X=map.X(x), Y=map.Y(0);
+    if(X>=b.x&&X<=b.x1&&Y>=b.y&&Y<=b.y1){ const r=S.aKm===null||!body?4:Math.max(4,RADII_KM[body]/S.aKm*map.s); dot(ctx,X,Y,Math.min(r,300),col,null); lab(ctx,W,H,X,Y+Math.min(r,300)+8,name,col,LAB_FONT,'center','top'); }
+    else { /* off the box: an arrow along the true direction, placed where that ray leaves the box */
+      const cx=map.X(p0.x), cy=map.Y(p0.y), dx=X-cx, dy=Y-cy, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L;
+      let t=Infinity; if(ux>0) t=Math.min(t,(b.x1-cx)/ux); if(ux<0) t=Math.min(t,(b.x-cx)/ux); if(uy>0) t=Math.min(t,(b.y1-cy)/uy); if(uy<0) t=Math.min(t,(b.y-cy)/uy);
+      const ex=cx+ux*(t-14), ey=cy+uy*(t-14); arrowPx(ctx,ex-ux*26,ey-uy*26,ex,ey,col,1.2);
+      lab(ctx,W,H,ex-ux*32+(Math.abs(ux)<0.4?14:0),ey-uy*32,'to '+plain(name),col,SM_FONT,ux>0.4?'right':(ux<-0.4?'left':'left')); }
+  }
+  diamond(ctx,map.X(p0.x),map.Y(p0.y),6,ptCol(st.pt),'#fff'); lab(ctx,W,H,map.X(p0.x)+9,map.Y(p0.y)-10,st.pt,ptCol(st.pt),LAB_FONT);
+  /* the run */
+  dot(ctx,map.X(s0[0]),map.Y(s0[1]),3,null,COL.live,1.2);
+  if(B.run){
+    worldPath(ctx,map,B.run.trace,COL.live,1.4,null,vw);
+    const p=B.run.p; if(p[0]>vw.x0&&p[0]<vw.x1&&p[1]>vw.y0&&p[1]<vw.y1) dot(ctx,map.X(p[0]),map.Y(p[1]),4.5,COL.live,'#fff');
+    lab(ctx,W,H,b.x1-6,b.y1-8,'t = '+plain(dayStr(S,B.run.t,3))+', '+plain(kmStr(S,B.dist,3))+' from '+st.pt,COL.live,SM_FONT,'right','bottom');
+  } else lab(ctx,W,H,b.x1-6,b.y1-8,'release: a particle at rest, '+plain(kmStr(S,st.off,3))+' from '+st.pt,COL.dim,SM_FONT,'right','bottom');
+  lab(ctx,W,H,b.x+6,b.y+8,'about '+st.pt+' of '+plain(S.name)+' — '+(c.kind==='saddle'?'a saddle: e-folding '+plain(yrStr(S,1/c.lamReal)):c.kind==='centre'?'a centre: stable, libration '+plain(yrStr(S,TAU/c.wLong)):'a spiral: unstable, e-folding '+plain(yrStr(S,1/c.lamRe))),'#aeb6c6','italic 13px Georgia, serif','left','top');
+  legendR(ctx,b,[[COL.live,'the released particle'],[COL.ref,'unstable direction'],[COL.struct,'stable direction'],[rgba(COL.ref,0.5),'2Ω = C of the particle']]);
+  /* the roots */
+  if(L.bottom.length>=1){
+    const bb=L.bottom[0], roots=eigRoots(c); let R=0; for(const r of roots) R=Math.max(R,Math.abs(r[0]),Math.abs(r[1])); R=Math.max(R*1.25,0.05);
+    axesR(ctx,bb,-R,R,-R,R,{title:titleFor(bb,'the four roots λ of the characteristic quartic at '+st.pt,'roots λ at '+st.pt),xlab:'Re λ',ylab:'Im λ',nx:4,ny:4,xfmt:v=>fmt(v,2),yfmt:v=>fmt(v,2)});
+    polyline(ctx,bb,[-R,R],[0,0],-R,R,-R,R,'#3a4152',1,[2,3]); polyline(ctx,bb,[0,0],[-R,R],-R,R,-R,R,'#3a4152',1,[2,3]);
+    for(const r of roots) marker(ctx,bb,-R,R,-R,R,r[0],r[1],r[0]>1e-12?COL.ref:(r[0]<-1e-12?COL.struct:COL.pos));
+  }
+  /* the times against mu */
+  if(L.bottom.length>=2){
+    const bb=L.bottom[1], lo=LIM.muLogMin, hi=LIM.muLogMax, ylo=-2.2, yhi=2.6;
+    axesR(ctx,bb,lo,hi,ylo,yhi,{title:titleFor(bb,'e-folding time at L1 and the L4 libration period, in orbital periods, against μ','times in orbital periods vs μ'),xlab:'log₁₀ μ',ylab:'log₁₀ (t / T)',nx:6,ny:4,xfmt:v=>fmt(v,0),yfmt:v=>fmt(v,0)});
+    polyline(ctx,bb,B.curve.map(q=>q.lg),B.curve.map(q=>Math.log10(q.efoldL1)),lo,hi,ylo,yhi,COL.ref,1.6);
+    const stab=B.curve.filter(q=>q.longL4!==null), un=B.curve.filter(q=>q.efoldL4!==null);
+    if(stab.length) polyline(ctx,bb,stab.map(q=>q.lg),stab.map(q=>Math.log10(q.longL4)),lo,hi,ylo,yhi,COL.pos,1.6);
+    if(un.length) polyline(ctx,bb,un.map(q=>q.lg),un.map(q=>Math.log10(q.efoldL4)),lo,hi,ylo,yhi,COL.pos,1.2,[3,3]);
+    const lr=Math.log10(MU_ROUTH); polyline(ctx,bb,[lr,lr],[ylo,yhi],lo,hi,ylo,yhi,COL.dim,1,[3,3]);
+    lab(ctx,W,H,bb.x+bb.w*(lr-lo)/(hi-lo)+4,bb.y+10,'Routh',COL.dim,SM_FONT,'left','top');
+    for(const m of B.marks){ const s1=stabAt(m.mu,collinear(m.mu)[0],0); marker(ctx,bb,lo,hi,ylo,yhi,m.lg,Math.log10(1/s1.lamReal/TAU),m.id===S.id?COL.live:COL.ref); }
+    marker(ctx,bb,lo,hi,ylo,yhi,Math.log10(mu),Math.log10(1/B.all[0].lamReal/TAU),COL.live);
+    legendR(ctx,bb,[[COL.ref,'1/λ at L1'],[COL.pos,'2π/ω₁ at L4'],[COL.live,'this system']]);
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: Sun-Earth missions (3-D, millions of km, Earth at the origin) *
+ * ================================================================== */
+const MKM=1e6;
+function seWorld(p){ return [(p[0]*AU_KM-AU_KM)/MKM,p[1]*AU_KM/MKM,p[2]*AU_KM/MKM]; }
+function drawSunEarth(ctx,W,H,M){
+  const E=M.Se, S=E.S, st=M.st, mu=E.mu;
+  const L=stageLayout(ctx,W,H,
+    'Earth at the origin, the Sun 150 million km off to the left, the frame turning once a year. L1 and L2 are 1.5 million km out along the Sun line. No spacecraft parks at either: SOHO flies a halo about L1 and JWST one about L2, closed orbits of six months found by shooting, with the Moon’s orbit for scale. Gaia’s Lissajous is the linearised quasi-periodic cousin. A halo keeps JWST out of Earth’s penumbra, which reaches L2 13,400 km wide, and keeps SOHO off the solar radio line. Both orbits are unstable: nudge JWST off its halo and see the error grow a thousandfold per orbit — hence station-keeping. Drag to orbit the view.',
+    'Earth at the origin, the Sun to the left. SOHO’s halo about L1, JWST’s about L2, Gaia’s Lissajous; nudge JWST and the error grows a thousandfold per orbit. Drag to orbit.',1,0.30,1);
+  const b=L.main; frame(ctx,b,COL.edge);
+  const tgt=st.mission==='L1'?[-1.5,0,0]:st.mission==='L2'?[1.5,0,0]:[0,0,0], dist=st.mission==='both'?5.6:2.6;
+  const C=boxCamera(b,st.seTheta,st.sePhi,dist,tgt);
+  floorGrid(ctx,C,2.0,0.5,rgba(COL.struct,0.12));
+  /* the Sun line and Earth's shadow axis */
+  seg3(ctx,C,[-2.2,0,0],[2.2,0,0],rgba(COL.dim,0.5),1,[5,4]);
+  const L1=seWorld([E.P[0].x,0,0]), L2=seWorld([E.P[1].x,0,0]);
+  /* the Moon's orbit */
+  const moon=[]; for(let k=0;k<=72;k++) moon.push([E.moonR*AU_KM/MKM*Math.cos(TAU*k/72),E.moonR*AU_KM/MKM*Math.sin(TAU*k/72),0]);
+  poly3(ctx,C,moon,rgba(COL.moon,0.5),1,[3,3]);
+  /* the orbits */
+  if(st.mission!=='L2') poly3(ctx,C,E.soho.states.filter((s,i)=>i%4===0).concat([E.soho.states[0]]).map(seWorld),COL.pos,1.5);
+  if(st.mission!=='L1'){ poly3(ctx,C,E.jwst.states.filter((s,i)=>i%4===0).concat([E.jwst.states[0]]).map(seWorld),COL.pos,1.5);
+    poly3(ctx,C,E.liss.map(seWorld),rgba(COL.liss,0.55),0.9); }
+  if(E.run) poly3(ctx,C,E.run.trace.map(seWorld),COL.ref,1.3);
+  /* Earth, the points, the spacecraft */
+  const e=C.P([0,0,0]); if(e){ dot(ctx,e.x,e.y,5,COL.earth,'#fff'); lab(ctx,W,H,e.x+8,e.y+10,'Earth',COL.earth,LAB_FONT); }
+  const sun=C.P([-2.2,0,0]); if(sun) lab(ctx,W,H,sun.x,sun.y-12,'← to the Sun',COL.m1,SM_FONT,'center','bottom');
+  for(const [p,id] of [[L1,'L1'],[L2,'L2']]){ const q=C.P(p); if(!q) continue; diamond(ctx,q.x,q.y,4.5,COL.ref,'#fff'); lab(ctx,W,H,q.x+7,q.y-9,id,COL.ref,LAB_FONT); }
+  const sats=[]; if(st.mission!=='L2') sats.push(['SOHO',E.pos.soho]); if(st.mission!=='L1'){ sats.push(['JWST',E.pos.jwst]); sats.push(['Gaia',E.pos.gaia]); }
+  for(const [nm,p] of sats){ const q=C.P(seWorld(p)); if(!q) continue; dot(ctx,q.x,q.y,4,nm==='Gaia'?COL.liss:COL.live,'#fff'); lab(ctx,W,H,q.x+7,q.y+8,nm,nm==='Gaia'?COL.liss:COL.live,LAB_FONT); }
+  if(E.run){ const q=C.P(seWorld(E.run.p)); if(q){ dot(ctx,q.x,q.y,4,COL.ref,'#fff'); lab(ctx,W,H,q.x+7,q.y-8,'drifting: '+kmf(E.sepNow)+' km off',COL.ref,SM_FONT); } }
+  const mq=C.P([0.28,0.28,0]); if(mq) lab(ctx,W,H,mq.x,mq.y,'Moon’s orbit',rgba(COL.moon,0.8),SM_FONT,'left','middle');
+  lab(ctx,W,H,b.x+6,b.y+8,'Sun–Earth rotating frame — t = '+fmt(E.t*S.Td/TAU,1)+' d','#aeb6c6','italic 13px Georgia, serif','left','top');
+  lab(ctx,W,H,b.x1-6,b.y1-8,'grid: 0.5 million km',COL.dim,SM_FONT,'right','bottom');
+  legendR(ctx,b,[[COL.pos,'halo orbits (closed, 6 months)'],[COL.liss,'Gaia Lissajous (linearised)'],[COL.live,'the spacecraft now'],[COL.ref,'the perturbed copy'],[COL.moon,'the Moon’s orbit']]);
+  if(L.bottom.length&&!E.run){ const bb=L.bottom[0]; axesR(ctx,bb,0,180,0,4,{title:titleFor(bb,'separation of a nudged copy from the halo against time \u2014 nudge JWST to start','separation vs time'),xlab:'days',ylab:'log\u2081\u2080 km',nx:6,ny:4,xfmt:v=>fmt(v,0),yfmt:v=>fmt(v,0)}); lab(ctx,W,H,bb.x+bb.w/2,bb.y+bb.h/2,'nudge JWST off its halo to see the error grow',COL.dim,SM_FONT,'center','middle'); }
+  if(L.bottom.length&&E.run){
+    const bb=L.bottom[0], ts=E.run.sep.map(q=>q[0]*S.Td/TAU), ls=E.run.sep.map(q=>Math.log10(Math.max(q[1],1e-3)));
+    const t1=Math.max(ts[ts.length-1],30), ylo=Math.floor(Math.min.apply(null,ls))-0.2, yhi=Math.max(Math.ceil(Math.max.apply(null,ls))+0.3,ylo+2);
+    axesR(ctx,bb,0,t1,ylo,yhi,{title:titleFor(bb,'the perturbed spacecraft leaves the halo: separation against time (e-folding 23 d)','separation vs time'),xlab:'days',ylab:'log₁₀ km',nx:6,ny:4,xfmt:v=>fmt(v,0),yfmt:v=>fmt(v,0)});
+    polyline(ctx,bb,ts,ls,0,t1,ylo,yhi,COL.ref,1.6);
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: Earth-Moon (3-D, thousands of km, the Moon at the origin)    *
+ * ================================================================== */
+function emWorld(S,p){ const mu=S.mu, k=S.aKm/1000; return [(p[0]-1+mu)*k,p[1]*k,p[2]*k]; }
+function drawEarthMoon(ctx,W,H,M){
+  const E=M.Em, S=E.S, st=M.st, mu=E.mu;
+  const L=stageLayout(ctx,W,H,
+    'The Moon at the origin, Earth 384,000 km off to the left, the frame turning once a month. L2 lies 64,500 km beyond the Moon — behind it as seen from Earth, so a relay parked there would be blocked. Queqiao flies a halo about L2 instead, and from anywhere on it both the far side and Earth are in view: the cyan line is its radio path home, clearing the Moon by the amount in the readout. The Gateway station takes the same family to its end, a near-rectilinear halo standing over the poles: perilune 3,249 km every 6.56 days, apolune 71,000 km over the south pole, its period locked to 2/9 of a synodic month — and nearly stable, a multiplier of 2.2 per orbit against 1,016 for the small halo. Drag to orbit the view.',
+    'The Moon at the origin, Earth to the left. Queqiao’s halo about L2 keeps Earth in view past the Moon; the Gateway’s 9:2 NRHO stands over the poles and is nearly stable. Drag to orbit.',1,0.30,1);
+  const b=L.main; frame(ctx,b,COL.edge);
+  const tgt=st.em==='halo'?[E.P[1].x*0+64.5,0,0]:[10,0,-20], dist=st.em==='halo'?150:270;
+  const C=boxCamera(b,st.emTheta,st.emPhi,dist,tgt);
+  floorGrid(ctx,C,100,25,rgba(COL.struct,0.12));
+  seg3(ctx,C,[-130,0,0],[110,0,0],rgba(COL.dim,0.5),1,[5,4]);
+  const wrld=p=>emWorld(S,p);
+  if(st.em!=='nrho') poly3(ctx,C,E.halo.states.filter((s,i)=>i%4===0).concat([E.halo.states[0]]).map(wrld),COL.pos,1.5);
+  if(st.em!=='halo') poly3(ctx,C,E.nrho.states.filter((s,i)=>i%4===0).concat([E.nrho.states[0]]).map(wrld),COL.live,1.5);
+  /* the Moon as a disc of its projected radius */
+  const mc=C.P([0,0,0]); if(mc){ const rp=Math.max(3,RADII_KM.moon/1000*C.B.f/mc.z); dot(ctx,mc.x,mc.y,rp,COL.moon,null); lab(ctx,W,H,mc.x+rp+5,mc.y+9,'Moon',COL.moon,LAB_FONT); }
+  const eq=C.P([-130,0,0]); if(eq) lab(ctx,W,H,eq.x,eq.y-12,'← to Earth (384,000 km)',COL.earth,SM_FONT,'center','bottom');
+  for(const [i,id] of [[0,'L1'],[1,'L2']]){ const q=C.P(wrld([E.P[i].x,0,0])); if(!q) continue; diamond(ctx,q.x,q.y,4.5,COL.ref,'#fff'); lab(ctx,W,H,q.x+7,q.y-9,id,COL.ref,LAB_FONT); }
+  if(st.em!=='nrho'){ const p=wrld(E.pos.queqiao), q=C.P(p);
+    if(st.los){ const far=[-130,p[1]*(1-(-130-p[0])/(-384.399-p[0])),p[2]*(1-(-130-p[0])/(-384.399-p[0]))]; seg3(ctx,C,p,far,COL.struct,1.1,[6,3]); }
+    if(q){ dot(ctx,q.x,q.y,4,COL.pos,'#fff'); lab(ctx,W,H,q.x+7,q.y+8,'Queqiao',COL.pos,LAB_FONT); } }
+  if(st.em!=='halo'){ const q=C.P(wrld(E.pos.gateway)); if(q){ dot(ctx,q.x,q.y,4,COL.live,'#fff'); lab(ctx,W,H,q.x+7,q.y+8,'Gateway, '+kmf(E.altG)+' km up',COL.live,LAB_FONT); } }
+  lab(ctx,W,H,b.x+6,b.y+8,'Earth–Moon rotating frame — t = '+fmt(E.t*S.Td/TAU,2)+' d','#aeb6c6','italic 13px Georgia, serif','left','top');
+  lab(ctx,W,H,b.x1-6,b.y1-8,'grid: 25,000 km',COL.dim,SM_FONT,'right','bottom');
+  legendR(ctx,b,[[COL.pos,'Queqiao-like halo, 14.7 d'],[COL.live,'Gateway 9:2 NRHO, 6.56 d'],[COL.struct,'line of sight to Earth'],[COL.ref,'L1, L2']]);
+  if(L.bottom.length){
+    const bb=L.bottom[0], xs=FAMILY.map(f=>f.periodD).concat([E.nrhoDays]), ys=FAMILY.map(f=>f.periKm/1000).concat([E.periKm/1000]);
+    axesR(ctx,bb,6,15.5,0,52,{title:titleFor(bb,'the L2 southern halo family, continued from the Queqiao halo to the NRHO: perilune radius against period','the halo family: perilune vs period'),xlab:'period (days)',ylab:'perilune, 1000 km',nx:5,ny:4,xfmt:v=>fmt(v,0),yfmt:v=>fmt(v,0)});
+    polyline(ctx,bb,xs,ys,6,15.5,0,52,COL.pos,1.6);
+    polyline(ctx,bb,[6,15.5],[RADII_KM.moon/1000,RADII_KM.moon/1000],6,15.5,0,52,COL.moon,1,[3,3]);
+    marker(ctx,bb,6,15.5,0,52,E.haloDays,E.halo.r2min*S.aKm/1000,COL.pos); marker(ctx,bb,6,15.5,0,52,E.nrhoDays,E.periKm/1000,COL.live);
+    legendR(ctx,bb,[[COL.pos,'the family'],[COL.moon,'the Moon’s surface'],[COL.live,'the 9:2 NRHO']]);
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: trojans and horseshoes                                       *
+ * ================================================================== */
+function drawTrojan(ctx,W,H,M){
+  const T=M.Tr, S=T.S, st=M.st, mu=T.mu;
+  const L=stageLayout(ctx,W,H,
+    'The whole rotating frame of '+plain(S.name)+'. A body released at rest here keeps its Jacobi constant, so the orange curve at that C is a fence it cannot cross. Start near L4 or L5 and it librates about the point in a tadpole — Jupiter’s Greek camp at L4 and Trojan camp at L5, more than 15,000 of them known, swinging through a cycle of about 147 years; give it a slightly different orbital radius and it drifts the whole way round, past L3, until the fence beside the secondary turns it back: a horseshoe, the orbit of Earth’s companions. Release a swarm to see both camps at once.',
+    'Released at rest, a body keeps its Jacobi constant and the orange curve fences it: tadpoles about L4 and L5 (the trojans) from rest on the circle, horseshoes past L3 from a different orbital radius.',1,0.30,1);
+  const b=L.main, win={x0:-1.45,x1:1.45,y0:-1.45,y1:1.45};
+  const map=worldFitUp(b,{xmin:win.x0,xmax:win.x1,ymin:win.y0,ymax:win.y1},0);
+  const vw={x0:map.wx(b.x),x1:map.wx(b.x1),y0:map.wy(b.y1),y1:map.wy(b.y)};
+  ctx.fillStyle=COL.forbid;
+  for(const r of T.zvc.runs){ const X0=map.X(r[0]), Y1=map.Y(r[1]), X1=map.X(r[0]+r[2]), Y0=map.Y(r[1]+r[3]); ctx.fillRect(X0,Y0,X1-X0,Y1-Y0); }
+  frame(ctx,b,COL.edge);
+  ctx.beginPath(); for(const s of T.zvc.segs){ ctx.moveTo(map.X(s[0]),map.Y(s[1])); ctx.lineTo(map.X(s[2]),map.Y(s[3])); POLY_SEGS.push(map.X(s[0]),map.Y(s[1]),map.X(s[2]),map.Y(s[3])); }
+  ctx.strokeStyle=COL.ref; ctx.lineWidth=1.2; ctx.stroke();
+  circleW(ctx,map,[0,0],1-mu,rgba(COL.struct,0.45),1,[4,4]);
+  dot(ctx,map.X(-mu),map.Y(0),6,COL.m1,null); dot(ctx,map.X(1-mu),map.Y(0),4,COL.m2,null);
+  lab(ctx,W,H,map.X(-mu),map.Y(0)+14,S.m1,COL.m1,LAB_FONT,'center','top'); lab(ctx,W,H,map.X(1-mu),map.Y(0)+12,S.m2,COL.m2,LAB_FONT,'center','top');
+  for(const p of T.P){ diamond(ctx,map.X(p.x),map.Y(p.y),4.5,ptCol(p.id),'#fff'); if(p.id!=='L1'&&p.id!=='L2') lab(ctx,W,H,map.X(p.x)+8,map.Y(p.y)-9,p.id,ptCol(p.id),LAB_FONT); }
+  /* the traces and the particles */
+  if(T.run){ for(let i=0;i<T.run.traces.length;i++) worldPath(ctx,map,T.run.traces[i],i===0?COL.pos:rgba(COL.pos,0.55),i===0?1.4:0.9,null,vw);
+    for(const p of T.run.parts) dot(ctx,map.X(p[0]),map.Y(p[1]),3.5,COL.live,'#fff');
+    lab(ctx,W,H,b.x1-6,b.y1-8,'t = '+plain(yrStr(S,T.run.t))+', angle '+fmt(angleFrom(mu,T.run.parts[0]),1)+'° ('+fmt(T.run.angMin,0)+'…'+fmt(T.run.angMax,0)+'°)',COL.live,SM_FONT,'right','bottom'); }
+  else { dot(ctx,map.X(T.s0[0]),map.Y(T.s0[1]),4,null,COL.live,1.3); lab(ctx,W,H,map.X(T.s0[0])+8,map.Y(T.s0[1])+8,'start, '+fmt(st.ang,0)+'°',COL.live,SM_FONT); }
+  lab(ctx,W,H,b.x+6,b.y+8,plain(S.name)+' — C = '+fmt(T.C0,5)+(T.kind==='tadpole'?' < C(L3): a tadpole':' > C(L3): a horseshoe'),'#aeb6c6','italic 13px Georgia, serif','left','top');
+  legendR(ctx,b,[[COL.pos,'the test bodies’ paths'],[COL.ref,'2Ω = C (the fence)'],[COL.forbid,'forbidden at this C'],[COL.live,'now']]);
+  if(L.bottom.length){
+    const bb=L.bottom[0]; const yrs=S.Td>1000?true:false;
+    const tf=t=>t*S.Td/TAU/(yrs?365.25:1);
+    const t1=T.run?Math.max(tf(T.run.t),yrs?10:30):(yrs?100:100);
+    axesR(ctx,bb,0,t1,0,360,{title:titleFor(bb,'angle from '+plain(S.m1)+' against time: libration about 60° (L4) or 300° (L5), or a horseshoe through 180°','angle from '+plain(S.m1)+' vs time'),xlab:yrs?'years':'days',ylab:'degrees',nx:6,ny:4,xfmt:v=>fmt(v,0),yfmt:v=>fmt(v,0)});
+    for(const [a,id] of [[60,'L4'],[180,'L3'],[300,'L5']]){ polyline(ctx,bb,[0,t1],[a,a],0,t1,0,360,rgba(ptCol(id),0.5),1,[3,3]); lab(ctx,W,H,bb.x1-4,bb.y1-bb.h*a/360,id,ptCol(id),SM_FONT,'right','middle'); }
+    if(T.run&&T.run.angT.length>1) polyline(ctx,bb,T.run.angT.map(q=>tf(q[0])),T.run.angT.map(q=>q[1]),0,t1,0,360,COL.pos,1.5);
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='points') drawPoints(ctx,W,H,M);
+  else if(M.view==='surface') drawSurface(ctx,W,H,M);
+  else if(M.view==='stab') drawStab(ctx,W,H,M);
+  else if(M.view==='sunearth') drawSunEarth(ctx,W,H,M);
+  else if(M.view==='earthmoon') drawEarthMoon(ctx,W,H,M);
+  else drawTrojan(ctx,W,H,M);
+}
+function camKeys(view){ return view==='surface'?['camTheta','camPhi']:view==='sunearth'?['seTheta','sePhi']:view==='earthmoon'?['emTheta','emPhi']:null; }
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame: the clock, and any active run (runStep carries the guards) */
+  S.step=function(){ return runStep(ST); };
+  /* the pointer orbits the camera in the three 3-D views */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    const keys=camKeys(ST.view); if(!keys) return false;
+    if(type==='down'){ DRAG.what='cam'; DRAG.x=x; DRAG.y=y; DRAG.th=ST[keys[0]]; DRAG.ph=ST[keys[1]]; return true; }
+    if(type==='move'&&DRAG.what==='cam'){ ST[keys[0]]=DRAG.th-(x-DRAG.x)*0.008; ST[keys[1]]=clamp(DRAG.ph+(y-DRAG.y)*0.008,0.05,1.5); return true; }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    if(st.view!==k){ st.view=k; simReset(st); }
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k),html:lab}));
+  });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),html:o.name,onclick:()=>{
+        st[key]=o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }});
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  const restart=()=>{ simReset(st); };
+  const runBtn=txt=>h('div',{class:'btnrow'},h('button',{onclick:()=>{ if(startRun(st)){ dirty=true; refresh(); } }},txt));
+
+  const gSys=h('div',{class:'grp'},h('h3',null,'the pair'));
+  const sysChips=chipRow(SYS_LIST,'sys',restart); gSys.appendChild(sysChips); trackChips(gSys,SYS_LIST,'sys');
+  gSys.appendChild(slider('muLog','log₁₀ μ',LIM.muLogMin,LIM.muLogMax,0.01,v=>Math.pow(10,v).toExponential(2),restart));
+  const sysTag=h('div',{class:'tag'}); gSys.appendChild(sysTag);
+
+  const gPoints=h('div',{class:'grp'},h('h3',null,'the map'));
+  const zoomChips=chipRow(ZOOM_LIST,'zoom'); gPoints.appendChild(zoomChips); trackChips(gPoints,ZOOM_LIST,'zoom');
+  gPoints.appendChild(slider('cRel','Jacobi C (L4 → L1)',-0.3,1.4,0.01,v=>fmt(v,2)));
+  const pointsTag=h('div',{class:'tag'}); gPoints.appendChild(pointsTag);
+
+  const gSurf=h('div',{class:'grp'},h('h3',null,'the surface'));
+  gSurf.appendChild(slider('camTheta','azimuth',-PI,PI,0.01,v=>fmt(v/DEG,0)+'°'));
+  gSurf.appendChild(slider('camPhi','elevation',0.05,1.5,0.01,v=>fmt(v/DEG,0)+'°'));
+  gSurf.appendChild(slider('exag','vertical stretch',0.3,2.5,0.05,v=>fmt(v,2)+'×'));
+  const surfTag=h('div',{class:'tag'}); gSurf.appendChild(surfTag);
+
+  const gStab=h('div',{class:'grp'},h('h3',null,'the point'));
+  const ptChips=chipRow(PT_LIST,'pt',restart); gStab.appendChild(ptChips); trackChips(gStab,PT_LIST,'pt');
+  gStab.appendChild(slider('off','offset, units of a',0.0005,LIM.offMax,0.0005,v=>fmt(v,4),restart));
+  const DIR_LIST=[{id:'x',name:'offset along x'},{id:'y',name:'offset along y'}];
+  const dirChips=chipRow(DIR_LIST,'dir',restart); gStab.appendChild(dirChips); trackChips(gStab,DIR_LIST,'dir');
+  gStab.appendChild(runBtn('release at rest'));
+  const stabTag=h('div',{class:'tag'}); gStab.appendChild(stabTag);
+
+  const gSe=h('div',{class:'grp'},h('h3',null,'the missions'));
+  const missionChips=chipRow(MISSION_LIST,'mission'); gSe.appendChild(missionChips); trackChips(gSe,MISSION_LIST,'mission');
+  gSe.appendChild(slider('seTheta','azimuth',-PI,PI,0.01,v=>fmt(v/DEG,0)+'°'));
+  gSe.appendChild(slider('sePhi','elevation',0.05,1.5,0.01,v=>fmt(v/DEG,0)+'°'));
+  gSe.appendChild(slider('perturb','nudge JWST by, km',0,LIM.perturbMax,10,v=>fmt(v,0),restart));
+  gSe.appendChild(runBtn('nudge JWST off its halo'));
+  const seTag=h('div',{class:'tag'}); gSe.appendChild(seTag);
+
+  const gEm=h('div',{class:'grp'},h('h3',null,'the orbits'));
+  const emChips=chipRow(EM_LIST,'em'); gEm.appendChild(emChips); trackChips(gEm,EM_LIST,'em');
+  gEm.appendChild(slider('emTheta','azimuth',-PI,PI,0.01,v=>fmt(v/DEG,0)+'°'));
+  gEm.appendChild(slider('emPhi','elevation',0.05,1.5,0.01,v=>fmt(v/DEG,0)+'°'));
+  gEm.appendChild(h('div',{class:'checks'},checkbox('los','show Queqiao’s line of sight to Earth')));
+  const emTag=h('div',{class:'tag'}); gEm.appendChild(emTag);
+
+  const gTro=h('div',{class:'grp'},h('h3',null,'the test bodies'));
+  const troSysChips=chipRow(TRO_SYS,'troSys',restart); gTro.appendChild(troSysChips); trackChips(gTro,TRO_SYS,'troSys');
+  const troKindChips=chipRow(TRO_KIND,'troKind',restart); gTro.appendChild(troKindChips); trackChips(gTro,TRO_KIND,'troKind');
+  gTro.appendChild(slider('ang','start angle from M₁',0,360,0.5,v=>fmt(v,1)+'°',restart));
+  gTro.appendChild(slider('dr','radial offset, Hill radii',0.3,2.5,0.05,v=>fmt(v,2),restart));
+  gTro.appendChild(runBtn('release'));
+  const troTag=h('div',{class:'tag'}); gTro.appendChild(troTag);
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the clock'));
+  gRun.appendChild(h('div',{class:'checks'},checkbox('running','time runs')));
+  gRun.appendChild(slider('speed','speed',1,10,1,v=>fmt(v,0)+'×'));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ simReset(st); dirty=true; refresh(); }},'stop & reset'),
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; simReset(st);
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Measured: GM of the seven bodies, the separations and radii, the synodic month, and the mission figures the '
+      +'orbits are sized to (Wikipedia, September 2026). Everything else is computed here and pinned in selfTest to build_lagr/derive.py '
+      +'(scipy brentq, solve_ivp at rtol 1e-12, numpy eig, a differential corrector on the state transition matrix).'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the physics'),h('div',{id:'phys'}));
+  [gSys,gPoints,gSurf,gStab,gSe,gEm,gTro,gRun,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++) if(cw.children[i].textContent===plain(list[i].name)) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v=st.view;
+    gSys.hidden=!(v==='points'||v==='surface'||v==='stab');
+    gPoints.hidden=(v!=='points');
+    gSurf.hidden=(v!=='surface');
+    gStab.hidden=(v!=='stab');
+    gSe.hidden=(v!=='sunearth');
+    gEm.hidden=(v!=='earthmoon');
+    gTro.hidden=(v!=='trojan');
+    gRun.hidden=!viewAnimates(v);
+    rows.muLog.row.hidden=(st.sys!=='custom');
+    rows.dr.row.hidden=(st.troKind!=='horseshoe');
+    for(const k in rows) rows[k].sync();
+    const I=sysInfo(st.sys,st.muLog);
+    sysTag.innerHTML=I.note+(I.Td!==null?'; period '+sigf(I.Td,5)+' d':'')+'; &mu; = '+(I.mu<1e-3?I.mu.toExponential(3):sigf(I.mu,5));
+    pointsTag.innerHTML='slide C down from C(L1): the L1 neck opens first, then L2, then L3; the shading is where a body with that C cannot go';
+    surfTag.innerHTML='drag the picture to orbit it; the stretch exaggerates the relief, the tanh flattens the wells';
+    stabTag.innerHTML='release integrates the full equations from rest at the offset; at a saddle it runs off along the orange line, at a stable L4 it circles';
+    seTag.innerHTML='the clock moves the spacecraft along their closed orbits; nudge JWST and a copy integrated live drifts away (multiplier ~1260 per orbit)';
+    emTag.innerHTML='the Queqiao halo keeps Earth in view past the Moon; the NRHO passes 1,500 km over the north pole every 6.56 d';
+    troTag.innerHTML=st.troKind==='horseshoe'?'a horseshoe starts on a circle the offset larger, at its own circular speed, and drifts backward past L3; offsets above about one Hill radius are scattered, not turned':'a tadpole starts at rest in the rotating frame at the angle set; wherever it starts short of L3 it stays on that side';
+    runTag.innerHTML='space runs/pauses &nbsp; <b>r</b> stops the run &nbsp; 1&ndash;6 switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=camKeys(st.view)?'drag to orbit the view · space pauses · 1–6 switch views':viewAnimates(st.view)?'space pauses · r stops the run · 1–6 switch views':'1–6 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel(); roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ simReset(st); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw(); if(advanced&&frameN%10===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  simReset(st); resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  points:'Two bodies circle their common centre of mass; ride along in the frame that turns with them and both stand still. A third, '
+    +'massless body in that frame feels their gravity plus the centrifugal term, and together those make a potential — the effective '
+    +'potential Ω. Euler found three places on the line through the bodies where its gradient vanishes (1767), Lagrange the two '
+    +'that make equilateral triangles with them (1772). L1 sits between the two, L2 beyond the smaller, L3 beyond the larger; for '
+    +'the Sun and Earth the first two are 1.5 million km from Earth, for the Earth and Moon 58,000 and 64,500 km from the Moon. '
+    +'The Jacobi constant C = 2Ω − v² is the one conserved quantity, so a body with a given C can never enter the region where '
+    +'2Ω < C: the shaded zones, bounded by the zero-velocity curve. Lower C from the L1 value and the necks open in order — a '
+    +'body escaping a planet leaves through L1 or L2, never anywhere else.',
+  surface:'Draw the effective potential as a landscape. The primaries are bottomless wells; far out, the centrifugal term makes the '
+    +'ground fall away again; between them runs a ridge along the unit circle. L1, L2 and L3 are the passes in that ridge, L4 and '
+    +'L5 its summits. The surprise is that the summits are where matter collects: the trojan asteroids sit on hilltops. The '
+    +'landscape omits the Coriolis force, which does no work and so does not belong in a potential but does deflect anything that '
+    +'starts to slide, curling it back around the summit when the secondary is light enough. The relief is small — between L1 and '
+    +'L4 it is a millionth of the depth of Earth’s well in the Sun–Earth frame — so the surface here is passed through a tanh that '
+    +'flattens the wells and stretches the ridge; the vertical scale is not to be read literally.',
+  stab:'Displace a body a little from a point and linearise: the motion is a sum of exponentials whose rates are the roots of a '
+    +'quartic. At the three collinear points one root is always real and positive, so any error grows — for the Sun–Earth L2 it '
+    +'e-folds in 23 days, for the Earth–Moon L2 in 2 days, and a spacecraft left there would be gone in months. That is why '
+    +'nothing parks at L1 or L2, and why what flies there needs station-keeping. At L4 and L5 the roots are purely imaginary, and '
+    +'the body simply circles the point, provided the secondary is light enough: Routh’s condition 27μ(1−μ) < 1, i.e. M₁/M₂ > '
+    +'24.96. The Sun with any planet, and the Earth with the Moon (81:1), pass; Pluto and Charon (8:1) do not. The stable case has '
+    +'two periods, a fast one near the orbital period and a slow libration — 147 years for Jupiter’s trojans in this '
+    +'approximation, against the ~150 observed.',
+  sunearth:'SOHO has watched the Sun from near L1 since 1996; DSCOVR, Wind and Aditya-L1 keep it company. JWST unfolded at L2 in '
+    +'January 2022 beside Gaia and Euclid. None of them sits at the point itself. A spacecraft exactly at L2 would be in Earth’s '
+    +'penumbra all year, and one exactly at L1 would sit on the Sun–Earth line where the Sun’s radio noise drowns its downlink. '
+    +'Instead each flies a halo orbit — a large closed loop about the point, six months round, hundreds of thousands of kilometres '
+    +'across, found here by shooting: Richardson’s third-order series gives a starting guess, then Newton’s method on the state '
+    +'transition matrix drives the crossing velocities to zero. Gaia’s Lissajous is the quasi-periodic relative. The halo inherits '
+    +'the point’s instability: a metre of error becomes a kilometre in one orbit, so JWST fires its thrusters every three weeks or so. '
+    +'Nudge it and watch the copy leave.',
+  earthmoon:'The far side of the Moon never faces Earth, so a lander there needs a relay. L2 is the obvious place — but a satellite at '
+    +'L2 is behind the Moon as seen from Earth. Queqiao (2018) and Queqiao-2 (2024) fly halo orbits about L2 instead, tens of '
+    +'thousands of kilometres off the axis, from which the far side and Earth are both always in view. The Lunar Gateway takes a '
+    +'more extreme member of the same family: continue the L2 southern halos to larger and larger excursions and they stand up '
+    +'nearly vertical over the poles, passing close to the surface at one end — a near-rectilinear halo orbit. The one chosen for '
+    +'Gateway (flown first by CAPSTONE, 2022) has its period locked to 2/9 of a synodic month so that eclipses can be avoided, '
+    +'perilune 3,000 km over the north pole every 6.56 days and apolune 70,000 km over the south. Unlike the halos it is nearly '
+    +'stable, so the station will need little fuel to stay.',
+  trojan:'Lagrange predicted them; 588 Achilles was the first found, in 1906. More than 15,000 Jupiter trojans are now known, '
+    +'probably a million larger than a kilometre, in two camps: the Greeks 60° ahead at L4, the Trojans 60° behind at L5. They do '
+    +'not sit at the points but librate about them on tadpole-shaped paths, some by less than a degree, some by nearly ninety. '
+    +'A body released at rest in the rotating frame keeps its Jacobi constant, so the zero-velocity curve at that C is a fence. '
+    +'Start at rest on the circle and C lies below C(L3), so the body can never reach L3: it librates on one side, a tadpole, '
+    +'however far from L4 it starts. Give it a slightly larger or smaller orbit and it drifts along the whole circle past L3, '
+    +'turning back only at the fence beside the secondary: a horseshoe that wraps around both L4 and L5 — the orbit of Earth’s companions 3753 '
+    +'Cruithne and 2010 TK7, the first Earth trojan (WISE, 2010), which swings through a 395-year cycle and never comes closer '
+    +'than 20 million km.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  points:'<h4>the rotating frame</h4>'
+    +EQ(1,'<span class="rm">units:</span> a = 1, &nbsp; n = 1, &nbsp; M&#8321; + M&#8322; = 1, &nbsp; &mu; = M&#8322;/(M&#8321; + M&#8322;); &nbsp; M&#8321; <span class="rm">at</span> (&minus;&mu;, 0), M&#8322; <span class="rm">at</span> (1 &minus; &mu;, 0)')
+    +EQ(2,'&Omega; = &frac12;(x&sup2; + y&sup2;) + '+FR('1 &minus; &mu;','r&#8321;')+' + '+FR('&mu;','r&#8322;')+', &nbsp; x&Prime; &minus; 2y&prime; = &Omega;<sub>x</sub>, &nbsp; y&Prime; + 2x&prime; = &Omega;<sub>y</sub>, &nbsp; z&Prime; = &Omega;<sub>z</sub>')
+    +EQ(3,'&Omega;<sub>x</sub>(x, 0) = x &minus; '+FR('(1&minus;&mu;)(x+&mu;)','|x+&mu;|&sup3;')+' &minus; '+FR('&mu;(x&minus;1+&mu;)','|x&minus;1+&mu;|&sup3;')+' = 0 &nbsp;<span class="rm">on three intervals: L1, L2, L3 (bisection, 80 halvings)</span>')
+    +EQ(4,'L4, L5 = (&frac12; &minus; &mu;, &plusmn;&radic;3/2); &nbsp; C = 2&Omega; &minus; v&sup2; &nbsp;<span class="rm">conserved; forbidden where</span> 2&Omega; &lt; C; &nbsp; r<sub>Hill</sub> = a(&mu;/3)<sup>1/3</sup> &asymp; L1, L2 <span class="rm">from</span> M&#8322;')
+    +'<p>The zero-velocity curve is marching squares on 2&Omega; over a 150&times;150 grid; the forbidden region is the cells whose centres have 2&Omega; &lt; C. The Sun&ndash;Earth L1 and L2 fall at 1.498 and 1.508 million km from Earth, the Earth&ndash;Moon ones at 58,019 and 64,515 km from the Moon.</p>'
+    +'<div class="cite">pins: the roots for five pairs against brentq (1e-13), L4/L5, the Hill radii, C at every point, the Kepler periods against the sidereal month, Jupiter&rsquo;s year and Charon&rsquo;s period — derive.py</div>',
+  surface:'<h4>the landscape</h4>'
+    +EQ(1,'U = &minus;&Omega; = &minus;&frac12;r&sup2; &minus; '+FR('1&minus;&mu;','r&#8321;')+' &minus; '+FR('&mu;','r&#8322;')+'; &nbsp; <span class="rm">for one body</span> dU/dr = &minus;r + 1/r&sup2; = 0 <span class="rm">at</span> r = 1: <span class="rm">the ridge</span>')
+    +EQ(2,'U(L4) &minus; U(L1) = &frac12;(C<sub>L1</sub> &minus; C<sub>L4</sub>) &gt; 0: &nbsp; <span class="rm">the equilateral points are the ridge&rsquo;s summits, the collinear ones its passes</span>')
+    +EQ(3,'<span class="rm">height</span> = 0.35 tanh((U &minus; U<sub>L1</sub>)/s), &nbsp; s = max(1.5 (C<sub>L1</sub> &minus; C<sub>L4</sub>), 0.06)')
+    +'<p>The Coriolis term &minus;2&omega;&times;v does no work, so it is not in U; it is what makes a summit stable. Painter&rsquo;s algorithm on 1,600 quads, lit from the upper left, the camera shared with pulsar.html.</p>'
+    +'<div class="cite">pins: U at the five points against derive.py; the ridge&rsquo;s radius; height(L1) = 0, height(L4) &gt; 0, height at the wells = the floor</div>',
+  stab:'<h4>the linearised motion</h4>'
+    +EQ(1,'&xi;&Prime; &minus; 2&eta;&prime; = &Omega;<sub>xx</sub>&xi; + &Omega;<sub>xy</sub>&eta;, &nbsp; &eta;&Prime; + 2&xi;&prime; = &Omega;<sub>xy</sub>&xi; + &Omega;<sub>yy</sub>&eta;, &nbsp; &zeta;&Prime; = &Omega;<sub>zz</sub>&zeta;')
+    +EQ(2,'&lambda;<sup>4</sup> + (4 &minus; &Omega;<sub>xx</sub> &minus; &Omega;<sub>yy</sub>)&lambda;&sup2; + (&Omega;<sub>xx</sub>&Omega;<sub>yy</sub> &minus; &Omega;<sub>xy</sub>&sup2;) = 0')
+    +EQ(3,'<span class="rm">collinear:</span> &Omega;<sub>xx</sub> = 1 + 2A, &Omega;<sub>yy</sub> = 1 &minus; A, &Omega;<sub>xy</sub> = 0, A = '+FR('1&minus;&mu;','r&#8321;&sup3;')+' + '+FR('&mu;','r&#8322;&sup3;')+' &gt; 1 &nbsp;&rArr;&nbsp; <span class="rm">one real pair</span> &plusmn;&lambda;, <span class="rm">one imaginary</span> &plusmn;i&omega;')
+    +EQ(4,'<span class="rm">L4:</span> &Omega;<sub>xx</sub> = &frac34;, &Omega;<sub>yy</sub> = 9/4, &Omega;<sub>xy</sub> = &plusmn;(3&radic;3/4)(1 &minus; 2&mu;) &nbsp;&rArr;&nbsp; &lambda;&sup2; = &frac12;[&minus;1 &plusmn; &radic;(1 &minus; 27&mu;(1&minus;&mu;))]')
+    +EQ(5,'<span class="rm">stable iff</span> 27&mu;(1&minus;&mu;) &lt; 1 &nbsp;&hArr;&nbsp; &mu; &lt; &mu;<sub>R</sub> = &frac12;(1 &minus; &radic;(23/27)) = 0.038521 &nbsp;&hArr;&nbsp; M&#8321;/M&#8322; &gt; 24.960')
+    +'<p>Small &mu;: &omega;<sub>1</sub> &asymp; &radic;(27&mu;/4), so the long libration period is 2&pi;/&omega;<sub>1</sub> orbital periods — 147.5 yr for Jupiter, 220 yr for Earth (2010 TK7&rsquo;s large tadpole takes 395). The released particle is the full nonlinear RK4; its first departure follows the orange eigenvector (1, (&lambda;&sup2; &minus; &Omega;<sub>xx</sub>)/2&lambda;).</p>'
+    +'<div class="cite">pins: the Hessians, roots, e-folding times and periods at every point of every pair against numpy eig (1e-9); the Pluto&ndash;Charon L4 spiral; the 1000-km release from Sun&ndash;Earth L2 at 15, 30, 60 d — derive.py</div>',
+  sunearth:'<h4>halo orbits by shooting</h4>'
+    +EQ(1,'<span class="rm">seek</span> (x&#8320;, 0, z&#8320;, 0, y&prime;&#8320;, 0) &nbsp;<span class="rm">with</span> x&prime; = z&prime; = 0 <span class="rm">at the next crossing of</span> y = 0 &nbsp;<span class="rm">(then the orbit is symmetric and closes)</span>')
+    +EQ(2,'&Phi;&prime; = A(t)&Phi;, &nbsp; A = '+FR('&part;f','&part;s')+' &nbsp;<span class="rm">(42 equations);</span> &nbsp; &delta;[x&prime;, z&prime;]<sub>T/2</sub> = M &delta;[x&#8320;, y&prime;&#8320;], &nbsp; M<sub>ij</sub> = &Phi;<sub>ij</sub> &minus; '+FR('s&Prime;<sub>i</sub>','y&prime;')+'&Phi;<sub>2j</sub>')
+    +EQ(3,'<span class="rm">seed: Richardson (1980) third order in</span> A<sub>z</sub>; &nbsp; <span class="rm">JWST-like:</span> A<sub>z</sub> = 428,575 km <span class="rm">so the orbit reaches 832,000 km from L2;</span> T = 179.7 d')
+    +EQ(4,'<span class="rm">Lissajous (linear):</span> x = A<sub>x</sub>cos &omega;<sub>p</sub>t, &nbsp; y = kA<sub>x</sub>sin &omega;<sub>p</sub>t, &nbsp; z = A<sub>z</sub>cos &omega;<sub>z</sub>t, &nbsp; k = &minus;(&omega;<sub>p</sub>&sup2; + &Omega;<sub>xx</sub>)/2&omega;<sub>p</sub> = &minus;3.187')
+    +EQ(5,'<span class="rm">penumbra at L2:</span> R<sub>&oplus;</sub> + d(R<sub>&#9737;</sub> + R<sub>&oplus;</sub>)/AU = 13,447 km; &nbsp; <span class="rm">umbra ends at</span> R<sub>&oplus;</sub>AU/(R<sub>&#9737;</sub> &minus; R<sub>&oplus;</sub>) = 1.383 million km')
+    +'<p>The corrector converges to a residual below 1e-13; the RK4 twin at 2,400 steps closes to 2e-12 after one period and keeps C to 4e-16. The monodromy matrix&rsquo;s largest multiplier, 1,262 for the JWST-like halo and 1,016 for the Queqiao-like one, is the growth of any error per orbit.</p>'
+    +'<div class="cite">pins: the corrected states, quarter-period RK4 states, closures, Jacobi drift, extents and distances from L1/L2, the multipliers, the Lissajous constants and points — derive.py</div>',
+  earthmoon:'<h4>the family to the NRHO</h4>'
+    +EQ(1,'<span class="rm">start:</span> <span class="rm">the Queqiao-like halo at its far crossing</span> (x&#8320;, z&#8320;, y&prime;&#8320;) = (1.1784, 0.0484, &minus;0.1681), T = 14.75 d')
+    +EQ(2,'<span class="rm">continue in</span> (x&#8320;, z&#8320;) <span class="rm">along the tangent, fixing whichever moves less</span> &nbsp;<span class="rm">(the family folds at</span> z<sub>max</sub> = 0.202 <span class="rm">= 77,800 km);</span> <span class="rm">stop when</span> T &lt; 2T<sub>syn</sub>/9')
+    +EQ(3,'9T = 2T<sub>syn</sub>, &nbsp; T<sub>syn</sub> = 29.530589 d &nbsp;&rArr;&nbsp; T = 6.56235 d = 1.51121 <span class="rm">units</span> &nbsp;<span class="rm">(bisection on the last segment)</span>')
+    +EQ(4,'<span class="rm">result:</span> r<sub>peri</sub> = 3,249 km (1,512 km up, over the north pole), r<sub>apo</sub> = 71,222 km, &nbsp; |&lambda;|<sub>max</sub> = 2.19 <span class="rm">against</span> 1,016 <span class="rm">for the halo</span>')
+    +EQ(5,'<span class="rm">line of sight:</span> d = |p &minus; (p&middot;&ucirc;)&ucirc;|, &nbsp; &ucirc; <span class="rm">toward Earth;</span> d &gt; R<sub>Moon</sub> <span class="rm">everywhere on the halo (11,500 km at t = 0)</span>')
+    +'<p>Southern means the apolune lies below the Moon&rsquo;s orbital plane; the CR3BP is symmetric in z, so the northern twin is the mirror. The RK4 twin at 3,600 steps closes to 6e-7 per period (the perilune pass is fast); the marker rides the closed trace.</p>'
+    +'<div class="cite">pins: the NRHO state, period, quarter-period states, extents, multiplier; the six family samples; the Queqiao line-of-sight clearance — derive.py</div>',
+  trojan:'<h4>co-orbital motion</h4>'
+    +EQ(1,'<span class="rm">at rest on the circle:</span> C&#8320; = 2&Omega;(r&#8320;) &lt; C<sub>L3</sub> <span class="rm">always &mdash; a tadpole; offset</span> &delta; <span class="rm">at the local circular speed:</span> C &asymp; 3 + &frac34;&delta;&sup2; + &mu;(2/r&#8322; &minus; 2cos&phi; &minus; 2) &gt; C<sub>L3</sub> <span class="rm">&mdash; a horseshoe</span>')
+    +EQ(2,'C<sub>L4</sub> = 3 &minus; &mu;(1&minus;&mu;), &nbsp; C<sub>L3</sub> &asymp; 3 + &mu;: &nbsp; <span class="rm">the whole band is</span> ~2&mu; <span class="rm">wide</span>')
+    +EQ(3,'<span class="rm">linear libration about L4:</span> T<sub>lib</sub> = 2&pi;/&omega;<sub>1</sub>, &nbsp; &omega;<sub>1</sub>&sup2; = &frac12;[1 &minus; &radic;(1 &minus; 27&mu;(1&minus;&mu;))] &asymp; 27&mu;/4')
+    +'<p>Every body is the full RK4 at &Delta;t = 2&pi;/256. Jupiter from 75&deg; at rest: a tadpole between 47.6&deg; and 75&deg; in 142 yr; from 175&deg; at rest: still a tadpole, a huge one reaching 37.6&deg;; from 180&deg; on a circle 0.8 Hill radii larger: a horseshoe that turns 13&deg; short of Jupiter. Offsets beyond about one Hill radius are scattered by the encounter instead. The Sun&ndash;Earth tadpoles barely move in twelve years; its horseshoe at 1.4 Hill radii takes sixty.</p>'
+    +'<div class="cite">pins: the six coorbital runs at steps 256, 1024 and the end against the Python RK4 (1e-9) and solve_ivp (1e-6), their kinds, angle ranges and Jacobi drift — derive.py</div>',
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) come from REF, generated from build_lagr/refvals.txt, the *
+ *  printed output of derive.py (scipy brentq / solve_ivp at 1e-12,    *
+ *  numpy eig, the differential corrector), read in full.              *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    Object.assign(ST,DEFAULTS,over); simReset(ST);
+    if(over.runFrames){ ok(startRun(ST),'run starts for '+JSON.stringify(over).slice(0,60)); for(let k=0;k<over.runFrames;k++) runStep(ST); }
+    try{ return fn(); } finally{ Object.assign(ST,stSave); simReset(ST); }
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955; M&#8321;')==='Δx θ λ M₁','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  close(90*DEG,PI/2,1e-15,'DEG converts degrees INTO radians (90 DEG = pi/2)');
+  eq(AU_KM,149597870.7,'1 AU (IAU 2012)'); eq(GMV.sun,1.32712440042e20,'GM_sun'); eq(GMV.moon,4.902800118e12,'GM_moon'); close(GMV.charon,6.67430e-11*1.5897e21,1,'GM_charon from its mass');
+  close(MU_ROUTH,REF.mu_routh,1e-14,'Routh mu (derive)'); rel((1-MU_ROUTH)/MU_ROUTH,REF.routh_ratio,1e-12,'M1/M2 = 24.96 at Routh (derive)'); close(27*MU_ROUTH*(1-MU_ROUTH),1,1e-14,'27 mu (1 - mu) = 1 there');
+  { let threw=false; try{ sysById('vulcan'); }catch(e){ threw=true; } ok(threw,'an unknown system throws'); }
+
+  /* ---------- A. the pairs and their five points ---------- */
+  const KEYS=['sunearth','earthmoon','sunjupiter','sunmars','plutocharon'];
+  for(const key of KEYS){
+    const R=REF.sys[key], S=sysInfo(key,0), mu=S.mu, tag=key+': ';
+    rel(mu,R.mu,1e-12,tag+'mu from GM (derive)'); rel(S.Td,R.T_d,1e-12,tag+'Kepler period in days (derive)'); rel(S.aKm,R.a_km,1e-12,tag+'a in km');
+    const P=lagrangePoints(mu);
+    close(P[0].x,R.L1,1e-12,tag+'L1 (derive brentq)'); close(P[1].x,R.L2,1e-12,tag+'L2 (derive brentq)'); close(P[2].x,R.L3,1e-12,tag+'L3 (derive brentq)');
+    close(P[3].x,R.L4x,1e-12,tag+'L4 x'); close(P[3].y,R.L4y,1e-12,tag+'L4 y'); close(P[4].y,-R.L4y,1e-12,tag+'L5 y'); close(P[3].y,Math.sqrt(3)/2,1e-15,tag+'L4 y is exactly sqrt(3)/2');
+    rel(hillRadius(mu),R.hill,1e-12,tag+'Hill radius (derive)');
+    rel((1-mu-P[0].x)*S.aKm,R.L1_from_M2_km,1e-11,tag+'L1 from M2 in km (derive)'); rel((P[1].x-1+mu)*S.aKm,R.L2_from_M2_km,1e-11,tag+'L2 from M2 in km (derive)'); rel((-mu-P[2].x)*S.aKm,R.L3_from_M1_km,1e-11,tag+'L3 from M1 in km (derive)');
+    for(const p of P){ const g=grad(mu,p.x,p.y,0); ok(Math.hypot(g[0],g[1],g[2])<1e-10,tag+p.id+' has zero gradient ('+Math.hypot(g[0],g[1]).toExponential(1)+')'); }
+    const J=REF.jacobi[key]; if(J){ close(P[0].C,J.CL1,1e-12,tag+'C at L1 (derive)'); close(P[1].C,J.CL2,1e-12,tag+'C at L2 (derive)'); close(P[2].C,J.CL3,1e-12,tag+'C at L3 (derive)'); close(P[3].C,J.CL4,1e-12,tag+'C at L4 (derive)'); }
+    ok(P[0].C>P[1].C&&P[1].C>P[2].C&&P[2].C>P[3].C,tag+'C(L1) > C(L2) > C(L3) > C(L4)');
+    close(P[3].C,3-mu*(1-mu),1e-12,tag+'C(L4) = 3 - mu(1-mu) exactly');
+  }
+  /* the sourced checks */
+  { const S=sysInfo('sunearth',0), P=lagrangePoints(S.mu);
+    ok(Math.abs((1-S.mu-P[0].x)*AU_KM-1.5e6)<1.5e4&&Math.abs((P[1].x-1+S.mu)*AU_KM-1.5e6)<1.5e4,'Sun-Earth L1, L2 are 1.5 million km from Earth (article)');
+    close(Math.abs(P[2].x),1+5*S.mu/12,1e-9,'L3 = -(1 + 5 mu/12) to first order'); }
+  { const S=sysInfo('earthmoon',0), P=lagrangePoints(S.mu); close((P[1].x-1+S.mu)*S.aKm,64515,1,'Earth-Moon L2 is 64,515 km from the Moon (Queqiao: ~65,000)'); close(S.Td,27.321661,0.05,'the CR3BP month is the sidereal month to 0.05 d (the Sun perturbs the rest)'); }
+  rel(sysInfo('plutocharon',0).Td,6.387221,1e-3,'Charon\'s Kepler period reproduces the article\'s 6.387221 d to 0.1 %'); rel(sysInfo('sunjupiter',0).Td,4332.59,5e-4,'Jupiter\'s year to 0.05 %');
+  rel(sysInfo('plutocharon',0).ratio,1/0.1218,2e-3,'Charon/Pluto mass ratio 0.1218 (article)');
+  /* the Hessian against finite differences, the custom system */
+  { const mu=0.05, x=0.37, y=-0.81, e=1e-5, Hs=hess(mu,x,y,0.2);
+    const fx=(xx,yy,zz)=>grad(mu,xx,yy,zz);
+    rel((fx(x+e,y,0.2)[0]-fx(x-e,y,0.2)[0])/(2*e),Hs.xx,1e-6,'Oxx by finite differences'); rel((fx(x,y+e,0.2)[1]-fx(x,y-e,0.2)[1])/(2*e),Hs.yy,1e-6,'Oyy'); rel((fx(x,y+e,0.2)[0]-fx(x,y-e,0.2)[0])/(2*e),Hs.xy,1e-6,'Oxy');
+    rel((fx(x,y,0.2+e)[2]-fx(x,y,0.2-e)[2])/(2*e),Hs.zz,1e-6,'Ozz'); rel((fx(x+e,y,0.2)[2]-fx(x-e,y,0.2)[2])/(2*e),Hs.xz,1e-6,'Oxz'); rel((fx(x,y+e,0.2)[2]-fx(x,y-e,0.2)[2])/(2*e),Hs.yz,1e-6,'Oyz');
+    rel((omega(mu,x+e,y,0.2)-omega(mu,x-e,y,0.2))/(2*e),fx(x,y,0.2)[0],1e-7,'Omega_x is the derivative of Omega'); }
+  { const S=sysInfo('custom',-2); close(S.mu,0.01,1e-15,'custom mu = 10^slider'); eq(S.Td,null,'custom has no days'); eq(dayStr(S,TAU),'1.000 periods','dayStr in periods for custom'); eq(kmStr(S,0.5),'0.5000 a','kmStr in a for custom'); }
+
+  /* ---------- B. stability ---------- */
+  for(const key of KEYS){
+    const S=sysInfo(key,0), mu=S.mu, P=lagrangePoints(mu);
+    for(const id of ['L1','L2','L3','L4']){
+      const R=REF.stab[key][id], p=P.find(q=>q.id===id), sb=stabAt(mu,p.x,p.y), tag=key+' '+id+': ';
+      rel(sb.oxx,R.Oxx,1e-11,tag+'Oxx (derive)'); rel(sb.oyy,R.Oyy,1e-9,tag+'Oyy (derive)'); close(sb.oxy,R.Oxy,1e-11,tag+'Oxy (derive)'); rel(sb.ozz,R.Ozz,1e-11,tag+'Ozz (derive)');
+      if(id!=='L4'){ eq(sb.kind,'saddle',tag+'a saddle'); rel(sb.lamReal,R.lam_real,1e-10,tag+'real root (derive)'); rel(sb.wIn,R.omega_inplane,1e-10,tag+'in-plane frequency (derive)'); rel(sb.wZ,R.omega_z,1e-10,tag+'vertical frequency (derive)');
+        rel(S.Td/TAU/sb.lamReal,R.efold_d,1e-10,tag+'e-folding time in days (derive)'); rel(S.Td/sb.wIn,R.Tinplane_d,1e-10,tag+'in-plane period (derive)'); rel(S.Td/sb.wZ,R.Tz_d,1e-10,tag+'vertical period (derive)');
+        for(const l2 of sb.lam2) close(l2*l2+sb.b*l2+sb.c,0,1e-9,tag+'lambda^2 = '+fmt(l2,4)+' is a root of the quartic'); }
+      else if(R.stable===1){ eq(sb.kind,'centre',tag+'a centre'); ok(sb.stable,tag+'stable'); rel(sb.wLong,R.omega_long,1e-9,tag+'long frequency (derive)'); rel(sb.wShort,R.omega_short,1e-10,tag+'short frequency (derive)');
+        rel(S.Td/sb.wLong,R.Tlong_d,1e-9,tag+'long libration period in days (derive)'); rel(S.Td/sb.wShort,R.Tshort_d,1e-10,tag+'short period (derive)'); }
+      else { eq(sb.kind,'spiral',tag+'a spiral'); ok(!sb.stable,tag+'unstable'); rel(sb.lamRe,R.lam_re,1e-10,tag+'Re lambda (derive)'); rel(sb.lamIm,R.lam_im,1e-10,tag+'Im lambda (derive)'); rel(S.Td/TAU/sb.lamRe,R.efold_d,1e-10,tag+'e-folding time (derive)');
+        const re=sb.lamRe, im=sb.lamIm, l2r=re*re-im*im, l2i=2*re*im; close(l2r*l2r-l2i*l2i+sb.b*l2r+sb.c,0,1e-9,tag+'the complex root satisfies the quartic (real part)'); close(2*l2r*l2i+sb.b*l2i,0,1e-9,tag+'(imaginary part)'); }
+    }
+    const s4=stabAt(mu,P[3].x,P[3].y), s5=stabAt(mu,P[4].x,P[4].y); eq(s4.kind,s5.kind,key+': L4 and L5 share their stability'); eq(s4.stable,mu<MU_ROUTH,key+': stable iff mu < Routh');
+    close(s4.oxx,0.75,1e-12,key+': Oxx = 3/4 at L4'); close(s4.oyy,2.25,1e-12,key+': Oyy = 9/4'); close(Math.abs(s4.oxy),3*Math.sqrt(3)/4*(1-2*mu),1e-12,key+': |Oxy| = (3 sqrt 3 / 4)(1 - 2 mu)');
+  }
+  { const S=sysInfo('sunjupiter',0), s4=stabAt(S.mu,0.5-S.mu,Math.sqrt(3)/2); close(S.Td/s4.wLong/365.25,147.5,0.1,'Sun-Jupiter L4 long libration 147.5 yr (derive)'); ok(Math.abs(S.Td/s4.wLong/365.25-150)<8,'... against the trojans\' ~150 yr (article)'); }
+  { const S=sysInfo('sunearth',0), s4=stabAt(S.mu,0.5-S.mu,Math.sqrt(3)/2); close(S.Td/s4.wLong/365.25,220.7,0.5,'Sun-Earth L4 linear libration ~221 yr (2010 TK7\'s large tadpole: 395)'); rel(s4.wLong,Math.sqrt(27*S.mu/4),3e-5,'omega_1 = sqrt(27 mu / 4) for small mu'); }
+  { const mu=MU_ROUTH*1.0001, sb=stabAt(mu,0.5-mu,Math.sqrt(3)/2); eq(sb.kind,'spiral','just above Routh: a spiral'); const sb2=stabAt(MU_ROUTH*0.9999,0.5-MU_ROUTH*0.9999,Math.sqrt(3)/2); eq(sb2.kind,'centre','just below: a centre'); }
+  { const sb=stabAt(0.5,0,Math.sqrt(3)/2); eq(sb.kind,'spiral','equal masses: L4 unstable'); const r=eigRoots(sb); eq(r.length,4,'four roots'); ok(r.some(q=>q[0]>0)&&r.some(q=>q[0]<0),'a spiral has roots on both sides'); }
+  /* the released particle from Sun-Earth L2, 1000 km, at rest: derive's RK4 at dt = 2 pi / 3650 */
+  { const S=sysInfo('sunearth',0), mu=S.mu, L2=lpt(mu,'L2').x, tr=integrateTrace(mu,[L2+1000/AU_KM,0,0,0,0,0],TAU/3650,600);
+    for(const D of REF.depart){ rel((tr[D.step][0]-L2)*AU_KM,D.dx_km,1e-8,'departure from L2 at step '+D.step+': dx km (derive)'); rel(tr[D.step][1]*AU_KM,D.dy_km,1e-8,'dy km (derive)'); rel(D.step*(TAU/3650)*S.Td/TAU,D.t_d,1e-10,'days'); }
+    ok(Math.abs(tr[600][0]-L2)>5*Math.abs(tr[0][0]-L2),'in 60 d the 1000-km error has grown more than fivefold'); }
+
+  /* ---------- C. the integrator and the periodic orbits ---------- */
+  for(const key of ['jwst','soho','queqiao']){
+    const R=REF.halo[key], T=orbitTrace(key), S=T.S, tag=key+': ';
+    eq(ORBITS[key].sys,R.sys,tag+'system'); eq(ORBITS[key].pt,R.pt,tag+'point'); rel(T.period,R.period,1e-13,tag+'period'); rel(T.period*S.Td/TAU,R.period_d,1e-11,tag+'period in days (derive)');
+    for(const q of R.rk4){ const s=T.states[q.step]; eq(q.N,T.N,tag+'N'); rel(s[0],q.x,1e-10,tag+'x at step '+q.step+' (derive RK4)'); close(s[1],q.y,1e-10,tag+'y'); close(s[2],q.z,1e-10*Math.max(1,Math.abs(q.z)),tag+'z'); close(s[3],q.vx,1e-10,tag+'vx'); close(s[4],q.vy,1e-10,tag+'vy'); close(s[5],q.vz,1e-10,tag+'vz'); }
+    ok(T.closure<1e-10,tag+'closes after one period ('+T.closure.toExponential(2)+'; derive '+R.rk4_closure.toExponential(2)+')'); ok(Math.abs(T.Cdrift)<1e-12,tag+'Jacobi constant kept to 1e-12'); rel(T.C,R.jacobi,1e-12,tag+'Jacobi constant (derive)');
+    rel(T.r2min*S.aKm,R.ext.r2min,2e-5,tag+'nearest approach to M2 in km (derive, 2000-sample)'); rel(T.r2max*S.aKm,R.ext.r2max,2e-5,tag+'farthest (derive)'); rel(T.ymax*S.aKm,R.ext.ymax,2e-5,tag+'y amplitude (derive)');
+    rel(T.zmin*S.aKm,R.ext.zmin,2e-5,tag+'z min (derive)'); rel(T.zmax*S.aKm,R.ext.zmax,2e-5,tag+'z max (derive)'); rel(T.dLmin*S.aKm,R.dL.min,2e-5,tag+'nearest to the point (derive)'); rel(T.dLmax*S.aKm,R.dL.max,2e-5,tag+'farthest from the point (derive)');
+    /* the symmetry: the far crossing has x' = z' = 0 too */
+    const half=T.states[T.N/2]; ok(Math.abs(half[1])<1e-8&&Math.abs(half[3])<1e-8&&Math.abs(half[5])<1e-8,tag+'at half a period y, x\', z\' vanish (the halo\'s symmetry)');
+    const m=monodromy(key); rel(m,REF.mono[key],2e-4,tag+'monodromy multiplier (derive, numpy eig on solve_ivp\'s STM)'); ok(m>500,tag+'a halo is strongly unstable (>500 per orbit)');
+  }
+  { const R=REF.nrho, T=orbitTrace('nrho'), S=T.S, tag='nrho: ';
+    rel(T.period,R.period,1e-13,tag+'period'); rel(T.period*S.Td/TAU,R.period_d,1e-11,tag+'period in days (derive)'); close(T.period*S.Td/TAU,2/9*29.530589,1e-8,tag+'= 2/9 of a synodic month');
+    for(const q of R.rk4){ const s=T.states[q.step]; rel(s[0],q.x,1e-9,tag+'x at step '+q.step+' (derive RK4)'); close(s[1],q.y,1e-9,tag+'y'); close(s[2],q.z,1e-9,tag+'z'); close(s[3],q.vx,1e-8,tag+'vx'); close(s[4],q.vy,1e-8,tag+'vy'); close(s[5],q.vz,1e-8,tag+'vz'); }
+    rel(T.closure,R.closure,1e-3,tag+'RK4 closure 6e-7 (derive)'); rel(T.Cdrift,R.drift,1e-3,tag+'Jacobi drift (derive)');
+    rel(T.r2min*S.aKm,R.perilune_refined_km,2e-4,tag+'perilune radius, parabola-refined (derive minimize_scalar)'); ok(T.r2minRaw>=T.r2min&&(T.r2minRaw-T.r2min)*S.aKm<40,tag+'the raw sample minimum lies just above the refined one'); rel(T.r2minRaw*S.aKm,R.ext.perilune_r,3e-3,tag+'the raw minimum near derive\'s 2000-sample bound'); rel(T.r2max*S.aKm,R.ext.apolune_r,2e-5,tag+'apolune radius (derive)'); rel(T.zmin*S.aKm,R.ext.zmin,2e-5,tag+'z min (derive)'); rel(T.ymax*S.aKm,R.ext.ymax,2e-4,tag+'y max (derive)');
+    ok(T.r2min*S.aKm>3000&&T.r2min*S.aKm<3500,tag+'perilune ~3,000 km radius (article: 3,000 km)'); ok(Math.abs(T.r2max*S.aKm-70000)<2500,tag+'apolune ~70,000 km (article)');
+    ok(T.zmin<0&&Math.abs(T.zmin)>10*Math.abs(T.zmax),tag+'southern: the apolune lies below the plane');
+    const m=monodromy('nrho'); rel(m,REF.mono.nrho,2e-3,tag+'monodromy multiplier 2.19 (derive)'); ok(m<3,tag+'nearly stable');
+    ok(FAMILY.length>=5&&FAMILY[0].periodD>14&&FAMILY[FAMILY.length-1].periodD<8,'the family samples run from the 14.7-d halo toward the NRHO');
+    for(let i=1;i<FAMILY.length;i++) ok(FAMILY[i].periodD<FAMILY[i-1].periodD&&FAMILY[i].periKm<FAMILY[i-1].periKm,'family: period and perilune fall monotonically ('+i+')'); }
+  /* orbitAt */
+  { const T=orbitTrace('jwst'); const s=orbitAt('jwst',0); close(s[0],T.states[0][0],0,'orbitAt(0) is the start'); const s2=orbitAt('jwst',7*T.dt); close(s2[2],T.states[7][2],1e-15,'orbitAt at a step is that step');
+    const s3=orbitAt('jwst',T.period+3.5*T.dt), s4=orbitAt('jwst',3.5*T.dt); close(s3[0],s4[0],1e-14,'orbitAt wraps at the period'); const s5=orbitAt('jwst',-T.dt), s6=orbitAt('jwst',T.period-T.dt); close(s5[1],s6[1],1e-14,'negative t wraps'); }
+  /* coorbital runs against derive's RK4 and solve_ivp */
+  for(const label in REF.coorbital){
+    const R=REF.coorbital[label], S=sysInfo(R.sys,0), mu=S.mu, s0=coorbitalStart(mu,R.start_deg,R.dr_hill), N=R.steps[R.steps.length-1].step, tr=integrateTrace(mu,s0,TAU/256,N), tag=label+': ';
+    close(angleFrom(mu,s0),R.start_deg,1e-12,tag+'starts at the angle set');
+    for(const q of R.steps){ rel(tr[q.step][0],q.x,1e-9,tag+'x at step '+q.step+' (derive RK4)'); rel(tr[q.step][1],q.y,1e-9,tag+'y'); close(tr[q.step][3],q.vx,1e-9,tag+'vx'); close(tr[q.step][4],q.vy,1e-9,tag+'vy'); }
+    rel(tr[N][0],R.ivp_end_x,1e-6,tag+'end x against solve_ivp (derive)'); rel(tr[N][1],R.ivp_end_y,1e-6,tag+'end y against solve_ivp');
+    let amin=1e9, amax=-1e9; for(const s of tr){ const a=angleFrom(mu,s); amin=Math.min(amin,a); amax=Math.max(amax,a); }
+    close(amin,R.ang_min,1e-7,tag+'min angle (derive)'); close(amax,R.ang_max,1e-7,tag+'max angle (derive)'); close(jacobi(mu,s0),R.C,1e-12,tag+'Jacobi constant (derive)'); ok(Math.abs(jacobi(mu,tr[N])-jacobi(mu,s0))<(R.kind==='horseshoe'?1e-10:1e-11),tag+'C kept over the run ('+(jacobi(mu,tr[N])-jacobi(mu,s0)).toExponential(1)+')');
+    close(lpt(mu,'L3').C,R.CL3,1e-12,tag+'C(L3) (derive)'); eq(trojanModel(Object.assign({},DEFAULTS,{view:'trojan',troSys:R.sys,troKind:R.dr_hill?'horseshoe':'tadpole',ang:R.start_deg,dr:R.dr_hill})).kind,R.kind,tag+'the model classifies it as derive does');
+    if(R.kind==='tadpole') ok((amin>0&&amax<180)||(amin>180&&amax<360),tag+'a tadpole stays on one side of L3'); else { let r2m=1e9; for(const s of tr) r2m=Math.min(r2m,Math.hypot(s[0]-1+mu,s[1])); ok(amin<180&&amax>180&&r2m>2.5*hillRadius(mu),tag+'a horseshoe passes L3 and turns '+fmt(r2m/hillRadius(mu),2)+' Hill radii short of M2'); }
+  }
+  { const S=sysInfo('sunjupiter',0), mu=S.mu; const t=trojanModel(Object.assign({},DEFAULTS,{view:'trojan',troSys:'sunjupiter',ang:75})); eq(t.kind,'tadpole','75 deg from the Sun at rest: C < C(L3), a tadpole');
+    const t2=trojanModel(Object.assign({},DEFAULTS,{view:'trojan',troSys:'sunjupiter',ang:175})); eq(t2.kind,'tadpole','175 deg at rest: still C < C(L3), a (huge) tadpole');
+    const t4=trojanModel(Object.assign({},DEFAULTS,{view:'trojan',troSys:'sunjupiter',troKind:'horseshoe',ang:180,dr:0.8})); eq(t4.kind,'horseshoe','180 deg, 0.8 Hill radii out: C > C(L3), a horseshoe'); ok(t4.C0>t4.CL3&&t4.C0<lpt(mu,'L2').C,'its C lies between C(L3) and C(L2)');
+    const t5=trojanModel(Object.assign({},DEFAULTS,{view:'trojan',troSys:'sunjupiter',troKind:'tadpole',ang:175,dr:0.8})); eq(t5.kind,'tadpole','the offset only applies to the horseshoe kind'); eq(t5.drH,0,'no offset for a tadpole'); ok(t5.C0<t5.CL3&&t5.C0>t5.CL4,'at rest on the circle C lies between C(L4) and C(L3)');
+    const t3=trojanModel(Object.assign({},DEFAULTS,{view:'trojan',troSys:'sunjupiter',ang:60})); close(t3.C0,t3.CL4,1e-12,'released at L4: C = C(L4)'); eq(swarmStarts(mu).length,24,'a swarm is 24 bodies'); }
+  /* the Lissajous, the shadow, the line of sight */
+  { const S=sysInfo('sunearth',0), mu=S.mu, L=lissajousConsts(mu,'L2'), R=REF.liss;
+    rel(L.wp,R.wp,1e-11,'Lissajous in-plane frequency (derive)'); rel(L.wz,R.wz,1e-11,'vertical frequency (derive)'); rel(L.k,R.k,1e-11,'k = -(wp^2 + Oxx)/(2 wp) (derive)'); rel(707000/AU_KM/Math.abs(L.k),R.Ax,1e-11,'A_x from A_y = 707,000 km (derive)');
+    for(const q of REF.lissT){ const s=lissajousAt(L,707000/AU_KM,263000/AU_KM,q.t); rel(s[0],q.x,1e-11,'Lissajous x at t = '+q.t+' (derive)'); close(s[1],q.y,1e-14,'y'); close(s[2],q.z,1e-14,'z'); }
+    const e=1e-4, sb=stabAt(mu,L.xL,0), f=t=>lissajousAt(L,707000/AU_KM,263000/AU_KM,t), a=f(0.7), b1=f(0.7+e), b0=f(0.7-e);
+    const xdd=(b1[0]-2*a[0]+b0[0])/(e*e), ydd=(b1[1]-2*a[1]+b0[1])/(e*e);
+    close(xdd-2*a[4]-sb.oxx*(a[0]-L.xL),0,1e-6,'the linear Lissajous satisfies the linearised x equation'); close(ydd+2*a[3]-sb.oyy*a[1],0,1e-6,'and the y equation');
+    const sh=shadowGeom((lpt(mu,'L2').x-1+mu)*AU_KM); rel(sh.umbraKm,REF.shadow.umbra_km,1e-11,'umbra length (derive)'); rel(sh.penumbraKm,REF.shadow.penumbra_at_L2_km,1e-11,'penumbra radius at L2 (derive)'); ok(sh.umbraKm<(lpt(mu,'L2').x-1+mu)*AU_KM,'the umbra ends short of L2'); eq(sh.umbraKmAt,0,'no umbra at L2');
+    const q=orbitAt('queqiao',0), muE=sysInfo('earthmoon',0).mu; rel(losClear([q[0]-1+muE,q[1],q[2]])*384399,REF.queqiao.los_clear_km,1e-9,'Queqiao line of sight clears the Moon by 11,497 km at t = 0 (derive)');
+    close(losClear([0.2,0,0]),0,1e-15,'a point on the axis has no clearance'); close(losClear([0,0.1,0]),0.1/Math.hypot(1,0.1),1e-15,'off-axis clearance is the perpendicular distance'); }
+  /* the drift run: unperturbed it stays on the halo, perturbed it leaves */
+  { const sep0=withState({view:'sunearth',perturb:0,speed:2,runFrames:150},()=>sunearthModel(ST).sepNow); ok(sep0<1,'nudged by 0 km the live copy stays on the halo to under 1 km after 150 frames ('+sep0.toExponential(2)+')'); eq(RUN.nSub,0,'(the run was reset by withState)');
+    withState({view:'sunearth',perturb:0,speed:2,runFrames:3},()=>{ eq(RUN.nSub,8,'the drift copy takes 8 substeps a frame at speed 2: 0.01 over the halo\'s step 3.0909/2400'); close(RUN.t,0.03,1e-12,'and its clock matches the frames'); });
+    const T=orbitTrace('jwst'), frames=Math.round(T.period/frameDt(Object.assign({},DEFAULTS,{speed:2})));
+    const sep1=withState({view:'sunearth',perturb:100,speed:2,runFrames:frames},()=>sunearthModel(ST).sepNow); ok(sep1>2000&&sep1<100*monodromy('jwst')*2.2,'nudged by 100 km it is '+fmt(sep1,0)+' km off after one period (between 20x and twice the multiplier: a transient can beat the eigenvalue)'); }
+  /* the contours and the forbidden region */
+  { const segs=marchingSquares((x,y)=>x*x+y*y,-1.5,1.5,-1.5,1.5,60,60,1); let len=0, worst=0;
+    for(const s of segs){ len+=Math.hypot(s[2]-s[0],s[3]-s[1]); worst=Math.max(worst,Math.abs(s[0]*s[0]+s[1]*s[1]-1),Math.abs(s[2]*s[2]+s[3]*s[3]-1)); }
+    rel(len,TAU,0.01,'marching squares on x^2 + y^2 = 1: the contour length is 2 pi'); ok(worst<6e-3,'every contour vertex lies on the circle to 6e-3'); ok(segs.length>100,'a closed curve of many segments');
+    eq(marchingSquares((x,y)=>x*x+y*y,-1.5,1.5,-1.5,1.5,20,20,9).length,0,'a level nowhere reached gives no segments');
+    const mu=sysInfo('earthmoon',0).mu, P=lagrangePoints(mu), zv=zvcSegments(mu,P[0].C,-1.6,1.6,-1.6,1.6,150); let dmin=1e9; for(const s of zv) dmin=Math.min(dmin,Math.hypot(s[0]-P[0].x,s[1]),Math.hypot(s[2]-P[0].x,s[3])); ok(dmin<0.03,'the curve at C(L1) passes through L1 ('+dmin.toFixed(3)+')');
+    for(const s of zv) ok(Math.abs(2*omega(mu,s[0],s[1],0)-P[0].C)<2e-3||Math.hypot(s[0]-1+mu,s[1])<0.05||Math.hypot(s[0]+mu,s[1])<0.05,'a curve vertex has 2 Omega = C (away from the wells)');
+    const runs=forbiddenRuns(mu,P[0].C+0.02,-1.6,1.6,-1.6,1.6,75); ok(runs.length>10,'above C(L1) there is a forbidden region'); ok(runs.some(r=>P[0].x>=r[0]&&P[0].x<=r[0]+r[2]&&0>=r[1]&&0<=r[1]+r[3]),'... that contains L1 (the neck is shut)');
+    eq(forbiddenRuns(mu,P[3].C-0.01,-1.6,1.6,-1.6,1.6,40).length,0,'below C(L4) nothing is forbidden');
+    const n1=necksOpen(mu,P[0].C+1e-6), n2=necksOpen(mu,(P[0].C+P[1].C)/2), n3=necksOpen(mu,(P[2].C+P[3].C)/2), n4=necksOpen(mu,P[3].C-1e-6);
+    ok(!n1.L1&&!n1.L2,'just above C(L1): sealed'); ok(n2.L1&&!n2.L2,'between C(L1) and C(L2): L1 open only'); ok(n3.L1&&n3.L2&&n3.L3&&!n3.all,'between C(L3) and C(L4): all three necks'); ok(n4.all,'below C(L4): all open'); }
+  /* the surface */
+  { const mu=sysInfo('earthmoon',0).mu, R=surfaceRefs(mu), P=lagrangePoints(mu);
+    close(surfaceHeight(mu,R,1,P[0].x,0),0,1e-12,'height(L1) = 0'); ok(surfaceHeight(mu,R,1,P[3].x,P[3].y)>0.01,'height(L4) > 0: a summit'); ok(surfaceHeight(mu,R,1,P[1].x,0)>0&&surfaceHeight(mu,R,1,P[2].x,0)>surfaceHeight(mu,R,1,P[1].x,0)&&surfaceHeight(mu,R,1,P[2].x,0)<surfaceHeight(mu,R,1,P[3].x,P[3].y),'L1 is the lowest pass, L3 the highest, L4 above all three');
+    close(surfaceHeight(mu,R,1,1-mu,0),-0.35,1e-15,'the well at M2 is the floor'); close(surfaceHeight(mu,R,2,1-mu+1e-4,0),-0.7,1e-6,'... and scales with the stretch'); ok(surfaceHeight(mu,R,1,1.55,1.55)<-0.2,'the outer corner has fallen away');
+    close(R.UL4-R.UL1,(P[0].C-P[3].C)/2,1e-15,'relief L4 - L1 = (C_L1 - C_L4)/2'); const Rs=surfaceRefs(sysInfo('sunearth',0).mu); close(Rs.scale,0.06,1e-15,'the Sun-Earth scale hits the floor 0.06'); }
+  /* the release state, the live run against the plain integrator, the model's clearance, the 3-D frames */
+  { const mu=0.01, p=lpt(mu,'L1'), rx=releaseState(mu,'L1',0.02,'x'), ry=releaseState(mu,'L4',0.02,'y');
+    close(rx[0],p.x+0.02,1e-15,'releaseState offsets +x'); close(rx[1],0,0,'and keeps y'); ok(rx[3]===0&&rx[4]===0&&rx[5]===0,'at rest');
+    close(ry[1],lpt(mu,'L4').y+0.02,1e-15,'releaseState offsets +y for dir y'); close(ry[0],lpt(mu,'L4').x,0,'and keeps x'); }
+  { const S=sysInfo('sunearth',0), mu=S.mu, n=40; const M=withState({view:'stab',sys:'sunearth',pt:'L2',off:0.0005,speed:2,runFrames:n},()=>stabModel(ST));
+    const tr=integrateTrace(mu,releaseState(mu,'L2',0.0005,'x'),0.005,2*n); close(M.run.p[0],tr[2*n][0],1e-12,'the live run is the plain RK4 at 0.005 per step, two steps a frame at speed 2 (x)'); close(M.run.p[4],tr[2*n][4],1e-12,'(vy)'); close(M.run.t,2*n*0.005,1e-12,'and its clock'); eq(M.run.trace.length,n+1,'one trace point per frame'); }
+  { const M=withState({view:'earthmoon'},()=>buildModel()); rel(M.Em.clear,REF.queqiao.los_clear_km,1e-9,'the Earth-Moon model\'s line-of-sight clearance at t = 0 (derive)'); rel(M.Em.periKm,REF.nrho.perilune_refined_km,2e-4,'and its perilune'); }
+  { const S=sysInfo('earthmoon',0); const e=seWorld([1,0,0]); close(e[0],0,1e-9,'the missions frame puts x = 1 (Earth) at the origin'); close(seWorld([1,0.01,0])[1],0.01*AU_KM/1e6,1e-12,'y in millions of km');
+    const m=emWorld(S,[1-S.mu,0,0]); close(m[0],0,1e-9,'the Earth-Moon frame puts the Moon at the origin'); close(emWorld(S,[1-S.mu,0,0.1])[2],0.1*S.aKm/1000,1e-9,'z in thousands of km'); }
+  /* the world clip */
+  { const win={x0:0,x1:1,y0:0,y1:1}; const c1=clipToWin([0.2,0.2],[0.8,0.6],win); close(c1[0][0],0.2,1e-15,'a segment inside is unchanged'); close(c1[1][1],0.6,1e-15,'(both ends)');
+    eq(clipToWin([2,2],[3,2.5],win),null,'a segment outside is dropped'); eq(clipToWin([-1,0.5],[-0.2,0.5],win),null,'... even when aligned with the window');
+    const c2=clipToWin([-1,0.5],[2,0.5],win); close(c2[0][0],0,1e-15,'a crossing segment is cut at the left edge'); close(c2[1][0],1,1e-15,'and the right'); const c3=clipToWin([0.5,-1],[0.5,0.5],win); close(c3[0][1],0,1e-15,'and at the bottom'); close(c3[1][1],0.5,1e-15,'keeping the inside end'); }
+  /* the camera */
+  { const b=box(100,50,400,300), C=boxCamera(b,0.3,0.5,5,[0,0,0]); const q=C.P([0,0,0]); close(q.x,b.x+b.w/2,1e-9,'the target projects to the box centre (x)'); close(q.y,b.y+b.h/2,1e-9,'(y)');
+    ok(C.P([0,0,1]).y<q.y,'+z projects upward'); eq(C.P([10,0,0]),null,'a point behind the eye is null'); }
+
+  /* ---------- D. the models, the readouts, the scene ---------- */
+  for(const [v] of TABS){
+    const overs=v==='points'?KEYS.concat(['custom']).map(s=>({sys:s})).concat([{sys:'sunearth',zoom:'m2'}]):v==='stab'?[{},{pt:'L4'},{sys:'plutocharon',pt:'L4'},{sys:'custom',muLog:-4,pt:'L3',runFrames:20}]
+      :v==='sunearth'?[{},{mission:'L1'},{mission:'L2',runFrames:40}]:v==='earthmoon'?[{},{em:'halo'},{em:'nrho'}]:v==='trojan'?[{},{troKind:'swarm',runFrames:30},{troSys:'sunearth',troKind:'horseshoe',ang:176,runFrames:10}]:[{},{sys:'sunearth'}];
+    for(const over of overs){
+      const M=withState(Object.assign({view:v},over),()=>buildModel());
+      const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+      ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0&&html.indexOf('null')<0,'panels clean for '+v+' '+JSON.stringify(over)); } }
+  { const M=withState({view:'points',sys:'earthmoon'},()=>buildModel()); ok(readoutHTML(M).indexOf('64,515 km')>=0,'the points readout prints L2 at 64,515 km from the Moon'); ok(readoutHTML(M).indexOf('L1 only')>=0,'and says only L1 is open at C = 0.95 of the way from C(L4) to C(L1)'); }
+  { const M=withState({view:'points',sys:'sunearth',cRel:0.5},()=>buildModel()); ok(readoutHTML(M).indexOf('L1 and L2')>=0,'halfway down, L1 and L2 are open for the Sun-Earth pair but not L3 (C(L3) lies next to C(L4))'); }
+  { const M=withState({view:'points',sys:'sunearth',cRel:0.001},()=>buildModel()); ok(readoutHTML(M).indexOf('L1, L2, L3')>=0,'just above C(L4), all three necks are open'); }
+  { const M=withState({view:'stab',sys:'sunearth',pt:'L2'},()=>buildModel()); ok(readoutHTML(M).indexOf('23.40 d')>=0,'the stability readout prints the 23.40-d e-folding at Sun-Earth L2'); }
+  { const M=withState({view:'stab',sys:'sunjupiter',pt:'L4'},()=>buildModel()); ok(readoutHTML(M).indexOf('147.5 yr')>=0,'the stability readout prints 147.5 yr for Jupiter\'s L4'); ok(readoutHTML(M).indexOf('linearly stable')>=0,'and calls it stable'); }
+  { const M=withState({view:'stab',sys:'plutocharon',pt:'L4'},()=>buildModel()); ok(readoutHTML(M).indexOf('spiral')>=0,'Pluto-Charon L4 is a spiral'); }
+  { const M=withState({view:'sunearth'},()=>buildModel()); const r=readoutHTML(M); ok(r.indexOf('179.7 d')>=0,'the missions readout prints the 179.7-d JWST period'); ok(r.indexOf('1261.7')>=0,'and the multiplier 1261.7');
+    rel(M.Se.monoJ,REF.mono.jwst,2e-4,'the model carries JWST\'s multiplier (derive)'); rel(M.Se.monoS,REF.mono.soho,2e-4,'and SOHO\'s');
+    const r2=withState({view:'sunearth',mission:'L2'},()=>readoutHTML(buildModel())); ok(r2.indexOf('1261.7')>=0&&r2.indexOf('1722.5')<0,'the L2-only readout shows JWST\'s multiplier and not SOHO\'s');
+    const r1=withState({view:'sunearth',mission:'L1'},()=>readoutHTML(buildModel())); ok(r1.indexOf('1722.5')>=0&&r1.indexOf('1261.7')<0,'the L1-only readout shows SOHO\'s and not JWST\'s'); ok(r.indexOf('13,447 km')>=0,'and the 13,447-km penumbra'); ok(r.indexOf('1,507,683 km')>=0,'and L2 at 1,507,683 km'); }
+  { const M=withState({view:'earthmoon'},()=>buildModel()); const r=readoutHTML(M); ok(r.indexOf('6.5624 d')>=0,'the Earth-Moon readout prints the 6.5624-d NRHO period'); ok(r.indexOf('3,249')>=0,'and the 3,249-km perilune'); ok(r.indexOf('2.189')>=0,'and the multiplier 2.189'); ok(M.Em.clearOK,'the line of sight clears the Moon'); }
+  { const shot=makeShot(1100,712); const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS); simReset(ST);
+    ok(!S.step(),'the points view has no clock'); ST.view='surface'; ok(!S.step(),'nor the surface');
+    ST.view='stab'; simReset(ST); ok(!S.step(),'stability idles until a release'); ok(startRun(ST),'release starts a run'); ok(S.step(),'then a frame advances'); close(RUN.t,frameDt(ST),1e-12,'by frameDt'); ok(RUN.traces[0].length===2,'one trace point per frame');
+    ST.running=false; ok(!S.step(),'paused: no frame'); ST.running=true; ST.speed=5; S.step(); close(RUN.t,frameDt(Object.assign({},ST,{speed:2}))+0.025,1e-12,'speed 5 covers 0.025 per frame'); ST.speed=2;
+    ST.view='sunearth'; simReset(ST); ok(S.step(),'the missions clock runs without a run'); close(SIM.t,0.01,1e-15,'0.01 per frame at speed 2'); ok(startRun(ST),'nudge starts the drift'); S.step(); eq(RUN.sep.length,2,'the separation log grows');
+    ST.view='earthmoon'; simReset(ST); ok(S.step(),'the Earth-Moon clock runs'); ok(!startRun(ST),'but has no run');
+    ST.view='trojan'; simReset(ST); ok(!S.step(),'trojans idle until a release'); ok(startRun(ST),'release'); ok(S.step(),'and step'); ok(RUN.angT.length===2,'the angle log grows'); close(RUN.t,0.04,1e-12,'a trojan frame covers 0.04 at speed 2 (four times the others)');
+    ST.troKind='swarm'; simReset(ST); startRun(ST); eq(RUN.parts.length,24,'a swarm run carries 24 bodies'); S.step(); eq(RUN.traces.length,24,'and 24 traces');
+    /* the pointer orbits the camera in the 3-D views only */
+    ST.view='points'; simReset(ST); ok(!S.pointer('down',300,300),'the points view ignores the pointer');
+    ST.view='surface'; ok(S.pointer('down',300,300),'the surface view grabs it'); eq(DRAG.what,'cam','as a camera drag'); const th0=ST.camTheta; S.pointer('move',350,300); ok(ST.camTheta<th0,'dragging right turns the camera'); S.pointer('move',350,900); close(ST.camPhi,1.5,1e-12,'elevation clamps at 1.5'); ok(S.pointer('up',0,0),'pointer-up releases'); eq(DRAG.what,null,'nothing dragged');
+    ST.view='earthmoon'; const ph=ST.emPhi; S.pointer('down',10,10); S.pointer('move',10,-500); close(ST.emPhi,0.05,1e-12,'the Earth-Moon elevation clamps at 0.05'); S.pointer('up',0,0);
+    Object.assign(ST,stSave); simReset(ST); }
+
+  /* ---------- E. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['points EM',{view:'points'},8],['points EM m2',{view:'points',zoom:'m2'},8],['points SE',{view:'points',sys:'sunearth'},8],['points SE m2 low C',{view:'points',sys:'sunearth',zoom:'m2',cRel:0.6},8],['points SJ',{view:'points',sys:'sunjupiter',cRel:1.3},8],['points PC',{view:'points',sys:'plutocharon',cRel:-0.2},6],['points custom',{view:'points',sys:'custom',muLog:-0.5},6],['points Mars m2',{view:'points',sys:'sunmars',zoom:'m2'},8],
+    ['surface EM',{view:'surface'},40],['surface SE flat',{view:'surface',sys:'sunearth',exag:2},40],['surface PC low',{view:'surface',sys:'plutocharon',camPhi:0.1,camTheta:2.5},40],['surface top',{view:'surface',camPhi:1.5,exag:0.3},40],
+    ['stab EM L1',{view:'stab'},6],['stab SE L2 run',{view:'stab',sys:'sunearth',pt:'L2',off:0.0005,runFrames:120},6],['stab SJ L4 run',{view:'stab',sys:'sunjupiter',pt:'L4',off:0.02,dir:'y',runFrames:200},6],['stab PC L4 run',{view:'stab',sys:'plutocharon',pt:'L4',runFrames:150},6],['stab custom L3',{view:'stab',sys:'custom',muLog:-1,pt:'L3',off:0.05},6],['stab EM L5',{view:'stab',pt:'L5',off:0.05},6],
+    ['sunearth both',{view:'sunearth'},5],['sunearth L1',{view:'sunearth',mission:'L1',seTheta:1.2,sePhi:0.2},4],['sunearth L2 drift',{view:'sunearth',mission:'L2',runFrames:400},5],['sunearth top',{view:'sunearth',sePhi:1.5},5],
+    ['earthmoon both',{view:'earthmoon'},8],['earthmoon halo',{view:'earthmoon',em:'halo',los:false},8],['earthmoon nrho side',{view:'earthmoon',em:'nrho',emPhi:0.1,emTheta:-1.57},5],
+    ['trojan SJ',{view:'trojan'},6],['trojan SJ run',{view:'trojan',runFrames:300},6],['trojan horseshoe',{view:'trojan',troKind:'horseshoe',ang:180,runFrames:400},6],['trojan horseshoe idle',{view:'trojan',troKind:'horseshoe',ang:180,dr:2.5},6],['trojan swarm',{view:'trojan',troKind:'swarm',runFrames:60},6],['trojan SE',{view:'trojan',troSys:'sunearth',ang:68},6],['trojan EM run',{view:'trojan',troSys:'earthmoon',ang:300,runFrames:200},6],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN|null/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>
