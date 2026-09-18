@@ -57,6 +57,9 @@ def main():
     here = Path(__file__).resolve().parent
     site = here.parent
     modules = site.parent / 'modules'
+    if not (modules / 'teaching_modules.html').exists():
+        # deployed layout: modules/ is a child of the site root, not a sibling
+        modules = site / 'modules'
     fails = []
 
     def ok(cond, msg):
@@ -88,8 +91,13 @@ def main():
     ok(not bad, f'hub flags agree with the folders (hubs with pages: '
                 f'{sorted(hubs & flagged)}): {bad}')
 
-    # 2. the modules page: sections
-    html = (modules / 'teaching_modules.html').read_text()
+    # 2. the modules page(s): sections
+    # The browser is one page per trunk (modules_<TRUNK>.html) with
+    # teaching_modules.html as the index and deep-link forwarder; --single puts
+    # everything back on that one page. Audit whichever shape is on disk.
+    trunk_pages = sorted(modules.glob('modules_*.html'))
+    idx_html = (modules / 'teaching_modules.html').read_text()
+    html = '\n'.join(p.read_text() for p in trunk_pages) if trunk_pages else idx_html
     secs = re.findall(r'<section id="m-([^"]+)" class="module', html)
     sec_set = set(secs)
     ok(len(secs) == len(sec_set), f'{len(secs)} module sections, ids unique')
@@ -102,8 +110,30 @@ def main():
            for f in flagged),
        'every "open module" href lands on a section of the modules page')
 
+    # 2b. the index must be able to forward every deep link to the right page
+    if trunk_pages:
+        ok(len(trunk_pages) > 1, f'{len(trunk_pages)} trunk pages')
+        mo = re.search(r'window\.ALLMODS=(\[.*?\]);window\.PAGE_TRUNK', idx_html, re.S)
+        ok(mo is not None, 'the index carries the catalogue (ALLMODS)')
+        cat = json.loads(mo.group(1)) if mo else []
+        ids = {r[0] for r in cat}
+        ok(sec_set <= ids, f'every section is listed in the index: '
+                           f'{sorted(sec_set - ids)[:8]}')
+        pages = {p.name for p in trunk_pages}
+        want = {f'modules_{r[2]}.html' for r in cat}
+        ok(want <= pages, f'every trunk in the index has a page: {sorted(want - pages)}')
+        gone = sorted(i for i in (mods & flagged) if i not in ids)
+        ok(not gone, f'every flagged network module is forwardable: {gone[:8]}')
+
     # 3. the back-links
-    links = re.findall(r'<a class="netlink" href="\.\./website/teaching\.html#([^"]+)"', html)
+    # the modules page is generated for either layout: the sibling checkout
+    # (../website/) or GitHub Pages, where modules/ is a child of the site
+    # root (../).  Detect which, then hold every back-link to that same prefix.
+    mp = re.search(r'href="((?:\.\./)+(?:website/)?)teaching\.html">Teaching</a>', html)
+    ok(mp is not None, 'modules page nav still points at teaching.html')
+    PREF = mp.group(1) if mp else '../website/'
+    NETLINK = r'class="netlink" href="%steaching\.html#([^"]+)"' % re.escape(PREF)
+    links = re.findall('<a ' + NETLINK, html)
     link_set = set(links)
     ok(len(links) == len(link_set), f'{len(links)} netlinks, ids unique')
     ok(link_set <= (hubs | mods),
@@ -116,13 +146,10 @@ def main():
     wrong = []
     for m in re.finditer(r'<section id="m-([^"]+)" class="module[^>]*>(.*?)'
                          r'(?=<section id="m-|</main>)', html, re.S):
-        inside = re.findall(r'class="netlink" href="\.\./website/teaching\.html#([^"]+)"',
-                            m.group(2))
+        inside = re.findall(NETLINK, m.group(2))
         if inside and inside != [m.group(1)]:
             wrong.append((m.group(1), inside))
     ok(not wrong, f'each netlink sits in its own module section: {wrong[:5]}')
-    ok('href="../website/teaching.html">Teaching</a>' in html,
-       'modules page nav still points at teaching.html')
 
     # 4. the network page
     th = (site / 'teaching.html').read_text()
@@ -136,12 +163,14 @@ def main():
 
     # 5. the scripts, driven headlessly
     deno = shutil.which('deno')
+    # the harness evals a page's inline script: give it one that has modules
+    mod_page = trunk_pages[0] if trunk_pages else modules / 'teaching_modules.html'
     harness = here / 'render_check' / 'links_harness.js'
     if deno:
         for mode in ('network', 'modules'):
             print(f'-- links_harness.js {mode}')
             r = subprocess.run([deno, 'run', '--allow-read', str(harness), mode,
-                                str(site), str(modules / 'teaching_modules.html')],
+                                str(site), str(mod_page)],
                                capture_output=True, text=True)
             sys.stdout.write(r.stdout)
             if r.returncode:

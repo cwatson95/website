@@ -12,6 +12,41 @@ the main checkout.
   100vh) silently swallowing every pointer/wheel event — pan, zoom, and
   click-travel were dead while the canvas rendered fine. Fixed 2026-08-12 c.
 
+## 2026-09-17 b — the module browser is 14 pages, 3.8 MB (was one 29.7 MB page)
+
+Regenerated with the generator's new split (modules changelog 2026-09-17 b):
+`teaching_modules.html` is a ~30 KB index and each trunk is its own
+`modules_<TRUNK>.html`, with figures referenced as lazily-loaded `<img>`
+instead of inlined — they were 89% of the old page. Largest page is now
+0.60 MB; NE went 7.44 MB -> 0.48 MB.
+
+Old deep links are unaffected: the index forwards `#<id>` to the trunk page
+that holds it, so the Teaching Network's "open module" links and any bookmark
+keep working. `dev/check_links.py` passes here (270 sections over 13 trunk
+pages, 143 netlinks); all 455 figure refs resolve.
+
+**The 13 `modules_*.html` files are new and must be committed** or the index
+will forward to pages that are not on the site. Left uncommitted, per this
+changelog's header.
+
+## 2026-09-17 a — the module browser's links now work on the deployed site
+
+Every link out of `modules/teaching_modules.html` pointed at `../website/...`
+— the six nav tabs and all 143 Teaching-Network back-links — which resolves to
+`/website/...` here and 404s, because Pages serves the repo root and `modules/`
+sits under it rather than beside it. The *inbound* links were never broken:
+`../modules/teaching_modules.html` from a root page is clamped to
+`/modules/...` per RFC 3986, so it lands correctly.
+
+Regenerated with the generator's new `--deploy` flag (modules changelog
+2026-09-17 a), so the links are now `../index.html`, `../teaching.html#CM-01`,
+and so on. All six targets confirmed present at the repo root;
+`dev/check_links.py` passes here (270 sections, 143 netlinks, all checks
+passed). Added `.nojekyll`: nothing uses Jekyll and the site is 2,590 files,
+so the build step is pure overhead.
+
+Left uncommitted, per this changelog's header.
+
 ## 2026-09-16 c — The Standard Model from Symmetry joins the catalog, 60 sims
 
 `standard_model.html` landed in `projects/simulations/` (simulations

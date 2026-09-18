@@ -24,6 +24,9 @@ baked by website/dev/build_network.py; website/dev/check_links.py audits both.
 
 Run:  python3 modules/generate_webpage.py
       python3 modules/generate_webpage.py --no-open      # just (re)generate the HTML
+      python3 modules/generate_webpage.py --deploy       # site links for GitHub Pages
+      python3 modules/generate_webpage.py --single       # the old one-file page
+      python3 modules/generate_webpage.py --inline-figures  # inline the SVGs
       python3 modules/generate_webpage.py --serve [PORT] # serve on localhost & keep
                                                          # running (best on WSL: no
                                                          # explorer.exe / xdg-open needed)
@@ -35,13 +38,26 @@ import os
 import re
 import subprocess
 import sys
+import urllib.parse
 import webbrowser
 
 HERE = os.path.dirname(os.path.abspath(__file__))      # the modules/ folder
 OUT = os.path.join(HERE, "teaching_modules.html")
 KATEX = "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist"
 NETWORK_TXT = os.path.join(HERE, "topic_network.txt")   # the Teaching Network's source
-TEACHING_PAGE = "../website/teaching.html"              # the network page on the site
+# Where the site pages sit, relative to modules/teaching_modules.html:
+#   default  -- projects/modules/ and projects/website/ are siblings -> "../website/"
+#   --deploy -- GitHub Pages serves the repo root and modules/ is a
+#               child of it, so the site pages are one level up  -> "../"
+SITE_PREFIX = "../" if "--deploy" in sys.argv else "../website/"
+# One page per trunk (modules_<TRUNK>.html) with teaching_modules.html as the
+# index, unless --single asks for the old everything-in-one-file page.
+SINGLE_PAGE = "--single" in sys.argv
+# Figures are referenced (<img>, lazily fetched) rather than inlined: the 455
+# inlined SVGs were 26 MB of the one-file page's 30 MB. --inline-figures
+# restores the self-contained page.
+INLINE_FIGURES = "--inline-figures" in sys.argv
+TEACHING_PAGE = SITE_PREFIX + "teaching.html"           # the network page on the site
 
 TRUNK_NAMES = {
     "MA": "Mathematics", "CM": "Classical Mechanics", "EM": "Electricity & Magnetism",
@@ -388,8 +404,24 @@ code{background:#eef0f6;border-radius:5px;padding:1px 5px;font:13px/1.5 "DejaVu 
 .katex{font-size:1.05em}
 .katex-display{margin:.5em 0;text-align:left}
 .fig{margin:16px 0;padding:12px 12px 6px;background:#fcfcff;border:1px solid var(--rule);border-radius:10px}
-.fig svg{max-width:100%;height:auto;display:block;margin:0 auto}
+.fig svg,.fig img{max-width:100%;height:auto;display:block;margin:0 auto}
 .fig figcaption{color:var(--muted);font-size:13px;line-height:1.5;margin:8px 6px 4px;text-align:center}
+/* trunk rail (one page per trunk) + cross-page search hits */
+.raillab{font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);padding:12px 12px 4px}
+.tlink{display:flex;gap:6px;align-items:baseline;padding:5px 12px;font-size:13px;
+  color:var(--accent);text-decoration:none;border-left:3px solid transparent}
+.tlink:hover{background:var(--chip)}
+.tlink.on{background:var(--check);border-left-color:var(--accent);font-weight:600;cursor:default}
+.tlink em{margin-left:auto;font-style:normal;color:var(--muted);font-size:11px}
+#xres .item{display:block;text-decoration:none;color:var(--accent)}
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin:18px 0}
+.tcard{display:block;padding:14px;border:1px solid var(--rule);border-radius:10px;
+  background:#fcfcff;text-decoration:none;color:var(--ink)}
+.tcard:hover{background:var(--chip)}
+.tcard b{display:block;font-size:15px;color:var(--accent)}
+.tcard span{display:block;margin-top:2px}
+.tcard em{display:block;margin-top:6px;font-style:normal;color:var(--muted);font-size:12px}
 .doc h4{color:var(--accent);font-size:15px;margin:22px 0 8px}
 .doc h5,.doc h6{color:#33334d;font-size:13.5px;margin:16px 0 6px}
 .doc p{margin:10px 0}
@@ -427,15 +459,15 @@ header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400
 .site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
 """
 
-SITE_NAV_HTML = """<header class="site-nav">
+SITE_NAV_HTML = f"""<header class="site-nav">
   <nav aria-label="Site">
-    <a href="../website/index.html">Home</a>
-    <a href="../website/about.html">About</a>
-    <a href="../website/teaching.html">Teaching</a>
+    <a href="{SITE_PREFIX}index.html">Home</a>
+    <a href="{SITE_PREFIX}about.html">About</a>
+    <a href="{SITE_PREFIX}teaching.html">Teaching</a>
     <a href="teaching_modules.html" aria-current="page">Modules</a>
-    <a href="../website/simulations.html">Simulations</a>
-    <a href="../website/research.html">Research</a>
-    <a href="../website/cv.html">CV</a>
+    <a href="{SITE_PREFIX}simulations.html">Simulations</a>
+    <a href="{SITE_PREFIX}research.html">Research</a>
+    <a href="{SITE_PREFIX}cv.html">CV</a>
   </nav>
 </header>"""
 
@@ -547,10 +579,87 @@ window.addEventListener('DOMContentLoaded',render);
 """
 
 
-def build_html(mods):
-    # sidebar grouped by trunk (Thermo additionally sub-grouped by topic)
-    side, body = [], []
-    last_trunk = last_topic = None
+XJS = """
+// --- one page per trunk --------------------------------------------------
+// ALLMODS is the whole catalogue ([id, title, trunk]); PAGE_TRUNK is this
+// page's trunk (null on the index). Two jobs: send a deep link for a module
+// that lives on another page to that page, and let the filter reach modules
+// that are not on this one.
+(function(){
+  var ALL=window.ALLMODS||[],PAGE=window.PAGE_TRUNK||null;
+  var TR={},TSET={};
+  for(var i=0;i<ALL.length;i++){TR[ALL[i][0]]=ALL[i][2];TSET[ALL[i][2]]=1;}
+  function page(t){return 'modules_'+t+'.html';}
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  // Every old teaching_modules.html#<id> link still lands: the index (and any
+  // trunk page) forwards a hash it does not hold to the page that does.
+  function reroute(){
+    var h=location.hash.replace(/^#/,'');
+    try{h=decodeURIComponent(h);}catch(e){}
+    h=h.trim().replace(/^m-/,'');
+    if(!h)return false;
+    var t=TR[h]||(TSET[h]?h:null);
+    if(!t||t===PAGE)return false;
+    location.replace(page(t)+'#'+encodeURIComponent(h));
+    return true;
+  }
+  window.addEventListener('hashchange',reroute);
+  reroute();
+  function xsearch(){
+    var f=document.getElementById('filter'),box=document.getElementById('xres');
+    if(!f||!box)return;
+    f.addEventListener('input',function(){
+      var q=f.value.toLowerCase().trim();box.innerHTML='';
+      if(q.length<2)return;
+      var out=[];
+      for(var i=0;i<ALL.length&&out.length<40;i++){
+        var r=ALL[i];
+        if(r[2]===PAGE)continue;
+        if((r[0]+' '+r[1]).toLowerCase().indexOf(q)<0)continue;
+        out.push('<a class="item" href="'+page(r[2])+'#'+encodeURIComponent(r[0])+'">'
+                 +esc(r[0])+' &mdash; '+esc(r[1])+'</a>');
+      }
+      if(out.length)box.innerHTML='<div class="raillab">'
+        +(PAGE?'other trunks':'all trunks')+'</div>'+out.join('');
+    });
+  }
+  if(document.readyState==='loading')window.addEventListener('DOMContentLoaded',xsearch);
+  else xsearch();
+})();
+"""
+
+
+def _page_name(trunk):
+    return f"modules_{trunk}.html"
+
+
+def trunk_list(mods):
+    """[(trunk, count)] — mods already sort by (trunk, num), so runs are whole."""
+    runs = []
+    for m in mods:
+        if not runs or runs[-1][0] != m["trunk"]:
+            runs.append([m["trunk"], 0])
+        runs[-1][1] += 1
+    return [(t, n) for t, n in runs]
+
+
+def _trunk_rail(trunks, current):
+    """The trunk switcher at the top of every sidebar."""
+    out = ['<div class="raillab">Trunks</div>']
+    for t, n in trunks:
+        nm = html.escape(TRUNK_NAMES.get(t, t))
+        if t == current:
+            out.append(f'<span class="tlink on">{t} &middot; {nm}<em>{n}</em></span>')
+        else:
+            out.append(f'<a class="tlink" href="{_page_name(t)}">{t} &middot; {nm}'
+                       f'<em>{n}</em></a>')
+    return "".join(out)
+
+
+def _sidebar_items(mods):
+    """The module list: trunk headers, Thermo topic sub-headers, one button each."""
+    side, last_trunk, last_topic = [], None, None
     for m in mods:
         if m["trunk"] != last_trunk:
             tn = TRUNK_NAMES.get(m["trunk"], m["trunk"])
@@ -562,12 +671,12 @@ def build_html(mods):
                 tlab += f' &middot; {html.escape(m["topic_name"])}'
             side.append(f'<div class="subtrunk">{tlab}</div>')
             last_topic = m["topic"]
-        mid = "m-" + m["id"]
-        side.append(f'<button class="item" data-t="{mid}">{m["id"]} &mdash; {html.escape(m["title"])}</button>')
-        body.append(build_module(m, mid))
-    first = "m-" + next((m["id"] for m in mods if m["trunk"] == "MA"), mods[0]["id"])
-    body_html = "\n".join(body).replace(f'id="{first}" class="module"',
-                                        f'id="{first}" class="module on"', 1)
+        side.append(f'<button class="item" data-t="m-{m["id"]}">{m["id"]} &mdash; '
+                    f'{html.escape(m["title"])}</button>')
+    return "".join(side)
+
+
+def _shell(sub, rail, items, body, data_js):
     return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Physics Module Browser</title>
@@ -576,15 +685,85 @@ def build_html(mods):
 <style id="site-nav-css">{SITE_NAV_CSS}</style></head><body>
 {SITE_NAV_HTML}
 <nav id="side">
-  <h1>Physics Modules<small>{len(mods)} modules &middot; KaTeX</small></h1>
+  <h1>Physics Modules<small>{sub}</small></h1>
+  {rail}
   <input id="filter" placeholder="filter (e.g. MA-1, tensor)" autocomplete="off">
-  <div id="list">{''.join(side)}</div>
+  <div id="list">{items}</div>
+  <div id="xres"></div>
 </nav>
-<main id="main">{body_html}</main>
+<main id="main">{body}</main>
+<script>{data_js}{XJS}</script>
 <script defer src="{KATEX}/katex.min.js" crossorigin="anonymous"></script>
 <script defer src="{KATEX}/contrib/auto-render.min.js" crossorigin="anonymous"></script>
 <script defer>{JS}</script>
 </body></html>"""
+
+
+def _data_js(allidx, trunk):
+    blob = json.dumps(allidx, ensure_ascii=False).replace("</", "<\\/")
+    return f"window.ALLMODS={blob};window.PAGE_TRUNK={json.dumps(trunk)};"
+
+
+def build_trunk_html(trunk, tmods, trunks, allidx):
+    """One trunk's page: its modules only, the rail to reach the others."""
+    body = "\n".join(build_module(m, "m-" + m["id"]) for m in tmods)
+    first = "m-" + tmods[0]["id"]
+    body = body.replace(f'id="{first}" class="module"',
+                        f'id="{first}" class="module on"', 1)
+    nm = html.escape(TRUNK_NAMES.get(trunk, trunk))
+    sub = f'{trunk} &middot; {nm} &middot; {len(tmods)} modules'
+    return _shell(sub, _trunk_rail(trunks, trunk), _sidebar_items(tmods), body,
+                  _data_js(allidx, trunk))
+
+
+def build_index_html(mods, trunks, allidx):
+    """teaching_modules.html: the catalogue front page, and the forwarder that
+    keeps every existing #<id> deep link working now that the modules live on
+    one page per trunk."""
+    cards = []
+    for t, n in trunks:
+        nm = html.escape(TRUNK_NAMES.get(t, t))
+        cards.append(f'<a class="tcard" href="{_page_name(t)}"><b>{t}</b>'
+                     f'<span>{nm}</span><em>{n} modules</em></a>')
+    body = (f'<section id="m-INDEX" class="module on"><h2>Physics Modules</h2>'
+            f'<div class="sub">{len(mods)} modules across {len(trunks)} trunks '
+            f'&middot; one page per trunk, so a page loads only what it shows</div>'
+            f'<div class="tgrid">{"".join(cards)}</div></section>')
+    return _shell(f'{len(mods)} modules &middot; {len(trunks)} trunks',
+                  _trunk_rail(trunks, None), "", body, _data_js(allidx, None))
+
+
+def build_html(mods):
+    """The old everything-in-one-file page (--single)."""
+    body = []
+    for m in mods:
+        body.append(build_module(m, "m-" + m["id"]))
+    first = "m-" + next((m["id"] for m in mods if m["trunk"] == "MA"), mods[0]["id"])
+    body_html = "\n".join(body).replace(f'id="{first}" class="module"',
+                                        f'id="{first}" class="module on"', 1)
+    return _shell(f'{len(mods)} modules &middot; KaTeX', "", _sidebar_items(mods),
+                  body_html, _data_js([], None))
+
+
+def write_pages(mods):
+    """Write the page set; returns the paths written."""
+    if SINGLE_PAGE:
+        with open(OUT, "w", encoding="utf-8") as fh:
+            fh.write(build_html(mods))
+        return [OUT]
+    trunks = trunk_list(mods)
+    allidx = [[m["id"], m["title"], m["trunk"]] for m in mods]
+    out = []
+    with open(OUT, "w", encoding="utf-8") as fh:
+        fh.write(build_index_html(mods, trunks, allidx))
+    out.append(OUT)
+    for t, _n in trunks:
+        p = os.path.join(HERE, _page_name(t))
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(build_trunk_html(t, [m for m in mods if m["trunk"] == t],
+                                      trunks, allidx))
+        out.append(p)
+    return out
 
 
 def _namespace_svg(svg, prefix):
@@ -598,8 +777,25 @@ def _namespace_svg(svg, prefix):
     return svg
 
 
+def _svg_box(head):
+    """(w, h) from an SVG's viewBox, so <img> can reserve the space before the
+    file arrives and the page does not jump as figures stream in."""
+    mo = re.search(r'viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)', head)
+    if not mo:
+        return None
+    w, h = float(mo.group(1)), float(mo.group(2))
+    return (int(round(w)), int(round(h))) if w > 0 and h > 0 else None
+
+
 def discover_figures(m):
-    """Inlined SVGs + captions for <dir>/figures/*.svg (captions.json optional)."""
+    """Figures for <dir>/figures/*.svg (captions.json optional).
+
+    The SVG is *referenced*, not inlined: 455 inlined figures were 26 MB of the
+    one-file page's 30 MB. As <img loading="lazy"> the browser fetches one only
+    when it scrolls into view, and caches it across trunk pages. The files ship
+    in the repo beside the notes, so this works over file:// too.
+    --inline-figures restores the old self-contained page.
+    """
     fdir = os.path.join(m["dir"], "figures")
     if not os.path.isdir(fdir):
         return []
@@ -611,13 +807,19 @@ def discover_figures(m):
             caps = {}
     out = []
     for idx, fn in enumerate(sorted(f for f in os.listdir(fdir) if f.endswith(".svg"))):
-        raw = _read(os.path.join(fdir, fn))
+        path = os.path.join(fdir, fn)
+        raw = _read(path)
         k = raw.find("<svg")
         if k < 0:
             continue
-        svg = re.sub(r"<metadata>.*?</metadata>", "", raw[k:], flags=re.DOTALL)
-        svg = _namespace_svg(svg, f"{m['id'].replace('-', '')}_{idx}_")
-        out.append({"svg": svg, "cap": caps.get(fn, "")})
+        if INLINE_FIGURES:
+            svg = re.sub(r"<metadata>.*?</metadata>", "", raw[k:], flags=re.DOTALL)
+            svg = _namespace_svg(svg, f"{m['id'].replace('-', '')}_{idx}_")
+            out.append({"svg": svg, "cap": caps.get(fn, "")})
+            continue
+        rel = os.path.relpath(path, HERE).replace(os.sep, "/")
+        out.append({"src": urllib.parse.quote(rel), "box": _svg_box(raw[k:k + 800]),
+                    "cap": caps.get(fn, "")})
     return out
 
 
@@ -686,7 +888,13 @@ def build_module(m, mid):
         parts.append('<h3 class="sec">Figures</h3>')
         for fig in figs:
             cap = f'<figcaption>{md_inline(fig["cap"])}</figcaption>' if fig["cap"] else ""
-            parts.append(f'<figure class="fig">{fig["svg"]}{cap}</figure>')
+            if "svg" in fig:
+                parts.append(f'<figure class="fig">{fig["svg"]}{cap}</figure>')
+                continue
+            box = f' width="{fig["box"][0]}" height="{fig["box"][1]}"' if fig["box"] else ""
+            alt = html.escape(fig["cap"] or f'{m["id"]} figure')
+            parts.append(f'<figure class="fig"><img src="{fig["src"]}" alt="{alt}"'
+                         f' loading="lazy" decoding="async"{box}>{cap}</figure>')
 
     probs = extract_problems(problems)
     if probs:
@@ -815,12 +1023,15 @@ def main():
     if not mods:
         print("No modules found under", HERE)
         return
-    with open(OUT, "w", encoding="utf-8") as fh:
-        fh.write(build_html(mods))
+    paths = write_pages(mods)
     neq = sum(len(extract_equations(_read(os.path.join(m["dir"], "notes.md")))) for m in mods)
     nfig = sum(len(discover_figures(m)) for m in mods)
     ntd = sum(1 for m in mods if m["trunk"] == THERMO_TRUNK)
-    print(f"Wrote {OUT}")
+    tot = sum(os.path.getsize(p) for p in paths)
+    big = max(paths, key=os.path.getsize)
+    print(f"Wrote {len(paths)} page(s) in {HERE}")
+    print(f"  {tot/1048576:.1f} MB total, largest "
+          f"{os.path.basename(big)} at {os.path.getsize(big)/1048576:.2f} MB")
     print(f"  {len(mods)} modules ({ntd} Thermo), {neq} equations (rendered by KaTeX), {nfig} figures")
     nlink = sum(1 for m in mods if m["id"] in NET_IDS)
     print(f"  {nlink} modules link to their orb in the Teaching Network "
