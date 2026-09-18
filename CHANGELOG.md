@@ -12,6 +12,37 @@ the main checkout.
   100vh) silently swallowing every pointer/wheel event — pan, zoom, and
   click-travel were dead while the canvas rendered fine. Fixed 2026-08-12 c.
 
+## 2026-09-17 d — "View PDF" opens the document in the page, not another copy of it
+
+Two related complaints from Cooper: View and Download "appear to do the same
+thing", and the CV page loaded its PDF viewer before anyone asked for it.
+
+They were not literally identical — `download` saves the file, `target="_blank"`
+opens a tab — but both just handed you the PDF, so the difference was invisible,
+and a browser configured to save PDFs rather than display them makes them truly
+identical. View now does something Download cannot: it builds an `<iframe>` into
+an empty slot in the page and toggles to "Hide preview"; Download still saves.
+
+New `pdf_view.js` (1.6 KB, no dependencies) delegates one click listener on the
+document. The viewer is created on first click and **torn down on the second**,
+so a nine-PDF page never fetches a document nobody opened — which is also the CV
+fix: `cv.html`'s eager `<object>` is gone, replaced by the same empty
+`<div class="doc-box" hidden>`.
+
+Progressive enhancement: the control is still a plain link to the PDF with
+`target="_blank"`, so with JavaScript off, or if the script 404s, it opens in a
+new tab as before. Modified clicks (ctrl/cmd/shift/alt, middle button) are let
+through untouched.
+
+Verified: 8 viewer slots and 8 `js-view` links on research.html, 1 and 1 on
+cv.html, every `data-target` resolves to a slot, all 9 PDF paths exist, **zero
+eager `<object>`/`<iframe>` left in either page**, both tag-balanced (0 errors),
+`dev/check_links.py` green. **Could not check:** the JS was not executed — no
+node/deno on this machine — so the toggle is verified structurally, not at
+runtime.
+
+Left uncommitted, per this changelog's header.
+
 ## 2026-09-17 c — Research and CV pages are real: abstracts, view, download
 
 Both pages were still the scaffolded placeholders ("Coming soon", and a TODO to
