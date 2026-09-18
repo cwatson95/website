@@ -12,6 +12,30 @@ the main checkout.
   100vh) silently swallowing every pointer/wheel event — pan, zoom, and
   click-travel were dead while the canvas rendered fine. Fixed 2026-08-12 c.
 
+## 2026-09-18 a — Amino Acids in 3-D joins the catalog, 61 sims
+
+`simulations/amino_acids.html` is new: the twenty amino acids as turning 3-D
+molecules, their handedness (L, its mirror and the D form), the chain and its
+helices, the hard-sphere Ramachandran map and the genetic code. It was built
+and verified in the Agent repo (`projects/simulations/` changelog
+2026-09-17 (a)) and arrives here as that source with exactly the two
+`dev/sync_sims.py` nav rewrites. Its card sits in Atoms, Matter & Light after
+The Standard Model from Symmetry, the lede and meta count say sixty-one,
+`simulations/TODO.txt` lists it as completed (55), and `dev/check_sims.py`
+knows the count words for 61–64. Each of these files now matches its
+Agent-side counterpart byte for byte (the same landing, made there on
+2026-09-17).
+
+Verified from this repo's paths: the sim's selfTest (3100 passed, 0 failed)
+and UI drive (173 passed, 0 failed) under osascript, and `dev/check_sims.py`
+(61 sims, 61 copies, 61 cards, 0 problems) run against the original sources
+out of the Agent repo's git history.
+
+Note: `dev/sync_sims.py` and `dev/check_sims.py` still look for their sources
+in `../simulations`, the old Agent layout. That folder does not exist beside
+this repo, so both need a staged source tree (or `--source` for
+`sync_sims.py`) to run.
+
 ## 2026-09-17 e — the preview draws to canvas, so a "save PDFs" browser cannot blank it
 
 Cooper reported View still downloading the file and the viewer showing black.

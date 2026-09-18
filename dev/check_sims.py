@@ -17,7 +17,8 @@ site = os.path.dirname(here)
 src = os.path.join(os.path.dirname(site), 'simulations')
 dst = os.path.join(site, 'simulations')
 WORDS = {49: 'Forty-nine', 55: 'Fifty-five', 56: 'Fifty-six', 57: 'Fifty-seven',
-         58: 'Fifty-eight', 59: 'Fifty-nine', 60: 'Sixty'}
+         58: 'Fifty-eight', 59: 'Fifty-nine', 60: 'Sixty',
+         61: 'Sixty-one', 62: 'Sixty-two', 63: 'Sixty-three', 64: 'Sixty-four'}
 
 sims = sorted(f for f in os.listdir(src) if f.endswith('.html'))
 copies = sorted(f for f in os.listdir(dst) if f.endswith('.html'))
