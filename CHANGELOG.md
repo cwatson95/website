@@ -12,6 +12,47 @@ the main checkout.
   100vh) silently swallowing every pointer/wheel event — pan, zoom, and
   click-travel were dead while the canvas rendered fine. Fixed 2026-08-12 c.
 
+## 2026-09-17 e — the preview draws to canvas, so a "save PDFs" browser cannot blank it
+
+Cooper reported View still downloading the file and the viewer showing black.
+Both come from one cause, and it is not the server: `curl -I` on
+`https://cooper-watson.net/CV.pdf` returns `content-type: application/pdf`
+with **no `Content-Disposition`, no CSP and no `X-Frame-Options`**, and the
+deployed page was confirmed current. The browser is configured to save PDFs
+rather than display them (Firefox: Applications -> PDF -> Save File; Chrome:
+"Download PDFs instead of automatically opening them"). Under that setting an
+`<iframe>` pointed at a PDF fires the download and renders nothing, so the
+frame showed `--bg-1` through — the "black" box.
+
+The `<iframe>` was therefore the wrong mechanism: correct for a default
+browser, silently broken for anyone who has changed that preference. The
+viewer now renders with **PDF.js onto `<canvas>`**, which never touches the
+browser's PDF handler, so the preview behaves the same whatever the setting.
+Pages render lazily via `IntersectionObserver` (600px margin) and closing the
+viewer calls `pdf.destroy()`, so a 28-page article does not rasterise pages
+nobody scrolled to. Page slots carry the first page's `aspect-ratio`, so the
+scroll height is right before anything is drawn.
+
+PDF.js 3.11.174 (UMD) loads from jsdelivr — the same CDN the modules browser
+already uses for KaTeX — and is fetched only on the first View click. Verified
+both URLs live (`pdf.min.js` 320 KB, `pdf.worker.min.js` 1.09 MB, HTTP 200) and
+that the bundle assigns `window.pdfjsLib`, which is the entry point the script
+uses. If the CDN is unreachable the viewer shows "Preview unavailable" plus a
+working new-tab link rather than failing silently; with JavaScript off the
+control is still a plain link to the PDF.
+
+The dead `.doc-frame` / `.doc-fallback` rules are removed. Verified: both pages
+tag-balanced (0 errors), `dev/check_links.py` green, no stale class references
+left in either page or the stylesheet. **Could not check:** the rendering path
+was not executed — no node/deno/browser here — so this is verified structurally
+and against the live CDN, not visually.
+
+Trade-off worth knowing: the preview now needs network access. Self-hosting
+pdfjs-dist (~1.4 MB in the repo) would remove that if the CDN dependency is
+unwanted.
+
+Left uncommitted, per this changelog's header.
+
 ## 2026-09-17 d — "View PDF" opens the document in the page, not another copy of it
 
 Two related complaints from Cooper: View and Download "appear to do the same
