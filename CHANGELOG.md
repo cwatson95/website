@@ -12,6 +12,38 @@ the main checkout.
   100vh) silently swallowing every pointer/wheel event — pan, zoom, and
   click-travel were dead while the canvas rendered fine. Fixed 2026-08-12 c.
 
+## 2026-09-17 c — Research and CV pages are real: abstracts, view, download
+
+Both pages were still the scaffolded placeholders ("Coming soon", and a TODO to
+turn the CV badge into a real link). Cooper uploaded eight PDFs to
+`my_articles/` and `CV.pdf` to the site root, so both are now filled in.
+
+**Research.** One card per publication, newest first: title, author list with
+Cooper's name marked, venue/volume/year, a DOI link, the abstract behind a
+native `<details>` disclosure (no script), and *View PDF* / *Download* buttons.
+Eight entries — PRA 113 063523 (2026), Fluct. Noise Lett. 25 2640002 (2026) and
+its erratum, Symmetry 18 182 (2026), Universe 11 389 (2025), Symmetry 13 1469
+(2021), Particles 3 642–659 (2020), Universe 6 11 (2020).
+
+**CV.** An inline `<object>` preview of `CV.pdf` with a fallback paragraph for
+browsers that will not render a PDF inline (most mobile ones), plus the same
+View/Download pair and a link across to Research.
+
+`style.css` gains one block at the end — `.pub-list`/`.pub`, the `details.abs`
+disclosure, `.btn`/`.btn-row`, `.doc-frame` — in the existing azure palette, no
+new colors and no webfonts.
+
+Titles, authors, venues, DOIs and abstracts were **transcribed from the PDFs,
+not recalled**: every DOI is the one printed in its own file. Two text repairs
+were needed — the World Scientific files use a legacy encoding where `®`, `¯`
+and `°` stand for *ff*, *fi* and *fl* (so "Kadano®–Baym" is Kadanoff–Baym), and
+the Particles abstract lost an em dash in extraction ("four independent
+curvature invariants—the Ricci scalar"). Verified: all 37 local links resolve,
+both pages tag-balanced (0 errors), `dev/check_links.py` green.
+
+The PDFs are ~15 MB total (largest `universe-06-00011-v2.pdf` at 8.45 MB, well
+under the 100 MB file limit). Left uncommitted, per this changelog's header.
+
 ## 2026-09-17 b — the module browser is 14 pages, 3.8 MB (was one 29.7 MB page)
 
 Regenerated with the generator's new split (modules changelog 2026-09-17 b):
