@@ -1,0 +1,1585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Granulation &mdash; the convection that tiles the Sun&rsquo;s surface, the field it sweeps into the lanes, and the striations on the granules&rsquo; walls</title>
+<!--
+  ===================================================================
+  granulation.html — solar granulation computed live on the GPU: a
+  3-Mm patch of the Sun's surface layers, 1.5 Mm deep, as a
+  radiation-magnetohydrodynamic model of the gas (hydrogen and helium
+  ionising), its opacity (H-, hydrogen, scattering), the light it
+  loses, and the magnetic field it carries; the granules it forms,
+  the kilogauss sheets the flow sweeps into the lanes, the Wilson
+  depression of the surface where they sit, and, seen from 32 degrees
+  as the Inouye telescope saw it, the faculae on the granules' walls
+  and the striations across them
+  ===================================================================
+
+  Four views on one clock in solar time.  THE SURFACE: the continuum
+  at 430 nm from straight above, or what lies at tau = 1 under it
+  (B_z, v_z, the height of the surface, its temperature).  THE WALLS:
+  the same patch from above and from an inclination mu (0.85 by
+  default: the geometry of Kuridze et al. 2025), magnified, with
+  cross-cuts of the intensity, the field and the surface height
+  across the stripes.  THE CUT: a vertical slice: the plumes, the
+  tau = 1 surfaces for vertical and for inclined rays, the kilogauss
+  sheets, the flow, and a fan of sightlines showing why a stripe is
+  dark.  THE MODEL: the mean stratification against its start, the
+  energy flux the flow carries, the histories, and the checks.
+
+  WHAT IS TAKEN FROM THE LITERATURE
+  -----------------------------------------------------------------------
+  The striations and their explanation: Kuridze, Woger, Uitenbroek,
+  Rempel, Tritschler, Rimmele, Fischer and Steiner (2025), ApJL, "The
+  striated solar photosphere observed at 0.03 arcsec resolution"
+  (arXiv:2505.03965) and the NSO release of 2025 June 3: dark striae
+  20-53 km wide at granular edges in plage, away from disc centre;
+  in MURaM (7 km cells, 200 G mean field) tau = 1 raised 10-30 km
+  where B_z is 100-250 G weaker than in the bright neighbours.  The
+  physics of granulation: Stein and Nordlund (1998); Nordlund, Stein
+  and Asplund (2009).  Faculae as the hot walls of granules seen
+  through evacuated flux concentrations: Spruit (1976), Keller et al.
+  (2004), Carlsson et al. (2004).  The production code the paper
+  compares with: MURaM (Vogler et al. 2005; Rempel 2014).  The gas:
+  Asplund et al. (2009) abundances; the Saha equation.  The deep
+  entropy: Model S (Christensen-Dalsgaard et al. 1996), as on
+  sun.html.  The opacities:
+  Gray (2005): the H- bound-free polynomial after Wishart (1979), the
+  H- free-free after Bell and Berrington (1987), hydrogen bound-free
+  and free-free with Gaunt factors and Unsold's tail, Rayleigh and
+  Thomson scattering.  The numerics: Harten, Lax and van Leer (1983),
+  van Leer (1979), the monotonized-central limiter, Dedner et al.
+  (2002) for div B, the Boris correction after Gombosi et al. (2002),
+  short characteristics for the transfer, the A2 angular quadrature.  The Sun: T_eff 5772 K,
+  g = 274 m/s^2 (IAU 2015 B3).
+
+  WHAT IS COMPUTED HERE (checked by selfTest, run headless under jsc,
+  and by the start-up checks on the page)
+  -----------------------------------------------------------------------
+  The ionisation and the equation of state (p, e, T, c_s, c_v) on a
+  128 x 224 table in (log rho, log e); the continuum opacity at each
+  frequency from the cross-sections, its Rosseland mean by quadrature
+  over 96 frequencies, and the 430-nm value; the starting
+  stratification (a grey two-stream atmosphere, T^4 = 3/4 T_eff^4
+  (tau + 1/sqrt 3), above tau = 1; below it a boundary layer into
+  Model S's own T(p), Model S down to 700 km, then the adiabat pinned
+  to Model S's point 1203 km down: 15,289 K at 3.954e6 dyn/cm^2; all
+  hydrostatic with the full equation of state); the
+  vertical grid (uniform above -200 km, geometric below) and the
+  discretely hydrostatic reference the solver is balanced against;
+  the solver itself, in GLSL on the GPU and in JavaScript on a small
+  grid as its twin (compared at start-up to float32 precision): finite
+  volume, MUSCL reconstruction of the hydrostatically scaled
+  primitives, HLL fluxes with Dedner's GLM, the Boris-limited Lorentz
+  force as a source with its work, gravity's work from the mass
+  fluxes, the magnetic dissipation returned as heat, SSP-RK2; the grey
+  two-stream transfer (mu = 1/sqrt 3) by short characteristics with a
+  linear source, the heating as the flux divergence with a relaxation
+  limiter; the images along vertical and inclined rays at 430 nm in
+  LTE with the tau = 1 crossings; the closed-box energy, the rest
+  state, mass and flux conservation, div B, the buoyancy sign, the
+  grey flux of the starting column (all in selfTest).
+
+  WHAT IS ASSUMED OR NOT MODELLED (and said so on the page)
+  -----------------------------------------------------------------------
+  Grey radiation on eight rays (no lines, scattering counted as
+  absorption, the inclined rays attributed to the cell they leave); LTE and the continuum
+  only for the image (not the G band's CH lines); a closed bottom at
+  -1.2 Mm with the deep adiabat enforced in the lowest 100 km (in
+  place of the open boundary of the production codes), a closed and
+  sponged top at +300 km, periodic sides; the deep adiabat's entropy
+  is Model S's (a slider shifts it), and with it the settled box
+  radiates a few per cent above the Sun's 5772 K (grey transfer,
+  10-30 km cells); no H2, no
+  molecular opacity, no second ionisation of the metals; the Boris
+  reduction above the surface and the radiative limiter in the thick
+  layers break energy conservation slightly there; cells of 12-31 km
+  against MURaM's 7, so the striations here are two to four cells
+  wide and coarser than DKIST's 20-50 km.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed quantity (a weight, a curve, a coupling),
+       orange = a measured value, a reference or a warning, magenta = the live
+       selection, cyan = structure (axes, roots, the frame). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .btnrow button:disabled{opacity:.35; cursor:default; border-color:var(--edge2);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  .chip{padding:3px 9px;}
+  .chips.q .chip{min-width:34px; text-align:center; padding:3px 7px;}
+  .qrow{display:flex; align-items:flex-start; gap:8px; margin:5px 0;}
+  .qrow .qlab{font:italic 13px Georgia, serif; color:var(--dim); width:28px; flex-shrink:0; padding-top:4px;}
+  .btnrow.three button{font-size:12px;}
+  [hidden]{display:none !important;}
+  /* HINT_RIGHT: the hint sits bottom right, clear of the canvas caption */
+  #hint{left:auto; right:14px; text-align:right;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Granulation</h1>
+  <span class="sub" id="sub">Hot gas rises and radiates, cools and sinks in the lanes; the field goes with it; from 32&deg; the walls of the granules show their stripes</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+/* a number rounded to n places; a value that rounds to zero prints as 0, never -0.00 (toFixed keeps the sign) */
+function fmt(x,n){ if(!isFinite(x)) return '—'; const s=Number(x).toFixed(n===undefined?3:n); return /^-0(\.0*)?$/.test(s)?s.slice(1):s; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  /* a power of ten in superscripts, never a caret: 1.768 × 10⁸, 2.5 × 10⁻⁵ */
+  if(a>=1e5||a<1e-4){ const s=x.toExponential(n-1), k=s.indexOf('e'), SUP='⁰¹²³⁴⁵⁶⁷⁸⁹';
+    return s.slice(0,k)+' × 10'+String(+s.slice(k+1)).split('').map(c=>c==='-'?'⁻':SUP[+c]).join(''); }
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+function sgn(x,n){ return (x<0?'−':'')+fmt(Math.abs(x),n); }
+function thou(x,n){ return fmt(x,n||0).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+const SUPS={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+function sci(x,n){ if(!isFinite(x)) return '—'; if(x===0) return '0'; const e=Math.floor(Math.log10(Math.abs(x))), m=x/Math.pow(10,e);
+  let ms=fmt(m,n===undefined?2:n), ee=e; if(Math.abs(parseFloat(ms))>=10){ ee++; ms=fmt(x/Math.pow(10,ee),n===undefined?2:n); }
+  return (ee===0?ms:ms+' × 10'+String(ee).split('').map(c=>SUPS[c]).join('')).replace(/^-/,'−'); }
+
+
+/* ================================================================== *
+ *  granulation — the physics on the CPU: constants, the equation of   *
+ *  state (hydrogen and helium ionising by Saha), the continuum        *
+ *  opacity from the cross sections, the Rosseland mean, the tables    *
+ *  the shaders read, the initial stratification, and a JavaScript    *
+ *  twin of the solver on a small grid                                 *
+ * ================================================================== */
+const KB=1.380649e-16, HP=6.62607015e-27, CL=2.99792458e10, ME=9.1093837015e-28, AMU=1.66053906660e-24;
+const EV=1.602176634e-12, SIG_SB=5.670374419e-5, HC_K=1.438776877;            /* hc/k, cm K */
+const G_SUN=2.74e4;                                                          /* cm/s^2 */
+const T_EFF_SUN=5772;
+const X_H=0.7381, Y_HE=0.2485;                                               /* Asplund et al. 2009 */
+const M_H=1.00784*AMU, M_HE=4.002602*AMU;
+const NH_PER_G=X_H/M_H, NHE_PER_G=Y_HE/M_HE;
+const CHI_H=13.598434, CHI_HE1=24.587389, CHI_HE2=54.417765;                 /* eV */
+/* the electron donors below 7000 K: Mg+Si+Fe as one element, Na+Al+Ca+K as another (Asplund 2009 abundances) */
+const METALS=[{eps:7.6e-5,chi:7.9},{eps:7.0e-6,chi:5.5}];
+const SAHA_C=Math.pow(2*Math.PI*ME*KB/(HP*HP),1.5);                          /* 2.4147e15 cm^-3 K^-3/2 */
+
+/* ---- ionisation: n_e from Saha for H, He (twice), the metals; bisection in log n_e ---- */
+function ionisation(rho,T){
+  const nH=rho*NH_PER_G, nHe=rho*NHE_PER_G, kT=KB*T, t32=SAHA_C*Math.pow(T,1.5);
+  const phH=t32*Math.exp(-CHI_H*EV/kT);           /* 2 U+/U0 = 2*(1/2) */
+  const phHe1=4*t32*Math.exp(-CHI_HE1*EV/kT);     /* 2*(2/1) */
+  const phHe2=t32*Math.exp(-CHI_HE2*EV/kT);       /* 2*(1/2) */
+  const phM=METALS.map(m=>2*t32*Math.exp(-m.chi*EV/kT));
+  const ntot=nH+2*nHe+nH*METALS.reduce((s,m)=>s+m.eps,0);
+  const rhs=ne=>{ const xH=phH/(ne+phH); const a=phHe1/ne, b=a*phHe2/ne, d=1+a+b; const x1=a/d, x2=b/d;
+    let s=nH*xH+nHe*(x1+2*x2); for(let m=0;m<METALS.length;m++) s+=nH*METALS[m].eps*phM[m]/(ne+phM[m]); return {s,xH,x1,x2}; };
+  let lo=Math.log(1e-30), hi=Math.log(ntot*1.0000001);
+  for(let it=0;it<56;it++){ const mid=0.5*(lo+hi), ne=Math.exp(mid); if(rhs(ne).s>ne) lo=mid; else hi=mid; }
+  const ne=Math.exp(0.5*(lo+hi)), r=rhs(ne);
+  return {ne,xH:r.xH,xHe1:r.x1,xHe2:r.x2,nH,nHe};
+}
+/* ---- the equation of state at (rho,T): p, e per gram, c_v per gram ---- */
+function eosRT(rho,T){
+  const I=ionisation(rho,T), nM=I.nH*METALS.reduce((s,m)=>s+m.eps,0);
+  const ntot=I.nH+I.nHe+nM+I.ne;
+  const p=ntot*KB*T;
+  const e=(1.5*ntot*KB*T+I.nH*I.xH*CHI_H*EV+I.nHe*(I.xHe1*CHI_HE1+I.xHe2*(CHI_HE1+CHI_HE2))*EV)/rho;
+  return {p,e,ne:I.ne,xH:I.xH,xHe1:I.xHe1,xHe2:I.xHe2,ntot,nH:I.nH,nHe:I.nHe};
+}
+/* T from (rho,e) by bisection on eosRT (the tables do this once; the solver reads the tables) */
+function tempOf(rho,e,Tlo,Thi){ Tlo=Tlo||1500; Thi=Thi||1.2e5;
+  for(let it=0;it<60;it++){ const Tm=Math.sqrt(Tlo*Thi); if(eosRT(rho,Tm).e<e) Tlo=Tm; else Thi=Tm; } return Math.sqrt(Tlo*Thi); }
+
+/* ---- the continuum opacity per gram at wavelength lam (Angstrom): H I bf+ff, H- bf+ff, Rayleigh (H), Thomson ---- */
+const HM_BF=[1.99654,-1.18267e-5,2.64243e-6,-4.40524e-10,3.23992e-14,-1.39568e-18,2.78701e-23];   /* Gray 2005, Wishart 1979 */
+const HM_FF=[[-2.2763,-1.6850,0.76661,-0.053346],[15.2827,-9.2846,1.99381,-0.142631],[-197.789,190.266,-67.9775,10.6913,-0.625151]]; /* Gray 2005, Bell & Berrington 1987 */
+const RYD_A=1.0968e-3;                                                       /* Rydberg, 1/Angstrom */
+const ALPHA0=1.0449e-26;                                                     /* Gray's alpha_0 for lambda in Angstrom */
+const LOG_E=Math.LOG10E;
+function hminusBF(lam){ if(lam<1500||lam>16200) return 0; let s=0, l=1; for(let i=0;i<7;i++){ s+=HM_BF[i]*l; l*=lam; } return Math.max(s,0)*1e-18; }
+function hminusFFcoef(lam){ const L=Math.log10(Math.max(2600,Math.min(lam,113900))); const f=[0,0,0];
+  for(let i=0;i<3;i++){ let s=0, l=1; for(let j=0;j<HM_FF[i].length;j++){ s+=HM_FF[i][j]*l; l*=L; } f[i]=s; }
+  const ext=lam>113900?(lam/113900)*(lam/113900):1; return {f,ext}; }
+function kappaLam(lam,rho,T,E){                                              /* E = eosRT result; returns cm^2/g */
+  const th=5040/T, chiL=12398.4/lam, nHI=E.nH*(1-E.xH), Pe=E.ne*KB*T, stim=1-Math.pow(10,-chiL*th);
+  /* H I bound-free (Gray eq. 8.8 with Unsold's tail) and free-free (8.10) per neutral atom */
+  const lR=lam*RYD_A, n0=Math.max(1,Math.ceil(Math.sqrt(lR)-1e-9)), c13=0.3456/Math.cbrt(lR);
+  let sbf=0; for(let n=n0;n<n0+3;n++){ const g=1-c13*(lR/(n*n)-0.5), chin=CHI_H*(1-1/(n*n)); sbf+=g/(n*n*n)*Math.pow(10,-th*chin); }
+  const chi3=CHI_H*(1-1/((n0+3)*(n0+3)));
+  sbf+=LOG_E/(2*th*CHI_H)*(Math.pow(10,-th*chi3)-Math.pow(10,-th*CHI_H));
+  const kHbf=ALPHA0*lam*lam*lam*sbf;
+  const gff=1+c13*(LOG_E/(th*chiL)+0.5);
+  const kHff=ALPHA0*lam*lam*lam*gff*LOG_E/(2*th*CHI_H)*Math.pow(10,-th*CHI_H);
+  /* H- bound-free (8.12) and free-free (8.13) per neutral H atom, P_e in dyn/cm^2 */
+  const kHmbf=4.158e-10*hminusBF(lam)*Pe*Math.pow(th,2.5)*Math.pow(10,0.754*th);   /* alpha_bf in cm^2: the factor is n(H-)/n(H I) per dyn/cm^2 */
+  const F=hminusFFcoef(lam), lth=Math.log10(th);
+  const kHmff=1e-26*Pe*Math.pow(10,F.f[0]+F.f[1]*lth+F.f[2]*lth*lth)*F.ext;
+  const l2=lam*lam, ray=5.799e-13/(l2*l2)+1.422e-6/(l2*l2*l2)+2.784/(l2*l2*l2*l2);
+  return ((kHbf+kHff+kHmbf)*stim+kHmff+ray)*nHI/rho+0.6648e-24*E.ne/rho;
+}
+/* Rosseland mean over u = h nu / k T on a log grid */
+const U_GRID=(()=>{ const u=[]; for(let i=0;i<=96;i++) u.push(0.08*Math.pow(30/0.08,i/96)); return u; })();
+function rosseland(rho,T,E){ let num=0, den=0;
+  for(let i=0;i<U_GRID.length-1;i++){ const u=0.5*(U_GRID[i]+U_GRID[i+1]), du=U_GRID[i+1]-U_GRID[i];
+    const eu=Math.exp(u), w=u*u*u*u*eu/((eu-1)*(eu-1))*du; const lam=HC_K*1e8/(u*T);
+    const k=kappaLam(lam,rho,T,E); num+=w/k; den+=w; }
+  return den/num; }
+function planckMeanCheck(){ let s=0; for(let i=0;i<U_GRID.length-1;i++){ const u=0.5*(U_GRID[i]+U_GRID[i+1]), du=U_GRID[i+1]-U_GRID[i]; const eu=Math.exp(u); s+=u*u*u*u*eu/((eu-1)*(eu-1))*du; } return s; }  /* 4 pi^4/15 = 25.976 */
+const LAM_IMG=4300;                                                          /* the image's continuum, Angstrom */
+function planck(lamA,T){ const l=lamA*1e-8; return 2*HP*CL*CL/Math.pow(l,5)/(Math.exp(HC_K/(l*T))-1); }  /* B_lambda, erg/s/cm^2/cm/sr */
+
+/* ================================================================== *
+ *  the tables: (log rho, log e) -> p, T, c_s^2, kappa_R, kappa_430, c_v, x_H *
+ * ================================================================== */
+const TAB={nr:128, ne:224, lr0:-10.5, lr1:-4.0, le0:11.2, le1:13.6};
+function buildTables(){
+  const nr=TAB.nr, ne=TAB.ne, nT=200, lT0=Math.log10(1800), lT1=Math.log10(60000);
+  const out={p:new Float32Array(nr*ne), T:new Float32Array(nr*ne), cs2:new Float32Array(nr*ne), kR:new Float32Array(nr*ne),
+             k430:new Float32Array(nr*ne), cv:new Float32Array(nr*ne), xH:new Float32Array(nr*ne), rho:[], e:[]};
+  for(let a=0;a<nr;a++) out.rho.push(Math.pow(10,TAB.lr0+(TAB.lr1-TAB.lr0)*a/(nr-1)));
+  for(let b=0;b<ne;b++) out.e.push(Math.pow(10,TAB.le0+(TAB.le1-TAB.le0)*b/(ne-1)));
+  const P=new Float64Array(nr*ne), TT=new Float64Array(nr*ne);
+  for(let a=0;a<nr;a++){ const rho=out.rho[a];
+    /* e(T) on a fine T grid, then invert by interpolation */
+    const Ts=[], es=[], Es=[]; for(let t=0;t<nT;t++){ const T=Math.pow(10,lT0+(lT1-lT0)*t/(nT-1)); const E=eosRT(rho,T); Ts.push(T); es.push(E.e); Es.push(E); }
+    let t=0;
+    for(let b=0;b<ne;b++){ const e=out.e[b]; while(t<nT-2&&es[t+1]<e) t++;
+      const f=Math.max(0,Math.min(1,(e-es[t])/(es[t+1]-es[t]))), T=Ts[t]*Math.pow(Ts[t+1]/Ts[t],f);
+      const E=eosRT(rho,T), i=a*ne+b;
+      P[i]=E.p; TT[i]=T; out.p[i]=E.p; out.T[i]=T; out.xH[i]=E.xH;
+      out.cv[i]=(eosRT(rho,T*1.002).e-eosRT(rho,T*0.998).e)/(0.004*T);
+      out.kR[i]=rosseland(rho,T,E); out.k430[i]=kappaLam(LAM_IMG,rho,T,E); }
+  }
+  /* c_s^2 = (dp/drho)_e + (p/rho^2)(dp/de)_rho by centred differences on the table */
+  for(let a=0;a<nr;a++) for(let b=0;b<ne;b++){ const i=a*ne+b, a0=Math.max(0,a-1), a1=Math.min(nr-1,a+1), b0=Math.max(0,b-1), b1=Math.min(ne-1,b+1);
+    const dpdr=(P[a1*ne+b]-P[a0*ne+b])/(out.rho[a1]-out.rho[a0]), dpde=(P[a*ne+b1]-P[a*ne+b0])/(out.e[b1]-out.e[b0]);
+    out.cs2[i]=Math.max(dpdr+P[i]/(out.rho[a]*out.rho[a])*dpde,0.3*P[i]/out.rho[a]); }
+  return out;
+}
+/* bilinear lookup in (log rho, log e), the same arithmetic the shader does */
+function tabLookup(TB,rho,e){
+  const u=(Math.log10(rho)-TAB.lr0)/(TAB.lr1-TAB.lr0)*(TAB.nr-1), v=(Math.log10(e)-TAB.le0)/(TAB.le1-TAB.le0)*(TAB.ne-1);
+  const uc=Math.max(0,Math.min(TAB.nr-1.0001,u)), vc=Math.max(0,Math.min(TAB.ne-1.0001,v));
+  const a=Math.floor(uc), b=Math.floor(vc), fa=uc-a, fb=vc-b, i00=a*TAB.ne+b, i10=i00+TAB.ne, i01=i00+1, i11=i10+1;
+  const L=arr=>(arr[i00]*(1-fa)+arr[i10]*fa)*(1-fb)+(arr[i01]*(1-fa)+arr[i11]*fa)*fb;
+  const Lg=arr=>Math.exp((Math.log(arr[i00])*(1-fa)+Math.log(arr[i10])*fa)*(1-fb)+(Math.log(arr[i01])*(1-fa)+Math.log(arr[i11])*fa)*fb);
+  return {p:Lg(TB.p),T:Lg(TB.T),cs2:Lg(TB.cs2),kR:Lg(TB.kR),k430:Lg(TB.k430),cv:Lg(TB.cv),xH:L(TB.xH)};
+}
+
+/* ================================================================== *
+ *  the initial stratification: a grey two-stream atmosphere above    *
+ *  tau = 1 (T^4 = 3/4 T_eff^4 (tau + 1/sqrt 3), the exact solution   *
+ *  of the transfer the solver uses) and an adiabat below it, both    *
+ *  hydrostatic with the EOS                                          *
+ * ================================================================== */
+function rhoOfPT(p,T){ let lo=Math.log(1e-13), hi=Math.log(1e-2);
+  for(let it=0;it<60;it++){ const m=0.5*(lo+hi); if(eosRT(Math.exp(m),T).p<p) lo=m; else hi=m; } return Math.exp(0.5*(lo+hi)); }
+const Q_HOPF=1/Math.sqrt(3);                                                   /* the two-stream grey atmosphere's constant (Eddington's is 2/3) */
+function tEdd(tau,Teff){ return Teff*Math.pow(0.75*(tau+Q_HOPF),0.25); }
+/* Model S (Christensen-Dalsgaard et al. 1996), the standard solar model sun.html is built on, below the photosphere:
+   (p, T) pairs from 0 to 2500 km down; the deep adiabat is pinned to its point 1203 km down */
+const MODEL_S=[[7.609e4,5778],[1.073e5,6439],[1.437e5,7904],[2.275e5,9701],[3.378e5,10694],[4.767e5,11409],[6.565e5,12015],[1.169e6,13050],[1.533e6,13533],[1.973e6,13985],[2.487e6,14409],[3.135e6,14842],[3.954e6,15289],[4.881e6,15707],[7.280e6,16539],[1.255e7,17776],[2.067e7,19039],[3.751e7,20762]];
+const MODEL_S_PIN={p:3.954e6,T:15289,z:-1.203e8};
+function tModelS(p){ const M=MODEL_S; if(p<=M[0][0]) return M[0][1]; for(let i=1;i<M.length;i++) if(p<=M[i][0]){ const f=Math.log(p/M[i-1][0])/Math.log(M[i][0]/M[i-1][0]); return M[i-1][1]*Math.pow(M[i][1]/M[i-1][1],f); } return M[M.length-1][1]; }
+/* the adiabat through (p0, T0), integrated in ln p both ways: rows {p, rho, T, e} sorted by rho */
+function adiabatThrough(p0,T0,pLo,pHi,TB){
+  const pOf=(rho,e)=>TB?tabLookup(TB,rho,e).p:eosRT(rho,tempOf(rho,e)).p, TOf=(rho,e)=>TB?tabLookup(TB,rho,e).T:tempOf(rho,e), cs2Of=(rho,e)=>TB?tabLookup(TB,rho,e).cs2:csAd(rho,e);
+  const march=(dir)=>{ let rho=rhoOfPT(p0,T0), e=eosRT(rho,T0).e, p=p0; const out=[]; const step=Math.exp(dir*0.01);
+    while(dir>0?p<pHi:p>pLo){ const pn=p*step; let rn=rho, en=e; for(let it=0;it<6;it++){ const pp=pOf(rn,en), cs2=cs2Of(rn,en); rn+=(pn-pp)/cs2; en=e+0.5*(p/(rho*rho)+pp/(rn*rn))*(rn-rho); }
+      rho=rn; e=en; p=pOf(rho,e); out.push({p,rho,T:TOf(rho,e),e}); } return out; };
+  const rows=march(-1).reverse().concat([{p:p0,rho:rhoOfPT(p0,T0),T:T0,e:eosRT(rhoOfPT(p0,T0),T0).e}],march(1)); return rows; }
+function tAdiabatP(A,p){ if(p<=A[0].p) return A[0].T; for(let i=1;i<A.length;i++) if(p<=A[i].p){ const f=Math.log(p/A[i-1].p)/Math.log(A[i].p/A[i-1].p); return A[i-1].T*Math.pow(A[i].T/A[i-1].T,f); } return A[A.length-1].T; }
+/* opts: Teff, zBot, zTop (cm), dAd (a fractional shift of the deep adiabat's temperature at Model S's pin point),
+   grey (continue the radiative atmosphere to the bottom: a column in radiative equilibrium, for the checks).
+   Below tau = 1 the start follows a steep boundary layer into Model S's own stratification, then the adiabat. */
+function stratify(opts,TB){
+  const Teff=opts.Teff||T_EFF_SUN, dAd=opts.dAd||0, zBot=opts.zBot, zTop=opts.zTop;
+  const kR=(rho,T,E)=>TB?tabLookup(TB,rho,(E||eosRT(rho,T)).e).kR:rosseland(rho,T,E||eosRT(rho,T));
+  const rows=[];                                                            /* {z,rho,T,p,tau} */
+  /* the atmosphere, integrated in ln tau from 1e-5 to 1 (or to the bottom when grey) */
+  let tau=1e-5, T=tEdd(tau,Teff), p=G_SUN*tau/0.05;
+  for(let it=0;it<30;it++){ const rho=rhoOfPT(p,T), E=eosRT(rho,T); p=G_SUN*tau/kR(rho,T,E); }
+  let z=0; const dl=0.04;
+  const dpdt=(tau,p)=>{ const T=tEdd(tau,Teff), rho=rhoOfPT(p,T); return {dp:G_SUN/kR(rho,T),rho}; };
+  rows.push({z,rho:rhoOfPT(p,T),T,p,tau});
+  let z1=null;
+  while(true){ if(!opts.grey&&tau>=1-1e-12) break; if(opts.grey&&z1!==null&&z-z1<zBot-1e6) break;
+    const tau2=opts.grey?tau*Math.exp(dl):Math.min(1,tau*Math.exp(dl)), dt=tau2-tau;
+    const k1=dpdt(tau,p), k2=dpdt(tau2,p+dt*k1.dp); const pn=p+0.5*dt*(k1.dp+k2.dp);
+    const Tn=tEdd(tau2,Teff), rhon=rhoOfPT(pn,Tn); const kr1=kR(k1.rho,tEdd(tau,Teff)), kr2=kR(rhon,Tn);
+    z-=0.5*dt*(1/(kr1*k1.rho)+1/(kr2*rhon)); tau=tau2; p=pn; T=Tn; rows.push({z,rho:rhon,T,p,tau}); if(z1===null&&tau>=1-1e-12) z1=z; }
+  if(z1===null) z1=z; for(const r of rows) r.z-=z1;                       /* tau = 1 at z = 0 */
+  /* the deep adiabat, pinned to Model S */
+  const adi=adiabatThrough(MODEL_S_PIN.p,MODEL_S_PIN.T*(1+dAd),5e4,2e8,TB);
+  if(!opts.grey){
+    /* below tau = 1: a boundary layer from T1 to Model S's T(2 p1) over a factor two in p, then Model S, then the adiabat */
+    const p1=p, T1=T, pB=2*p1, TB2=Math.max(tModelS(pB),tAdiabatP(adi,pB)), nab=Math.log(TB2/T1)/Math.log(2);
+    let rho=rhoOfPT(p,T); z=0; tau=1;
+    const Tof=pp=>pp<pB?T1*Math.pow(pp/p1,nab):Math.max(tModelS(pp),tAdiabatP(adi,pp));
+    while(z>zBot-2e5){ const pn=p*Math.exp(0.01), Tn=Tof(pn), rhon=rhoOfPT(pn,Tn); const dz=(pn-p)*0.5*(1/(rho*G_SUN)+1/(rhon*G_SUN)); z-=dz; tau+=0.5*(kR(rho,T)*rho+kR(rhon,Tn)*rhon)*dz; p=pn; T=Tn; rho=rhon; rows.push({z,rho,T,p,tau}); }
+  }
+  for(const r of rows){ r.e=eosRT(r.rho,r.T).e; }
+  rows.sort((a,b)=>a.z-b.z);
+  while(rows[rows.length-1].z<zTop){ const t=rows[rows.length-1], H=KB*t.T/(1.26*M_H*G_SUN), dzz=2e6; const rho2=t.rho*Math.exp(-dzz/H);
+    rows.push({z:t.z+dzz,rho:rho2,T:t.T,p:eosRT(rho2,t.T).p,e:eosRT(rho2,t.T).e,tau:t.tau*Math.exp(-dzz/H)}); }
+  return {rows,adi,Teff,dAd};
+}
+/* (dp/drho)_s at (rho,e) by differences */
+function csAd(rho,e){ const d=1e-3; const L0=eosRT(rho,tempOf(rho,e)); const r1=rho*(1+d), e1=e+L0.p/(rho*rho)*(r1-rho); const L1=eosRT(r1,tempOf(r1,e1)); return (L1.p-L0.p)/(r1-rho); }
+/* T on the model's adiabat at pressure p */
+function tAtP(S,p){ const R=S.rows; for(let i=R.length-1;i>0;i--){ if(R[i].p<=p&&R[i-1].p>=p){ const f=Math.log(p/R[i].p)/Math.log(R[i-1].p/R[i].p); return R[i].T*Math.pow(R[i-1].T/R[i].T,f); } } return R[0].p>=p?R[R.length-1].T:R[0].T; }
+function strAt(S,z,key){ const R=S.rows; let lo=0, hi=R.length-1; if(z<=R[0].z) return R[0][key]; if(z>=R[hi].z) return R[hi][key];
+  while(hi-lo>1){ const m=(lo+hi)>>1; if(R[m].z<=z) lo=m; else hi=m; } const f=(z-R[lo].z)/(R[hi].z-R[lo].z);
+  const a=R[lo][key], b=R[hi][key]; return (a>0&&b>0)?a*Math.pow(b/a,f):a+(b-a)*f; }
+/* T on the adiabat for a density rho (for the bottom layer's relaxation) */
+function tAdiabat(S,rho){ const A=S.adi; if(rho<=A[0].rho) return A[0].T; if(rho>=A[A.length-1].rho) return A[A.length-1].T;
+  let lo=0, hi=A.length-1; while(hi-lo>1){ const m=(lo+hi)>>1; if(A[m].rho<=rho) lo=m; else hi=m; } const f=Math.log(rho/A[lo].rho)/Math.log(A[hi].rho/A[lo].rho); return A[lo].T*Math.pow(A[hi].T/A[lo].T,f); }
+
+/* ================================================================== *
+ *  the vertical grid: uniform dz above zSw, geometric below           *
+ * ================================================================== */
+function zGrid(Nz,dzSurf,zBot,zTop,zSw){
+  const nU=Math.round((zTop-zSw)/dzSurf), nL=Nz-nU, L=zSw-zBot;
+  /* ratio r with dzSurf (r^nL - 1)/(r - 1) = L */
+  let r=1.05; for(let it=0;it<100;it++){ const f=dzSurf*(Math.pow(r,nL)-1)/(r-1)-L, df=dzSurf*((nL*Math.pow(r,nL-1)*(r-1)-(Math.pow(r,nL)-1))/((r-1)*(r-1))); r-=f/df; if(Math.abs(f)<1e-6*L) break; }
+  const zf=new Float64Array(Nz+1); zf[Nz]=zTop; let k=Nz; for(let i=0;i<nU;i++){ zf[k-1]=zf[k]-dzSurf; k--; }
+  let d=dzSurf; for(let i=0;i<nL;i++){ zf[k-1]=zf[k]-d; d*=r; k--; } zf[0]=zBot;
+  const zc=new Float64Array(Nz), dz=new Float64Array(Nz); for(let k2=0;k2<Nz;k2++){ zc[k2]=0.5*(zf[k2]+zf[k2+1]); dz[k2]=zf[k2+1]-zf[k2]; }
+  return {zf,zc,dz,r,nU,nL};
+}
+/* the reference profiles on the grid: cell values and the discretely hydrostatic face pressures */
+function refProfiles(S,G,TB){ const Nz=G.zc.length, rc=new Float64Array(Nz), pc=new Float64Array(Nz), ec=new Float64Array(Nz), Tc=new Float64Array(Nz);
+  /* p and T of the reference come through the table, so the rest state is exactly what the solver computes */
+  for(let k=0;k<Nz;k++){ rc[k]=strAt(S,G.zc[k],'rho'); ec[k]=strAt(S,G.zc[k],'e'); const L=tabLookup(TB,rc[k],ec[k]); pc[k]=L.p; Tc[k]=L.T; }
+  const pf=new Float64Array(Nz+1), rf=new Float64Array(Nz+1), ef=new Float64Array(Nz+1), ecv=new Float64Array(Nz);
+  for(let k=0;k<Nz;k++) ecv[k]=ec[k]*rc[k];                                /* the energy references are per volume, like the state */
+  pf[Nz]=strAt(S,G.zf[Nz],'p'); for(let k=Nz-1;k>=0;k--) pf[k]=pf[k+1]+rc[k]*G_SUN*G.dz[k];
+  for(let k=0;k<=Nz;k++){ const a=Math.max(0,k-1), b=Math.min(Nz-1,k); rf[k]=Math.sqrt(rc[a]*rc[b]); ef[k]=Math.sqrt(ecv[a]*ecv[b]); }
+  return {rc,pc,ec,ecv,Tc,pf,rf,ef};
+}
+
+/* ================================================================== *
+ *  the solver's JavaScript twin: finite volume, MUSCL (van Leer)      *
+ *  reconstruction of the hydrostatically scaled primitives, HLL      *
+ *  fluxes with Dedner's GLM for div B, the Lorentz force as a Boris- *
+ *  limited source, SSP-RK2, two-stream grey radiative transfer       *
+ * ================================================================== */
+const NV=11;                                                  /* rho', vx, vy, vz, p', Bx, By, Bz, psi, e', cs2 */
+const FOURPI=4*Math.PI, TWO_PI_S3=2*Math.PI/Math.sqrt(3), MU_RT=1/Math.sqrt(3);
+function makeState(Nx,Ny,Nz){ const n=Nx*Ny*Nz, A=()=>new Float64Array(n);
+  return {Nx,Ny,Nz,n,rho:A(),mx:A(),my:A(),mz:A(),E:A(),e:A(),Bx:A(),By:A(),Bz:A(),psi:A(),p:A(),T:A(),cs2:A(),Q:A(),t:0,step:0}; }
+function copyState(S){ const C=makeState(S.Nx,S.Ny,S.Nz); for(const k of ['rho','mx','my','mz','E','e','Bx','By','Bz','psi','p','T','cs2','Q']) C[k].set(S[k]); C.t=S.t; C.step=S.step; return C; }
+/* the EOS pass: p, T, cs2 from (rho,e) through the table */
+/* the internal energy is the conserved hydro energy less the kinetic; floored at the table's coldest state */
+function eosPass(S,TB){ for(let i=0;i<S.n;i++){ const rho=S.rho[i]; S.e[i]=Math.max(S.E[i]-0.5*(S.mx[i]*S.mx[i]+S.my[i]*S.my[i]+S.mz[i]*S.mz[i])/rho,rho*Math.pow(10,TAB.le0)); const L=tabLookup(TB,rho,S.e[i]/rho); S.p[i]=L.p; S.T[i]=L.T; S.cs2[i]=L.cs2; } }
+/* the model's parameters, shared with the shaders */
+function makeParams(G,R,S1,opts){ const Nz=G.zc.length;
+  const P={dx:opts.dx, dy:opts.dy, g:G_SUN, cLim:opts.cLim||2.0e6, cfl:opts.cfl||0.45, alphaGLM:0.3,
+    tauBot:opts.tauBot||20, zBotRelax:G.zf[0]+1.0e7, zBotRamp:1.0e7, tauTop:opts.tauTop||10, zTopDamp:G.zf[Nz]-1.0e7, zTopRamp:1.0e7,
+    G,R, zc:G.zc, dz:G.dz, zf:G.zf, S1};
+  /* the adiabat's e(rho) for the bottom layer: 1-D table in log rho */
+  const A=S1.adi, nA=64, lr0=Math.log10(A[0].rho), lr1=Math.log10(A[A.length-1].rho); P.adLr0=lr0; P.adLr1=lr1; P.adE=new Float64Array(nA);
+  for(let i=0;i<nA;i++){ const rho=Math.pow(10,lr0+(lr1-lr0)*i/(nA-1)); P.adE[i]=eosRT(rho,tAdiabat(S1,rho)).e; }
+  return P; }
+function eAdiabat(P,rho){ const u=(Math.log10(rho)-P.adLr0)/(P.adLr1-P.adLr0)*(P.adE.length-1), uc=Math.max(0,Math.min(P.adE.length-1.0001,u)), i=Math.floor(uc), f=uc-i; return P.adE[i]*(1-f)+P.adE[i+1]*f; }
+function wBot(P,z){ return 1-smoothstep(clamp((z-P.zBotRelax)/P.zBotRamp,0,1)); }
+function wTop(P,z){ return smoothstep(clamp((z-P.zTopDamp)/P.zTopRamp,0,1)); }
+
+/* primitives of cell (i,j,k) with the ghosts: periodic in x,y; reflected in z with vz, Bx, By negated */
+function getW(S,P,i,j,k,out){ const Nx=S.Nx, Ny=S.Ny, Nz=S.Nz; i=((i%Nx)+Nx)%Nx; j=((j%Ny)+Ny)%Ny; let sg=1;
+  if(k<0){ k=-1-k; sg=-1; } else if(k>=Nz){ k=2*Nz-1-k; sg=-1; }
+  const q=(k*Ny+j)*Nx+i, rho=S.rho[q], R=P.R;
+  out[0]=rho/R.rc[k]; out[1]=S.mx[q]/rho; out[2]=S.my[q]/rho; out[3]=sg*S.mz[q]/rho; out[4]=S.p[q]/R.pc[k];
+  out[5]=sg*S.Bx[q]; out[6]=sg*S.By[q]; out[7]=S.Bz[q]; out[8]=S.psi[q]; out[9]=S.e[q]/R.ecv[k]; out[10]=S.cs2[q]; return out; }
+let LIMITER=1;   /* 0: van Leer, 1: monotonized central (sharper) */
+function vanLeer(a,b){ const ab=a*b; if(ab<=0) return 0; if(LIMITER===1){ const s=a>0?1:-1, m=Math.min(2*Math.abs(a),2*Math.abs(b),0.5*Math.abs(a+b)); return s*m; } return 2*ab/(a+b); }
+/* the HLL flux through a face with normal n (0,1,2) given the left/right primitives and the face references */
+function cLimAt(P,z){ return P.cLim*(1+Math.max(0,-z)/1e7); }   /* the Boris limit: 20 km/s at the surface, doubled every 100 km below it */
+function hll(WL,WR,n,r0,p0,e0,ch,P,F,cl){
+  const t1=(n+1)%3, t2=(n+2)%3;                                  /* tangential directions */
+  const rL=WL[0]*r0, rR=WR[0]*r0, pL=WL[4]*p0, pR=WR[4]*p0, eL=WL[9]*e0, eR=WR[9]*e0;
+  const vL=[WL[1],WL[2],WL[3]], vR=[WR[1],WR[2],WR[3]], BL=[WL[5],WL[6],WL[7]], BR=[WR[5],WR[6],WR[7]];
+  /* GLM: the normal field and psi at the face */
+  const Bn=0.5*(BL[n]+BR[n])-(WR[8]-WL[8])/(2*ch), psiS=0.5*(WL[8]+WR[8])-0.5*ch*(BR[n]-BL[n]);
+  const cf=(W,rho,B)=>{ const b2=B[0]*B[0]+B[1]*B[1]+B[2]*B[2], vA2=b2/(FOURPI*rho), vAe=vA2/(1+vA2/(cl*cl)); return Math.sqrt(W[10]+vAe); };
+  const cL=cf(WL,rL,BL), cR=cf(WR,rR,BR);
+  const SL=Math.min(vL[n]-cL,vR[n]-cR), SR=Math.max(vL[n]+cL,vR[n]+cR);
+  /* conserved and fluxes on each side: rho, mx, my, mz, e, Bx, By, Bz (B_n handled by GLM) */
+  const EL=eL+0.5*rL*(vL[0]*vL[0]+vL[1]*vL[1]+vL[2]*vL[2]), ER=eR+0.5*rR*(vR[0]*vR[0]+vR[1]*vR[1]+vR[2]*vR[2]);
+  const UL=[rL,rL*vL[0],rL*vL[1],rL*vL[2],EL,BL[0],BL[1],BL[2]], UR=[rR,rR*vR[0],rR*vR[1],rR*vR[2],ER,BR[0],BR[1],BR[2]];
+  const FL=[rL*vL[n],rL*vL[0]*vL[n],rL*vL[1]*vL[n],rL*vL[2]*vL[n],(EL+pL)*vL[n],BL[0]*vL[n]-vL[0]*Bn,BL[1]*vL[n]-vL[1]*Bn,BL[2]*vL[n]-vL[2]*Bn];
+  const FR=[rR*vR[n],rR*vR[0]*vR[n],rR*vR[1]*vR[n],rR*vR[2]*vR[n],(ER+pR)*vR[n],BR[0]*vR[n]-vR[0]*Bn,BR[1]*vR[n]-vR[1]*Bn,BR[2]*vR[n]-vR[2]*Bn];
+  FL[1+n]+=pL; FR[1+n]+=pR; FL[5+n]=0; FR[5+n]=0;
+  /* HLLC (Toro) for the hydrodynamic variables: the contact is kept, so the entropy contrast between an upflow and
+     the downflow beside it is not smeared; HLL for the tangential field */
+  if(SL>=0){ for(let q=0;q<8;q++) F[q]=FL[q]; }
+  else if(SR<=0){ for(let q=0;q<8;q++) F[q]=FR[q]; }
+  else { const SM=(pR-pL+rL*vL[n]*(SL-vL[n])-rR*vR[n]*(SR-vR[n]))/(rL*(SL-vL[n])-rR*(SR-vR[n]));
+    const K=SM>=0?0:1, SK=K===0?SL:SR, rK=K===0?rL:rR, vK=K===0?vL:vR, pK=K===0?pL:pR, EK=K===0?EL:ER, UK=K===0?UL:UR, FK=K===0?FL:FR;
+    const rS=rK*(SK-vK[n])/(SK-SM), US=[rS,rS*vK[0],rS*vK[1],rS*vK[2],rS*(EK/rK+(SM-vK[n])*(SM+pK/(rK*(SK-vK[n]))))]; US[1+n]=rS*SM;
+    for(let q=0;q<5;q++) F[q]=FK[q]+SK*(US[q]-UK[q]);
+    for(let q=5;q<8;q++) F[q]=(SR*FL[q]-SL*FR[q]+SL*SR*(UR[q]-UL[q]))/(SR-SL); }
+  F[5+n]=psiS; F[8]=ch*ch*Bn;
+  /* the magnetic energy the HLL dissipation destroys at this face, per unit area: it is returned as heat (the kinetic part is automatic, E being conserved) */
+  if(SL<0&&SR>0){ const kap=-SL*SR/(SR-SL); let dB2=0; for(let c=0;c<3;c++) if(c!==n) dB2+=(BR[c]-BL[c])**2; F[9]=kap*dB2/FOURPI; } else F[9]=0;
+  return F; }
+
+/* the right-hand side L(U) for every cell: dU/dt */
+function rhs(S,P,TB,ch,OUT){
+  const Nx=S.Nx, Ny=S.Ny, Nz=S.Nz, dx=P.dx, dy=P.dy, R=P.R;
+  const W=[]; for(let a=0;a<13;a++) W.push(new Float64Array(NV));           /* 0 centre; 1,2 x-; 3,4 x+; 5,6 y-; 7,8 y+; 9,10 z-; 11,12 z+ */
+  const sC=new Float64Array(NV), sN=new Float64Array(NV), WL=new Float64Array(NV), WR=new Float64Array(NV), F=new Float64Array(10);
+  const slope=(Wm,W0,Wp,out)=>{ for(let v=0;v<NV;v++) out[v]=vanLeer(Wp[v]-W0[v],W0[v]-Wm[v]); };
+  const nbr=[[ -1,0,0],[-2,0,0],[1,0,0],[2,0,0],[0,-1,0],[0,-2,0],[0,1,0],[0,2,0],[0,0,-1],[0,0,-2],[0,0,1],[0,0,2]];
+  for(let k=0;k<Nz;k++) for(let j=0;j<Ny;j++) for(let i=0;i<Nx;i++){
+    const q=(k*Ny+j)*Nx+i;
+    getW(S,P,i,j,k,W[0]); for(let a=0;a<12;a++) getW(S,P,i+nbr[a][0],j+nbr[a][1],k+nbr[a][2],W[a+1]);
+    const dU=new Float64Array(9); let gw=0;
+    for(let n=0;n<3;n++){
+      const Wm=W[1+4*n], Wmm=W[2+4*n], Wp=W[3+4*n], Wpp=W[4+4*n];
+      const h=n===0?dx:n===1?dy:P.dz[k];
+      /* references at the two faces (only z varies) */
+      const r0m=n===2?R.rf[k]:R.rc[k], p0m=n===2?R.pf[k]:R.pc[k], e0m=n===2?R.ef[k]:R.ecv[k];
+      const r0p=n===2?R.rf[k+1]:R.rc[k], p0p=n===2?R.pf[k+1]:R.pc[k], e0p=n===2?R.ef[k+1]:R.ecv[k];
+      slope(Wm,W[0],Wp,sC);
+      /* minus face: left = Wm + s(Wm)/2, right = W0 - sC/2 */
+      slope(Wmm,Wm,W[0],sN); for(let v=0;v<NV;v++){ WL[v]=Wm[v]+0.5*sN[v]; WR[v]=W[0][v]-0.5*sC[v]; }
+      hll(WL,WR,n,r0m,p0m,e0m,ch,P,F,cLimAt(P,n===2?P.zf[k]:P.zc[k])); for(let v=0;v<9;v++) dU[v]+=F[v]/h; dU[4]+=0.5*F[9]/h; const Fm0=F[0];
+      /* plus face: left = W0 + sC/2, right = Wp - s(Wp)/2 */
+      slope(W[0],Wp,Wpp,sN); for(let v=0;v<NV;v++){ WL[v]=W[0][v]+0.5*sC[v]; WR[v]=Wp[v]-0.5*sN[v]; }
+      hll(WL,WR,n,r0p,p0p,e0p,ch,P,F,cLimAt(P,n===2?P.zf[k+1]:P.zc[k])); for(let v=0;v<9;v++) dU[v]-=F[v]/h; dU[4]+=0.5*F[9]/h;
+      /* gravity's work, from the same mass fluxes that move the mass: it telescopes against the potential energy */
+      if(n===2){ const dzm=k>0?P.zc[k]-P.zc[k-1]:h, dzp=k<Nz-1?P.zc[k+1]-P.zc[k]:h; gw=-P.g*0.5*(Fm0*dzm+F[0]*dzp)/h; }
+    }
+    /* sources: gravity, the Lorentz force (Boris-limited), -p div v, radiation, the bottom relaxation and the top damping */
+    const rho=S.rho[q], B=[S.Bx[q],S.By[q],S.Bz[q]], z=P.zc[k];
+    const dzc=(k===0?P.zc[1]-P.zc[0]:k===Nz-1?P.zc[Nz-1]-P.zc[Nz-2]:P.zc[k+1]-P.zc[k-1]);
+    const dzw=(k===0||k===Nz-1)?2*P.dz[k]:dzc;
+    const d=(Wp,Wm,v,h)=>(Wp[v]-Wm[v])/h;
+    const Jx=d(W[7],W[5],7,2*dy)-d(W[11],W[9],6,dzw), Jy=d(W[11],W[9],5,dzw)-d(W[3],W[1],7,2*dx), Jz=d(W[3],W[1],6,2*dx)-d(W[7],W[5],5,2*dy);
+    const b2=B[0]*B[0]+B[1]*B[1]+B[2]*B[2], vA2=b2/(FOURPI*rho), clc=cLimAt(P,z), fB=1/(1+vA2/(clc*clc));
+    const FLx=fB*(Jy*B[2]-Jz*B[1])/FOURPI, FLy=fB*(Jz*B[0]-Jx*B[2])/FOURPI, FLz=fB*(Jx*B[1]-Jy*B[0])/FOURPI, vx=S.mx[q]/rho, vy=S.my[q]/rho, vz=S.mz[q]/rho;
+    dU[1]+=FLx; dU[2]+=FLy; dU[3]+=FLz; dU[4]+=FLx*vx+FLy*vy+FLz*vz;           /* the Lorentz force and its work */
+    dU[3]-=rho*P.g; dU[4]+=gw;                                                  /* gravity and its work */
+    dU[4]+=S.Q[q];
+    const wb=wBot(P,z); if(wb>0) dU[4]+=wb*(rho*eAdiabat(P,rho)-S.e[q])/P.tauBot;
+    const wt=wTop(P,z); if(wt>0){ dU[3]-=wt*S.mz[q]/P.tauTop; dU[4]-=wt*S.mz[q]*vz/P.tauTop; }   /* the sponge removes vertical momentum and its energy */
+    for(let v=0;v<9;v++) OUT[v][q]=dU[v];
+  }
+}
+const CONS=['rho','mx','my','mz','E','Bx','By','Bz','psi'];
+function maxSignal(S,P){ let rate=0, cmax=0; for(let k=0;k<S.Nz;k++) for(let j=0;j<S.Ny;j++) for(let i=0;i<S.Nx;i++){ const q=(k*S.Ny+j)*S.Nx+i, rho=S.rho[q];
+    const b2=S.Bx[q]*S.Bx[q]+S.By[q]*S.By[q]+S.Bz[q]*S.Bz[q], vA2=b2/(FOURPI*rho), clc=cLimAt(P,P.zc[k]), cf=Math.sqrt(S.cs2[q]+vA2/(1+vA2/(clc*clc)));
+    const vx=Math.abs(S.mx[q]/rho), vy=Math.abs(S.my[q]/rho), vz=Math.abs(S.mz[q]/rho);
+    const r=(vx+cf)/P.dx+(vy+cf)/P.dy+(vz+cf)/P.dz[k]; if(r>rate) rate=r; const c=Math.max(vx,vy,vz)+cf; if(c>cmax) cmax=c; }
+  return {rate,cmax}; }
+/* grey transfer along eight rays (mu = +-1/sqrt 3 at four azimuths, the A2 quadrature): short characteristics
+   layer by layer with the source linear in tau, the ray shifted sideways by dz tan(theta) per layer and the
+   intensity resampled bilinearly; Q (erg/cm^3/s) into S.Q, the emergent flux into S.Ftop */
+const RT_AZ=[[Math.SQRT1_2,Math.SQRT1_2],[-Math.SQRT1_2,Math.SQRT1_2],[-Math.SQRT1_2,-Math.SQRT1_2],[Math.SQRT1_2,-Math.SQRT1_2]];
+const TAN_RT=Math.sqrt(1-MU_RT*MU_RT)/MU_RT, SIN_RT=Math.sqrt(1-MU_RT*MU_RT);        /* sqrt 2, sqrt(2/3) */
+const W_RAY=Math.PI/2;                                                              /* the solid angle of each of the eight rays */
+function stepI(Iin,Sin,Sout,dtau){ if(dtau<1e-4) return Iin*(1-dtau)+0.5*dtau*(Sin+Sout); const ex=Math.exp(-dtau), w0=(1-ex)/dtau-ex, w1=1-(1-ex)/dtau; return Iin*ex+w0*Sin+w1*Sout; }
+function sampleXY(A,Nx,Ny,x,y){ const xw=((x%Nx)+Nx)%Nx, yw=((y%Ny)+Ny)%Ny; const i0=Math.floor(xw), j0=Math.floor(yw), fx=xw-i0, fy=yw-j0, i1=(i0+1)%Nx, j1=(j0+1)%Ny;
+  return (A[j0*Nx+i0]*(1-fx)+A[j0*Nx+i1]*fx)*(1-fy)+(A[j1*Nx+i0]*(1-fx)+A[j1*Nx+i1]*fx)*fy; }
+/* the heating of a cell is what the eight rays lose in it: Q = sum_r (pi/2)(mu/dz)(I_in - I_out), with I_in the
+   intensity resampled at the ray's entry point and I_out at its exit; the same bookkeeping the vertical two-stream
+   flux divergence reduces to, and conservative to the resampling */
+function radiate(S,P,TB,dt){ const Nx=S.Nx, Ny=S.Ny, Nz=S.Nz, N2=Nx*Ny; if(!S.Ftop) S.Ftop=new Float64Array(N2);
+  const chi=new Float64Array(S.n), Bc=new Float64Array(S.n), cv=new Float64Array(S.n), Q=S.Q; Q.fill(0);
+  for(let q=0;q<S.n;q++){ const L=tabLookup(TB,S.rho[q],S.e[q]/S.rho[q]); chi[q]=L.kR*S.rho[q]; Bc[q]=SIG_SB*Math.pow(S.T[q],4)/Math.PI; cv[q]=L.cv; }
+  let run=new Float64Array(N2), nxt=new Float64Array(N2); S.Ftop.fill(0); const vz=W_RAY*MU_RT;
+  for(let r=0;r<4;r++){ const sx=TAN_RT*RT_AZ[r][0], sy=TAN_RT*RT_AZ[r][1];
+    for(let q=0;q<N2;q++) run[q]=Bc[q];
+    for(let k=0;k<Nz;k++){ const dz=P.dz[k], ox=sx*dz/P.dx, oy=sy*dz/P.dy, f=vz/dz;
+      for(let j=0;j<Ny;j++) for(let i=0;i<Nx;i++){ const q=k*N2+j*Nx+i; const Sm=k>0?0.5*(Bc[q]+Bc[q-N2]):Bc[q], Sp=k<Nz-1?0.5*(Bc[q]+Bc[q+N2]):Bc[q];
+        const Iin=sampleXY(run,Nx,Ny,i-ox,j-oy), Iout=stepI(Iin,Sm,Sp,chi[q]*dz/MU_RT); nxt[j*Nx+i]=Iout; Q[q]+=f*(Iin-Iout); }
+      const tmp=run; run=nxt; nxt=tmp; }
+    for(let q=0;q<N2;q++) S.Ftop[q]+=vz*run[q];
+    run.fill(0);
+    for(let k=Nz-1;k>=0;k--){ const dz=P.dz[k], ox=sx*dz/P.dx, oy=sy*dz/P.dy, f=vz/dz;
+      for(let j=0;j<Ny;j++) for(let i=0;i<Nx;i++){ const q=k*N2+j*Nx+i; const Sm=k>0?0.5*(Bc[q]+Bc[q-N2]):Bc[q], Sp=k<Nz-1?0.5*(Bc[q]+Bc[q+N2]):Bc[q];
+        const Iin=sampleXY(run,Nx,Ny,i+ox,j+oy), Iout=stepI(Iin,Sp,Sm,chi[q]*dz/MU_RT); nxt[j*Nx+i]=Iout; Q[q]+=f*(Iin-Iout); }
+      const tmp=run; run=nxt; nxt=tmp; } }
+  for(let k=0;k<Nz;k++) for(let q=k*N2;q<(k+1)*N2;q++){ const T=S.T[q], tr=cv[q]*S.rho[q]/(16*chi[q]*SIG_SB*T*T*T), x=chi[q]*P.dz[k], te=tr*Math.max(1,0.3*x*x), rr=dt/te; if(rr>1e-3) Q[q]*=(1-Math.exp(-rr))/rr; }
+}
+function advance(S,P,TB,dtFixed){
+  const ms=maxSignal(S,P), dt=dtFixed||P.cfl/ms.rate, ch=ms.cmax;
+  radiate(S,P,TB,dt);
+  const U0={}; for(const v of CONS) U0[v]=S[v].slice();
+  const L=[]; for(let v=0;v<9;v++) L.push(new Float64Array(S.n));
+  rhs(S,P,TB,ch,L);
+  for(let v=0;v<9;v++){ const a=S[CONS[v]], l=L[v]; for(let q=0;q<S.n;q++) a[q]=U0[CONS[v]][q]+dt*l[q]; }
+  eosPass(S,TB);
+  rhs(S,P,TB,ch,L);
+  for(let v=0;v<9;v++){ const a=S[CONS[v]], u=U0[CONS[v]], l=L[v]; for(let q=0;q<S.n;q++) a[q]=0.5*(u[q]+a[q]+dt*l[q]); }
+  const damp=Math.exp(-P.alphaGLM*ch*dt/Math.min(P.dx,P.dy,P.dz[S.Nz-1])); for(let q=0;q<S.n;q++) S.psi[q]*=damp;
+  eosPass(S,TB); S.t+=dt; S.step++; return dt;
+}
+/* the initial state on the grid: the stratification, a uniform vertical field, and seeded perturbations */
+function initialState(G,R,TB,Nx,Ny,opts){ const Nz=G.zc.length, S=makeState(Nx,Ny,Nz), rnd=mulberry32(opts.seed||1);
+  const modes=[]; for(let m=0;m<24;m++){ modes.push({kx:Math.round(rnd()*4-2+(rnd()<0.5?-1:1)*2), ky:Math.round(rnd()*4-2+(rnd()<0.5?-1:1)*2), ph:rnd()*TAU, a:rnd()}); }
+  for(let k=0;k<Nz;k++){ const z=G.zc[k], wz=Math.exp(-Math.pow((z+4e7)/2.5e7,2));
+    for(let j=0;j<Ny;j++) for(let i=0;i<Nx;i++){ const q=(k*Ny+j)*Nx+i; let pert=0; for(const m of modes) pert+=m.a*Math.cos(TAU*(m.kx*i/Nx+m.ky*j/Ny)+m.ph); pert*=0.25/Math.sqrt(modes.length)*opts.amp*wz;
+      S.rho[q]=R.rc[k]; S.E[q]=R.ec[k]*R.rc[k]*(1+pert); S.mx[q]=0; S.my[q]=0; S.mz[q]=0; S.Bx[q]=0; S.By[q]=0; S.Bz[q]=opts.B0; S.psi[q]=0; } }
+  eosPass(S,TB); return S; }
+
+/* ================================================================== *
+ *  the solver on the GPU (WebGL2): the 3-D state lives in 2-D float   *
+ *  atlases (one tile per layer); each pass is a fragment shader over  *
+ *  the atlas; the radiative sweeps are one small draw per layer      *
+ * ================================================================== */
+const GLSL_HEAD=`#version 300 es
+precision highp float; precision highp int; precision highp sampler2D;
+uniform ivec3 N; uniform int TX;
+ivec2 addr(int i,int j,int k){ return ivec2(i+N.x*(k%TX), j+N.y*(k/TX)); }
+const float LN10=2.302585092994046;
+`;
+const GLSL_TAB=`
+uniform sampler2D uTB1,uTB2; uniform vec4 tabP; uniform ivec2 tabN;
+void tabIdx(float rho,float e,out int a,out int b,out float fa,out float fb){
+  float u=(log(rho)/LN10-tabP.x)/(tabP.y-tabP.x)*float(tabN.x-1), v=(log(e)/LN10-tabP.z)/(tabP.w-tabP.z)*float(tabN.y-1);
+  u=clamp(u,0.0,float(tabN.x)-1.0001); v=clamp(v,0.0,float(tabN.y)-1.0001); a=int(u); b=int(v); fa=u-float(a); fb=v-float(b); }
+vec4 tab1(float rho,float e){ int a,b; float fa,fb; tabIdx(rho,e,a,b,fa,fb);
+  return mix(mix(texelFetch(uTB1,ivec2(b,a),0),texelFetch(uTB1,ivec2(b,a+1),0),fa),mix(texelFetch(uTB1,ivec2(b+1,a),0),texelFetch(uTB1,ivec2(b+1,a+1),0),fa),fb); }
+vec4 tab2(float rho,float e){ int a,b; float fa,fb; tabIdx(rho,e,a,b,fa,fb);
+  return mix(mix(texelFetch(uTB2,ivec2(b,a),0),texelFetch(uTB2,ivec2(b,a+1),0),fa),mix(texelFetch(uTB2,ivec2(b+1,a),0),texelFetch(uTB2,ivec2(b+1,a+1),0),fa),fb); }
+`;
+const VS_QUAD=`#version 300 es
+void main(){ vec2 p=vec2(float((gl_VertexID&1)*2-1),float((gl_VertexID>>1)*2-1)); gl_Position=vec4(p,0.0,1.0); }`;
+
+/* ---- the update: MUSCL + HLL + GLM + sources, one RK stage, then the EOS ---- */
+function fsRHS(){
+  const dirBlock=(n,Wm,Wmm,Wp,Wpp,h,r0m,p0m,e0m,r0p,p0p,e0p)=>`
+  { slope(${Wmm},${Wm},W0,sN); slope(${Wm},W0,${Wp},sC);
+    for(int v=0;v<11;v++){ WL[v]=${Wm}[v]+0.5*sN[v]; WR[v]=W0[v]-0.5*sC[v]; }
+    hll(WL,WR,${n},${r0m},${p0m},${e0m},${n===2?'clim(rfm.w)':'clim(z)'},F); for(int q=0;q<9;q++) dU[q]+=F[q]/${h}; dU[4]+=0.5*F[9]/${h}; Fm0=F[0];
+    slope(W0,${Wp},${Wpp},sN);
+    for(int v=0;v<11;v++){ WL[v]=W0[v]+0.5*sC[v]; WR[v]=${Wp}[v]-0.5*sN[v]; }
+    hll(WL,WR,${n},${r0p},${p0p},${e0p},${n===2?'clim(rfp.w)':'clim(z)'},F); for(int q=0;q<9;q++) dU[q]-=F[q]/${h}; dU[4]+=0.5*F[9]/${h};
+    ${n===2?'{ float dzm=k>0?z-texelFetch(uGeom,ivec2(k-1,0),0).x:dz, dzp=k<N.z-1?texelFetch(uGeom,ivec2(k+1,0),0).x-z:dz; gw=-g*0.5*(Fm0*dzm+F[0]*dzp)/dz; }':''} }`;
+  return GLSL_HEAD+GLSL_TAB+`
+uniform sampler2D uA,uB,uC,uA0,uB0,uC0,uQ,uRefC,uRefF,uGeom,uAd;
+uniform float dx,dy,g,cLim,dt,ch,tauBot,zBotRelax,zBotRamp,tauTop,zTopDamp,zTopRamp,psiDamp,eMin; uniform int stage; uniform vec2 adL;
+layout(location=0) out vec4 oA; layout(location=1) out vec4 oB; layout(location=2) out vec4 oC;
+const float FOURPI=12.566370614359172;
+float eInt(vec4 A,vec4 B){ return max(B.x-0.5*dot(A.yzw,A.yzw)/A.x, A.x*eMin); }
+void getW(int i,int j,int k,out float W[11]){
+  i=(i+N.x)%N.x; j=(j+N.y)%N.y; float sg=1.0;
+  if(k<0){ k=-1-k; sg=-1.0; } else if(k>=N.z){ k=2*N.z-1-k; sg=-1.0; }
+  ivec2 a=addr(i,j,k); vec4 A=texelFetch(uA,a,0), B=texelFetch(uB,a,0), C=texelFetch(uC,a,0), rf=texelFetch(uRefC,ivec2(k,0),0);
+  float rho=A.x; W[0]=rho/rf.x; W[1]=A.y/rho; W[2]=A.z/rho; W[3]=sg*A.w/rho; W[4]=C.y/rf.y; W[5]=sg*B.y; W[6]=sg*B.z; W[7]=B.w; W[8]=C.x; W[9]=eInt(A,B)/rf.z; W[10]=C.w; }
+uniform int limiter;
+float vanLeer(float a,float b){ float ab=a*b; if(ab<=0.0) return 0.0; if(limiter==1){ float s=a>0.0?1.0:-1.0; return s*min(min(2.0*abs(a),2.0*abs(b)),0.5*abs(a+b)); } return 2.0*ab/(a+b); }
+void slope(in float Wm[11],in float W0[11],in float Wp[11],out float s[11]){ for(int v=0;v<11;v++) s[v]=vanLeer(Wp[v]-W0[v],W0[v]-Wm[v]); }
+float clim(float z){ return cLim*(1.0+max(0.0,-z)/1e7); }
+float cfast(float cs2,float rho,vec3 B,float cl){ float vA2=dot(B,B)/(FOURPI*rho); return sqrt(cs2+vA2/(1.0+vA2/(cl*cl))); }
+void hll(in float WL[11],in float WR[11],int n,float r0,float p0,float e0,float cl,out float F[10]){
+  float rL=WL[0]*r0, rR=WR[0]*r0, pL=WL[4]*p0, pR=WR[4]*p0, eL=WL[9]*e0, eR=WR[9]*e0;
+  vec3 vL=vec3(WL[1],WL[2],WL[3]), vR=vec3(WR[1],WR[2],WR[3]), BL=vec3(WL[5],WL[6],WL[7]), BR=vec3(WR[5],WR[6],WR[7]);
+  float vnL=vL[n], vnR=vR[n], BnL=BL[n], BnR=BR[n];
+  float Bn=0.5*(BnL+BnR)-(WR[8]-WL[8])/(2.0*ch), psiS=0.5*(WL[8]+WR[8])-0.5*ch*(BnR-BnL);
+  float cL=cfast(WL[10],rL,BL,cl), cR=cfast(WR[10],rR,BR,cl);
+  float SL=min(vnL-cL,vnR-cR), SR=max(vnL+cL,vnR+cR);
+  float UL[8], UR[8], FL[8], FR[8];
+  float EL=eL+0.5*rL*dot(vL,vL), ER=eR+0.5*rR*dot(vR,vR);
+  UL[0]=rL; UL[1]=rL*vL.x; UL[2]=rL*vL.y; UL[3]=rL*vL.z; UL[4]=EL; UL[5]=BL.x; UL[6]=BL.y; UL[7]=BL.z;
+  UR[0]=rR; UR[1]=rR*vR.x; UR[2]=rR*vR.y; UR[3]=rR*vR.z; UR[4]=ER; UR[5]=BR.x; UR[6]=BR.y; UR[7]=BR.z;
+  FL[0]=rL*vnL; FL[1]=rL*vL.x*vnL; FL[2]=rL*vL.y*vnL; FL[3]=rL*vL.z*vnL; FL[4]=(EL+pL)*vnL; FL[5]=BL.x*vnL-vL.x*Bn; FL[6]=BL.y*vnL-vL.y*Bn; FL[7]=BL.z*vnL-vL.z*Bn;
+  FR[0]=rR*vnR; FR[1]=rR*vR.x*vnR; FR[2]=rR*vR.y*vnR; FR[3]=rR*vR.z*vnR; FR[4]=(ER+pR)*vnR; FR[5]=BR.x*vnR-vR.x*Bn; FR[6]=BR.y*vnR-vR.y*Bn; FR[7]=BR.z*vnR-vR.z*Bn;
+  FL[1+n]+=pL; FR[1+n]+=pR; FL[5+n]=0.0; FR[5+n]=0.0;
+  if(SL>=0.0){ for(int q=0;q<8;q++) F[q]=FL[q]; }
+  else if(SR<=0.0){ for(int q=0;q<8;q++) F[q]=FR[q]; }
+  else { float SM=(pR-pL+rL*vnL*(SL-vnL)-rR*vnR*(SR-vnR))/(rL*(SL-vnL)-rR*(SR-vnR));
+    bool left=SM>=0.0; float SK=left?SL:SR, rK=left?rL:rR, vnK=left?vnL:vnR, pK=left?pL:pR, EK=left?EL:ER; vec3 vK=left?vL:vR;
+    float rS=rK*(SK-vnK)/(SK-SM); float US[5]; US[0]=rS; US[1]=rS*vK.x; US[2]=rS*vK.y; US[3]=rS*vK.z; US[4]=rS*(EK/rK+(SM-vnK)*(SM+pK/(rK*(SK-vnK)))); US[1+n]=rS*SM;
+    for(int q=0;q<5;q++) F[q]=(left?FL[q]:FR[q])+SK*(US[q]-(left?UL[q]:UR[q]));
+    for(int q=5;q<8;q++) F[q]=(SR*FL[q]-SL*FR[q]+SL*SR*(UR[q]-UL[q]))/(SR-SL); }
+  F[5+n]=psiS; F[8]=ch*ch*Bn;
+  if(SL<0.0&&SR>0.0){ float kap=-SL*SR/(SR-SL); vec3 dB=BR-BL; dB[n]=0.0; F[9]=kap*dot(dB,dB)/FOURPI; } else F[9]=0.0; }
+float eAd(float rho){ float u=(log(rho)/LN10-adL.x)/(adL.y-adL.x)*63.0; u=clamp(u,0.0,62.9999); int i=int(u); float f=u-float(i); return mix(texelFetch(uAd,ivec2(i,0),0).x,texelFetch(uAd,ivec2(i+1,0),0).x,f); }
+float sstep(float t){ t=clamp(t,0.0,1.0); return t*t*(3.0-2.0*t); }
+void main(){
+  ivec2 px=ivec2(gl_FragCoord.xy); int i=px.x%N.x, tx=px.x/N.x, j=px.y%N.y, ty=px.y/N.y, k=ty*TX+tx;
+  if(k>=N.z){ oA=vec4(0.0); oB=vec4(0.0); oC=vec4(0.0); return; }
+  float W0[11],Wxm[11],Wxmm[11],Wxp[11],Wxpp[11],Wym[11],Wymm[11],Wyp[11],Wypp[11],Wzm[11],Wzmm[11],Wzp[11],Wzpp[11];
+  getW(i,j,k,W0); getW(i-1,j,k,Wxm); getW(i-2,j,k,Wxmm); getW(i+1,j,k,Wxp); getW(i+2,j,k,Wxpp);
+  getW(i,j-1,k,Wym); getW(i,j-2,k,Wymm); getW(i,j+1,k,Wyp); getW(i,j+2,k,Wypp);
+  getW(i,j,k-1,Wzm); getW(i,j,k-2,Wzmm); getW(i,j,k+1,Wzp); getW(i,j,k+2,Wzpp);
+  float sC[11], sN[11], WL[11], WR[11], F[10], dU[9]; float gw=0.0, Fm0=0.0; for(int q=0;q<9;q++) dU[q]=0.0;
+  vec4 rc=texelFetch(uRefC,ivec2(k,0),0), rfm=texelFetch(uRefF,ivec2(k,0),0), rfp=texelFetch(uRefF,ivec2(k+1,0),0), gm=texelFetch(uGeom,ivec2(k,0),0);
+  float dz=gm.y, dzw=gm.z, z=gm.x;
+  ${dirBlock(0,'Wxm','Wxmm','Wxp','Wxpp','dx','rc.x','rc.y','rc.z','rc.x','rc.y','rc.z')}
+  ${dirBlock(1,'Wym','Wymm','Wyp','Wypp','dy','rc.x','rc.y','rc.z','rc.x','rc.y','rc.z')}
+  ${dirBlock(2,'Wzm','Wzmm','Wzp','Wzpp','dz','rfm.x','rfm.y','rfm.z','rfp.x','rfp.y','rfp.z')}
+  /* sources */
+  ivec2 a=addr(i,j,k); vec4 A=texelFetch(uA,a,0), B=texelFetch(uB,a,0), C=texelFetch(uC,a,0);
+  float rho=A.x; vec3 Bc=B.yzw;
+  float Jx=(Wyp[7]-Wym[7])/(2.0*dy)-(Wzp[6]-Wzm[6])/dzw, Jy=(Wzp[5]-Wzm[5])/dzw-(Wxp[7]-Wxm[7])/(2.0*dx), Jz=(Wxp[6]-Wxm[6])/(2.0*dx)-(Wyp[5]-Wym[5])/(2.0*dy);
+  float vA2=dot(Bc,Bc)/(FOURPI*rho), clc=clim(z), fB=1.0/(1.0+vA2/(clc*clc));
+  vec3 FL=fB*vec3(Jy*Bc.z-Jz*Bc.y,Jz*Bc.x-Jx*Bc.z,Jx*Bc.y-Jy*Bc.x)/FOURPI, v=A.yzw/rho;
+  dU[1]+=FL.x; dU[2]+=FL.y; dU[3]+=FL.z; dU[4]+=dot(FL,v);
+  dU[3]-=rho*g; dU[4]+=gw;
+  dU[4]+=texelFetch(uQ,a,0).x;
+  float wb=1.0-sstep((z-zBotRelax)/zBotRamp); if(wb>0.0) dU[4]+=wb*(rho*eAd(rho)-eInt(A,B))/tauBot;
+  float wt=sstep((z-zTopDamp)/zTopRamp); if(wt>0.0){ dU[3]-=wt*A.w/tauTop; dU[4]-=wt*A.w*v.z/tauTop; }
+  /* the stage */
+  vec4 nA, nB; float npsi;
+  if(stage==1){ nA=A+dt*vec4(dU[0],dU[1],dU[2],dU[3]); nB=B+dt*vec4(dU[4],dU[5],dU[6],dU[7]); npsi=C.x+dt*dU[8]; }
+  else { vec4 A0=texelFetch(uA0,a,0), B0=texelFetch(uB0,a,0), C0=texelFetch(uC0,a,0);
+    nA=0.5*(A0+A+dt*vec4(dU[0],dU[1],dU[2],dU[3])); nB=0.5*(B0+B+dt*vec4(dU[4],dU[5],dU[6],dU[7])); npsi=0.5*(C0.x+C.x+dt*dU[8])*psiDamp; }
+  nA.x=max(nA.x,1e-12); float ke=0.5*dot(nA.yzw,nA.yzw)/nA.x; nB.x=max(nB.x,ke+nA.x*eMin);
+  vec4 t1=tab1(nA.x,(nB.x-ke)/nA.x);
+  oA=nA; oB=nB; oC=vec4(npsi,exp(t1.x),exp(t1.y),exp(t1.z)); }`;
+}
+/* ---- the opacities and source functions of every cell ---- */
+const FS_OPAC=GLSL_HEAD+GLSL_TAB+`
+uniform sampler2D uA,uB,uC; uniform float B430ref,eMin;
+layout(location=0) out vec4 o0; layout(location=1) out vec4 o1;
+const float SIG=5.670374419e-5, PI=3.141592653589793, HCK_LAM=33460.0;
+void main(){ ivec2 px=ivec2(gl_FragCoord.xy); int i=px.x%N.x, tx=px.x/N.x, j=px.y%N.y, ty=px.y/N.y, k=ty*TX+tx;
+  if(k>=N.z){ o0=vec4(0.0); o1=vec4(0.0); return; }
+  ivec2 a=addr(i,j,k); vec4 A=texelFetch(uA,a,0), B=texelFetch(uB,a,0); float rho=A.x, e=max(B.x-0.5*dot(A.yzw,A.yzw)/rho,rho*eMin)/rho, T=texelFetch(uC,a,0).z;
+  vec4 t1=tab1(rho,e), t2=tab2(rho,e);
+  o0=vec4(exp(t1.w)*rho, SIG*T*T*T*T/PI, exp(t2.z), T);
+  o1=vec4(exp(t2.x)*rho, 1.0/(exp(HCK_LAM/T)-1.0)/B430ref, 0.0, 0.0); }`;
+/* ---- one layer of the grey sweep for the four azimuths at once: I at the far interface from I at the near one,
+        the near interface read from the atlas of the other parity at the rays' shifted entry points ---- */
+const FS_SWEEP=GLSL_HEAD+`
+uniform sampler2D uPrev,uRT0,uGeom; uniform int k,dir,init,kin; uniform vec2 s; out vec4 o;
+const float MU=0.5773502691896258;
+float stepI(float Iin,float Sin,float Sout,float dtau){ if(dtau<1e-4) return Iin*(1.0-dtau)+0.5*dtau*(Sin+Sout); float ex=exp(-dtau), w0=(1.0-ex)/dtau-ex, w1=1.0-(1.0-ex)/dtau; return Iin*ex+w0*Sin+w1*Sout; }
+/* the previous interface (tile kin of uPrev) at a fractional, periodic position */
+vec4 prevAt(vec2 q){ vec2 w=mod(q,vec2(N.xy)); ivec2 a=ivec2(floor(w)); vec2 f=w-vec2(a); ivec2 b=(a+1)%N.xy;
+  return mix(mix(texelFetch(uPrev,addr(a.x,a.y,kin),0),texelFetch(uPrev,addr(b.x,a.y,kin),0),f.x),mix(texelFetch(uPrev,addr(a.x,b.y,kin),0),texelFetch(uPrev,addr(b.x,b.y,kin),0),f.x),f.y); }
+void main(){ ivec2 p=ivec2(gl_FragCoord.xy); int i=p.x%N.x, j=p.y%N.y;
+  vec4 c=texelFetch(uRT0,addr(i,j,k),0); float Sk=c.y, chi=c.x, dz=texelFetch(uGeom,ivec2(k,0),0).y;
+  float Sm=k>0?0.5*(Sk+texelFetch(uRT0,addr(i,j,k-1),0).y):Sk, Sp=k<N.z-1?0.5*(Sk+texelFetch(uRT0,addr(i,j,k+1),0).y):Sk;
+  if(init==1){ o=vec4(dir>0?Sk:0.0); return; }
+  vec2 q=vec2(float(i),float(j)); float Sin=dir>0?Sm:Sp, Sout=dir>0?Sp:Sm, dtau=chi*dz/MU;
+  /* azimuths 45, 135, 225, 315: the entry point of each ray */
+  float I0=prevAt(q+vec2(-s.x,-s.y)).x, I1=prevAt(q+vec2(s.x,-s.y)).y, I2=prevAt(q+vec2(s.x,s.y)).z, I3=prevAt(q+vec2(-s.x,s.y)).w;
+  o=vec4(stepI(I0,Sin,Sout,dtau),stepI(I1,Sin,Sout,dtau),stepI(I2,Sin,Sout,dtau),stepI(I3,Sin,Sout,dtau)); }`;
+/* ---- the heating from the flux divergence, with the relaxation limiter ---- */
+const FS_Q=GLSL_HEAD+`
+uniform sampler2D uUp0,uUp1,uDn0,uDn1,uRT0,uGeom,uA; uniform float dt,dx,dy; out vec4 o;
+const float SIG=5.670374419e-5, WR=1.5707963267948966, MU=0.5773502691896258, TN=1.4142135623730951, C45=0.7071067811865476;
+vec4 atUp(vec2 q,int k){ vec2 w=mod(q,vec2(N.xy)); ivec2 a=ivec2(floor(w)); vec2 f=w-vec2(a); ivec2 b=(a+1)%N.xy;
+  if((k&1)==0) return mix(mix(texelFetch(uUp0,addr(a.x,a.y,k),0),texelFetch(uUp0,addr(b.x,a.y,k),0),f.x),mix(texelFetch(uUp0,addr(a.x,b.y,k),0),texelFetch(uUp0,addr(b.x,b.y,k),0),f.x),f.y);
+  return mix(mix(texelFetch(uUp1,addr(a.x,a.y,k),0),texelFetch(uUp1,addr(b.x,a.y,k),0),f.x),mix(texelFetch(uUp1,addr(a.x,b.y,k),0),texelFetch(uUp1,addr(b.x,b.y,k),0),f.x),f.y); }
+vec4 atDn(vec2 q,int k){ vec2 w=mod(q,vec2(N.xy)); ivec2 a=ivec2(floor(w)); vec2 f=w-vec2(a); ivec2 b=(a+1)%N.xy;
+  if((k&1)==0) return mix(mix(texelFetch(uDn0,addr(a.x,a.y,k),0),texelFetch(uDn0,addr(b.x,a.y,k),0),f.x),mix(texelFetch(uDn0,addr(a.x,b.y,k),0),texelFetch(uDn0,addr(b.x,b.y,k),0),f.x),f.y);
+  return mix(mix(texelFetch(uDn1,addr(a.x,a.y,k),0),texelFetch(uDn1,addr(b.x,a.y,k),0),f.x),mix(texelFetch(uDn1,addr(a.x,b.y,k),0),texelFetch(uDn1,addr(b.x,b.y,k),0),f.x),f.y); }
+vec4 tileUp(int i,int j,int k){ return (k&1)==0?texelFetch(uUp0,addr(i,j,k),0):texelFetch(uUp1,addr(i,j,k),0); }
+vec4 tileDn(int i,int j,int k){ return (k&1)==0?texelFetch(uDn0,addr(i,j,k),0):texelFetch(uDn1,addr(i,j,k),0); }
+void main(){ ivec2 px=ivec2(gl_FragCoord.xy); int i=px.x%N.x, tx=px.x/N.x, j=px.y%N.y, ty=px.y/N.y, k=ty*TX+tx;
+  if(k>=N.z){ o=vec4(0.0); return; }
+  float dz=texelFetch(uGeom,ivec2(k,0),0).y; vec2 p=vec2(float(i),float(j)); vec2 s=TN*dz*vec2(C45/dx,C45/dy);
+  /* up: enters tile k at p - off_r, leaves tile k+1 at p; down: enters tile k+1 at p + off_r, leaves tile k at p */
+  vec4 outU=tileUp(i,j,k+1), outD=tileDn(i,j,k);
+  float inU=atUp(p+vec2(-s.x,-s.y),k).x+atUp(p+vec2(s.x,-s.y),k).y+atUp(p+vec2(s.x,s.y),k).z+atUp(p+vec2(-s.x,s.y),k).w;
+  float inD=atDn(p+vec2(s.x,s.y),k+1).x+atDn(p+vec2(-s.x,s.y),k+1).y+atDn(p+vec2(-s.x,-s.y),k+1).z+atDn(p+vec2(s.x,-s.y),k+1).w;
+  float Q=WR*MU/dz*((inU-(outU.x+outU.y+outU.z+outU.w))+(inD-(outD.x+outD.y+outD.z+outD.w)));
+  vec4 r=texelFetch(uRT0,addr(i,j,k),0); float chi=r.x, cv=r.z, T=r.w, rho=texelFetch(uA,addr(i,j,k),0).x;
+  float tr=cv*rho/(16.0*chi*SIG*T*T*T), x=chi*dz, te=tr*max(1.0,0.3*x*x), rr=dt/te; if(rr>1e-3) Q*=(1.0-exp(-rr))/rr;
+  o=vec4(Q,0.0,0.0,0.0); }`;
+/* ---- the image: one layer of a downward sweep along a ray of inclination mu, shifted in x by the height ---- */
+const FS_IMAGE=GLSL_HEAD+`
+uniform sampler2D uR0,uR1,uRT1,uA,uB,uC,uGeom; uniform int k,init; uniform float mu,shift,zTop;
+layout(location=0) out vec4 o0; layout(location=1) out vec4 o1;
+vec4 fetchX(sampler2D s,float xf,int j,int k){ float xw=mod(xf,float(N.x)); int i0=int(floor(xw)); float f=xw-float(i0); int i1=(i0+1)%N.x; return mix(texelFetch(s,addr(i0,j,k),0),texelFetch(s,addr(i1,j,k),0),f); }
+void main(){ ivec2 p=ivec2(gl_FragCoord.xy); int i=p.x, j=p.y;
+  if(init==1){ o0=vec4(0.0,0.0,-1e9,0.0); o1=vec4(0.0); return; }
+  vec4 r0=texelFetch(uR0,p,0), r1=texelFetch(uR1,p,0), gm=texelFetch(uGeom,ivec2(k,0),0); float zc=gm.x, dz=gm.y;
+  float xf=float(i)+0.5-(zTop-zc)*shift-0.5;      /* texel coordinate of the ray at this layer */
+  vec4 c=fetchX(uRT1,xf,j,k); float chi=c.x, Sk=c.y;
+  float Sm=k>0?0.5*(Sk+fetchX(uRT1,xf,j,k-1).y):Sk, Sp=k<N.z-1?0.5*(Sk+fetchX(uRT1,xf,j,k+1).y):Sk;
+  float dtau=chi*dz/mu, tau0=r0.y, ex=exp(-dtau);
+  float lin=dtau<1e-3?0.5*dtau:(1.0-(1.0+dtau)*ex)/dtau;
+  float I=r0.x+exp(-tau0)*(Sp*(1.0-ex)+(Sm-Sp)*lin), tau1=tau0+dtau; vec4 n1=r1; float zt=r0.z;
+  if(zt<-1e8&&tau1>=1.0){ float f=(1.0-tau0)/max(dtau,1e-30); zt=(zc+0.5*dz)-f*dz;
+    vec4 A=fetchX(uA,xf,j,k), B=fetchX(uB,xf,j,k), C=fetchX(uC,xf,j,k); n1=vec4(B.w,A.w/A.x,C.z,length(B.yzw)); }
+  o0=vec4(I,tau1,zt,0.0); o1=n1; }`;
+/* ---- a vertical cut at row jcut ---- */
+const FS_CUT=GLSL_HEAD+`
+uniform sampler2D uA,uB,uC,uRT1; uniform int jcut;
+layout(location=0) out vec4 o0; layout(location=1) out vec4 o1; layout(location=2) out vec4 o2;
+void main(){ ivec2 p=ivec2(gl_FragCoord.xy); int i=p.x, k=p.y; ivec2 a=addr(i,jcut,k);
+  vec4 A=texelFetch(uA,a,0), B=texelFetch(uB,a,0), C=texelFetch(uC,a,0), R=texelFetch(uRT1,a,0);
+  o0=vec4(C.z,A.x,C.y,length(B.yzw)); o1=vec4(A.y/A.x,A.w/A.x,B.y,B.w); o2=vec4(R.x,A.z/A.x,B.z,(B.x-0.5*dot(A.yzw,A.yzw)/A.x)/A.x); }`;
+/* ---- the signal speed of every cell, for the time step and GLM ---- */
+const FS_RATE=GLSL_HEAD+`
+uniform sampler2D uA,uB,uC,uGeom; uniform float dx,dy,cLim; out vec4 o;
+const float FOURPI=12.566370614359172;
+void main(){ ivec2 px=ivec2(gl_FragCoord.xy); int i=px.x%N.x, tx=px.x/N.x, j=px.y%N.y, ty=px.y/N.y, k=ty*TX+tx;
+  if(k>=N.z){ o=vec4(0.0); return; } ivec2 a=addr(i,j,k);
+  vec4 A=texelFetch(uA,a,0), B=texelFetch(uB,a,0), C=texelFetch(uC,a,0); float rho=A.x, dz=texelFetch(uGeom,ivec2(k,0),0).y;
+  float z=texelFetch(uGeom,ivec2(k,0),0).x, clc=cLim*(1.0+max(0.0,-z)/1e7); float vA2=dot(B.yzw,B.yzw)/(FOURPI*rho), cf=sqrt(C.w+vA2/(1.0+vA2/(clc*clc))); vec3 v=abs(A.yzw)/rho;
+  o=vec4((v.x+cf)/dx+(v.y+cf)/dy+(v.z+cf)/dz, max(max(v.x,v.y),v.z)+cf, 0.0, 0.0); }`;
+const FS_REDUCE=GLSL_HEAD+`
+uniform sampler2D uIn; uniform ivec2 inSize; out vec4 o;
+void main(){ ivec2 p=ivec2(gl_FragCoord.xy)*4; vec4 m=vec4(0.0);
+  for(int a=0;a<4;a++) for(int b=0;b<4;b++){ ivec2 q=p+ivec2(a,b); if(q.x<inSize.x&&q.y<inSize.y) m=max(m,texelFetch(uIn,q,0)); } o=m; }`;
+/* ---- resampling an old state onto a new grid (trilinear in the conserved variables) ---- */
+const FS_RESAMPLE=GLSL_HEAD+GLSL_TAB+`
+uniform sampler2D uA,uB,uGeomOld,uGeom; uniform ivec3 NO; uniform int TXO; uniform float dxo,dyo,dx,dy,eMin;
+layout(location=0) out vec4 oA; layout(location=1) out vec4 oB; layout(location=2) out vec4 oC;
+ivec2 addrO(int i,int j,int k){ return ivec2(i+NO.x*(k%TXO), j+NO.y*(k/TXO)); }
+void main(){ ivec2 px=ivec2(gl_FragCoord.xy); int i=px.x%N.x, tx=px.x/N.x, j=px.y%N.y, ty=px.y/N.y, k=ty*TX+tx;
+  if(k>=N.z){ oA=vec4(0.0); oB=vec4(0.0); oC=vec4(0.0); return; }
+  float x=(float(i)+0.5)*dx, y=(float(j)+0.5)*dy, z=texelFetch(uGeom,ivec2(k,0),0).x;
+  float fi=x/dxo-0.5, fj=y/dyo-0.5; int k0=0; for(int q=0;q<NO.z-1;q++){ if(texelFetch(uGeomOld,ivec2(q+1,0),0).x<=z) k0=q+1; }
+  k0=min(k0,NO.z-2); float z0=texelFetch(uGeomOld,ivec2(k0,0),0).x, z1=texelFetch(uGeomOld,ivec2(k0+1,0),0).x; float fk=clamp((z-z0)/(z1-z0),0.0,1.0);
+  int i0=int(floor(fi)), j0=int(floor(fj)); float ai=fi-float(i0), aj=fj-float(j0); i0=(i0+NO.x)%NO.x; j0=(j0+NO.y)%NO.y; int i1=(i0+1)%NO.x, j1=(j0+1)%NO.y;
+  vec4 A=vec4(0.0), B=vec4(0.0);
+  for(int c=0;c<8;c++){ int ii=(c&1)==0?i0:i1, jj=(c&2)==0?j0:j1, kk=(c&4)==0?k0:k0+1; float w=((c&1)==0?1.0-ai:ai)*((c&2)==0?1.0-aj:aj)*((c&4)==0?1.0-fk:fk);
+    ivec2 ad=addrO(ii,jj,kk); A+=w*texelFetch(uA,ad,0); B+=w*texelFetch(uB,ad,0); }
+  vec4 t1=tab1(A.x,max(B.x-0.5*dot(A.yzw,A.yzw)/A.x,A.x*eMin)/A.x); oA=A; oB=B; oC=vec4(0.0,exp(t1.x),exp(t1.y),exp(t1.z)); }`;
+
+/* ================================================================== *
+ *  the WebGL side                                                     *
+ * ================================================================== */
+function makeGL(canvas){ const gl=canvas.getContext('webgl2',{antialias:false,preserveDrawingBuffer:false,powerPreference:'high-performance'}); if(!gl) throw new Error('WebGL2 is not available');
+  if(!gl.getExtension('EXT_color_buffer_float')) throw new Error('float render targets are not available (EXT_color_buffer_float)'); return gl; }
+function compile(gl,fsSrc,name){ const prog=gl.createProgram();
+  const mk=(t,s)=>{ const sh=gl.createShader(t); gl.shaderSource(sh,s); gl.compileShader(sh); if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){ const log=gl.getShaderInfoLog(sh); throw new Error('shader '+name+': '+log+'\n'+s.split('\n').map((l,i)=>(i+1)+': '+l).slice(0,400).join('\n')); } gl.attachShader(prog,sh); };
+  mk(gl.VERTEX_SHADER,VS_QUAD); mk(gl.FRAGMENT_SHADER,fsSrc); gl.linkProgram(prog); if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error('link '+name+': '+gl.getProgramInfoLog(prog));
+  const U={}; const n=gl.getProgramParameter(prog,gl.ACTIVE_UNIFORMS); for(let i=0;i<n;i++){ const info=gl.getActiveUniform(prog,i); U[info.name]=gl.getUniformLocation(prog,info.name); }
+  return {prog,U}; }
+function makeTex(gl,w,h,fmt,data){ const t=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,t); gl.texStorage2D(gl.TEXTURE_2D,1,fmt,w,h);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  if(data){ const f=fmt===gl.RGBA32F?gl.RGBA:fmt===gl.RG32F?gl.RG:gl.RED; gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,w,h,f,gl.FLOAT,data); }
+  return {tex:t,w,h,fmt}; }
+function makeFB(gl,texs){ const fb=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,fb); const bufs=[];
+  texs.forEach((t,i)=>{ gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0+i,gl.TEXTURE_2D,t.tex,0); bufs.push(gl.COLOR_ATTACHMENT0+i); });
+  gl.drawBuffers(bufs); const st=gl.checkFramebufferStatus(gl.FRAMEBUFFER); if(st!==gl.FRAMEBUFFER_COMPLETE) throw new Error('framebuffer incomplete: '+st); return fb; }
+
+function GPUSim(gl,TB,S1,opts){
+  const self=this; this.gl=gl; this.TB=TB; this.S1=S1;
+  this.prog={rhs:compile(gl,fsRHS(),'rhs'),opac:compile(gl,FS_OPAC,'opac'),sweep:compile(gl,FS_SWEEP,'sweep'),q:compile(gl,FS_Q,'q'),image:compile(gl,FS_IMAGE,'image'),
+             cut:compile(gl,FS_CUT,'cut'),rate:compile(gl,FS_RATE,'rate'),reduce:compile(gl,FS_REDUCE,'reduce'),resample:compile(gl,FS_RESAMPLE,'resample')};
+  /* the tables as textures: width = e index, height = rho index */
+  const nr=TAB.nr, ne=TAB.ne, t1=new Float32Array(nr*ne*4), t2=new Float32Array(nr*ne*4);
+  for(let a=0;a<nr;a++) for(let b=0;b<ne;b++){ const i=a*ne+b, o=(a*ne+b)*4; t1[o]=Math.log(TB.p[i]); t1[o+1]=Math.log(TB.T[i]); t1[o+2]=Math.log(TB.cs2[i]); t1[o+3]=Math.log(TB.kR[i]);
+    t2[o]=Math.log(TB.k430[i]); t2[o+1]=TB.xH[i]; t2[o+2]=Math.log(TB.cv[i]); t2[o+3]=0; }
+  this.texTB1=makeTex(gl,ne,nr,gl.RGBA32F,t1); this.texTB2=makeTex(gl,ne,nr,gl.RGBA32F,t2);
+  this.B430ref=1/(Math.exp(33460/6000)-1);
+  this.grid=null; this.setup(opts);
+}
+GPUSim.prototype.setup=function(opts,keepState){
+  const gl=this.gl, old=this.grid;
+  const Nx=opts.Nx, Ny=opts.Ny, Nz=opts.Nz, TX=Math.ceil(Math.sqrt(Nz)), TY=Math.ceil(Nz/TX), TYi=Math.ceil((Nz+1)/TX), W=Nx*TX, H=Ny*TY, Hi=Ny*TYi;
+  const G=zGrid(Nz,opts.dzSurf,opts.zBot,opts.zTop,opts.zSw), R=refProfiles(this.S1,G,this.TB), P=makeParams(G,R,this.S1,{dx:opts.boxW/Nx,dy:opts.boxW/Ny,cLim:opts.cLim});
+  const grid={Nx,Ny,Nz,TX,TY,TYi,W,H,Hi,G,R,P,opts};
+  /* the 1-D profile textures */
+  const refC=new Float32Array(Nz*4), geom=new Float32Array(Nz*4), refF=new Float32Array((Nz+1)*4), ad=new Float32Array(64);
+  for(let k=0;k<Nz;k++){ refC[4*k]=R.rc[k]; refC[4*k+1]=R.pc[k]; refC[4*k+2]=R.ecv[k]; refC[4*k+3]=0;
+    const dzw=(k===0||k===Nz-1)?2*G.dz[k]:G.zc[k+1]-G.zc[k-1]; geom[4*k]=G.zc[k]; geom[4*k+1]=G.dz[k]; geom[4*k+2]=dzw; geom[4*k+3]=0; }
+  for(let k=0;k<=Nz;k++){ refF[4*k]=R.rf[k]; refF[4*k+1]=R.pf[k]; refF[4*k+2]=R.ef[k]; refF[4*k+3]=G.zf[k]; }
+  for(let i=0;i<64;i++) ad[i]=P.adE[i];
+  grid.texRefC=makeTex(gl,Nz,1,gl.RGBA32F,refC); grid.texRefF=makeTex(gl,Nz+1,1,gl.RGBA32F,refF); grid.texGeom=makeTex(gl,Nz,1,gl.RGBA32F,geom); grid.texAd=makeTex(gl,64,1,gl.R32F,ad);
+  /* the state: three sets of three atlases */
+  grid.U=[]; for(let s=0;s<3;s++){ const A=makeTex(gl,W,H,gl.RGBA32F), B=makeTex(gl,W,H,gl.RGBA32F), C=makeTex(gl,W,H,gl.RGBA32F); grid.U.push({A,B,C,fb:makeFB(gl,[A,B,C])}); }
+  grid.RT0=makeTex(gl,W,H,gl.RGBA32F); grid.RT1=makeTex(gl,W,H,gl.RGBA32F); grid.fbRT=makeFB(gl,[grid.RT0,grid.RT1]);
+  grid.Up=[]; grid.Dn=[]; grid.fbUp=[]; grid.fbDn=[]; for(let r=0;r<2;r++){ const a=makeTex(gl,W,Hi,gl.RGBA32F), b=makeTex(gl,W,Hi,gl.RGBA32F); grid.Up.push(a); grid.Dn.push(b); grid.fbUp.push(makeFB(gl,[a])); grid.fbDn.push(makeFB(gl,[b])); }
+  grid.Q=makeTex(gl,W,H,gl.R32F); grid.fbQ=makeFB(gl,[grid.Q]);
+  grid.run=[makeTex(gl,Nx,Ny,gl.R32F),makeTex(gl,Nx,Ny,gl.R32F)]; grid.fbRun=grid.run.map(t=>makeFB(gl,[t]));
+  grid.img=[]; for(let s=0;s<2;s++){ const a=makeTex(gl,Nx,Ny,gl.RGBA32F), b=makeTex(gl,Nx,Ny,gl.RGBA32F); grid.img.push({a,b,fb:makeFB(gl,[a,b])}); }
+  grid.cutT=[makeTex(gl,Nx,Nz,gl.RGBA32F),makeTex(gl,Nx,Nz,gl.RGBA32F),makeTex(gl,Nx,Nz,gl.RGBA32F)]; grid.fbCut=makeFB(gl,grid.cutT);
+  grid.rateT=makeTex(gl,W,H,gl.RG32F); grid.fbRate=makeFB(gl,[grid.rateT]);
+  grid.red=[]; let w=W, h=H; while(w>8||h>8){ w=Math.ceil(w/4); h=Math.ceil(h/4); const t=makeTex(gl,w,h,gl.RG32F); grid.red.push({t,fb:makeFB(gl,[t]),w,h}); }
+  grid.t=0; grid.step=0; grid.dt=0.1; grid.ch=1e6; grid.stepsSinceRate=99;
+  this.grid=grid; this.cur=0;
+  if(keepState&&old) this.resampleFrom(old); else this.uploadInitial(opts);
+  if(old) this.release(old);
+  return grid;
+};
+GPUSim.prototype.release=function(grid){ const gl=this.gl; for(const u of grid.U){ gl.deleteTexture(u.A.tex); gl.deleteTexture(u.B.tex); gl.deleteTexture(u.C.tex); gl.deleteFramebuffer(u.fb); }
+  for(const t of [grid.RT0,grid.RT1,...grid.Up,...grid.Dn,grid.Q,grid.rateT,grid.texRefC,grid.texRefF,grid.texGeom,grid.texAd,...grid.run,...grid.cutT]) gl.deleteTexture(t.tex);
+  for(const im of grid.img){ gl.deleteTexture(im.a.tex); gl.deleteTexture(im.b.tex); gl.deleteFramebuffer(im.fb); } for(const r of grid.red){ gl.deleteTexture(r.t.tex); gl.deleteFramebuffer(r.fb); }
+  for(const f of [grid.fbRT,...grid.fbUp,...grid.fbDn,grid.fbQ,grid.fbCut,grid.fbRate,...grid.fbRun]) gl.deleteFramebuffer(f); };
+/* pack a CPU state (solver.js layout) into the atlases */
+GPUSim.prototype.upload=function(S){ const gl=this.gl, g=this.grid, {Nx,Ny,Nz,TX,W,H}=g; const A=new Float32Array(W*H*4), B=new Float32Array(W*H*4), C=new Float32Array(W*H*4);
+  for(let k=0;k<Nz;k++){ const tx=k%TX, ty=Math.floor(k/TX); for(let j=0;j<Ny;j++) for(let i=0;i<Nx;i++){ const q=(k*Ny+j)*Nx+i, o=((ty*Ny+j)*W+(tx*Nx+i))*4;
+    A[o]=S.rho[q]; A[o+1]=S.mx[q]; A[o+2]=S.my[q]; A[o+3]=S.mz[q]; B[o]=S.E[q]; B[o+1]=S.Bx[q]; B[o+2]=S.By[q]; B[o+3]=S.Bz[q]; C[o]=S.psi[q]; C[o+1]=S.p[q]; C[o+2]=S.T[q]; C[o+3]=S.cs2[q]; } }
+  const u=g.U[this.cur]; for(const [t,d] of [[u.A,A],[u.B,B],[u.C,C]]){ gl.bindTexture(gl.TEXTURE_2D,t.tex); gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,W,H,gl.RGBA,gl.FLOAT,d); } };
+GPUSim.prototype.uploadInitial=function(opts){ const g=this.grid; const S=initialState(g.G,g.R,this.TB,g.Nx,g.Ny,{amp:opts.amp,B0:opts.B0,seed:opts.seed}); this.upload(S); g.t=0; g.step=0; };
+/* read an atlas back into a CPU state (for the twin comparison) */
+GPUSim.prototype.download=function(){ const gl=this.gl, g=this.grid, {Nx,Ny,Nz,TX,W,H}=g, u=g.U[this.cur], S=makeState(Nx,Ny,Nz); const buf=new Float32Array(W*H*4);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,u.fb); const rd=(att,fn)=>{ gl.readBuffer(gl.COLOR_ATTACHMENT0+att); gl.readPixels(0,0,W,H,gl.RGBA,gl.FLOAT,buf); fn(); };
+  const unpack=(keys)=>{ for(let k=0;k<Nz;k++){ const tx=k%TX, ty=Math.floor(k/TX); for(let j=0;j<Ny;j++) for(let i=0;i<Nx;i++){ const q=(k*Ny+j)*Nx+i, o=((ty*Ny+j)*W+(tx*Nx+i))*4; for(let c=0;c<4;c++) S[keys[c]][q]=buf[o+c]; } } };
+  rd(0,()=>unpack(['rho','mx','my','mz'])); rd(1,()=>unpack(['E','Bx','By','Bz'])); rd(2,()=>unpack(['psi','p','T','cs2'])); for(let q=0;q<S.n;q++) S.e[q]=S.E[q]-0.5*(S.mx[q]*S.mx[q]+S.my[q]*S.my[q]+S.mz[q]*S.mz[q])/S.rho[q]; S.t=g.t; S.step=g.step; return S; };
+GPUSim.prototype.bind=function(pr,texList){ const gl=this.gl; gl.useProgram(pr.prog); texList.forEach(([name,t],i)=>{ gl.activeTexture(gl.TEXTURE0+i); gl.bindTexture(gl.TEXTURE_2D,t.tex); if(pr.U[name]!==undefined) gl.uniform1i(pr.U[name],i); });
+  const g=this.grid; if(pr.U.N) gl.uniform3i(pr.U.N,g.Nx,g.Ny,g.Nz); if(pr.U.TX) gl.uniform1i(pr.U.TX,g.TX);
+  if(pr.U.tabP) gl.uniform4f(pr.U.tabP,TAB.lr0,TAB.lr1,TAB.le0,TAB.le1); if(pr.U.tabN) gl.uniform2i(pr.U.tabN,TAB.nr,TAB.ne); if(pr.U.eMin) gl.uniform1f(pr.U.eMin,Math.pow(10,TAB.le0)); };
+GPUSim.prototype.draw=function(fb,w,h){ const gl=this.gl; gl.bindFramebuffer(gl.FRAMEBUFFER,fb); gl.viewport(0,0,w,h); gl.drawArrays(gl.TRIANGLE_STRIP,0,4); };
+/* the maximum signal rate over the box, by reduction and a small readback */
+GPUSim.prototype.measureRate=function(){ const gl=this.gl, g=this.grid, pr=this.prog.rate, u=g.U[this.cur];
+  this.bind(pr,[['uA',u.A],['uB',u.B],['uC',u.C],['uGeom',g.texGeom]]); gl.uniform1f(pr.U.dx,g.P.dx); gl.uniform1f(pr.U.dy,g.P.dy); gl.uniform1f(pr.U.cLim,g.P.cLim);
+  this.draw(g.fbRate,g.W,g.H);
+  let src=g.rateT, w=g.W, h=g.H; const pq=this.prog.reduce;
+  for(const r of g.red){ this.bind(pq,[['uIn',src]]); gl.uniform2i(pq.U.inSize,w,h); this.draw(r.fb,r.w,r.h); src=r.t; w=r.w; h=r.h; }
+  const buf=new Float32Array(w*h*4); gl.bindFramebuffer(gl.FRAMEBUFFER,g.red[g.red.length-1].fb); gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(0,0,w,h,gl.RGBA,gl.FLOAT,buf);
+  let rate=0, cmax=0; for(let i=0;i<w*h;i++){ rate=Math.max(rate,buf[4*i]); cmax=Math.max(cmax,buf[4*i+1]); } return {rate,cmax}; };
+/* the grey transfer: opacities, two sweeps, the heating */
+GPUSim.prototype.radiate=function(dt){ const gl=this.gl, g=this.grid, u=g.U[this.cur];
+  let pr=this.prog.opac; this.bind(pr,[['uA',u.A],['uB',u.B],['uC',u.C],['uTB1',this.texTB1],['uTB2',this.texTB2]]); gl.uniform1f(pr.U.B430ref,this.B430ref); this.draw(g.fbRT,g.W,g.H);
+  pr=this.prog.sweep;
+  const tileDraw=(fb,tile)=>{ const tx=tile%g.TX, ty=Math.floor(tile/g.TX); gl.bindFramebuffer(gl.FRAMEBUFFER,fb); gl.viewport(tx*g.Nx,ty*g.Ny,g.Nx,g.Ny); gl.enable(gl.SCISSOR_TEST); gl.scissor(tx*g.Nx,ty*g.Ny,g.Nx,g.Ny); gl.drawArrays(gl.TRIANGLE_STRIP,0,4); gl.disable(gl.SCISSOR_TEST); };
+  for(const dir of [1,-1]){ const A=dir>0?g.Up:g.Dn, FB=dir>0?g.fbUp:g.fbDn;
+    for(let n=0;n<=g.Nz;n++){ const layer=dir>0?(n===0?0:n-1):(n===0?g.Nz-1:g.Nz-n), tile=dir>0?n:g.Nz-n, from=dir>0?tile-1:tile+1, dz=g.G.dz[layer];
+      /* n = 0 initialises the near boundary tile; n >= 1 steps the layer from the tile before it (the other parity) */
+      this.bind(pr,[['uPrev',A[(from&1)===0?0:1]],['uRT0',g.RT0],['uGeom',g.texGeom]]); gl.uniform1i(pr.U.k,layer); gl.uniform1i(pr.U.dir,dir); gl.uniform1i(pr.U.init,n===0?1:0); gl.uniform1i(pr.U.kin,Math.max(0,from));
+      gl.uniform2f(pr.U.s,dir*TAN_RT*Math.SQRT1_2*dz/g.P.dx,dir*TAN_RT*Math.SQRT1_2*dz/g.P.dy);
+      tileDraw(FB[tile&1],tile); } }
+  pr=this.prog.q; this.bind(pr,[['uUp0',g.Up[0]],['uUp1',g.Up[1]],['uDn0',g.Dn[0]],['uDn1',g.Dn[1]],['uRT0',g.RT0],['uGeom',g.texGeom],['uA',u.A]]); gl.uniform1f(pr.U.dt,dt); gl.uniform1f(pr.U.dx,g.P.dx); gl.uniform1f(pr.U.dy,g.P.dy); this.draw(g.fbQ,g.W,g.H); };
+GPUSim.prototype.stage=function(stage,src,dst,base,dt,ch){ const gl=this.gl, g=this.grid, pr=this.prog.rhs, P=g.P;
+  this.bind(pr,[['uA',src.A],['uB',src.B],['uC',src.C],['uA0',base.A],['uB0',base.B],['uC0',base.C],['uQ',g.Q],['uRefC',g.texRefC],['uRefF',g.texRefF],['uGeom',g.texGeom],['uAd',g.texAd],['uTB1',this.texTB1],['uTB2',this.texTB2]]);
+  const U=pr.U; gl.uniform1f(U.dx,P.dx); gl.uniform1f(U.dy,P.dy); gl.uniform1f(U.g,P.g); gl.uniform1f(U.cLim,P.cLim); gl.uniform1f(U.dt,dt); gl.uniform1f(U.ch,ch);
+  gl.uniform1f(U.tauBot,P.tauBot); gl.uniform1f(U.zBotRelax,P.zBotRelax); gl.uniform1f(U.zBotRamp,P.zBotRamp); gl.uniform1f(U.tauTop,P.tauTop); gl.uniform1f(U.zTopDamp,P.zTopDamp); gl.uniform1f(U.zTopRamp,P.zTopRamp);
+  gl.uniform1i(U.stage,stage); gl.uniform1i(U.limiter,LIMITER); gl.uniform2f(U.adL,P.adLr0,P.adLr1); gl.uniform1f(U.psiDamp,Math.exp(-P.alphaGLM*ch*dt/Math.min(P.dx,P.dy,g.G.dz[g.Nz-1]))); this.draw(dst.fb,g.W,g.H); };
+/* one full step; dtFixed/chFixed for the twin comparison */
+GPUSim.prototype.advance=function(dtFixed,chFixed){ const g=this.grid, P=g.P;
+  if(dtFixed===undefined){ if(g.stepsSinceRate>=6){ const m=this.measureRate(); g.dt=0.85*P.cfl/m.rate; g.ch=m.cmax; g.stepsSinceRate=0; } g.stepsSinceRate++; }
+  const dt=dtFixed!==undefined?dtFixed:g.dt, ch=chFixed!==undefined?chFixed:g.ch;
+  this.radiate(dt);
+  const U0=g.U[this.cur], U1=g.U[(this.cur+1)%3], U2=g.U[(this.cur+2)%3];
+  this.stage(1,U0,U1,U0,dt,ch); this.stage(2,U1,U2,U0,dt,ch);
+  this.cur=(this.cur+2)%3; g.t+=dt; g.step++; return dt; };
+/* the image sweep for inclination mu, limb to +x; returns the two Nx*Ny*4 arrays */
+GPUSim.prototype.image=function(mu){ const gl=this.gl, g=this.grid, u=g.U[this.cur], pr=this.prog.image, shift=Math.sqrt(Math.max(0,1-mu*mu))/mu/g.P.dx; let cur=0;
+  for(let n=0;n<=g.Nz;n++){ const k=g.Nz-n; const im=g.img[cur], out=g.img[1-cur];
+    this.bind(pr,[['uR0',im.a],['uR1',im.b],['uRT1',g.RT1],['uA',u.A],['uB',u.B],['uC',u.C],['uGeom',g.texGeom]]);
+    gl.uniform1i(pr.U.k,Math.max(0,Math.min(g.Nz-1,n===0?g.Nz-1:k))); gl.uniform1i(pr.U.init,n===0?1:0); gl.uniform1f(pr.U.mu,mu); gl.uniform1f(pr.U.shift,shift); gl.uniform1f(pr.U.zTop,g.G.zf[g.Nz]);
+    this.draw(out.fb,g.Nx,g.Ny); cur=1-cur; }
+  const im=g.img[cur], a=new Float32Array(g.Nx*g.Ny*4), b=new Float32Array(g.Nx*g.Ny*4); gl.bindFramebuffer(gl.FRAMEBUFFER,im.fb);
+  gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(0,0,g.Nx,g.Ny,gl.RGBA,gl.FLOAT,a); gl.readBuffer(gl.COLOR_ATTACHMENT1); gl.readPixels(0,0,g.Nx,g.Ny,gl.RGBA,gl.FLOAT,b); return {I:a,at:b}; };
+GPUSim.prototype.topFlux=function(){ const gl=this.gl, g=this.grid, tile=g.Nz, tx=tile%g.TX, ty=Math.floor(tile/g.TX), buf=new Float32Array(g.Nx*g.Ny*4), F=new Float32Array(g.Nx*g.Ny);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,g.fbUp[tile&1]); gl.readBuffer(gl.COLOR_ATTACHMENT0); gl.readPixels(tx*g.Nx,ty*g.Ny,g.Nx,g.Ny,gl.RGBA,gl.FLOAT,buf); for(let i=0;i<F.length;i++) F[i]=W_RAY*MU_RT*(buf[4*i]+buf[4*i+1]+buf[4*i+2]+buf[4*i+3]); return F; };
+GPUSim.prototype.cut=function(jcut){ const gl=this.gl, g=this.grid, u=g.U[this.cur], pr=this.prog.cut;
+  this.bind(pr,[['uA',u.A],['uB',u.B],['uC',u.C],['uRT1',g.RT1]]); gl.uniform1i(pr.U.jcut,jcut); this.draw(g.fbCut,g.Nx,g.Nz);
+  const out=[]; gl.bindFramebuffer(gl.FRAMEBUFFER,g.fbCut); for(let c=0;c<3;c++){ const b=new Float32Array(g.Nx*g.Nz*4); gl.readBuffer(gl.COLOR_ATTACHMENT0+c); gl.readPixels(0,0,g.Nx,g.Nz,gl.RGBA,gl.FLOAT,b); out.push(b); } return out; };
+GPUSim.prototype.resampleFrom=function(old){ const gl=this.gl, g=this.grid, pr=this.prog.resample, uo=old.U[this.curOld!==undefined?this.curOld:0];
+  this.bind(pr,[['uA',uo.A],['uB',uo.B],['uGeomOld',old.texGeom],['uGeom',g.texGeom],['uTB1',this.texTB1],['uTB2',this.texTB2]]);
+  gl.uniform3i(pr.U.NO,old.Nx,old.Ny,old.Nz); gl.uniform1i(pr.U.TXO,old.TX); gl.uniform1f(pr.U.dxo,old.P.dx); gl.uniform1f(pr.U.dyo,old.P.dy); gl.uniform1f(pr.U.dx,g.P.dx); gl.uniform1f(pr.U.dy,g.P.dy);
+  this.cur=0; this.draw(g.U[0].fb,g.W,g.H); g.t=old.t; g.step=old.step; };
+
+/* ================================================================== *
+ *  the page: state, the scene that runs the GPU model, the views      *
+ * ================================================================== */
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+const TABS=[['surface','the surface'],['walls','the walls'],['cut','the cut'],['model','the model']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6', text:'#cfd4de', faint:'#3a4256', plus:'#5ac8e0', minus:'#e8843a', white:'#f4f6fb'};
+const RES_LIST=[{id:96,name:'96²'},{id:128,name:'128²'},{id:192,name:'192²'},{id:256,name:'256² (heavy)'}];
+const GRID_OF={96:{Nz:80,dz:1.2e6},128:{Nz:96,dz:1.0e6},192:{Nz:112,dz:0.8e6},256:{Nz:112,dz:0.8e6}};
+const WIDTH_LIST=[{id:3e8,name:'3 Mm'},{id:4.5e8,name:'4.5 Mm'},{id:6e8,name:'6 Mm'}];
+const B0_LIST=[{id:0,name:'no field'},{id:50,name:'50 G'},{id:100,name:'100 G'},{id:200,name:'200 G (plage)'},{id:400,name:'400 G'}];
+const QTY_LIST=[{id:'I',name:'intensity, 430 nm'},{id:'Bz',name:'B<sub>z</sub> at τ = 1'},{id:'vz',name:'v<sub>z</sub> at τ = 1'},{id:'z',name:'height of τ = 1'},{id:'T',name:'T at τ = 1'}];
+const QCUT_LIST=[{id:'T',name:'temperature'},{id:'rho',name:'density, against the mean'},{id:'B',name:'|B|'},{id:'vz',name:'v<sub>z</sub>'}];
+const ZOOM_LIST=[{id:1,name:'1×'},{id:2,name:'2×'},{id:4,name:'4×'}];
+const Z_BOT=-1.2e8, Z_TOP=3.0e7, Z_SW=-2.0e7, C_LIM=2.0e6;
+const DEFAULTS={view:'surface', play:true, budget:25, res:128, width:3e8, B0:200, dAd:0, seed:3, amp:0.1,
+  qty:'I', ycut:0.5, xray:0.5, mu:0.85, zoom:2, zx:0.5, zy:0.5, qcut:'T', contours:true, arrows:true, rays:true, showField:false};
+const ST=Object.assign({},DEFAULTS);
+const LIM={budget:[4,80], dAd:[-0.3,0.3], mu:[0.5,1.0]};
+const LOGN=1000;
+function logOf(v,lo,hi){ return clamp(Math.round(LOGN*Math.log(v/lo)/Math.log(hi/lo)),0,LOGN); }
+function ofLog(u,lo,hi){ return lo*Math.pow(hi/lo,clamp(u,0,LOGN)/LOGN); }
+function withState(over,fn){ const keep=Object.assign({},ST); Object.assign(ST,over); try{ return fn(); } finally { for(const k in ST) delete ST[k]; Object.assign(ST,keep); } }
+function gridOpts(st){ const G=GRID_OF[st.res]; return {Nx:st.res,Ny:st.res,Nz:G.Nz,dzSurf:G.dz,zBot:Z_BOT,zTop:Z_TOP,zSw:Z_SW,boxW:st.width,cLim:C_LIM,amp:st.amp,B0:st.B0,seed:st.seed}; }
+function tStr(t){ const m=Math.floor(t/60), s=t-60*m; return m+' min '+fmt(s,0).padStart(2,'0')+' s'; }
+
+/* ---- the scene: owns the tables, the stratification, the GPU model, the histories ---- */
+function makeScene(canvas){
+  const S={st:ST, W:1100, H:700, canvas, sim:null, gl:null, err:null, hist:[], frame:0, cache:{}, rate:{solarPerWall:0}, checks:null, TB:null, S1:null, meanProf:null, lastMean:-1e9, lastHist:-1e9, wallT:0};
+  S.TB=buildTables();
+  S.restrat=function(){ S.S1=stratify({zBot:Z_BOT,zTop:Z_TOP,dAd:ST.dAd},S.TB); };
+  S.restrat();
+  S.start=function(){ if(!S.gl){ try{ S.gl=makeGL(document.createElement('canvas')); }catch(e){ S.err=String(e); return; } }
+    try{ if(S.sim){ S.sim.S1=S.S1; S.sim.setup(gridOpts(ST)); } else S.sim=new GPUSim(S.gl,S.TB,S.S1,gridOpts(ST)); S.hist=[]; S.lastHist=-1e9; S.lastMean=-1e9; S.meanProf=null; S.cache={}; S.wallT=0; }catch(e){ S.err=String(e&&e.stack||e); } };
+  S.refine=function(){ if(!S.sim) return; try{ S.sim.setup(gridOpts(ST),true); S.cache={}; }catch(e){ S.err=String(e&&e.stack||e); } };
+  S.step=function(){ if(!S.sim||!ST.play) return; const t0=performance.now(); let n=0; const g=S.sim.grid, tA=g.t;
+    while(performance.now()-t0<ST.budget&&n<400){ S.sim.advance(); n++; } S.cache={}; const dw=(performance.now()-t0)/1000; S.wallT+=dw; if(dw>0) S.rate.solarPerWall=0.9*S.rate.solarPerWall+0.1*(g.t-tA)/dw; };
+  /* the model of the moment: the images, the cut, the statistics; memoised per frame, and completed for whatever
+     view is asked of it (a view can change between the build and the draw, or while the clock is paused) */
+  S.model=function(){ const c=S.cache; let M=c.M; const g=S.sim?S.sim.grid:null;
+    if(!M){ M={t:g?g.t:0, g, st:ST, hist:S.hist, err:S.err, rate:S.rate};
+      if(g){ M.Nx=g.Nx; M.Ny=g.Ny; M.Nz=g.Nz; M.dx=g.P.dx; M.width=ST.width; M.zc=g.G.zc; M.dzv=g.G.dz; M.R=g.R;
+        if(!c.im1) c.im1=S.sim.image(1.0); M.im1=c.im1; if(!c.F) c.F=S.sim.topFlux(); M.F=c.F; M.stats=surfaceStats(M);
+        if(g.t-S.lastHist>=15){ S.hist.push({t:g.t,Teff:M.stats.Teff,rms:M.stats.rms,Bmax:M.stats.Bmax,Babs:M.stats.Babs,zmean:M.stats.zmean}); S.lastHist=g.t; if(S.hist.length>600) S.hist.splice(0,S.hist.length-600); } }
+      M.checks=S.checks; c.M=M; }
+    if(g) completeModel(M,c,S.sim,ST,()=>{ if(g.t-S.lastMean>=10||!S.meanProf){ S.meanProf=meanProfiles(S.sim); S.lastMean=g.t; } return S.meanProf; });
+    return M; };
+  S.draw=function(){ const ctx=canvas.getContext('2d'); const M=S.model(); drawView(ctx,S.W,S.H,M); S.frame++; };
+  return S;
+}
+/* what a view needs beyond the overhead image: the inclined image for the walls and the cut, the slice for the cut,
+   the mean profiles for the model; computed once per frame and keyed on what they depend on */
+function completeModel(M,c,sim,st,meanFn){ const g=M.g;
+  if((st.view==='walls'||st.view==='cut')&&(!M.imu||c.imuMu!==st.mu)){ if(!c.imu||c.imuMu!==st.mu){ c.imu=sim.image(st.mu); c.imuMu=st.mu; } M.imu=c.imu; }
+  if(st.view==='cut'){ const j=clamp(Math.round(st.ycut*(g.Ny-1)),0,g.Ny-1); if(!c.cut||c.cutJ!==j){ c.cut=sim.cut(j); c.cutJ=j; } M.cut=c.cut; M.jcut=j; }
+  if(st.view==='model'&&meanFn) M.mean=meanFn();
+  return M; }
+/* statistics of the surface: T_eff from the grey flux, the contrast, the field, the heights */
+function surfaceStats(M){ const N2=M.Nx*M.Ny, I=M.im1.I, at=M.im1.at, F=M.F; let Fm=0, Im=0, I2=0, Bmax=0, Babs=0, zmin=1e9, zmax=-1e9, zm=0, vmax=0, Tt=0, kG=0;
+  for(let i=0;i<N2;i++){ Fm+=F[i]; const v=I[4*i]; Im+=v; I2+=v*v; const B=Math.abs(at[4*i]); if(B>Bmax) Bmax=B; Babs+=B; if(B>1000) kG++; const z=I[4*i+2]; if(z<zmin) zmin=z; if(z>zmax) zmax=z; zm+=z; const w=Math.abs(at[4*i+1]); if(w>vmax) vmax=w; Tt+=at[4*i+2]; }
+  Fm/=N2; Im/=N2; const rms=Im>0?Math.sqrt(Math.max(0,I2/N2-Im*Im))/Im:0;
+  return {Teff:Math.pow(Math.max(Fm,0)/SIG_SB,0.25), Imean:Im, rms, Bmax, Babs:Babs/N2, kGfrac:kG/N2, zmin, zmax, zmean:zm/N2, vmax, Tmean:Tt/N2}; }
+/* horizontal means of the whole box, for the model view (a full readback: used sparingly) */
+function meanProfiles(sim){ const S=sim.download(), g=sim.grid, {Nx,Ny,Nz}=S, N2=Nx*Ny; const T=new Float64Array(Nz), rho=new Float64Array(Nz), Fc=new Float64Array(Nz), Fk=new Float64Array(Nz), vrms=new Float64Array(Nz), Bu=new Float64Array(Nz), ss=new Float64Array(Nz);
+  for(let k=0;k<Nz;k++){ let sT=0,sr=0,sF=0,sK=0,sv=0,sB=0; for(let q=k*N2;q<(k+1)*N2;q++){ const r=S.rho[q], vz=S.mz[q]/r, v2=(S.mx[q]*S.mx[q]+S.my[q]*S.my[q]+S.mz[q]*S.mz[q])/(r*r); sT+=S.T[q]; sr+=r; sF+=(S.e[q]+S.p[q])*vz; sK+=0.5*r*v2*vz; sv+=v2; sB+=Math.abs(S.Bz[q]); }
+    T[k]=sT/N2; rho[k]=sr/N2; Fc[k]=sF/N2; Fk[k]=sK/N2; vrms[k]=Math.sqrt(sv/N2); Bu[k]=sB/N2; }
+  /* the enthalpy flux against the mean: subtract the mean mass flux's share */
+  return {z:g.G.zc, T, rho, Fc, Fk, vrms, Bu, t:S.t}; }
+
+/* ================================================================== *
+ *  drawing: colour maps, the four views, the readout and the prose    *
+ * ================================================================== */
+const RO_W=300;
+function txt(ctx,s,x,y,col,font,align,base){ ctx.fillStyle=col||COL.text; ctx.font=font||'11px -apple-system, sans-serif'; ctx.textAlign=align||'left'; ctx.textBaseline=base||'alphabetic'; ctx.fillText(s,x,y); }
+function rgbStr(c){ return 'rgb('+Math.round(c[0])+','+Math.round(c[1])+','+Math.round(c[2])+')'; }
+const BG=[7,11,24];
+/* the continuum image: a warm grey, 0.3 to 1.7 of the mean */
+function cmapI(v,out,o){ const t=clamp((v-0.3)/1.4,0,1); out[o]=255*Math.min(1,1.05*Math.pow(t,0.9)); out[o+1]=255*Math.pow(t,1.05); out[o+2]=255*Math.pow(t,1.45); }
+/* a signed quantity: cyan for +, orange for -, the magnitude as brightness over the background */
+const C_PLUS=toRgb(COL.plus), C_MINUS=toRgb(COL.minus);
+function cmapDiv(u,out,o){ const a=Math.pow(clamp(Math.abs(u),0,1),0.7), c=u>0?C_PLUS:C_MINUS; out[o]=BG[0]+(c[0]-BG[0])*a; out[o+1]=BG[1]+(c[1]-BG[1])*a; out[o+2]=BG[2]+(c[2]-BG[2])*a; }
+function cmapSeq(t,out,o){ const c=neon(clamp(t,0,1)); const a=0.25+0.75*clamp(t,0,1); out[o]=BG[0]+(255*c[0]-BG[0])*a; out[o+1]=BG[1]+(255*c[1]-BG[1])*a; out[o+2]=BG[2]+(255*c[2]-BG[2])*a; }
+/* the quantity drawn on the surface: value, mapping, range */
+function surfaceField(M,qty){ const I=M.im1.I, at=M.im1.at, st=M.stats; const N2=M.Nx*M.Ny;
+  if(qty==='I') return {get:i=>I[4*i]/st.Imean, map:cmapI, lo:0.3, hi:1.7, unit:'I / ⟨I⟩', label:'the continuum at 430 nm'};
+  if(qty==='Bz') return {get:i=>at[4*i]/1500, map:cmapDiv, lo:-1500, hi:1500, unit:'G', label:'B_z at τ = 1 (cyan up, orange down)'};
+  if(qty==='vz') return {get:i=>at[4*i+1]/5e5, map:cmapDiv, lo:-5, hi:5, unit:'km/s', label:'v_z at τ = 1 (cyan up, orange down)'};
+  if(qty==='z'){ const z0=st.zmean-2.5e7, z1=st.zmean+1.0e7; return {get:i=>(I[4*i+2]-z0)/(z1-z0), map:cmapSeq, lo:z0/1e5, hi:z1/1e5, unit:'km', label:'height of τ = 1'}; }
+  return {get:i=>(at[4*i+2]-4500)/3000, map:cmapSeq, lo:4500, hi:7500, unit:'K', label:'temperature at τ = 1'}; }
+/* an image of a field over a window (periodic), as an offscreen canvas; null without a document */
+const IMG_CACHE={};
+function fieldImage(key,Nx,Ny,win,getv,map){ if(typeof document==='undefined') return null;
+  const w=win.w, hh=win.h; let c=IMG_CACHE[key]; if(!c||c.width!==w||c.height!==hh){ c=document.createElement('canvas'); c.width=w; c.height=hh; IMG_CACHE[key]=c; c.id_=c.getContext('2d').createImageData(w,hh); }
+  const d=c.id_.data; for(let y=0;y<hh;y++){ const j=(((win.j0+y)%Ny)+Ny)%Ny; for(let x=0;x<w;x++){ const i=(((win.i0+x)%Nx)+Nx)%Nx; const o=4*((hh-1-y)*w+x); map(getv(j*Nx+i),d,o); d[o+3]=255; } }
+  c.getContext('2d').putImageData(c.id_,0,0); return c; }
+function window_(M,zoom,zx,zy){ const w=Math.max(8,Math.round(M.Nx/zoom)), hh=Math.max(8,Math.round(M.Ny/zoom)); return {w,h:hh,i0:Math.round(zx*M.Nx-w/2),j0:Math.round(zy*M.Ny-hh/2)}; }
+function blit(ctx,img,x,y,w,h,smooth){ if(!img||!ctx.drawImage) return; ctx.imageSmoothingEnabled=!!smooth; ctx.drawImage(img,x,y,w,h); }
+function frameBox(ctx,x,y,w,h){ ctx.strokeStyle=COL.faint; ctx.lineWidth=1; ctx.strokeRect(x-0.5,y-0.5,w+1,h+1); }
+function scaleBar(ctx,x,y,pxPerCm,M){ const L=1e8, px=L*pxPerCm; ctx.strokeStyle=COL.white; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+px,y); ctx.stroke(); txt(ctx,'1 Mm · cells '+fmt(M.dx/1e5,0)+' km',x,y-5,COL.white,'10.5px -apple-system, sans-serif'); }
+function colourBar(ctx,x,y,w,h,fld,ticks){ const n=64, tmp=[0,0,0,0]; for(let i=0;i<n;i++){ const t=i/(n-1); const v=fld.map===cmapDiv?2*t-1:fld.map===cmapI?0.3+1.4*t:t; fld.map(v,tmp,0); ctx.fillStyle=rgbStr(tmp); ctx.fillRect(x+w*i/n,y,w/n+1,h); }
+  frameBox(ctx,x,y,w,h); txt(ctx,sigf(fld.lo,3)+' '+fld.unit,x,y+h+12,COL.dim,'10px -apple-system, sans-serif','left'); txt(ctx,sigf(fld.hi,3)+' '+fld.unit,x+w,y+h+12,COL.dim,'10px -apple-system, sans-serif','right'); }
+function cutLine(ctx,x0,y0,w,h,yfrac,xfrac){ ctx.save(); ctx.setLineDash([5,4]); ctx.strokeStyle=COL.live; ctx.lineWidth=1.2; const yy=y0+h*(1-yfrac); ctx.beginPath(); ctx.moveTo(x0,yy); ctx.lineTo(x0+w,yy); ctx.stroke(); ctx.setLineDash([]);
+  const xx=x0+w*xfrac; ctx.fillStyle=COL.live; ctx.beginPath(); ctx.moveTo(xx,y0+h+1); ctx.lineTo(xx-5,y0+h+8); ctx.lineTo(xx+5,y0+h+8); ctx.closePath(); ctx.fill(); ctx.restore(); }
+
+/* ---- the surface ---- */
+function drawSurface(ctx,W,H,M){ const side=Math.max(120,Math.min(H-112,W-RO_W-70)), x0=30, y0=58; const fld=surfaceField(M,M.st.qty);
+  const img=fieldImage('surf',M.Nx,M.Ny,{w:M.Nx,h:M.Ny,i0:0,j0:0},fld.get,fld.map); blit(ctx,img,x0,y0,side,side,true); frameBox(ctx,x0,y0,side,side);
+  cutLine(ctx,x0,y0,side,side,M.st.ycut,M.st.xray); scaleBar(ctx,x0+12,y0+side-14,side/M.width,M);
+  txt(ctx,fld.label,x0,y0-10,COL.text,'12px -apple-system, sans-serif');
+  colourBar(ctx,x0,y0+side+14,Math.min(side,320),9,fld);
+  if(M.hover&&M.hover.view==='surface'){ const hv=M.hover; ctx.strokeStyle=COL.white; ctx.lineWidth=1; const px=x0+side*hv.fx, py=y0+side*(1-hv.fy); ctx.strokeRect(px-4,py-4,8,8); } }
+/* ---- the walls: the same window from above and from the inclination mu ---- */
+function drawWalls(ctx,W,H,M){ const st=M.st, win=window_(M,st.zoom,st.zx,st.zy), mu=st.mu, avail=W-RO_W-80, top=58;
+  const plotsH=150, panelH=Math.max(100,Math.min(H-top-plotsH-60,Math.floor(avail/(1+mu)*win.h/win.w))), scale=panelH/win.h, w1=win.w*scale, w2=w1*mu, x1=30, x2=x1+w1+20;
+  const f1={get:i=>M.im1.I[4*i]/M.stats.Imean,map:cmapI}, Imu=M.imu.I; let sm=0; for(let i=0;i<M.Nx*M.Ny;i++) sm+=Imu[4*i]; sm/=M.Nx*M.Ny; const f2={get:i=>Imu[4*i]/sm,map:cmapI};
+  blit(ctx,fieldImage('w1',M.Nx,M.Ny,win,f1.get,f1.map),x1,top,w1,panelH,st.zoom===1); frameBox(ctx,x1,top,w1,panelH);
+  blit(ctx,fieldImage('w2',M.Nx,M.Ny,win,f2.get,f2.map),x2,top,w2,panelH,st.zoom===1); frameBox(ctx,x2,top,w2,panelH);
+  txt(ctx,'from above (μ = 1)',x1,top-10,COL.text,'12px -apple-system, sans-serif'); txt(ctx,'from '+fmt(Math.acos(mu)*180/PI,0)+'° off the vertical (μ = '+fmt(mu,2)+'), foreshortened',x2,top-10,COL.text,'12px -apple-system, sans-serif');
+  txt(ctx,'disc centre ←',x2+4,top+panelH+13,COL.dim,'10.5px -apple-system, sans-serif'); txt(ctx,'→ limb',x2+w2-4,top+panelH+13,COL.dim,'10.5px -apple-system, sans-serif','right');
+  scaleBar(ctx,x1+10,top+panelH-12,w1/(win.w*M.dx),M);
+  /* the field's kilogauss patches as thin contours on the overhead panel */
+  if(st.showField){ const B=new Float32Array(win.w*win.h); for(let y=0;y<win.h;y++){ const j=(((win.j0+y)%M.Ny)+M.Ny)%M.Ny; for(let x=0;x<win.w;x++){ const i=(((win.i0+x)%M.Nx)+M.Nx)%M.Nx; B[y*win.w+x]=Math.abs(M.im1.at[4*(j*M.Nx+i)]); } }
+    for(const [lev,col] of [[1000,COL.pos],[1500,COL.live]]) drawContours(ctx,B,win.w,win.h,lev,(x,y)=>[x1+(x+0.5)*scale,top+panelH-(y+0.5)*scale],col,1); }
+  /* the marker line at x and the cross-cuts along y */
+  const xi=clamp(Math.round(st.xray*M.Nx)-win.i0,0,win.w-1), i=(((win.i0+xi)%M.Nx)+M.Nx)%M.Nx; const mx1=x1+(xi+0.5)*scale, mx2=x2+(xi+0.5)*scale*mu;
+  ctx.save(); ctx.setLineDash([4,4]); ctx.strokeStyle=COL.live; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(mx1,top); ctx.lineTo(mx1,top+panelH); ctx.moveTo(mx2,top); ctx.lineTo(mx2,top+panelH); ctx.stroke(); ctx.restore();
+  const py=top+panelH+34, ph=plotsH-40, pw=Math.min(avail,w1+w2+20); const n=win.h; const ys=[], I1=[], I2=[], Bz=[], zt=[]; 
+  for(let y=0;y<n;y++){ const j=(((win.j0+y)%M.Ny)+M.Ny)%M.Ny, q=j*M.Nx+i; ys.push(y); I1.push(M.im1.I[4*q]/M.stats.Imean); I2.push(Imu[4*q]/sm); Bz.push(M.imu.at[4*q]/1000); zt.push(M.imu.I[4*q+2]/1e5); }
+  const rows=[{v:I2,v2:I1,lab:'I / ⟨I⟩ along the line: inclined (colour), from above (grey)',col:COL.pos,lo:0.4,hi:1.8},{v:Bz,lab:'B_z at τ = 1 along the inclined ray, kG',col:COL.struct,lo:-2,hi:2},{v:zt,lab:'height of τ = 1 along the inclined ray, km',col:COL.ref,lo:null,hi:null}];
+  const rh=ph/3; rows.forEach((r,ri)=>{ const yy=py+ri*rh; let lo=r.lo, hi=r.hi; if(lo===null){ lo=Math.min(...r.v)-10; hi=Math.max(...r.v)+10; } const Y=v=>yy+rh-6-(rh-14)*clamp((v-lo)/(hi-lo),0,1);
+    ctx.strokeStyle=COL.faint; ctx.beginPath(); ctx.moveTo(x1,yy+rh-6); ctx.lineTo(x1+pw,yy+rh-6); ctx.stroke();
+    if(r.v2){ ctx.strokeStyle=COL.dim; ctx.lineWidth=1; ctx.beginPath(); r.v2.forEach((v,k)=>{ const X=x1+pw*(k+0.5)/n; if(k) ctx.lineTo(X,Y(v)); else ctx.moveTo(X,Y(v)); }); ctx.stroke(); }
+    ctx.strokeStyle=r.col; ctx.lineWidth=1.5; ctx.beginPath(); r.v.forEach((v,k)=>{ const X=x1+pw*(k+0.5)/n; if(k) ctx.lineTo(X,Y(v)); else ctx.moveTo(X,Y(v)); }); ctx.stroke();
+    txt(ctx,r.lab,x1,yy+9,COL.dim,'10px -apple-system, sans-serif'); txt(ctx,sigf(hi,3),x1+pw+4,yy+12,COL.dim,'9.5px -apple-system, sans-serif'); txt(ctx,sigf(lo,3),x1+pw+4,yy+rh-6,COL.dim,'9.5px -apple-system, sans-serif'); });
+  txt(ctx,'y along the dashed line →  (the stripes cross it; '+fmt(win.h*M.dx/1e5,0)+' km'+(st.zoom>1?'; the cells are drawn as they are, '+fmt(M.dx/1e5,0)+' km each':'')+')',x1,py+ph+12,COL.dim,'10px -apple-system, sans-serif'); }
+/* marching squares on a w x h field at level lev; toXY maps cell-centre indices to the canvas */
+function drawContours(ctx,F,w,h,lev,toXY,col,lw){ ctx.strokeStyle=col; ctx.lineWidth=lw||1; ctx.beginPath();
+  const at=(x,y)=>F[y*w+x]; const lerpP=(xa,ya,va,xb,yb,vb)=>{ const t=(lev-va)/((vb-va)||1e-30); return [xa+(xb-xa)*t,ya+(yb-ya)*t]; };
+  for(let y=0;y<h-1;y++) for(let x=0;x<w-1;x++){ const a=at(x,y),b=at(x+1,y),c=at(x+1,y+1),d=at(x,y+1); const code=(a>=lev?1:0)|(b>=lev?2:0)|(c>=lev?4:0)|(d>=lev?8:0); if(code===0||code===15) continue;
+    const pts=[]; if((code&1)!==(code&2)>>1) pts.push(lerpP(x,y,a,x+1,y,b)); if(((code&2)>>1)!==(code&4)>>2) pts.push(lerpP(x+1,y,b,x+1,y+1,c)); if(((code&4)>>2)!==(code&8)>>3) pts.push(lerpP(x+1,y+1,c,x,y+1,d)); if(((code&8)>>3)!==(code&1)) pts.push(lerpP(x,y+1,d,x,y,a));
+    for(let p=0;p+1<pts.length;p+=2){ const A=toXY(pts[p][0],pts[p][1]), B=toXY(pts[p+1][0],pts[p+1][1]); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); } }
+  ctx.stroke(); }
+/* ---- the cut ---- */
+function tauOneVertical(M,i){ const c=M.cut[0], chi=M.cut[2]; let tau=0; for(let k=M.Nz-1;k>=0;k--){ const q=k*M.Nx+i, d=chi[4*q]*M.dzv[k]; if(tau+d>=1) return M.zc[k]+M.dzv[k]*(0.5-(1-tau)/d); tau+=d; } return M.zc[0]; }
+/* along the inclined ray leaving the top at x_top (cells): the point (x,z) where tau reaches 1 */
+function tauOneInclined(M,xtop,mu){ const chi=M.cut[2], tanT=Math.sqrt(Math.max(0,1-mu*mu))/mu, zTop=M.zc[M.Nz-1]+0.5*M.dzv[M.Nz-1]; let tau=0;
+  for(let k=M.Nz-1;k>=0;k--){ const x=xtop-(zTop-M.zc[k])*tanT/M.dx; const xw=((x%M.Nx)+M.Nx)%M.Nx, i0=Math.floor(xw-0.5+M.Nx)%M.Nx, f=((xw-0.5)%1+1)%1, i1=(i0+1)%M.Nx; const ch=chi[4*(k*M.Nx+i0)]*(1-f)+chi[4*(k*M.Nx+i1)]*f, d=ch*M.dzv[k]/mu;
+    if(tau+d>=1){ const fz=(1-tau)/d; const z=M.zc[k]+0.5*M.dzv[k]-fz*M.dzv[k]; return {x:xtop-(zTop-z)*tanT/M.dx, z}; } tau+=d; }
+  return {x:xtop-(zTop-M.zc[0])*tanT/M.dx, z:M.zc[0]}; }
+function cutField(M,q){ const c=M.cut, R=M.R; 
+  if(q==='T') return {get:(i,k)=>Math.log(c[0][4*(k*M.Nx+i)]/3500)/Math.log(16000/3500), map:cmapSeq, lo:3500, hi:16000, unit:'K', label:'temperature (log scale)'};
+  if(q==='rho') return {get:(i,k)=>(c[0][4*(k*M.Nx+i)+1]/R.rc[k]-1)/0.5, map:cmapDiv, lo:-50, hi:50, unit:'%', label:'density against the initial stratification (cyan denser)'};
+  if(q==='B') return {get:(i,k)=>c[0][4*(k*M.Nx+i)+3]/2000, map:cmapSeq, lo:0, hi:2000, unit:'G', label:'|B|'};
+  return {get:(i,k)=>c[1][4*(k*M.Nx+i)+1]/6e5, map:cmapDiv, lo:-6, hi:6, unit:'km/s', label:'v_z (cyan up, orange down)'}; }
+function cutImage(M,fld,rows){ if(typeof document==='undefined') return null; const key='cut', w=M.Nx; let c=IMG_CACHE[key]; if(!c||c.width!==w||c.height!==rows){ c=document.createElement('canvas'); c.width=w; c.height=rows; IMG_CACHE[key]=c; c.id_=c.getContext('2d').createImageData(w,rows); }
+  const d=c.id_.data, zb=M.zc[0]-0.5*M.dzv[0], zt=M.zc[M.Nz-1]+0.5*M.dzv[M.Nz-1]; let k=0;
+  for(let r=0;r<rows;r++){ const z=zb+(zt-zb)*(r+0.5)/rows; while(k<M.Nz-1&&M.zc[k+1]<z) k++; for(let i=0;i<w;i++){ const o=4*((rows-1-r)*w+i); fld.map(fld.get(i,k),d,o); d[o+3]=255; } }
+  c.getContext('2d').putImageData(c.id_,0,0); return c; }
+function drawCut(ctx,W,H,M){ const st=M.st, avail=W-RO_W-70, zb=M.zc[0]-0.5*M.dzv[0], zt=M.zc[M.Nz-1]+0.5*M.dzv[M.Nz-1], depth=zt-zb;
+  const stripH=46, top=58+stripH; let pw=avail, ph=pw*depth/M.width; if(ph>H-top-60){ ph=H-top-60; pw=ph*M.width/depth; } const x0=30, y0=top;
+  const X=x=>x0+pw*x/M.width, Y=z=>y0+ph*(zt-z)/depth; const fld=cutField(M,st.qcut);
+  blit(ctx,cutImage(M,fld,Math.round(ph)),x0,y0,pw,ph,true); frameBox(ctx,x0,y0,pw,ph);
+  /* the z axis */
+  for(const zk of [-1000,-500,0,250]){ const z=zk*1e5; if(z<zb||z>zt) continue; txt(ctx,(zk>0?'+':'')+zk+' km',x0-4,Y(z)+3,COL.dim,'10px -apple-system, sans-serif','right'); ctx.strokeStyle=COL.faint; ctx.beginPath(); ctx.moveTo(x0,Y(z)); ctx.lineTo(x0+6,Y(z)); ctx.stroke(); }
+  txt(ctx,fld.label+' in the plane y = '+fmt(st.ycut*M.width/1e5,0)+' km',x0,58-10+stripH,COL.text,'12px -apple-system, sans-serif');
+  /* tau = 1 for vertical rays (solid) and along the inclined rays (dashed) */
+  ctx.strokeStyle=COL.white; ctx.lineWidth=1.3; ctx.beginPath(); for(let i=0;i<M.Nx;i++){ const z=tauOneVertical(M,i), x=X((i+0.5)*M.dx); if(i) ctx.lineTo(x,Y(z)); else ctx.moveTo(x,Y(z)); } ctx.stroke();
+  ctx.save(); ctx.setLineDash([4,3]); ctx.strokeStyle=COL.pos; ctx.beginPath(); let prev=null; for(let i=0;i<M.Nx;i++){ const p=tauOneInclined(M,i+0.5,st.mu); const x=X(p.x*M.dx); if(prev!==null&&Math.abs(p.x-prev)<M.Nx/2) ctx.lineTo(x,Y(p.z)); else ctx.moveTo(x,Y(p.z)); prev=p.x; } ctx.stroke(); ctx.restore();
+  if(st.contours){ const B=new Float32Array(M.Nx*M.Nz); for(let q=0;q<M.Nx*M.Nz;q++) B[q]=M.cut[0][4*q+3]; for(const [lev,col] of [[500,COL.dim],[1000,COL.pos],[1500,COL.live]]) drawContours(ctx,B,M.Nx,M.Nz,lev,(x,k)=>{ const kk=clamp(k,0,M.Nz-1), ki=Math.floor(kk), kf=kk-ki, z=M.zc[ki]+(ki<M.Nz-1?(M.zc[ki+1]-M.zc[ki])*kf:0); return [X((x+0.5)*M.dx),Y(z)]; },col,1); }
+  if(st.arrows){ const nx=Math.min(28,M.Nx), sx=M.Nx/nx; const zs=[]; for(let z=zb+0.6e7;z<zt-0.3e7;z+=Math.max(0.8e7,depth/16)) zs.push(z); let k=0; ctx.strokeStyle='rgba(244,246,251,.75)'; ctx.lineWidth=1;
+    for(const z of zs){ while(k<M.Nz-1&&M.zc[k+1]<z) k++; for(let a=0;a<nx;a++){ const i=Math.floor((a+0.5)*sx), q=k*M.Nx+i, vx=M.cut[1][4*q], vz=M.cut[1][4*q+1], L=Math.hypot(vx,vz); if(L<2e4) continue; const px=X((i+0.5)*M.dx), py=Y(z), s=Math.min(26,22*L/5e5)/L, ex=px+vx*s, ey=py-vz*s;
+      ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(ex,ey); ctx.stroke(); const ang=Math.atan2(ey-py,ex-px); ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(ex-5*Math.cos(ang-0.5),ey-5*Math.sin(ang-0.5)); ctx.lineTo(ex-5*Math.cos(ang+0.5),ey-5*Math.sin(ang+0.5)); ctx.closePath(); ctx.fillStyle='rgba(244,246,251,.75)'; ctx.fill(); } } }
+  /* the sightlines: a fan of inclined rays about the marker, each stopped where it reaches tau = 1, coloured by what it sees */
+  const Imu=M.imu.I, I1=M.im1.I; let smu=0; for(let i=0;i<M.Nx*M.Ny;i++) smu+=Imu[4*i]; smu/=M.Nx*M.Ny;
+  if(st.rays){ const tanT=Math.sqrt(Math.max(0,1-st.mu*st.mu))/st.mu, ic=st.xray*M.Nx; for(let r=-3;r<=3;r++){ const xtop=ic+r*Math.max(1,Math.round(6e6/M.dx)); const p=tauOneInclined(M,xtop,st.mu); const q=M.jcut*M.Nx+(((Math.floor(xtop)%M.Nx)+M.Nx)%M.Nx); const rel=Imu[4*q]/smu; const tmp=[0,0,0]; cmapI(rel,tmp,0);
+      ctx.strokeStyle=rgbStr(tmp); ctx.lineWidth=r===0?2:1.2; ctx.beginPath(); ctx.moveTo(X(xtop*M.dx),Y(zt)); ctx.lineTo(X(p.x*M.dx),Y(p.z)); ctx.stroke(); ctx.fillStyle=rgbStr(tmp); ctx.beginPath(); ctx.arc(X(p.x*M.dx),Y(p.z),3,0,TAU); ctx.fill(); }
+    txt(ctx,'sightlines at μ = '+fmt(st.mu,2)+', each ending where its own τ reaches 1, coloured by the light it brings',x0+8,y0+ph-8,COL.white,'10.5px -apple-system, sans-serif'); }
+  /* the intensity along this row, from above and inclined, above the panel */
+  { const sy=58, sh=stripH-10; ctx.strokeStyle=COL.faint; ctx.strokeRect(x0-0.5,sy-0.5,pw+1,sh+1); const Yv=v=>sy+sh-sh*clamp((v-0.4)/1.4,0,1);
+    ctx.strokeStyle=COL.dim; ctx.lineWidth=1; ctx.beginPath(); for(let i=0;i<M.Nx;i++){ const v=I1[4*(M.jcut*M.Nx+i)]/M.stats.Imean, x=X((i+0.5)*M.dx); if(i) ctx.lineTo(x,Yv(v)); else ctx.moveTo(x,Yv(v)); } ctx.stroke();
+    ctx.strokeStyle=COL.pos; ctx.lineWidth=1.4; ctx.beginPath(); for(let i=0;i<M.Nx;i++){ const v=Imu[4*(M.jcut*M.Nx+i)]/smu, x=X((i+0.5)*M.dx); if(i) ctx.lineTo(x,Yv(v)); else ctx.moveTo(x,Yv(v)); } ctx.stroke();
+    txt(ctx,'I / ⟨I⟩ along the cut: from above (grey) and inclined (green, against where each ray leaves the top)',x0+4,sy+10,COL.dim,'10px -apple-system, sans-serif'); }
+  scaleBar(ctx,x0+10,y0+ph-26,pw/M.width,M);
+  txt(ctx,'white: τ = 1 for a vertical ray · dashed green: τ = 1 along the inclined rays · contours |B| = 0.5, 1, 1.5 kG · arrows: the flow',x0,y0+ph+14,COL.dim,'10px -apple-system, sans-serif'); }
+/* ---- the model: profiles, fluxes, histories, the checks ---- */
+function plotFrame(ctx,x,y,w,h,title){ ctx.strokeStyle=COL.faint; ctx.strokeRect(x-0.5,y-0.5,w+1,h+1); txt(ctx,title,x,y-6,COL.text,'11.5px -apple-system, sans-serif'); }
+function drawModel(ctx,W,H,M){ const avail=W-RO_W-70, pw=(avail-30)/2, ph=Math.max(90,(H-140)/2), x1=40, x2=x1+pw+30, y1=66, y2=y1+ph+50; const mp=M.mean, R=M.R;
+  /* (a) the mean temperature against the start */
+  plotFrame(ctx,x1,y1,pw,ph,'⟨T⟩(z): now (green) and at the start (dotted); white tick: ⟨τ = 1⟩');
+  { const zb=M.zc[0], zt=M.zc[M.Nz-1]; const X=z=>x1+pw*(z-zb)/(zt-zb), Y=T=>y1+ph-ph*clamp((Math.log(T/3000))/Math.log(16000/3000),0,1);
+    ctx.save(); ctx.setLineDash([2,3]); ctx.strokeStyle=COL.dim; ctx.beginPath(); for(let k=0;k<M.Nz;k++){ if(k) ctx.lineTo(X(M.zc[k]),Y(R.Tc[k])); else ctx.moveTo(X(M.zc[k]),Y(R.Tc[k])); } ctx.stroke(); ctx.restore();
+    if(mp){ ctx.strokeStyle=COL.pos; ctx.lineWidth=1.5; ctx.beginPath(); for(let k=0;k<M.Nz;k++){ if(k) ctx.lineTo(X(M.zc[k]),Y(mp.T[k])); else ctx.moveTo(X(M.zc[k]),Y(mp.T[k])); } ctx.stroke(); }
+    ctx.strokeStyle=COL.white; ctx.beginPath(); ctx.moveTo(X(M.stats.zmean),y1+ph); ctx.lineTo(X(M.stats.zmean),y1+ph-10); ctx.stroke();
+    for(const T of [3000,5000,8000,12000,16000]) txt(ctx,T+' K',x1-4,Y(T)+3,COL.dim,'9.5px -apple-system, sans-serif','right'); for(const zk of [-1000,-500,0]) txt(ctx,zk+' km',X(zk*1e5),y1+ph+12,COL.dim,'9.5px -apple-system, sans-serif','center'); }
+  /* (b) the fluxes */
+  plotFrame(ctx,x2,y1,pw,ph,'the energy flux the flow carries, against σT⊙⁴: enthalpy (green), kinetic (orange)');
+  { const zb=M.zc[0], zt=M.zc[M.Nz-1], F0=SIG_SB*Math.pow(T_EFF_SUN,4); const X=z=>x2+pw*(z-zb)/(zt-zb), Y=f=>y1+ph*0.8-ph*0.6*clamp(f,-0.33,1.3);
+    ctx.strokeStyle=COL.faint; ctx.beginPath(); ctx.moveTo(x2,Y(0)); ctx.lineTo(x2+pw,Y(0)); ctx.moveTo(x2,Y(1)); ctx.lineTo(x2+pw,Y(1)); ctx.stroke(); txt(ctx,'1',x2-4,Y(1)+3,COL.dim,'9.5px -apple-system, sans-serif','right'); txt(ctx,'0',x2-4,Y(0)+3,COL.dim,'9.5px -apple-system, sans-serif','right');
+    if(mp){ ctx.strokeStyle=COL.pos; ctx.lineWidth=1.5; ctx.beginPath(); for(let k=0;k<M.Nz;k++){ if(k) ctx.lineTo(X(M.zc[k]),Y(mp.Fc[k]/F0)); else ctx.moveTo(X(M.zc[k]),Y(mp.Fc[k]/F0)); } ctx.stroke();
+      ctx.strokeStyle=COL.ref; ctx.beginPath(); for(let k=0;k<M.Nz;k++){ if(k) ctx.lineTo(X(M.zc[k]),Y(mp.Fk[k]/F0)); else ctx.moveTo(X(M.zc[k]),Y(mp.Fk[k]/F0)); } ctx.stroke(); }
+    for(const zk of [-1000,-500,0]) txt(ctx,zk+' km',X(zk*1e5),y1+ph+12,COL.dim,'9.5px -apple-system, sans-serif','center'); }
+  /* (c) the histories */
+  plotFrame(ctx,x1,y2,pw,ph,'T_eff (green, against 5772 K), the rms contrast (orange, %), ⟨|B|⟩ at τ = 1 (cyan, ×10 G)');
+  { const hs=M.hist; const t0=0, t1=Math.max(600,hs.length?hs[hs.length-1].t:600); const X=t=>x1+pw*(t-t0)/(t1-t0); const Y=(v,lo,hi)=>y2+ph-ph*clamp((v-lo)/(hi-lo),0,1);
+    ctx.strokeStyle=COL.faint; ctx.beginPath(); ctx.moveTo(x1,Y(5772,4000,7000)); ctx.lineTo(x1+pw,Y(5772,4000,7000)); ctx.stroke();
+    const series=[[h=>h.Teff,4000,7000,COL.pos],[h=>100*h.rms,0,60,COL.ref],[h=>h.Babs/10,0,60,COL.struct]];
+    for(const [f,lo,hi,col] of series){ ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.beginPath(); hs.forEach((h,n)=>{ if(n) ctx.lineTo(X(h.t),Y(f(h),lo,hi)); else ctx.moveTo(X(h.t),Y(f(h),lo,hi)); }); ctx.stroke(); }
+    txt(ctx,'7000 K · 60',x1-4,y2+10,COL.dim,'9.5px -apple-system, sans-serif','right'); txt(ctx,'4000 K · 0',x1-4,y2+ph,COL.dim,'9.5px -apple-system, sans-serif','right'); for(const tm of [0,5,10,15,20,30,45,60]){ const t=tm*60; if(t<=t1) txt(ctx,tm+' min',X(t),y2+ph+12,COL.dim,'9.5px -apple-system, sans-serif','center'); } }
+  /* (d) the checks */
+  plotFrame(ctx,x2,y2,pw,ph,'the model and its checks');
+  { const lines=modelLines(M); let yy=y2+16; for(const L of lines){ txt(ctx,L.s,x2+8,yy,L.col||COL.dim,'11px -apple-system, sans-serif'); yy+=15; if(yy>y2+ph-4) break; } } }
+function modelLines(M){ const g=M.g, c=M.checks, L=[]; if(!g) return [{s:'no GPU model'}];
+  L.push({s:g.Nx+' × '+g.Ny+' × '+g.Nz+' cells of '+fmt(g.P.dx/1e5,1)+' × '+fmt(g.P.dx/1e5,1)+' × '+fmt(g.G.dz[g.Nz-1]/1e5,0)+'–'+fmt(g.G.dz[0]/1e5,0)+' km, '+fmt(M.width/1e5,0)+' km wide, '+fmt((Z_TOP-Z_BOT)/1e5,0)+' km deep',col:COL.text});
+  L.push({s:'step '+thou(g.step)+', Δt = '+fmt(g.dt,3)+' s, '+fmt(M.rate.solarPerWall,1)+' solar seconds per second of yours'});
+  L.push({s:'T_eff '+fmt(M.stats.Teff,0)+' K against the Sun\'s 5772; ⟨τ = 1⟩ at '+fmt(M.stats.zmean/1e5,0)+' km'});
+  if(c){ L.push({s:'the shader against its JavaScript twin, '+c.steps+' steps on '+c.grid+':',col:COL.text}); L.push({s:'  ρ '+sci(c.rho,1)+', e '+sci(c.e,1)+', B_z '+sci(c.Bz,1)+', momentum '+sci(c.m,1)+' (float32 against float64)',col:c.ok?COL.pos:COL.ref});
+    L.push({s:'the twin at rest under gravity: |v| < '+sci(c.rest,1)+' cm/s after '+c.restSteps+' steps',col:COL.pos}); L.push({s:'closed box, no radiation: energy kept to '+sci(c.cons,1)+' of the kinetic over '+fmt(c.consT,0)+' s',col:COL.pos});
+    L.push({s:'a column in radiative equilibrium, on the eight rays: T_eff '+fmt(c.Teff0,0)+' K (built for 5772)',col:COL.pos}); }
+  else L.push({s:'checks pending'});
+  return L; }
+function drawView(ctx,W,H,M){ ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.err){ txt(ctx,'the GPU model could not start:',30,60,COL.ref,'13px -apple-system, sans-serif'); txt(ctx,String(M.err).slice(0,200),30,82,COL.dim,'11px monospace'); return; }
+  if(!M.g){ txt(ctx,'preparing the model (tables of the gas and its opacity, the stratification)…',30,60,COL.dim,'13px -apple-system, sans-serif'); return; }
+  const v=M.st.view; if(v==='surface') drawSurface(ctx,W,H,M); else if(v==='walls') drawWalls(ctx,W,H,M); else if(v==='cut') drawCut(ctx,W,H,M); else drawModel(ctx,W,H,M); }
+
+/* ================================================================== *
+ *  the readout, the equation bar, the tag, and the prose              *
+ * ================================================================== */
+const VIEW_NAME={surface:'the surface',walls:'the walls',cut:'the cut',model:'the model'};
+function stageOf(M){ const s=M.stats, t=M.t; if(!s) return 'starting';
+  if(t<30) return 'a stratified atmosphere at rest, in radiative equilibrium above τ = 1 and on an adiabat below: it radiates, and the layer below the surface starts to cool';
+  if(s.rms<0.04) return 'the layer just below τ = 1 radiates faster than it is resupplied: it cools, grows dense, and the first cells begin to turn over';
+  if(s.rms<0.15) return 'convection is setting in: warm gas rises in the cells, the cooled gas drains into lanes between them';
+  if(s.Bmax<1000) return 'granules: broad warm upflows, narrow cool downflows; the converging flow is sweeping the field into the lanes';
+  return 'granules renewing every few minutes; the field in the lanes has collapsed to kilogauss sheets, depressing the surface where it sits'; }
+function readoutHTML(M){ const s=M.stats, v=M.st.view; if(!s) return '<div class="rname">Granulation<small>preparing</small></div>';
+  let rows='<tr><td class="hd" colspan="2">the clock</td></tr><tr><td>solar time</td><td class="v">'+tStr(M.t)+'</td></tr><tr><td>running at</td><td class="v">'+fmt(M.rate.solarPerWall,0)+' solar s / s</td></tr>';
+  rows+='<tr><td class="hd" colspan="2">the surface</td></tr><tr><td>T<sub>eff</sub> (the Sun: 5772)</td><td class="v">'+fmt(s.Teff,0)+' K</td></tr><tr><td>rms contrast at 430 nm</td><td class="v">'+fmt(100*s.rms,1)+' %</td></tr><tr><td>⟨T⟩ at τ = 1</td><td class="v">'+fmt(s.Tmean,0)+' K</td></tr><tr><td>τ = 1 lies at</td><td class="v">'+sgn(s.zmin/1e5,0)+' to '+sgn(s.zmax/1e5,0)+' km</td></tr><tr><td>fastest vertical flow</td><td class="v">'+fmt(s.vmax/1e5,1)+' km/s</td></tr>';
+  rows+='<tr><td class="hd" colspan="2">the field at τ = 1</td></tr><tr><td>⟨|B<sub>z</sub>|⟩</td><td class="v">'+fmt(s.Babs,0)+' G</td></tr><tr><td>strongest</td><td class="v">'+fmt(s.Bmax,0)+' G</td></tr><tr><td>area above 1 kG</td><td class="v">'+fmt(100*s.kGfrac,1)+' %</td></tr>';
+  if(M.hover&&M.hover.vals){ const h=M.hover.vals; rows+='<tr><td class="hd" colspan="2">under the cursor</td></tr>'; for(const [k,val] of h) rows+='<tr><td>'+k+'</td><td class="v">'+val+'</td></tr>'; }
+  const note=v==='surface'?'<b>Click</b> to put the cut and the sightlines there.':v==='walls'?'<b>Click</b> to move the cross-cut line; drag to pan the magnifier.':v==='cut'?'<b>Click</b> to move the sightlines.':'The checks are run on a small grid at the start.';
+  return '<div class="rname">'+VIEW_NAME[v]+'<small>'+(M.g?M.g.Nx+'² × '+M.g.Nz+' cells, '+fmt(M.width/1e8,1)+' Mm wide':'')+'</small></div><table>'+rows+'</table><div class="note">'+note+'</div>'; }
+function eqbarHTML(M){ const s=M.stats, v=M.st.view; if(!s) return '';
+  if(v==='surface') return '<span class="lhs">σ T<sub>eff</sub><sup>4</sup> = F</span> → T<sub>eff</sub> = <span class="hl">'+fmt(s.Teff,0)+' K</span> &nbsp;·&nbsp; rms δI/⟨I⟩ = <span class="hl">'+fmt(100*s.rms,1)+' %</span> &nbsp;·&nbsp; ⟨|B<sub>z</sub>|⟩ = <span class="hl2">'+fmt(s.Babs,0)+' G</span><span class="sm">the emergent flux of the grey eight-ray transfer, the contrast of the 430-nm image, the unsigned field where τ = 1</span>';
+  if(v==='walls') return '<span class="lhs">μ = cos θ = '+fmt(M.st.mu,2)+'</span> → θ = <span class="hl">'+fmt(Math.acos(M.st.mu)*180/PI,0)+'°</span> &nbsp;·&nbsp; a ray through a sheet with δB ≈ −100 G meets τ = 1 ≈ <span class="hl2">10–30 km higher</span>: a dark stripe<span class="sm">Kuridze et al. (2025): dark striae 20–53 km wide, τ = 1 raised 10–30 km, B<sub>z</sub> 100–250 G weaker than the bright neighbours</span>';
+  if(v==='cut'){ const Beq=Math.sqrt(8*PI*1.6e5), B=Math.min(s.Bmax,0.85*Beq), dz=-1.2e7*Math.log(1/(1-B*B/(8*PI*1.6e5)))/1e5; return '<span class="lhs">p<sub>in</sub> + B²/8π = p<sub>out</sub></span> → δz<sub>τ=1</sub> ≈ &minus;H<sub>p</sub> ln(p<sub>out</sub>/p<sub>in</sub>) ≈ <span class="hl">'+fmt(dz,0)+' km</span> for B = '+fmt(B,0)+' G'+(s.Bmax>B?' (the strongest, '+fmt(s.Bmax,0)+' G, is past the '+fmt(Beq,0)+' G a static sheet could hold)':'')+'<span class="sm">the Wilson depression: the sheet is evacuated to balance the outside pressure, so τ = 1 forms deeper inside it (H<sub>p</sub> ≈ 120 km, p ≈ 1.6 × 10⁵ dyn/cm²)</span>'; }
+  return '<span class="lhs">∂<sub>t</sub>ρ + ∇·ρ<b>v</b> = 0 · ∂<sub>t</sub>ρ<b>v</b> + ∇·(ρ<b>vv</b> + p) = ρ<b>g</b> + f<sub>B</sub> <b>J</b>×<b>B</b> · ∂<sub>t</sub>E + ∇·(E+p)<b>v</b> = ρ<b>g</b>·<b>v</b> + f<sub>B</sub> <b>v</b>·<b>J</b>×<b>B</b> + Q<sub>rad</sub> · ∂<sub>t</sub><b>B</b> = ∇×(<b>v</b>×<b>B</b>)</span><span class="sm">finite volume, HLL fluxes with Dedner\'s cleaning of ∇·B, a Saha gas, grey radiation on eight rays, on the GPU</span>'; }
+function tagHTML(M){ const v=M.st.view; return '<b>'+VIEW_NAME[v]+'</b> — '+stageOf(M); }
+const SRC_LINE='The striations: Kuridze, Wöger, Uitenbroek, Rempel, Tritschler, Rimmele, Fischer &amp; Steiner (2025), ApJL, arXiv:2505.03965, and the NSO release of 2025 June 3; the production code they compare with: MURaM (Vögler et al. 2005; Rempel 2014). Granulation and its simulation: Stein &amp; Nordlund (1998), Nordlund, Stein &amp; Asplund (2009). Faculae as hot walls seen through evacuated flux tubes: Spruit (1976), Keller et al. (2004), Carlsson et al. (2004). The opacities: Gray (2005) after Wishart (1979) and Bell &amp; Berrington (1987). The gas: Asplund et al. (2009) abundances, Saha. The numerics: Harten, Lax &amp; van Leer (1983), van Leer (1979), Dedner et al. (2002), the Boris correction after Gombosi et al. (2002). The Wilson depression: Wilson (1774).';
+function infoFor(v){
+  if(v==='surface') return 'A '+fmt(ST.width/1e8,1)+'-Mm patch of the Sun&rsquo;s surface, 1.5 Mm deep, computed as you watch: the gas, its ionisation, its opacity, the light it loses, and the field it carries. Shown is the continuum at 430 nm seen from straight above, or, by the chips, what lies at τ&nbsp;=&nbsp;1 under each point of it. <b>Granules</b> are the tops of the rising warm gas, a megametre across; the <b>lanes</b> are where it has radiated, cooled, grown dense and turned down. Each cell lives five to ten minutes. The field, uniform and vertical at the start, is carried to the lanes by the flow converging on them and squeezed there to kilogauss by the downdraught and the cooling (the convective collapse); where it sits the gas is evacuated and the surface τ&nbsp;=&nbsp;1 sinks by one to two hundred kilometres (the Wilson depression). The model starts at rest; the layer under the surface radiates before anything stirs, and the pattern forms over the first ten minutes.';
+  if(v==='walls') return 'The same surface seen from above and from '+fmt(Math.acos(ST.mu)*180/PI,0)+'&deg; off the vertical, the geometry in which the Inouye telescope found the striations (μ&nbsp;=&nbsp;0.85; the limb to the right). At an angle the line of sight crosses the walls of the granules: the walls facing the observer are seen through the cooler lane gas and look dark; those facing away are hidden. Where a line of sight passes through a kilogauss sheet it reaches deeper, because the sheet is evacuated, and sees the hot wall of the granule behind it: a <b>facula</b>, the bright edge. Along the sheet the field varies from place to place by a few hundred gauss; where it is weaker the sheet is less evacuated, τ&nbsp;=&nbsp;1 along the ray lies some tens of kilometres higher and cooler, and that part of the wall is darker. Side by side across the wall these make the <b>striations</b>, stripes running toward the limb. The cross-cuts below follow one line across them: the intensity dips where B<sub>z</sub> dips and τ&nbsp;=&nbsp;1 rises (the paper&rsquo;s figure 7). Here the stripes are two to four cells wide, '+fmt(2*ST.width/ST.res/1e5,0)+'&ndash;'+fmt(4*ST.width/ST.res/1e5,0)+' km; the telescope&rsquo;s are 20&ndash;50.';
+  if(v==='cut') return 'A vertical slice along the dashed line of the surface views, the whole depth of the box. The temperature shows the plumes: broad warm upflows, narrow cool downflows that reach the bottom. The white line is where a vertical ray reaches optical depth one, the surface the overhead image shows; it sinks into the lanes and deepest into the kilogauss sheets (the contours), where the gas pressure is lowered by the field&rsquo;s. The dashed green line is τ&nbsp;=&nbsp;1 along the inclined rays, the surface the walls view shows. The fan of sightlines at μ shows the mechanism: a ray that enters a sheet travels on through the evacuated gas and ends deeper, on the hot wall behind, bright; its neighbour outside the sheet ends sooner, in cooler gas, dark; and along the sheet (into the page) the field&rsquo;s strength, and so the depth each ray reaches, vary from stripe to stripe. The trace above the panel is the intensity along this row, from above and at the inclination.';
+  return 'What the model is and how it is checked. The mean temperature against the stratification it started from (the grey two-stream atmosphere above τ&nbsp;=&nbsp;1, a steep boundary layer into Model S&rsquo;s own run of temperature with pressure, and the deep adiabat below 700&nbsp;km); the energy flux carried by the flow, which must take the Sun&rsquo;s σT<sup>4</sup> up to the surface for radiation to take over; the history of the emergent temperature, the contrast and the field; and the checks that run at the start: the shader against its JavaScript twin, the rest state under gravity, the energy of a closed box, the flux of a column in radiative equilibrium. The one free number of the production codes, the entropy of the gas flowing in at the bottom, is taken here from Model S (the standard solar model sun.html is built on): the deep adiabat passes through Model S&rsquo;s temperature 1203&nbsp;km below the photosphere. With it the box settles, after fifteen to twenty minutes of solar time, to a T<sub>eff</sub> a few per cent above the Sun&rsquo;s 5772&nbsp;K and a mean temperature at τ&nbsp;=&nbsp;1 near the Sun&rsquo;s 6400&nbsp;K; the slider shifts the adiabat either way.'; }
+function physFor(v){ const frac=(t,b)=>'<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>';
+  const eq=(s,n)=>'<div class="eq">'+s+'<span class="n">('+n+')</span></div>';
+  let s='';
+  if(v==='surface'||v==='model'){
+    s+='<h4>the gas</h4><p>A hydrogen&ndash;helium gas (X&nbsp;=&nbsp;0.738, Y&nbsp;=&nbsp;0.249) with hydrogen and helium ionising by Saha&rsquo;s equation, and Mg, Si, Fe, Na, Al, Ca, K (two pseudo-elements, 7.6&nbsp;×&nbsp;10<sup>&minus;5</sup> and 7&nbsp;×&nbsp;10<sup>&minus;6</sup> per hydrogen) as the electron donors below 7000&nbsp;K. The internal energy carries the ionisation energy, which is most of what a granule brings up.</p>'
+      +eq(frac('n<sub>+</sub>n<sub>e</sub>','n<sub>0</sub>')+' = 2 '+frac('U<sub>+</sub>','U<sub>0</sub>')+' <span class="rm">(</span>'+frac('2π m<sub>e</sub> k T','h²')+'<span class="rm">)</span><sup>3/2</sup> e<sup>&minus;χ/kT</sup>','1')
+      +'<p>The tables p(ρ,e), T(ρ,e), c<sub>s</sub>(ρ,e) and the opacities are built once at the start (128&nbsp;×&nbsp;224 in log&nbsp;ρ, log&nbsp;e) and read by the shaders.</p>'
+      +'<h4>the opacity</h4><p>H<sup>&minus;</sup> bound-free (Wishart&rsquo;s cross-section, Gray&rsquo;s polynomial) and free-free (Bell &amp; Berrington), hydrogen bound-free from every level with Unsöld&rsquo;s tail and free-free with Gaunt factors, Rayleigh scattering on hydrogen and Thomson on the electrons, with stimulated emission; the Rosseland mean by quadrature over 96 frequencies for the transfer, and the monochromatic value at 430&nbsp;nm for the image. No lines: the real surface is somewhat more opaque, so τ&nbsp;=&nbsp;1 here sits at ρ&nbsp;≈&nbsp;4&nbsp;×&nbsp;10<sup>&minus;7</sup> g/cm³.</p>'
+      +eq(frac('1','κ<sub>R</sub>')+' = '+frac('∫ κ<sub>ν</sub><sup>&minus;1</sup> ∂<sub>T</sub>B<sub>ν</sub> dν','∫ ∂<sub>T</sub>B<sub>ν</sub> dν'),'2')
+      +'<h4>the radiation</h4><p>Grey, along eight rays: up and down at μ&nbsp;=&nbsp;1/√3 in four azimuths (the A2 quadrature), each ray shifted sideways by the layer&rsquo;s height times √2 as it climbs, integrated layer by layer by short characteristics with the source function linear in τ and the intensity resampled at the ray&rsquo;s entry point. What a ray loses in a cell heats the cell, so the box loses exactly what leaves its top, and the hot granules warm the lanes sideways. A cell whose radiative relaxation is faster than the time step has its exchange limited to the relaxed value. A column in radiative equilibrium, on this discretisation, radiates the Sun&rsquo;s flux to within a per cent at 10-km cells.</p>'
+      +eq('Q = Σ<sub>rays</sub> '+frac('π μ','2 Δz')+' (I<sub>in</sub> &minus; I<sub>out</sub>), &nbsp; σT<sub>eff</sub><sup>4</sup> = '+frac('π','2√3')+' Σ<sub>up</sub> I<sub>top</sub>','3')
+      +'<h4>the flow</h4><p>Ideal MHD in conservative form: mass, momentum, the hydrodynamic energy E&nbsp;=&nbsp;e&nbsp;+&nbsp;ρv²/2, and the induction equation with Dedner&rsquo;s cleaning of ∇·B. The Lorentz force is a source, reduced by the Boris factor f<sub>B</sub>&nbsp;=&nbsp;1/(1&nbsp;+&nbsp;v<sub>A</sub>²/c<sub>lim</sub>²) where the Alfvén speed would otherwise set the time step (c<sub>lim</sub>&nbsp;=&nbsp;20&nbsp;km/s at the surface, growing by that every 100&nbsp;km below it, so the sheets below the surface feel the full force).</p>'
+      +eq('∂<sub>t</sub>E + ∇·[(E + p)<b>v</b>] = ρ<b>g</b>·<b>v</b> + f<sub>B</sub> <b>v</b>·(<b>J</b>×<b>B</b>) + Q','4')
+      +'<p>Finite volume on a '+ST.res+'² × '+GRID_OF[ST.res].Nz+' grid: van Leer reconstruction of the primitives, with ρ, p and e scaled by the hydrostatic reference so that the stratified rest state is an exact solution; HLL fluxes with the fast speed; second-order Runge&ndash;Kutta at 0.45 of the Courant limit; the magnetic energy the fluxes dissipate is returned as heat, and gravity&rsquo;s work is taken from the same mass fluxes that move the mass, so the total energy of a closed box is kept. Periodic sides; closed top and bottom with the field held vertical there; a sponge for vertical motion in the top 100&nbsp;km; the bottom 100&nbsp;km relaxed in 20&nbsp;s toward the deep adiabat (Model S&rsquo;s entropy), which stands in for the open boundary of the production codes and supplies the flux.</p>';
+  }
+  if(v==='walls'||v==='cut'){
+    s+='<h4>the image</h4><p>Along each ray, downward from the top, the optical depth at 430&nbsp;nm accumulates and the intensity is the integral of the Planck function against e<sup>&minus;τ</sup> (LTE, the source linear across each cell); the ray is shifted sideways by (z<sub>top</sub>&nbsp;&minus;&nbsp;z)&nbsp;tan&nbsp;θ at each layer, and the sky-plane image is foreshortened by μ. Where τ reaches 1 the height, the field and the velocity are recorded: the maps the chips show.</p>'
+      +eq('I(μ) = ∫ B<sub>430</sub>(T) e<sup>&minus;τ</sup> dτ, &nbsp; dτ = κ<sub>430</sub> ρ dz / μ','5')
+      +'<h4>the depression</h4><p>In a sheet at rest across its width the gas pressure plus the magnetic balances the pressure outside, so the gas inside is thinner by the ratio; with the opacity following the density, τ&nbsp;=&nbsp;1 forms deeper by about a scale height times the log of that ratio. A kilogauss sheet is a few hundred kilometres deep in the picture, a hundred-gauss ripple along it ten to thirty kilometres.</p>'
+      +eq('p<sub>in</sub> = p<sub>out</sub> &minus; '+frac('B²','8π')+', &nbsp; δz ≈ &minus;H<sub>p</sub> ln '+frac('p<sub>out</sub>','p<sub>in</sub>'),'6')
+      +'<h4>the stripes</h4><p>What the inclined ray sees at a granule&rsquo;s limbward wall is set by where it reaches τ&nbsp;=&nbsp;1: through the evacuated sheet it gets to the hot wall behind (7000&nbsp;K where the cell tops are 6000), a bright facula; where the sheet&rsquo;s field is weaker it stops higher, in cooler gas, dark. The field&rsquo;s strength varies along the sheet because the flows that feed it are uneven and the sheet&rsquo;s edge is unstable to fluting, so the brightness varies across the wall in stripes that run toward the limb. Kuridze et al. measure dark striae 20&ndash;53&nbsp;km wide in the G band at 0.03&Prime;, and find in MURaM (7&nbsp;km cells) τ&nbsp;=&nbsp;1 raised 10&ndash;30&nbsp;km where B<sub>z</sub> is 100&ndash;250&nbsp;G weaker. This model&rsquo;s cells are '+fmt(ST.width/ST.res/1e5,0)+'&nbsp;km across, so its stripes are coarser and fewer; the mechanism is the same.</p>';
+  }
+  s+='<h4>what is assumed or left out</h4><ul><li>Grey radiation on eight rays (no line blanketing, no scattering in the source function, the inclined rays attributed to the cell they leave); LTE for the 430-nm image, the continuum only (the G band&rsquo;s CH lines, which brighten the real faculae further, are not here).</li><li>A closed bottom at 1.2&nbsp;Mm with the adiabat enforced there, a closed sponged top at 300&nbsp;km, periodic sides: the deepest flows and the atmosphere above the temperature minimum are not what the Sun has.</li><li>The entropy of the deep adiabat is Model S&rsquo;s at 1203&nbsp;km down (the slider shifts it); grey radiation and 10&ndash;30-km cells leave the box a few per cent brighter than the Sun once settled, and the start, a radiative atmosphere over a steep boundary layer and Model S&rsquo;s stratification, takes ten minutes to turn into granulation.</li><li>No H<sub>2</sub>, no second ionisation of the metals, no molecules in the opacity.</li><li>The resolution: '+fmt(ST.width/ST.res/1e5,0)+'&nbsp;km cells against MURaM&rsquo;s 7; the lanes and sheets are a few cells wide, the striations likewise.</li><li>The Boris reduction of the Lorentz force above the surface, and the limiter on the radiative exchange in the thick layers, break energy conservation slightly there.</li><li>The starting perturbation is a fixed random pattern; another seed gives another pattern.</li></ul>';
+  s+='<div class="cite">'+SRC_LINE+'</div>';
+  return s; }
+const HINTS={surface:'space plays or pauses · 1–4 switch views · click to place the cut',walls:'space plays or pauses · 1–4 switch views · click to move the line, drag to pan',cut:'space plays or pauses · 1–4 switch views · click to move the sightlines',model:'space plays or pauses · 1–4 switch views'};
+
+/* ================================================================== *
+ *  boot: the panel, the tabs, the clock, the mouse; and the checks    *
+ * ================================================================== */
+function runChecks(S){ const TB=S.TB, S1=S.S1; const out={};
+  const Nz=24, G=zGrid(Nz,2.5e6,Z_BOT,Z_TOP,Z_SW), R=refProfiles(S1,G,TB), P=makeParams(G,R,S1,{dx:1e7,dy:1e7,cLim:C_LIM});
+  /* rest under gravity */
+  { const St=initialState(G,R,TB,6,4,{amp:0,B0:200,seed:1}); const keep=radiate; radiate=(X)=>{ X.Q.fill(0); X.Ftop=new Float64Array(X.Nx*X.Ny); }; for(let n=0;n<8;n++) advance(St,P,TB); radiate=keep;
+    let vmax=0; for(let q=0;q<St.n;q++) vmax=Math.max(vmax,Math.abs(St.mz[q]/St.rho[q]),Math.abs(St.mx[q]/St.rho[q])); out.rest=vmax; out.restSteps=8; }
+  /* energy in a closed box without radiation or the bottom relaxation */
+  { const St=initialState(G,R,TB,6,4,{amp:0.2,B0:200,seed:1}); const keep=radiate; radiate=(X)=>{ X.Q.fill(0); X.Ftop=new Float64Array(X.Nx*X.Ny); }; const tb=P.tauBot; P.tauBot=1e30;
+    const E=X=>{ let Ei=0,Ek=0,Em=0,Ep=0; for(let k=0;k<Nz;k++) for(let q=k*24;q<(k+1)*24;q++){ const dV=G.dz[k]; Ei+=X.e[q]*dV; Ek+=0.5*(X.mx[q]**2+X.my[q]**2+X.mz[q]**2)/X.rho[q]*dV; Em+=(X.Bx[q]**2+X.By[q]**2+X.Bz[q]**2)/(8*PI)*dV; Ep+=X.rho[q]*G_SUN*G.zc[k]*dV; } return {E:Ei+Ek+Em+Ep,Ek}; };
+    const E0=E(St), t0=St.t; for(let n=0;n<40;n++) advance(St,P,TB); const E1=E(St); radiate=keep; P.tauBot=tb; out.cons=Math.abs(E1.E-E0.E)/Math.max(E1.Ek,1); out.consT=St.t-t0; }
+  /* the starting column's flux */
+  { const Gg=zGrid(48,1.5e6,Z_BOT,Z_TOP,Z_SW), Sg=stratify({zBot:Z_BOT,zTop:Z_TOP,grey:true},TB), Rg=refProfiles(Sg,Gg,TB), Pg=makeParams(Gg,Rg,Sg,{dx:1e7,dy:1e7,cLim:C_LIM}); const St=initialState(Gg,Rg,TB,2,2,{amp:0,B0:0,seed:1}); radiate(St,Pg,TB,0.1); out.Teff0=Math.pow(St.Ftop[0]/SIG_SB,0.25); }
+  /* the shader against the twin */
+  if(S.gl){ const o={Nx:12,Ny:6,Nz:20,dzSurf:3e6,zBot:Z_BOT,zTop:Z_TOP,zSw:Z_SW,boxW:1.2e8,cLim:C_LIM,amp:0.05,B0:200,seed:3};
+    const sim=new GPUSim(S.gl,TB,S1,o); const g=sim.grid; const St=initialState(g.G,g.R,TB,g.Nx,g.Ny,{amp:o.amp,B0:o.B0,seed:o.seed}); const ms=maxSignal(St,g.P); const dt=0.5*g.P.cfl/ms.rate, ch=ms.cmax;
+    for(let n=0;n<3;n++){ advance(St,g.P,TB,dt); sim.advance(dt,ch); } const Sg=sim.download();
+    const rel=(keys)=>{ let m=0, ref=0; for(const k of keys) for(let q=0;q<St.n;q++){ m=Math.max(m,Math.abs(Sg[k][q]-St[k][q])); ref=Math.max(ref,Math.abs(St[k][q])); } return m/(ref+1e-30); };
+    out.rho=rel(['rho']); out.e=rel(['e']); out.Bz=rel(['Bz']); out.m=rel(['mx','my','mz']); out.steps=3; out.grid=g.Nx+'×'+g.Ny+'×'+g.Nz; out.ok=out.rho<1e-5&&out.e<1e-5&&out.Bz<1e-5&&out.m<1e-2; sim.release(g); }
+  return out; }
+
+function boot(){
+  const canvas=document.getElementById('scene'), panel=document.getElementById('panel'), tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout'), eqEl=document.getElementById('eqbar'), tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint'), errEl=document.getElementById('errbox');
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+  const ctx0=canvas.getContext('2d'); let S=null, dirty=false, lastView=null;
+  const st=ST;
+  function setView(k){ st.view=k; syncAll(); }
+  TABS.forEach(([k,l])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k),html:l})); });
+  const rows={};
+  function slider(key,l,lo,hi,step2,fmtf,map,onchange){ const m=map||{to:v=>v,from:v=>v};
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:m.from(st[key])}), val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,l),inp,val); const sync=()=>{ inp.value=m.from(st[key]); val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=m.to(parseFloat(inp.value)); if(onchange) onchange(); syncAll(); }); let rk=key; while(rows[rk]) rk+='+'; rows[rk]={row:rowEl,sync,inp}; return rowEl; }
+  function checkbox(key,l){ const inp=h('input',{type:'checkbox'}); inp.checked=st[key]; const el=h('label',null,inp,l); inp.addEventListener('change',()=>{ st[key]=inp.checked; syncAll(); }); rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; },inp}; return el; }
+  const CHIPROWS=[];
+  function chipRow(list,key,onchange){ const wrapEl=h('div',{class:'chips'}); list.forEach(o=>{ wrapEl.appendChild(h('button',{class:'chip',html:o.name,onclick:()=>{ if(st[key]===o.id) return; st[key]=o.id; if(onchange) onchange(); syncAll(); }})); }); CHIPROWS.push([wrapEl,list,key]); return wrapEl; }
+
+  const gJ=h('div',{class:'grp'},h('h3',null,'the clock'));
+  const playBtn=h('button',{onclick:()=>{ st.play=!st.play; syncAll(); }},'pause');
+  gJ.appendChild(h('div',{class:'btnrow'},playBtn,h('button',{onclick:()=>{ restart(); }},'from the start')));
+  gJ.appendChild(slider('budget','computing per frame',LIM.budget[0],LIM.budget[1],1,v=>fmt(v,0)+' ms'));
+  const jTag=h('div',{class:'tag'}); gJ.appendChild(jTag);
+
+  const gB=h('div',{class:'grp'},h('h3',null,'the box'));
+  gB.appendChild(chipRow(RES_LIST,'res',()=>{ if(S) S.refine(); }));
+  gB.appendChild(h('div',{style:'height:6px'})); gB.appendChild(chipRow(WIDTH_LIST,'width',()=>restart()));
+  gB.appendChild(h('div',{style:'height:6px'})); gB.appendChild(chipRow(B0_LIST,'B0',()=>restart()));
+  gB.appendChild(slider('dAd','the deep adiabat',0,LOGN,1,v=>'Model S '+(v>=0?'+':'−')+fmt(100*Math.abs(v),0)+' %',{to:u=>LIM.dAd[0]+(LIM.dAd[1]-LIM.dAd[0])*u/LOGN,from:v=>LOGN*(v-LIM.dAd[0])/(LIM.dAd[1]-LIM.dAd[0])},()=>{ pendingStrat=true; }));
+  gB.appendChild(h('div',{class:'btnrow'},h('button',{onclick:()=>{ st.seed+=1; restart(); }},'another start (new seed)')));
+  const bTag=h('div',{class:'tag'}); gB.appendChild(bTag);
+
+  const gV=h('div',{class:'grp'},h('h3',null,'the view'));
+  const rowQty=chipRow(QTY_LIST,'qty'); gV.appendChild(rowQty);
+  const rowMu=slider('mu','inclination μ = cos θ',0,LOGN,1,v=>fmt(v,2)+' (θ = '+fmt(Math.acos(v)*180/PI,0)+'°)',{to:u=>LIM.mu[0]+(LIM.mu[1]-LIM.mu[0])*u/LOGN,from:v=>LOGN*(v-LIM.mu[0])/(LIM.mu[1]-LIM.mu[0])},()=>{ if(S) S.cache={}; }); gV.appendChild(rowMu);
+  const rowZoom=chipRow(ZOOM_LIST,'zoom'); gV.appendChild(rowZoom);
+  const rowShowF=h('div',{class:'checks'},checkbox('showField','contours of |B| at 1 and 1.5 kG on the overhead panel')); gV.appendChild(rowShowF);
+  const rowQcut=chipRow(QCUT_LIST,'qcut'); gV.appendChild(rowQcut);
+  const rowCutOpts=h('div',{class:'checks'},checkbox('contours','the kilogauss sheets (|B| contours)'),checkbox('arrows','the flow'),checkbox('rays','the sightlines at μ')); gV.appendChild(rowCutOpts);
+  const rowY=slider('ycut','the cut at y',0,1000,1,v=>fmt(v*st.width/1e5,0)+' km',{to:u=>u/1000,from:v=>1000*v}); gV.appendChild(rowY);
+  const rowX=slider('xray','the sightlines at x',0,1000,1,v=>fmt(v*st.width/1e5,0)+' km',{to:u=>u/1000,from:v=>1000*v}); gV.appendChild(rowX);
+
+  const gR=h('div',{class:'grp'},h('div',{class:'btnrow'},h('button',{onclick:()=>{ const keep={seed:st.seed}; Object.assign(st,DEFAULTS,keep); restart(); }},'reset all')));
+  const keysTag=h('div',{class:'tag'}); gR.appendChild(keysTag);
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at')), infoEl=h('div',{id:'info'}); gInfo.appendChild(infoEl);
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the calculation')), physEl=h('div',{id:'phys'}); gPhys.appendChild(physEl);
+  [gJ,gB,gV,gR,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+
+  let pendingStrat=false, stratTimer=null;
+  function restart(){ if(!S) return; if(pendingStrat){ S.restrat(); pendingStrat=false; } S.start(); syncAll(); }
+  function syncAll(){ dirty=true; refreshPanel(); }
+  function refreshPanel(){ try{
+      const v=st.view; [].forEach.call(tabsEl.children,(bt,i)=>bt.className=TABS[i][0]===v?'active':'');
+      for(const [wrapEl,list,key] of CHIPROWS) [].forEach.call(wrapEl.children,(bt,i)=>bt.className='chip'+(list[i].id===st[key]?' on':''));
+      for(const k in rows) rows[k].sync();
+      playBtn.textContent=st.play?'pause':'play';
+      rowQty.hidden=v!=='surface'; rowMu.hidden=!(v==='walls'||v==='cut'); rowZoom.hidden=v!=='walls'; rowShowF.hidden=v!=='walls'; rowQcut.hidden=v!=='cut'; rowCutOpts.hidden=v!=='cut'; rowY.hidden=v==='model'; rowX.hidden=v==='model';
+      const M=S?S.model():{st,stats:null,rate:{solarPerWall:0},hist:[]};
+      jTag.innerHTML=M.g?'t = <b>'+tStr(M.t)+'</b> of solar time, step '+thou(M.g.step)+', Δt = '+fmt(M.g.dt,2)+' s; '+fmt(M.rate.solarPerWall,0)+' solar s per second of yours':'preparing…';
+      bTag.innerHTML=M.g?'<b>'+M.g.Nx+'² × '+M.g.Nz+'</b> cells of '+fmt(M.g.P.dx/1e5,0)+' km across and '+fmt(M.g.G.dz[M.g.Nz-1]/1e5,0)+' km up at the surface; the deep adiabat passes '+fmt(tAdiabatP(S.S1.adi,MODEL_S_PIN.p),0)+' K at Model S\'s 1203-km point (Model S: 15,289); the start is '+fmt(M.R.Tc[0],0)+' K at the bottom'+(pendingStrat?' <span class="r">(changed: takes effect from the start)</span>':''):'';
+      keysTag.innerHTML='1&ndash;4 switch views &nbsp; space plays or pauses';
+      roEl.innerHTML=readoutHTML(M); eqEl.innerHTML=eqbarHTML(M); tagEl.innerHTML=tagHTML(M); hintEl.textContent=HINTS[v];
+      if(v!==lastView){ infoEl.innerHTML=infoFor(v); physEl.innerHTML=physFor(v); lastView=v; }
+    }catch(e){ fail(e); } }
+  window.addEventListener('keydown',e=>{ if(e.target&&e.target.tagName==='INPUT'&&e.target.type==='range'&&(e.key==='ArrowLeft'||e.key==='ArrowRight')) return;
+    if(e.key===' '){ e.preventDefault(); playBtn.click(); } else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]); });
+  /* the mouse: hover values, clicks that place the cut and the sightlines, drags that pan the magnifier */
+  let drag=null;
+  function layoutOf(M,W,H){ const v=st.view; if(v==='surface'){ const side=Math.max(120,Math.min(H-112,W-RO_W-70)); return {x:30,y:58,w:side,h:side}; } if(v==='walls'){ const win=window_(M,st.zoom,st.zx,st.zy), avail=W-RO_W-80, top=58, plotsH=150, panelH=Math.max(100,Math.min(H-top-plotsH-60,Math.floor(avail/(1+st.mu)*win.h/win.w))); const scale=panelH/win.h; return {x:30,y:top,w:win.w*scale,h:panelH,win,scale}; } if(v==='cut'){ const avail=W-RO_M()-70; return null; } return null; }
+  function RO_M(){ return RO_W; }
+  canvas.addEventListener('mousemove',ev=>{ if(!S||!S.sim) return; const r=canvas.getBoundingClientRect(), x=ev.clientX-r.left, y=ev.clientY-r.top, M=S.model(), L=layoutOf(M,S.W,S.H);
+    if(drag&&st.view==='walls'&&L){ st.zx=drag.zx0-(x-drag.x0)/(L.scale*M.Nx); st.zy=drag.zy0+(y-drag.y0)/(L.scale*M.Ny); dirty=true; return; }
+    if(!L||x<L.x||x>L.x+L.w||y<L.y||y>L.y+L.h){ if(M.hover){ M.hover=null; dirty=true; } return; }
+    const fx=(x-L.x)/L.w, fy=1-(y-L.y)/L.h; let i,j; if(st.view==='surface'){ i=Math.floor(fx*M.Nx); j=Math.floor(fy*M.Ny); } else { i=(((L.win.i0+Math.floor(fx*L.win.w))%M.Nx)+M.Nx)%M.Nx; j=(((L.win.j0+Math.floor(fy*L.win.h))%M.Ny)+M.Ny)%M.Ny; }
+    i=clamp(i,0,M.Nx-1); j=clamp(j,0,M.Ny-1); const q=j*M.Nx+i, I=M.im1.I, at=M.im1.at;
+    M.hover={view:st.view,fx,fy,vals:[['x, y',fmt(i*M.dx/1e5,0)+', '+fmt(j*M.dx/1e5,0)+' km'],['I / ⟨I⟩',fmt(I[4*q]/M.stats.Imean,2)],['B<sub>z</sub> at τ = 1',sgn(at[4*q],0)+' G'],['v<sub>z</sub> at τ = 1',sgn(at[4*q+1]/1e5,2)+' km/s'],['height of τ = 1',sgn(I[4*q+2]/1e5,0)+' km'],['T at τ = 1',fmt(at[4*q+2],0)+' K']]}; dirty=true; });
+  canvas.addEventListener('mousedown',ev=>{ if(!S||!S.sim) return; const r=canvas.getBoundingClientRect(), x=ev.clientX-r.left, y=ev.clientY-r.top; if(st.view==='walls'){ drag={x0:x,y0:y,zx0:st.zx,zy0:st.zy,moved:false}; canvas.classList.add('dragging'); } });
+  window.addEventListener('mouseup',ev=>{ if(drag){ const r=canvas.getBoundingClientRect(), x=ev.clientX-r.left, y=ev.clientY-r.top; if(Math.hypot(x-drag.x0,y-drag.y0)<4) clickAt(x,y); drag=null; canvas.classList.remove('dragging'); } });
+  canvas.addEventListener('click',ev=>{ if(st.view==='walls') return; const r=canvas.getBoundingClientRect(); clickAt(ev.clientX-r.left,ev.clientY-r.top); });
+  function clickAt(x,y){ if(!S||!S.sim) return; const M=S.model(), W=S.W, H=S.H;
+    if(st.view==='surface'){ const L=layoutOf(M,W,H); if(x<L.x||x>L.x+L.w||y<L.y||y>L.y+L.h) return; st.xray=(x-L.x)/L.w; st.ycut=1-(y-L.y)/L.h; st.zx=st.xray; st.zy=st.ycut; }
+    else if(st.view==='walls'){ const L=layoutOf(M,W,H); if(!L) return; const inLeft=x>=L.x&&x<=L.x+L.w, x2=L.x+L.w+20, w2=L.w*st.mu, inRight=x>=x2&&x<=x2+w2; if(!inLeft&&!inRight) return; const fx=inLeft?(x-L.x)/L.w:(x-x2)/w2; st.xray=((((L.win.i0+fx*L.win.w)/M.Nx)%1)+1)%1; }
+    else if(st.view==='cut'){ const avail=W-RO_W-70, zb=M.zc[0]-0.5*M.dzv[0], zt=M.zc[M.Nz-1]+0.5*M.dzv[M.Nz-1], depth=zt-zb; let pw=avail, ph=pw*depth/M.width; const top=58+46; if(ph>H-top-60){ ph=H-top-60; pw=ph*M.width/depth; } if(x<30||x>30+pw) return; st.xray=(x-30)/pw; }
+    syncAll(); }
+  function resize(){ const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1; canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr); canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0); if(S){ S.W=r.width; S.H=r.height; } else { S_W=r.width; S_H=r.height; } }
+  let S_W=1100, S_H=700; window.addEventListener('resize',()=>{ resize(); dirty=true; });
+  resize();
+  ctx0.fillStyle='#070b18'; ctx0.fillRect(0,0,S_W,S_H); txt(ctx0,'preparing the model (tables of the gas and its opacity, the stratification, the shaders)…',30,60,COL.dim,'13px -apple-system, sans-serif');
+  setTimeout(()=>{ try{ S=makeScene(canvas); S.W=S_W; S.H=S_H; window.SCENE=S; S.start(); try{ S.checks=runChecks(S); }catch(e){ S.checks=null; fail(e); }
+      let frames=0, stepTimer=setInterval(()=>{ try{ S.step(); }catch(e){ fail(e); clearInterval(stepTimer); } },16);
+      function frameLoop(){ try{ S.draw(); }catch(e){ fail(e); } if(dirty||(++frames%6===0)){ dirty=false; refreshPanel(); } requestAnimationFrame(frameLoop); }
+      refreshPanel(); requestAnimationFrame(frameLoop); }catch(e){ fail(e); } },30);
+}
+
+/* ================================================================== *
+ *  selfTest — headless (jsc): the gas, the opacity, the stratification, *
+ *  the twin solver against its invariants, every view drawn           *
+ * ================================================================== */
+function stubCtx(){ const g={addColorStop(){}}; const c={measureText:t=>({width:String(t).length*6}),createRadialGradient:()=>g,createLinearGradient:()=>g,canvas:{width:0,height:0}};
+  for(const k of ['fillRect','strokeRect','beginPath','moveTo','lineTo','arc','closePath','fill','stroke','fillText','save','restore','setLineDash','translate','scale','rotate','clip','rect','bezierCurveTo','setTransform','drawImage']) c[k]=function(){};
+  return c; }
+/* a synthetic model for the drawing tests: granule-like fields on a small grid */
+function fakeModel(view,TB,S1,over){ const Nx=24, Ny=24, Nz=20, G=zGrid(Nz,2.5e6,Z_BOT,Z_TOP,Z_SW), R=refProfiles(S1,G,TB), N2=Nx*Ny, rnd=mulberry32(7);
+  const I=new Float32Array(N2*4), at=new Float32Array(N2*4), Iu=new Float32Array(N2*4), atu=new Float32Array(N2*4), F=new Float32Array(N2);
+  for(let j=0;j<Ny;j++) for(let i=0;i<Nx;i++){ const q=j*Nx+i, g=0.5+0.5*Math.cos(TAU*i/8)*Math.cos(TAU*j/8); I[4*q]=0.6+0.8*g; I[4*q+1]=1; I[4*q+2]=-2e7*(1-g); at[4*q]=(1-g)*1500*(rnd()<0.5?-1:1); at[4*q+1]=(g-0.5)*6e5; at[4*q+2]=4800+2000*g; at[4*q+3]=Math.abs(at[4*q]);
+    Iu[4*q]=0.6+0.8*g*(1+0.3*Math.sin(i)); Iu[4*q+1]=1; Iu[4*q+2]=-1.5e7*(1-g); atu.set(at.subarray(4*q,4*q+4),4*q); F[q]=SIG_SB*Math.pow(5700,4)*(0.8+0.4*g); }
+  const cut=[new Float32Array(Nx*Nz*4),new Float32Array(Nx*Nz*4),new Float32Array(Nx*Nz*4)];
+  for(let k=0;k<Nz;k++) for(let i=0;i<Nx;i++){ const q=k*Nx+i, L=tabLookup(TB,R.rc[k],R.ec[k]); cut[0][4*q]=R.Tc[k]*(1+0.1*Math.cos(TAU*i/8)); cut[0][4*q+1]=R.rc[k]*(1+0.2*Math.sin(TAU*i/8)); cut[0][4*q+2]=R.pc[k]; cut[0][4*q+3]=1200*Math.exp(-Math.pow((i-6)/1.5,2)); cut[1][4*q]=1e5*Math.sin(TAU*i/8); cut[1][4*q+1]=3e5*Math.cos(TAU*i/8); cut[1][4*q+2]=0; cut[1][4*q+3]=cut[0][4*q+3]; cut[2][4*q]=L.k430*R.rc[k]; cut[2][4*q+1]=0; cut[2][4*q+2]=0; cut[2][4*q+3]=R.ec[k]; }
+  const st=Object.assign({},ST,{view},over||{}); const M={t:600,g:{Nx,Ny,Nz,step:1200,dt:0.2,P:{dx:st.width/Nx},G},st,hist:[],err:null,rate:{solarPerWall:20},Nx,Ny,Nz,dx:st.width/Nx,width:st.width,zc:G.zc,dzv:G.dz,R,im1:{I,at},imu:{I:Iu,at:atu},cut,jcut:12,F,checks:{steps:3,grid:'12×6×20',rho:1e-7,e:2e-7,Bz:1e-7,m:1e-3,ok:true,rest:0.5,restSteps:8,cons:1e-3,consT:30,Teff0:5850}};
+  M.stats=surfaceStats(M); for(let n=0;n<20;n++) M.hist.push({t:30*n,Teff:5000+n*30,rms:0.1+0.01*n,Bmax:500+50*n,Babs:200+n,zmean:-5e6});
+  const mp={z:G.zc,T:new Float64Array(Nz),rho:new Float64Array(Nz),Fc:new Float64Array(Nz),Fk:new Float64Array(Nz),vrms:new Float64Array(Nz),Bu:new Float64Array(Nz),t:600}; for(let k=0;k<Nz;k++){ mp.T[k]=R.Tc[k]*0.95; mp.rho[k]=R.rc[k]; mp.Fc[k]=6e10*(1-(k/Nz)); mp.Fk[k]=-5e9; mp.vrms[k]=1e5; mp.Bu[k]=200; } M.mean=mp;
+  return M; }
+function selfTest(){
+  let pass=0, fail=0; const T0=Date.now();
+  function ok(c,msg){ if(c) pass++; else { fail++; console.log('FAIL: '+msg); } }
+  function rel(a,b,tol,msg){ const r=Math.abs(a-b)/Math.max(Math.abs(b),1e-300); ok(r<=tol,msg+' ('+a+' vs '+b+', rel '+r.toExponential(2)+')'); }
+  /* the gas */
+  { const I=ionisation(1e-7,10000); ok(I.xH>0.05&&I.xH<0.15,'hydrogen is a tenth ionised at 10,000 K and 1e-7 g/cm3 ('+fmt(I.xH,3)+')'); const I2=ionisation(1e-7,20000); ok(I2.xH>0.9,'and nearly fully at 20,000 K'); const I3=ionisation(2.7e-7,5000); ok(I3.ne>1e12&&I3.ne<1e14,'the electrons at 5000 K come from the metals: n_e = '+sci(I3.ne,2));
+    const E=eosRT(2.7e-7,6000); rel(E.p,2.7e-7*(1+0.0842+1e-4)*NH_PER_G/1.0842*0+E.ntot*KB*6000,1e-12,'p = n k T'); ok(E.e>5e11&&E.e<7e11,'e(6000 K) = '+sci(E.e,3)+' erg/g'); const Tb=tempOf(2.7e-7,E.e); rel(Tb,6000,1e-6,'T(rho,e) inverts e(rho,T)');
+    rel(SAHA_C,2.4147e15,2e-4,'the Saha constant'); }
+  /* the opacity */
+  { ok(Math.abs(hminusBF(8000)/3.98e-17-1)<0.05,'H- bound-free at 8000 A is 4.0e-17 cm2 ('+sci(hminusBF(8000),3)+')'); ok(hminusBF(16500)===0,'and nothing beyond its edge at 1.64 um'); ok(hminusBF(8500)>hminusBF(5000)&&hminusBF(8500)>hminusBF(12000),'and peaks near 8500 A');
+    const E=eosRT(2.7e-7,6000); const k=kappaLam(5000,2.7e-7,6000,E); ok(k>0.2&&k<0.6,'kappa(5000 A) at the photosphere is '+fmt(k,3)+' cm2/g'); const kr=rosseland(2.7e-7,6000,E); ok(kr>0.2&&kr<0.6,'the Rosseland mean there is '+fmt(kr,3));
+    ok(rosseland(1e-6,8000,eosRT(1e-6,8000))>10*kr,'and 20x larger at 8000 K (the T^9 of H-)'); rel(planckMeanCheck(),4*Math.pow(PI,4)/15,2e-3,'the Rosseland weight integrates to 4 pi^4/15');
+    const E2=eosRT(1e-5,16000); ok(kappaLam(4300,1e-5,16000,E2)>100,'hydrogen bound-free takes over deep down'); }
+  /* the tables */
+  const TB=buildTables(); { const E=eosRT(2.7e-7,6000), L=tabLookup(TB,2.7e-7,E.e); rel(L.T,6000,2e-3,'the table gives T back'); rel(L.p,E.p,2e-3,'and p'); ok(L.cs2>4e11&&L.cs2<9e11,'c_s = '+fmt(Math.sqrt(L.cs2)/1e5,2)+' km/s at the surface'); ok(L.cv>5e7&&L.cv<5e9,'c_v = '+sci(L.cv,2));
+    let mono=true; for(let a=0;a<TAB.nr;a++) for(let b=1;b<TAB.ne;b++) if(TB.T[a*TAB.ne+b]<TB.T[a*TAB.ne+b-1]) mono=false; ok(mono,'T rises with e at every density'); let fin=true; for(let i=0;i<TB.p.length;i++) if(!(isFinite(TB.kR[i])&&TB.kR[i]>0&&isFinite(TB.cs2[i])&&TB.cs2[i]>0)) fin=false; ok(fin,'every table entry is finite and positive'); }
+  /* the stratification */
+  const S1=stratify({zBot:Z_BOT,zTop:Z_TOP},TB); { rel(strAt(S1,0,'tau'),1,1e-3,'tau = 1 at z = 0'); rel(tAdiabatP(S1.adi,MODEL_S_PIN.p),MODEL_S_PIN.T,1e-6,'the adiabat passes through Model S 1203 km down'); rel(tAtP(S1,MODEL_S_PIN.p),MODEL_S_PIN.T,0.02,'and so does the start ('+fmt(tAtP(S1,MODEL_S_PIN.p),0)+' K at '+sci(MODEL_S_PIN.p,2)+' dyn/cm2)'); rel(tAtP(S1,1.169e6),13050,0.03,'the start follows Model S from 700 km down ('+fmt(tAtP(S1,1.169e6),0)+' K against 13,050 at 1.2e6 dyn/cm2)'); ok(tAtP(S1,4.767e5)>11409,'and is hotter than Model S above that, where Model S is superadiabatic'); rel(strAt(S1,0,'T'),T_EFF_SUN*Math.pow(0.75*(1+Q_HOPF),0.25),1e-3,'T(tau = 1) of the atmosphere is the two-stream grey value'); ok(strAt(S1,-1e8,'T')>13000&&strAt(S1,-1e8,'T')<18000,'T at -1000 km is '+fmt(strAt(S1,-1e8,'T'),0)+' K (Model S: 14,409 at -997)'); ok(strAt(S1,0,'rho')>2e-7&&strAt(S1,0,'rho')<6e-7,'rho(tau = 1) = '+sci(strAt(S1,0,'rho'),2));
+    const Hp=strAt(S1,0,'p')/(strAt(S1,0,'rho')*G_SUN); ok(Hp>1.0e7&&Hp<1.6e7,'the pressure scale height at the surface is '+fmt(Hp/1e5,0)+' km');
+    let hyd=0; for(const z of [-5e7,-2e7,0,1e7,2e7]){ const dz=1e5, dp=(strAt(S1,z+dz,'p')-strAt(S1,z-dz,'p'))/(2*dz); hyd=Math.max(hyd,Math.abs(dp+strAt(S1,z,'rho')*G_SUN)/(strAt(S1,z,'rho')*G_SUN)); } ok(hyd<0.02,'hydrostatic to '+fmt(100*hyd,2)+' %');
+    const S2=stratify({zBot:Z_BOT,zTop:Z_TOP,dAd:0.1},TB); rel(tAdiabatP(S2.adi,MODEL_S_PIN.p),1.1*MODEL_S_PIN.T,1e-6,'a hotter adiabat on request'); ok(tAdiabat(S1,1e-6)>tAdiabat(S1,5e-7),'the adiabat warms with density'); }
+  /* the grid and the references */
+  const G=zGrid(96,1.0e6,Z_BOT,Z_TOP,Z_SW); { rel(G.zf[0],Z_BOT,1e-9,'the grid reaches the bottom'); rel(G.zf[96],Z_TOP,1e-9,'and the top'); rel(G.dz[95],1e6,1e-9,'10-km cells at the surface'); ok(G.dz[0]>3e6&&G.dz[0]<6e6,'stretched to '+fmt(G.dz[0]/1e5,0)+' km at the bottom'); let monoz=true; for(let k=1;k<=96;k++) if(G.zf[k]<=G.zf[k-1]) monoz=false; ok(monoz,'the faces are ordered');
+    const R=refProfiles(S1,G,TB); let bal=0; for(let k=0;k<96;k++) bal=Math.max(bal,Math.abs((R.pf[k]-R.pf[k+1])/(R.rc[k]*G_SUN*G.dz[k])-1)); ok(bal<1e-12,'the face pressures balance gravity exactly'); }
+  /* the twin: rest, conservation, buoyancy, div B */
+  { const Nz=24, Gs=zGrid(Nz,2.5e6,Z_BOT,Z_TOP,Z_SW), R=refProfiles(S1,Gs,TB), P=makeParams(Gs,R,S1,{dx:1e7,dy:1e7,cLim:C_LIM});
+    const St=initialState(Gs,R,TB,6,4,{amp:0,B0:200,seed:1}); const keep=radiate; radiate=(X)=>{ X.Q.fill(0); X.Ftop=new Float64Array(X.Nx*X.Ny); }; for(let n=0;n<8;n++) advance(St,P,TB);
+    let vmax=0; for(let q=0;q<St.n;q++) vmax=Math.max(vmax,Math.abs(St.mz[q]/St.rho[q])); ok(vmax<10,'the stratified box stays at rest under gravity (|v| < '+sci(vmax,1)+' cm/s after 8 steps)');
+    const S3=initialState(Gs,R,TB,6,4,{amp:0.2,B0:200,seed:1}); const tb=P.tauBot; P.tauBot=1e30; const E=X=>{ let Ei=0,Ek=0,Em=0,Ep=0,Mm=0; for(let k=0;k<Nz;k++) for(let q=k*24;q<(k+1)*24;q++){ const dV=Gs.dz[k]; Ei+=X.e[q]*dV; Ek+=0.5*(X.mx[q]**2+X.my[q]**2+X.mz[q]**2)/X.rho[q]*dV; Em+=(X.Bx[q]**2+X.By[q]**2+X.Bz[q]**2)/(8*PI)*dV; Ep+=X.rho[q]*G_SUN*Gs.zc[k]*dV; Mm+=X.rho[q]*dV; } return {E:Ei+Ek+Em+Ep,Ek,M:Mm}; };
+    const E0=E(S3); for(let n=0;n<40;n++) advance(S3,P,TB); const E1=E(S3); P.tauBot=tb; ok(Math.abs(E1.E-E0.E)<0.03*E1.Ek,'a closed box keeps its energy to '+sci(Math.abs(E1.E-E0.E)/E1.Ek,1)+' of the kinetic'); rel(E1.M,E0.M,1e-12,'and its mass');
+    let fz=0; for(let k=0;k<Nz;k++) for(let q=k*24;q<(k+1)*24;q++) fz+=S3.Bz[q]*Gs.dz[k]; let fz0=0; for(let k=0;k<Nz;k++) fz0+=200*24*Gs.dz[k]; rel(fz,fz0,1e-6,'and its vertical flux');
+    let divmax=0, bmax=0; for(let k=1;k<Nz-1;k++) for(let j=0;j<4;j++) for(let i=0;i<6;i++){ const q=(k*4+j)*6+i, ip=(k*4+j)*6+(i+1)%6, im=(k*4+j)*6+(i+5)%6, jp=(k*4+(j+1)%4)*6+i, jm=(k*4+(j+3)%4)*6+i, kp=((k+1)*4+j)*6+i, km=((k-1)*4+j)*6+i;
+      const div=(S3.Bx[ip]-S3.Bx[im])/(2*P.dx)+(S3.By[jp]-S3.By[jm])/(2*P.dy)+(S3.Bz[kp]-S3.Bz[km])/(Gs.zc[k+1]-Gs.zc[k-1]); divmax=Math.max(divmax,Math.abs(div)*P.dx); bmax=Math.max(bmax,Math.hypot(S3.Bx[q],S3.By[q],S3.Bz[q])); } ok(divmax<0.05*bmax,'div B stays small: '+sci(divmax/bmax,1)+' of |B| per cell');
+    /* a warm blob rises, a cold one sinks */
+    const S4=initialState(Gs,R,TB,6,4,{amp:0,B0:0,seed:1}); { const k=10; for(let j=0;j<4;j++) for(let i=0;i<6;i++){ const q=(k*4+j)*6+i; const w=(i===2||i===3)?1:-1; S4.E[q]*=1+0.1*w; } eosPass(S4,TB); for(let n=0;n<12;n++) advance(S4,P,TB); const up=S4.mz[(10*4+1)*6+2]/S4.rho[(10*4+1)*6+2], dn=S4.mz[(10*4+1)*6+0]/S4.rho[(10*4+1)*6+0]; ok(up>0&&dn<0,'warm gas rises ('+fmt(up/1e5,2)+' km/s) and cold gas sinks ('+fmt(dn/1e5,2)+')'); }
+    radiate=keep;
+    /* the radiation: a column in radiative equilibrium (the grey T(tau) continued down, on 15-km cells) radiates the
+       Sun's flux, and its flux is the same at every height above the surface; the real start cools just below tau = 1 */
+    const Nzg=48, Gg=zGrid(Nzg,1.5e6,Z_BOT,Z_TOP,Z_SW), Sg=stratify({zBot:Z_BOT,zTop:Z_TOP,grey:true},TB), Rg=refProfiles(Sg,Gg,TB), Pg=makeParams(Gg,Rg,Sg,{dx:1e7,dy:1e7,cLim:C_LIM});
+    const S5=initialState(Gg,Rg,TB,2,2,{amp:0,B0:0,seed:1}); radiate(S5,Pg,TB,0.1); const Te=Math.pow(S5.Ftop[0]/SIG_SB,0.25); ok(Math.abs(Te-5772)<120,'a column in radiative equilibrium radiates the Sun\'s flux on the eight rays: T_eff = '+fmt(Te,0)+' K (5772)');
+    { let F=S5.Ftop[0], dev=0; for(let k=Nzg-1;k>=0;k--){ F+=S5.Q[k*4]*Gg.dz[k]; if(Gg.zc[k]>5e6) dev=Math.max(dev,Math.abs(F/S5.Ftop[0]-1)); } ok(dev<0.03,'and carries the same flux at every height from 50 km up (to '+fmt(100*dev,1)+' %)'); }
+    const S5b=initialState(Gs,R,TB,2,2,{amp:0,B0:0,seed:1}); radiate(S5b,P,TB,0.1); { let kq=0; for(let k=0;k<Nz;k++) if(S5b.Q[k*4]<S5b.Q[kq*4]) kq=k; ok(Gs.zc[kq]<0&&Gs.zc[kq]>-3e7,'the real start cools fastest just below tau = 1 ('+fmt(Gs.zc[kq]/1e5,0)+' km)'); }
+    /* the inclined rays carry heat sideways: a hot patch in the thin layers warms the cell beside it */
+    { const Nx=12, S6=initialState(Gg,Rg,TB,Nx,Nx,{amp:0,B0:0,seed:1}), S7=initialState(Gg,Rg,TB,Nx,Nx,{amp:0,B0:0,seed:1}); for(let k=0;k<Nzg;k++) if(Gg.zc[k]>6e6&&Gg.zc[k]<2e7) for(let j=4;j<=7;j++) for(let i=4;i<=7;i++) S6.E[(k*Nx+j)*Nx+i]*=1.25; eosPass(S6,TB); radiate(S6,Pg,TB,0.1); radiate(S7,Pg,TB,0.1);
+      let kk=0; for(let k=0;k<Nzg;k++) if(Gg.zc[k]>6e6){ kk=k; break; } const q=(kk*Nx+5)*Nx+3, qp=(kk*Nx+5)*Nx+5; ok(S6.Q[q]>S7.Q[q]&&S6.Q[qp]<S7.Q[qp],'a hot patch cools itself and warms its neighbour ('+sci(S6.Q[qp],2)+' / '+sci(S6.Q[q],2)+' against '+sci(S7.Q[q],2)+')'); 
+      let asym=0, ref=0; for(let k=0;k<Nzg;k++) for(let j=0;j<Nx;j++){ const a=S6.Q[(k*Nx+j)*Nx+3], b=S6.Q[(k*Nx+j)*Nx+8]; asym=Math.max(asym,Math.abs(a-b)); ref=Math.max(ref,Math.abs(a)); } ok(asym<1e-9*ref,'and the four azimuths treat the two sides alike'); }
+    /* the limiter helper is a limiter */
+    ok(vanLeer(1,1)===1&&vanLeer(1,-1)===0&&Math.abs(vanLeer(1,0.1))<=0.2,'the slope limiter'); }
+  /* the drawing: every view at four sizes on a stub context with a synthetic model */
+  const sizes=[[1400,820],[1100,712],[820,520],[560,380]];
+  for(const v of ['surface','walls','cut','model']) for(const [W,H] of sizes) for(const over of [{},{qty:'Bz'},{qty:'z'},{qcut:'B'},{zoom:4,mu:0.6},{contours:false,arrows:false,rays:false}]){
+    const M=fakeModel(v,TB,S1,over); let err=null; try{ drawView(stubCtx(),W,H,M); }catch(e){ err=e; } ok(!err,v+' '+W+'x'+H+' '+JSON.stringify(over)+(err?': '+(err.stack||err):''));
+    const t=withState(Object.assign({view:v},over),()=>readoutHTML(M)+eqbarHTML(M)+tagHTML(M)+infoFor(v)+physFor(v)); ok(!/NaN|undefined|Infinity/.test(t),v+' text clean'); }
+  { const M=fakeModel('surface',TB,S1,{}); M.hover={view:'surface',fx:0.3,fy:0.4,vals:[['a','1']]}; let err=null; try{ drawView(stubCtx(),1100,712,M); }catch(e){ err=e; } ok(!err,'hover drawn'); ok(readoutHTML(M).indexOf('under the cursor')>0,'the readout shows the cursor');
+    const Mz=fakeModel('surface',TB,S1,{}); Mz.g=null; Mz.stats=null; let e2=null; try{ drawView(stubCtx(),800,600,Mz); readoutHTML(Mz); eqbarHTML(Mz); }catch(e){ e2=e; } ok(!e2,'the page draws before the model exists');
+    const Me=fakeModel('surface',TB,S1,{}); Me.err='no WebGL'; let e3=null; try{ drawView(stubCtx(),800,600,Me); }catch(e){ e3=e; } ok(!e3,'and with a failed GPU'); }
+  { const M=fakeModel('cut',TB,S1,{}); const z=tauOneVertical(M,0); ok(z<5e6&&z>-5e7,'tau = 1 along a vertical ray of the synthetic cut at '+fmt(z/1e5,0)+' km'); const p=tauOneInclined(M,3.5,0.85); ok(p.z<=z+2e6&&p.x<3.5,'the inclined ray stops no deeper than the vertical one and to the left'); const p1=tauOneInclined(M,3.5,1.0); rel(p1.z,tauOneVertical(M,3),0.02,'at mu = 1 the inclined ray is the vertical one'); }
+  /* a model built for one view is completed for another: the walls get the inclined image, the cut its slice, and a
+     change of inclination or of the cut's row refreshes them */
+  { const M=fakeModel('surface',TB,S1,{}); delete M.imu; delete M.cut; const calls={image:0,cut:0}; const fake={image:mu=>{ calls.image++; return {I:new Float32Array(M.Nx*M.Ny*4),at:new Float32Array(M.Nx*M.Ny*4),mu}; }, cut:j=>{ calls.cut++; return [new Float32Array(M.Nx*M.Nz*4),new Float32Array(M.Nx*M.Nz*4),new Float32Array(M.Nx*M.Nz*4)]; }};
+    const c={}; completeModel(M,c,fake,Object.assign({},ST,{view:'surface'})); ok(!M.imu&&calls.image===0,'the surface view asks for no inclined image');
+    completeModel(M,c,fake,Object.assign({},ST,{view:'walls',mu:0.85})); ok(M.imu&&M.imu.mu===0.85&&calls.image===1,'switching to the walls fetches it'); completeModel(M,c,fake,Object.assign({},ST,{view:'walls',mu:0.85})); ok(calls.image===1,'and keeps it while nothing changes');
+    completeModel(M,c,fake,Object.assign({},ST,{view:'walls',mu:0.7})); ok(M.imu.mu===0.7&&calls.image===2,'a new inclination refreshes it');
+    completeModel(M,c,fake,Object.assign({},ST,{view:'cut',mu:0.7,ycut:0.5})); ok(M.cut&&calls.cut===1&&M.jcut===Math.round(0.5*(M.Ny-1)),'the cut gets its slice'); completeModel(M,c,fake,Object.assign({},ST,{view:'cut',mu:0.7,ycut:0.9})); ok(calls.cut===2,'and a new row a new slice');
+    let err=null; try{ drawView(stubCtx(),1100,712,Object.assign({},M,{st:Object.assign({},ST,{view:'walls'})})); drawView(stubCtx(),1100,712,Object.assign({},M,{st:Object.assign({},ST,{view:'cut'})})); }catch(e){ err=e; } ok(!err,'both views draw from the completed model'+(err?': '+(err.stack||err):'')); }
+  { const w=window_({Nx:96,Ny:96},2,0.5,0.5); ok(w.w===48&&w.h===48&&w.i0===24,'the magnifier window'); const s=stageOf({stats:{rms:0.2,Bmax:1500},t:900}); ok(/kilogauss/.test(s),'the stage text'); }
+  console.log(pass+' passed, '+fail+' failed ('+(Date.now()-T0)+' ms)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+if(typeof document==='undefined'){ if(typeof SKIP_SELFTEST==='undefined') selfTest(); }
+else { if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot); else boot(); }
+</script>
+</body>
+</html>

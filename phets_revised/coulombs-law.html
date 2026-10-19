@@ -1,0 +1,1983 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coulomb&rsquo;s Law &mdash; the inverse-square force between two charges</title>
+<!--
+  ===================================================================
+  coulombs-law.html — Coulomb's law between two charges on a track, on
+  PhET's macro scale (microcoulombs, centimetres) and atomic scale
+  (elementary charges, picometres)
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Coulomb's Law (University of
+  Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code
+  or assets.  PhET's build 1.0.32 (docs/phets/coulombs-law_en.html) was
+  read only for its model constants, each cited below as "PhET's value".
+  It runs on the same inverse-square engine as gravity-force-lab.html
+  (build/gravity-force-lab/p2_engine.js and p4_lab.js, shared verbatim).
+
+  Five views.  MACRO SCALE and ATOMIC SCALE are PhET's two screens: two
+  charges on a track, dragged along a grid, a force arrow on each (equal
+  and opposite, together for unlike charges and apart for like ones) to
+  one printed scale, the force in PhET's decimal or scientific notation, a
+  draggable ruler and a scale bar.  THE INVERSE SQUARE: |F| against the
+  distance on log-log axes (slope -2), on linear axes, and as |F| r^2,
+  flat at |k q1 q2|.  THE CHARGE PRODUCT: the force over every pair of
+  charges — like signs repel, unlike attract, contours |q1 q2| = const —
+  and the force as a straight line through zero in q2 and in q1 q2.
+  ELECTRICITY AND GRAVITY: an electron and a proton on log-log axes, the
+  two inverse-square laws parallel and 2.27e39 apart at every distance;
+  and the equal masses that would pull as hard as the macro charges.
+
+  WHAT IS EXACT
+  -------------
+  F = k q1 q2 / r^2 with k = 1/(4 pi eps0), eps0 = 8.8541878188e-12 F/m
+  (CODATA 2022), so k = 8.987551786e9 N m^2 C^-2; e = 1.602176634e-19 C,
+  exact since the 2019 SI; G, m_e, m_p and the Bohr radius, CODATA 2022 —
+  all read from scipy.constants 1.18 in build/coulombs-law/derive.py and
+  pinned in selfTest to its refvals.txt.  r is the distance between
+  centres, exact for rigid uniformly charged spheres and for point charges.
+
+  WHAT IS MODELLED (PhET's choices, reproduced)
+  ---------------------------------------------
+  PhET's values.  Macro: charges -10..10 uC in whole microcoulombs, spheres
+  6.75 mm in radius, centres on a 1-mm grid within +-5 cm, and a 1-mm gap
+  asked for between surfaces — which PhET's own arithmetic turns into
+  14 mm between centres (6.75 + 6.75 + 1 = 14.4999... mm in floating point,
+  snapped down), a 0.5-mm gap; reproduced and pinned.  Atomic: -10..10 e,
+  0.95-pm markers on a 1-pm grid within +-50 pm, a 0.1-pm gap.  Defaults:
+  -4 uC at -1 cm and +8 uC at +2 cm; -2e at -20 pm and +4e at +20 pm.
+  PhET uses k = 8.987551e9 and e = 1.6021766208e-19 (CODATA 2014), so its
+  readouts differ from these by 9e-8 (macro) and 1e-7 (atomic).
+
+  NOT MODELLED
+  ------------
+  PhET's cartoon pullers and pushers, sounds and screen-reader
+  descriptions.  Induced charge: two conducting spheres this close would
+  redistribute their charge and depart from the point-charge law.  The
+  charges' masses: nothing here moves on its own.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed force, orange = the reference or a
+       warning (the forbidden zone, a clipped arrow), magenta = the live marker,
+       cyan = structure (the track, the ruler, the axes). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --struct:#5ac8e0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match the live site's style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Coulomb&rsquo;s Law</h1>
+  <span class="sub" id="sub">the force between two charges you can drag, on PhET&rsquo;s macro and atomic scales: equal and opposite, proportional to each charge, attractive or repulsive by the sign of their product, and falling as the square of the distance</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities, colour helpers and h()  (projects/simulations/   *
+ *  diffraction.html, the PLAYBOOK scaffold cut; camera dropped)      *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  the 2-D plotting layer  (projects/simulations/build_buoy/          *
+ *  p1_utils.js: the copy carrying every Known-bad fix)               *
+ * ================================================================== */
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the inverse-square engine — PhET's INVERSE_SQUARE_LAW_COMMON,      *
+ *  rebuilt from its behaviour: two bodies on a line, a force          *
+ *  C v1 v2 / r^2, and the rule that keeps them apart.  Shared         *
+ *  verbatim by gravity-force-lab.html and coulombs-law.html           *
+ *  (source: build/gravity-force-lab/p2_engine.js).                    *
+ * ================================================================== */
+
+/* PhET's roundSymmetric: the nearest integer, halves away from zero.
+   Math.round alone sends -2.5 to -2, which would make the grid lopsided. */
+function symRound(y){ return y<0?-Math.round(-y):Math.round(y); }
+
+/* A track T (built per screen): centres live on a grid of q metres; perM is
+   the grid count per metre (10, 1000 or 1e12 — an exact integer, so
+   i / perM is the double nearest the decimal position); counts iL..iR are
+   the ends of the track; sep is the surface gap PhET asks for; C is the
+   signed force constant — C > 0 pushes like values apart (Coulomb's k),
+   C < 0 pulls them together (-G for masses). */
+function posOf(T,i){ return i/T.perM; }
+
+/* The fewest grid steps two centres may be apart.  PhET snaps r1 + r2 + sep
+   to the grid, summed in that order: a sum a hair under a half step rounds
+   DOWN (Coulomb's macro screen: 6.75 + 6.75 + 1 mm = 14.4999... mm -> 14). */
+function minSteps(T,r1,r2){ return symRound((r1+r2+T.sep)/T.q); }
+
+/* After a body grows into its neighbour.  k is the body whose size changed
+   LAST: its neighbour is pushed aside, unless the neighbour is against the
+   end of the track, in which case the grown body moves instead (PhET's
+   ISLCModel.step; its two-frame resolution collapses to this one call).
+   Returns the new pair of counts. */
+function settlePair(i1,i2,n,iL,iR,k){
+  if(i2-i1>=n) return [i1,i2];
+  if(k===1){ if(i2<iR) i2=Math.min(i1+n,iR); if(i2-i1<n) i1=i2-n; }
+  else     { if(i1>iL) i1=Math.max(i2-n,iL); if(i2-i1<n) i2=i1+n; }
+  return [i1,i2];
+}
+
+/* A drag of body k to x (metres): snapped to the grid, held inside the track
+   and clear of the other body.  The bounds are grid counts, so clamping and
+   snapping commute (PhET clamps first; the result is the same). */
+function dragSteps(T,k,x,i1,i2,n){
+  const i=symRound(x*T.perM);
+  return k===1?clamp(i,T.iL,i2-n):clamp(i,i1+n,T.iR);
+}
+
+/* The force ON body `on` along +x: C v1 v2 (x_on - x_other) / |x_on - x_other|^3.
+   Each body's force is computed from its own geometry, so Newton's third law
+   (F_on1 = -F_on2) is an output the tests check, not an assumption. */
+function forceOn(C,v1,v2,x1,x2,on){
+  const d=on===1?x1-x2:x2-x1;
+  return C*v1*v2*d/(Math.abs(d)*d*d);
+}
+function forceMag(C,v1,v2,r){ return Math.abs(C*v1*v2)/(r*r); }
+
+/* PhET's two readout formats.  Decimal: `places` decimals with the digits
+   after the point grouped in threes.  Scientific: a two-decimal mantissa and
+   a power of ten (none when the exponent is 0).  A zero force stays decimal
+   in either mode, as PhET's does. */
+const SUPS={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+function supText(n){ return String(n).replace(/[-0-9]/g,c=>SUPS[c]); }
+function decGrouped(x,places){
+  const s=Number(x).toFixed(places), i=s.indexOf('.');
+  if(i<0) return s;
+  let out=s.slice(0,i+4);
+  for(let j=i+4;j<s.length;j+=3) out+=' '+s.slice(j,j+3);
+  return out;
+}
+function sciText(x,digits){
+  const s=Number(x).toExponential(digits), k=s.indexOf('e'), ex=parseInt(s.slice(k+1),10);
+  return ex===0?s.slice(0,k):s.slice(0,k)+' × 10'+supText(ex);
+}
+function forceValueText(F,mode,places){
+  const a=Math.abs(F);
+  return (mode==='sci'&&a!==0)?sciText(a,2):decGrouped(a,places);
+}
+/* the label PhET prints over each arrow */
+function forceLabel(me,other,F,mode,places){
+  return 'Force on '+me+' by '+other+(mode==='hid'?'':' = '+forceValueText(F,mode,places)+' N');
+}
+/* the same number for the HTML readout, significant figures and a real
+   superscript (sigf's ×10^ form is for the canvas-free fallbacks) */
+function sciHTML(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  const a=Math.abs(x);
+  if(a>=1e-3&&a<1e5) return sigf(x,n);
+  const s=x.toExponential(n-1), k=s.indexOf('e');
+  return s.slice(0,k)+' &times; 10<sup>'+parseInt(s.slice(k+1),10)+'</sup>';
+}
+/* ...and for canvas text (no markup: Unicode superscripts) */
+function sciPlain(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  const a=Math.abs(x);
+  if(a>=1e-3&&a<1e5) return sigf(x,n);
+  const s=x.toExponential(n-1), k=s.indexOf('e');
+  return s.slice(0,k)+' × 10'+supText(parseInt(s.slice(k+1),10));
+}
+
+/* The force-arrow scale: a 1-2-5 ladder.  Step k is
+   [1,2,5][k mod 3] x 10^(floor(k/3) + e0) newtons per display unit of arrow. */
+function arrowStep(k,e0){ return [1,2,5][((k%3)+3)%3]*Math.pow(10,Math.floor(k/3)+e0); }
+
+/* The inverse-square view's samples, all through forceMag (never a closed form
+   of the answer), so a wrong exponent shows as an F r^2 that is not flat:
+   a log-spaced sweep over [lo, hi], a linear one over the distances the track
+   can hold [dmin, rTrack], the log-log slope measured at the live distance by
+   a central difference, and the inverse-cube comparison through the live point. */
+function invSample(C,v1,v2,r,rTouch,dmin,rTrack){
+  const lo=0.5*rTouch, hi=2*rTrack, n=120, rs=[], Fs=[];
+  for(let i=0;i<=n;i++){ const x=lo*Math.pow(hi/lo,i/n); rs.push(x); Fs.push(forceMag(C,v1,v2,x)); }
+  const lin={rs:[],Fs:[],Fr2:[],F3r2:[]}, Fnow=forceMag(C,v1,v2,r);
+  for(let i=0;i<=100;i++){ const x=dmin+(rTrack-dmin)*i/100, F=forceMag(C,v1,v2,x);
+    lin.rs.push(x); lin.Fs.push(F); lin.Fr2.push(F*x*x); lin.F3r2.push(Fnow*r*r*r/x); }
+  const e=1e-3, slope=(Math.log(forceMag(C,v1,v2,r*(1+e)))-Math.log(forceMag(C,v1,v2,r*(1-e))))/(Math.log(1+e)-Math.log(1-e));
+  return {lo,hi,rs,Fs,lin,rTouch,dmin,rTrack,slope,Fnow,F2r:forceMag(C,v1,v2,2*r),
+          Fnear:forceMag(C,v1,v2,dmin),Ffar:forceMag(C,v1,v2,rTrack),prod:Math.abs(C*v1*v2)};
+}
+
+/* the radius of a uniform sphere of mass m and density rho */
+function scaledRadius(m,rho){ return Math.pow(3*m/rho/(4*PI),1/3); }
+
+/* ================================================================== *
+ *  electrostatics: CODATA's k and e, PhET's two tracks, and the       *
+ *  comparison with gravity                                            *
+ * ================================================================== */
+const EPS0=8.8541878188e-12;       /* F/m, CODATA 2022 (scipy.constants 1.18, derive.py) */
+const K_E=1/(4*PI*EPS0);           /* N m^2 C^-2: 8.987551786170797e9 */
+const E_CH=1.602176634e-19;        /* C, exact since the 2019 SI */
+const G_N=6.6743e-11;              /* m^3 kg^-1 s^-2, CODATA 2022 — for the gravity comparison */
+const M_E=9.1093837139e-31, M_P=1.67262192595e-27;   /* kg, CODATA 2022 */
+const A0=5.29177210544e-11;        /* m, the Bohr radius, CODATA 2022 */
+const K_PHET=8987551e3, E_PHET=1.6021766208e-19;     /* PhET's values (ISLCConstants) */
+const Q_MAX=10;                    /* PhET's charge range: +-10 uC (macro), +-10 e (atomic), whole units */
+
+/* PhET's two tracks.  macro: charges 6.75 mm in radius on a 1-mm grid within
+   +-5 cm, 1 mm between surfaces asked for — but 6.75 + 6.75 + 1 mm sums to
+   14.4999... mm in floating point and snaps DOWN, so the closest centres sit
+   14 mm apart with a 0.5-mm gap (PhET's own arithmetic, reproduced).  atomic:
+   0.95 pm on a 1-pm grid within +-50 pm, 0.1 pm between surfaces.  Display
+   units: centimetres and picometres; charge units: microcoulombs and e. */
+const TRACKS={
+  macro:{q:0.001, perM:1000, iL:-50, iR:50, sep:0.001, C:K_E, R:0.00675,
+         unit:'cm', uPerM:100, qUnit:'µC', qSI:1e-6, places:3},
+  atomic:{q:1e-12, perM:1e12, iL:-50, iR:50, sep:1e-13, C:K_E, R:9.5e-13,
+         unit:'pm', uPerM:1e12, qUnit:'e', qSI:E_CH, places:9},
+};
+function chargeSteps(T){ return minSteps(T,T.R,T.R); }
+
+/* ---- electricity and gravity ---------------------------------------------
+   Both laws fall as 1/r^2, so their ratio for a given pair of particles is the
+   same at every distance: k e^2 / (G m_e m_p) for the hydrogen atom's pair. */
+function ratioEG(m1,m2){ return K_E*E_CH*E_CH/(G_N*m1*m2); }
+/* the equal masses that would pull as hard as two charges push or pull: from
+   G m^2 / r^2 = |k q1 q2| / r^2 — independent of r, for the same reason */
+function equalMass(q1,q2){ return Math.sqrt(Math.abs(K_E*q1*q2)/G_N); }
+
+/* ================================================================== *
+ *  state, actions, the per-view models, readout / eqbar / tag         *
+ * ================================================================== */
+const TABS=[['macro','macro scale'],['atomic','atomic scale'],['inv','the inverse square'],
+            ['prod','the charge product'],['grav','electricity and gravity']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6', edge:'#242a3a',
+           text:'#cfd4de', bg:'#070b18', plus:'#e8705f', minus:'#5f8fe8', zero:'#6b7285', ruler:'#c9b458'};
+const RO_W=300;                                   /* the floating readout's footprint (stageLayout reserves it) */
+/* the force-arrow ladders: macro in N per cm of arrow (1e-2 ... 5e4), atomic in N per pm (1e-12 ... 5e-6) */
+const ARROW_E0={macro:-2,atomic:-12}, ARROW_KMAX=20;
+const PRE={macro:'m',atomic:'a'};
+const SCREENS=['macro','atomic'];
+
+/* PhET's defaults: macro -4 uC at -1 cm and +8 uC at +2 cm, decimal readout;
+   atomic -2e at -20 pm and +4e at +20 pm, scientific readout */
+const DEFAULTS={view:'macro', scale:'macro', showDist:true,
+  mq1:-4, mq2:8, mi1:-10, mi2:20, mRulerI:-50, mRulerY:null, mForce:true, mSci:false, mArrowK:13,
+  aq1:-2, aq2:4, ai1:-20, ai2:20, aRulerI:-50, aRulerY:null, aForce:true, aSci:true, aArrowK:15};
+const ST=Object.assign({},DEFAULTS);
+function simReset(){}                             /* nothing here runs on a clock */
+
+/* ---- actions: every change goes through PhET's rules -------------------------
+   The charges have a fixed radius, so a new charge never pushes anything:
+   only dragging meets the no-overlap rule. */
+function setCharge(st,w,k,v){ st[PRE[w]+'q'+k]=clamp(Math.round(v),-Q_MAX,Q_MAX); }
+function setPosCL(st,w,k,x){
+  const p=PRE[w], T=TRACKS[w];
+  st[p+'i'+k]=dragSteps(T,k,x,st[p+'i1'],st[p+'i2'],chargeSteps(T));
+}
+function setRulerCL(st,w,x0,y){
+  const p=PRE[w], T=TRACKS[w];
+  st[p+'RulerI']=clamp(symRound(x0*T.perM),T.iL-(T.iR-T.iL)/2,T.iR);
+  if(y!==undefined) st[p+'RulerY']=y;
+}
+function rulerHomeCL(st,w){ st[PRE[w]+'RulerI']=TRACKS[w].iL; st[PRE[w]+'RulerY']=null; }
+function rulerToQ1(st,w){ st[PRE[w]+'RulerI']=st[PRE[w]+'i1']; st[PRE[w]+'RulerY']=0; }
+
+/* ---- the models ---------------------------------------------------------------- */
+function qText(q,w){ const s=q>0?'+':(q<0?'−':''); return w==='macro'?s+Math.abs(q)+' µC':s+Math.abs(q)+'e'; }
+function screenModel(st,w){
+  const p=PRE[w], T=TRACKS[w], n=chargeSteps(T);
+  const Q1=st[p+'q1'], Q2=st[p+'q2'], i1=st[p+'i1'], i2=st[p+'i2'];
+  const q1=Q1*T.qSI, q2=Q2*T.qSI, x1=posOf(T,i1), x2=posOf(T,i2), r=(i2-i1)/T.perM;
+  const F1=forceOn(T.C,q1,q2,x1,x2,1), F2=forceOn(T.C,q1,q2,x1,x2,2), Fmag=forceMag(T.C,q1,q2,r);
+  const mode=st[p+'Force']?(st[p+'Sci']?'sci':'dec'):'hid';
+  const kind=Q1*Q2<0?'attract':(Q1*Q2>0?'repel':'none');
+  /* what PhET's own constants would print: its k, and on the atomic screen its e */
+  const eP=w==='macro'?1e-6:E_PHET, Fphet=Math.abs(K_PHET*Q1*eP*Q2*eP)/(r*r);
+  return {w,T,Q1,Q2,q1,q2,i1,i2,x1,x2,r,n,dmin:n/T.perM,gap:r-2*T.R,F1,F2,Fmag,kq:T.C*q1*q2,kind,mode,Fphet,
+          rulerI:st[p+'RulerI'],rulerY:st[p+'RulerY'],arrowK:st[p+'ArrowK'],per:arrowStep(st[p+'ArrowK'],ARROW_E0[w]),
+          acc:Fmag/M_P,
+          lab1:forceLabel('q₁','q₂',F1,mode,T.places),lab2:forceLabel('q₂','q₁',F2,mode,T.places)};
+}
+function invModel(L){ return invSample(L.T.C,L.q1,L.q2,L.r,2*L.T.R,L.dmin,(L.T.iR-L.T.iL)/L.T.perM); }
+/* the charge product: |F| contours over the (q1, q2) plane in the screen's own
+   charge units, and the two straight lines — F on q2 as q2 changes sign, and
+   the force against the product itself */
+function prodModel(L){
+  const T=L.T, ku=K_E*T.qSI*T.qSI/(L.r*L.r), levels=[];
+  const Flo=ku*1, Fhi=ku*Q_MAX*Q_MAX;
+  for(let e=Math.floor(Math.log10(Flo));e<=Math.ceil(Math.log10(Fhi));e++)
+    for(const c of [1,2,5]){ const F=c*Math.pow(10,e); if(F>Flo*1.0001&&F<Fhi*0.9999) levels.push(F); }
+  const contours=levels.map(F=>{ const c=F/ku, a=c/Q_MAX, xs=[], ys=[];
+    for(let i=0;i<=60;i++){ const x=a*Math.pow(Q_MAX/a,i/60); xs.push(x); ys.push(c/x); }
+    return {F,c,xs,ys,decade:Math.abs(Math.log10(F)-Math.round(Math.log10(F)))<1e-9}; });
+  const q2s=[], F2s=[], F1s=[];
+  for(let i=0;i<=40;i++){ const Q=-Q_MAX+2*Q_MAX*i/40; q2s.push(Q);
+    F2s.push(forceOn(T.C,L.q1,Q*T.qSI,L.x1,L.x2,2)); F1s.push(forceOn(T.C,L.q1,Q*T.qSI,L.x1,L.x2,1)); }
+  const ps=[], Fps=[];
+  for(let i=0;i<=40;i++){ const pr=-Q_MAX*Q_MAX+2*Q_MAX*Q_MAX*i/40; ps.push(pr); Fps.push(forceOn(T.C,pr*T.qSI,T.qSI,L.x1,L.x2,2)); }
+  const cl=Math.abs(L.Q1*L.Q2), live={c:cl,xs:[],ys:[]};
+  if(cl>0) for(let i=0;i<=60;i++){ const x=cl/Q_MAX*Math.pow(Q_MAX*Q_MAX/cl,i/60); live.xs.push(x); live.ys.push(cl/x); }
+  return {ku,levels,contours,q2s,F2s,F1s,ps,Fps,live,prod:L.Q1*L.Q2,dFdq2:ku*L.Q1};
+}
+/* electricity against gravity: the hydrogen pair on log-log axes, the ratios,
+   and the masses that would pull as hard as the macro charges */
+function gravModel(La,Lm){
+  const rs=[], Fe=[], Fg=[], Fa=[];
+  for(let i=0;i<=90;i++){ const r=Math.pow(10,-15+15*i/90); rs.push(r);
+    Fe.push(forceMag(K_E,E_CH,E_CH,r)); Fg.push(forceMag(G_N,M_E,M_P,r)); Fa.push(forceMag(K_E,La.q1,La.q2,r)); }
+  const ps=[], ms=[];
+  for(let i=0;i<=50;i++){ const pr=Q_MAX*Q_MAX*i/50; ps.push(pr); ms.push(equalMass(Math.sqrt(pr)*1e-6,Math.sqrt(pr)*1e-6)); }
+  const mEq=equalMass(Lm.q1,Lm.q2), V=4/3*PI*Math.pow(TRACKS.macro.R,3);
+  return {rs,Fe,Fg,Fa,ratioEP:ratioEG(M_E,M_P),ratioPP:ratioEG(M_P,M_P),ratioEE:ratioEG(M_E,M_E),
+          FeA0:forceMag(K_E,E_CH,E_CH,A0),FgA0:forceMag(G_N,M_E,M_P,A0),ps,ms,mEq,rhoEq:mEq/V,prodM:Math.abs(Lm.Q1*Lm.Q2),
+          ra:La.r,Fa0:La.Fmag};
+}
+
+function buildModel(){
+  const st=ST, view=st.view, M={view,st};
+  if(view==='macro'||view==='atomic') M.L=screenModel(st,view);
+  else if(view==='inv'||view==='prod'){ M.L=screenModel(st,st.scale); if(view==='inv') M.I=invModel(M.L); else M.P=prodModel(M.L); }
+  else { M.La=screenModel(st,'atomic'); M.Lm=screenModel(st,'macro'); M.E=gravModel(M.La,M.Lm); }
+  return M;
+}
+
+/* ---- the shared lab drawing reads a descriptor, not the state ---- */
+function chargeFill(Q){ if(Q===0) return COL.zero; return mix(COL.bg,Q>0?COL.plus:COL.minus,0.35+0.65*Math.abs(Q)/Q_MAX); }
+function chargeRim(Q){ return Q===0?COL.dim:(Q>0?COL.plus:COL.minus); }
+function labSpec(M){
+  const L=M.L, T=L.T, u=T.uPerM, st=M.st, macro=L.w==='macro';
+  return {capFull:macro?MACRO_CAP_FULL:ATOMIC_CAP_FULL,capShort:macro?MACRO_CAP_SHORT:ATOMIC_CAP_SHORT,
+    xL:T.iL/T.perM*u,xR:T.iR/T.perM*u,rmax:T.R*u,pad:macro?0.2:2,unit:T.unit,
+    bodies:[{x:L.x1*u,r:T.R*u,fill:chargeFill(L.Q1),rim:chargeRim(L.Q1),name:'q₁',sub:qText(L.Q1,L.w),sign:L.Q1>0?'+':(L.Q1<0?'−':'')},
+            {x:L.x2*u,r:T.R*u,fill:chargeFill(L.Q2),rim:chargeRim(L.Q2),name:'q₂',sub:qText(L.Q2,L.w),sign:L.Q2>0?'+':(L.Q2<0?'−':'')}],
+    F:[L.F1,L.F2],per:L.per,labels:[L.lab1,L.lab2],
+    arrowText:'force arrows: 1 '+T.unit+' of arrow = '+sciPlain(L.per,1)+' N',
+    showDist:st.showDist,distText:'r = '+fmt(L.r*u,macro?1:0)+' '+T.unit+' between centres',
+    ruler:{x0:L.rulerI/T.perM*u,y:L.rulerY,len:(T.iR-T.iL)/T.perM*u,major:macro?1:10,minorPer:5,
+           labels:macro?['0','1','2','3','4','5','6','7','8','9','10']:['0','10','20','30','40','50','60','70','80','90','100'],
+           unit:macro?'centimetres':'picometres'},
+    legend:macro?{len:1,text:'1 cm'}:{len:10,text:'10 pm',note:'1 picometre (pm) = 1 × 10⁻¹² m'},dimRow:true};
+}
+function invSpec(M){
+  const L=M.L, T=L.T;
+  return {I:M.I,r:L.r,F:L.Fmag,unit:T.unit,uPerM:T.uPerM,
+          pair:'q₁ = '+qText(L.Q1,L.w)+', q₂ = '+qText(L.Q2,L.w)+(L.kind==='none'?', no force':(L.kind==='attract'?', attracting':', repelling')),
+          gapText:'PhET’s gap',capFull:INV_CAP_FULL,capShort:INV_CAP_SHORT,prodName:'|k q₁q₂|'};
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function fN(x){ return sciHTML(x,4)+' N'; }
+function qHTML(Q,w){ return (Q>0?'+':(Q<0?'&minus;':''))+Math.abs(Q)+(w==='macro'?' &micro;C':'e'); }
+function lenHTML(x,T){ return sigf(x*T.uPerM,3)+' '+T.unit; }
+/* the surface gap reads better one unit down: 0.50 mm, 0.10 pm */
+function gapHTML(g,T){ return T.unit==='cm'?sigf(g*1000,2)+' mm':sigf(g*1e12,2)+' pm'; }
+function screenRows(L){
+  const T=L.T, u=T.uPerM;
+  let s=hd(L.w==='macro'?'macro scale':'atomic scale')+rrow('q<sub>1</sub>, q<sub>2</sub>',qHTML(L.Q1,L.w)+', '+qHTML(L.Q2,L.w))
+    +rrow('radius of each (PhET&rsquo;s)',lenHTML(T.R,T));
+  s+=hd('the distance')+rrow('between centres, r',fmt(L.r*u,L.w==='macro'?1:0)+' '+T.unit,'good')+rrow('between surfaces',lenHTML(L.gap,T))
+    +rrow('closest PhET allows',lenHTML(L.dmin,T)+' (a '+gapHTML(L.dmin-2*T.R,T)+' gap)');
+  s+=hd('the force')+rrow('|F| = k|q<sub>1</sub>q<sub>2</sub>|/r<sup>2</sup>',fN(L.Fmag),'good')
+    +rrow('on q<sub>1</sub>, on q<sub>2</sub> (along +x)',sciHTML(L.F1,4)+', '+sciHTML(L.F2,4))
+    +rrow('the pair',L.kind==='none'?'no force: a charge is zero':(L.kind==='attract'?'attract (unlike signs)':'repel (like signs)'),L.kind==='none'?'bad':'')
+    +rrow('k q<sub>1</sub>q<sub>2</sub>',sciHTML(L.kq,4)+' N m&sup2;');
+  return s;
+}
+function readoutHTML(M){
+  const st=M.st;
+  let s='<div class="rname">coulomb&rsquo;s law<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='macro'||M.view==='atomic'){
+    const L=M.L;
+    s+=screenRows(L);
+    if(L.w==='atomic') s+=rrow('on a proton, that is',sciHTML(L.acc,3)+' m/s&sup2;');
+    s+=hd('the drawing')+rrow('arrow scale',sciHTML(L.per,1)+' N per '+L.T.unit)+rrow('ruler zero at',fmt(L.rulerI/L.T.perM*L.T.uPerM,L.w==='macro'?1:0)+' '+L.T.unit);
+  }
+  else if(M.view==='inv'){
+    const L=M.L, I=M.I;
+    s+=screenRows(L);
+    s+=hd('the law')+rrow('|F| at 2r',fN(I.F2r))+rrow('F(r) / F(2r)',fmt(L.Fmag/I.F2r,6),'good')+rrow('log-log slope at r',fmt(I.slope,6),'good')
+      +rrow('reachable r',lenHTML(I.dmin,L.T)+' &ndash; '+lenHTML(I.rTrack,L.T));
+  }
+  else if(M.view==='prod'){
+    const L=M.L, P=M.P, un=L.w==='macro'?'&micro;C':'e';
+    s+=screenRows(L);
+    s+=hd('the product')+rrow('q<sub>1</sub>q<sub>2</sub>',P.prod+' '+un+'&sup2;',P.prod<0?'':'good')
+      +rrow('|F| per '+un+'&sup2; of product',fN(P.ku))+rrow('dF<sub>2</sub>/dq<sub>2</sub>, per '+un,fN(P.dFdq2));
+  }
+  else {
+    const E=M.E;
+    s+=hd('electron and proton, any distance')+rrow('k e<sup>2</sup> / (G m<sub>e</sub>m<sub>p</sub>)',sciHTML(E.ratioEP,4),'good')
+      +rrow('at the Bohr radius: electric',fN(E.FeA0))+rrow('gravitational',fN(E.FgA0))
+      +rrow('two protons: k e<sup>2</sup>/(G m<sub>p</sub><sup>2</sup>)',sciHTML(E.ratioPP,4))+rrow('two electrons',sciHTML(E.ratioEE,4));
+    s+=hd('the macro charges as masses')+rrow('|q<sub>1</sub>q<sub>2</sub>|',E.prodM+' &micro;C&sup2;')
+      +rrow('equal masses pulling as hard',E.prodM>0?sigf(E.mEq/1000,3)+' tonnes each':'none needed (no force)','good')
+      +rrow('in a 6.75-mm sphere, a density of',E.prodM>0?sciHTML(E.rhoEq,3)+' kg/m&sup3;':'&mdash;');
+  }
+  s+='</table><div class="note">k = 1/4&pi;&epsilon;<sub>0</sub> = 8.98755 &times; 10<sup>9</sup> N m&sup2; C<sup>&minus;2</sup> (CODATA 2022 &epsilon;<sub>0</sub>); '
+    +'e = 1.602176634 &times; 10<sup>&minus;19</sup> C, exact. PhET uses k = 8.987551 &times; 10<sup>9</sup> and e = 1.6021766208 &times; 10<sup>&minus;19</sup>'
+    +(M.L?', so its readout here would say '+sciHTML(M.L.Fphet,7)+' N':'')+'. Everything is pinned in selfTest to derive.py.</div>';
+  return s;
+}
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='macro'||M.view==='atomic') return E('<span class="hl">F = k q<sub>1</sub>q<sub>2</sub> / r<sup>2</sup></span> &nbsp;&middot;&nbsp; k = 1/4&pi;&epsilon;<sub>0</sub> = 8.988 &times; 10<sup>9</sup> N m<sup>2</sup> C<sup>&minus;2</sup> &nbsp;&middot;&nbsp; F<sub>on 1</sub> = &minus;F<sub>on 2</sub>',
+    'Coulomb’s law: like charges repel, unlike charges attract, and the force falls as the square of the distance between centres');
+  if(M.view==='inv') return E('|F| &prop; 1/r<sup>2</sup> &nbsp;&middot;&nbsp; log|F| = log|k q<sub>1</sub>q<sub>2</sub>| &minus; 2 log r &nbsp;&middot;&nbsp; <span class="hl">|F| r<sup>2</sup> = |k q<sub>1</sub>q<sub>2</sub>|</span>',
+    'double the distance and the force falls to a quarter, on either scale: on log–log axes a straight line of slope −2');
+  if(M.view==='prod') return E('<span class="hl">F = (k / r<sup>2</sup>) q<sub>1</sub>q<sub>2</sub></span> &nbsp;&middot;&nbsp; q<sub>1</sub>q<sub>2</sub> &gt; 0: repel &nbsp;&middot;&nbsp; q<sub>1</sub>q<sub>2</sub> &lt; 0: attract',
+    'only the product of the charges matters: its sign is the direction, its size the strength');
+  return E('<span class="hl">F<sub>e</sub> / F<sub>g</sub> = k e<sup>2</sup> / (G m<sub>e</sub> m<sub>p</sub>) = 2.27 &times; 10<sup>39</sup></span> &nbsp;&middot;&nbsp; m<sub>equal</sub> = &radic;(k|q<sub>1</sub>q<sub>2</sub>| / G)',
+    'both forces fall as 1/r², so their ratio is the same at every distance — and it is enormous');
+}
+function tagHTML(M){
+  if(M.view==='grav') return '<b>electricity and gravity</b> — the hydrogen pair, and the macro charges as masses';
+  const L=M.L;
+  return '<b>'+TABS.find(t=>t[0]===M.view)[1]+'</b> — q₁ '+qText(L.Q1,L.w)+', q₂ '+qText(L.Q2,L.w)+', r = '+fmt(L.r*L.T.uPerM,L.w==='macro'?1:0)+' '+L.T.unit
+    +(M.view==='inv'||M.view==='prod'?' ('+L.w+')':'');
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views  (projects/simulations/       *
+ *  build_buoy/p4_views.js, lineage build_cycloid; unchanged)         *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  the lab (shared by both sims): the track, the bodies, the force    *
+ *  arrows, the distance line, the ruler, the scale row.  Everything   *
+ *  it draws comes from a descriptor LS built per sim, so the drawing  *
+ *  never reads the state (source: build/gravity-force-lab/p4_lab.js)  *
+ * ================================================================== */
+const LAB_ROW=38, RULER_H=34, RULER_INSET=8, NOTE_LH=13;
+/* The house #hint (HTML: left 14 px, bottom 11 px, 11-px text) sits exactly on
+   the last line of a caption that stageLayout anchors to the canvas bottom
+   (capY = H - 12 - 14 lines), and the display-list capture cannot see it
+   because the hint is not canvas.  Every view here lays out to H - HINT_H, and
+   the layout sweep asserts no canvas text enters the hint's corner
+   (phets_revised Known-bad candidate from wave-on-a-string). */
+const HINT_H=18;
+function stageLayoutH(ctx,W,H,capFull,capShort,nB,frac,nBN){ return stageLayout(ctx,W,H-HINT_H,capFull,capShort,nB,frac,nBN); }
+/* the scale row's note at its longest (both warnings on), so the layout can
+   reserve its lines before knowing which arrows are clipped */
+function labNote(LS,clipped,tiny){
+  let s=LS.legend.text+' (drawn to scale)   ·   '+LS.arrowText;
+  if(clipped) s+='   ·   ≫ an arrow runs off the stage';
+  if(tiny) s+='   ·   an arrow under a pixel is a tick';
+  if(LS.legend.note) s+='   ·   '+LS.legend.note;
+  return s;
+}
+function labGeo(ctx,W,H,LS,Lin){
+  const L=Lin||stageLayoutH(ctx,W,H,LS.capFull,LS.capShort,0,0,0);
+  const b=L.main, xa=LS.xL-LS.rmax-LS.pad, xb=LS.xR+LS.rmax+LS.pad, sW=b.w/(xb-xa);
+  /* the note starts after the scale bar, whose longest is at the width-limited
+     scale: wrap to what is left then, so the lines reserved are never too few */
+  const noteW=Math.max(120,b.w-LS.legend.len*sW-12);
+  const noteLines=wrapText(ctx,labNote(LS,true,true),noteW,SM_FONT).length, scaleH=NOTE_LH*noteLines+8;
+  /* px that do not scale with the world: two arrow rows, the distance row (or
+     the name labels alone), a view's extra row, the ruler at home, the note */
+  const FX=(2*LAB_ROW+10)+(LS.dimRow?54:22)+(LS.extra||0)+(LS.ruler?RULER_H+6:0)+scaleH;
+  const s=Math.min(sW,Math.max(1,(b.h-FX)/(2*LS.rmax)));
+  const ox=b.x+(b.w-(xb-xa)*s)/2-xa*s;
+  /* spare height: the band sits a third of the way down, not glued to the top */
+  const off=Math.max(0,(b.h-FX-2*LS.rmax*s)*0.33);
+  const top=b.y+off;
+  /* below the largest sphere: its name (to +16), the distance line at +28, its
+     label (to +49), and the ruler's home tick edge at +54 */
+  const yT=top+2*LAB_ROW+10+LS.rmax*s, yBot=yT+LS.rmax*s, yDim=yBot+28;
+  const X=x=>ox+x*s, Y=y=>yT-y*s;
+  let ruler=null;
+  if(LS.ruler){
+    const R=LS.ruler, home=(LS.dimRow?yDim+26:yBot+20);
+    const ryLo=yT-LS.rmax*s, ryHi=Math.max(ryLo,b.y1-scaleH-RULER_H-6);
+    const ry=clamp((R.y===null||R.y===undefined)?home:Y(R.y),ryLo,ryHi);
+    ruler={x0:X(R.x0)-RULER_INSET,x1:X(R.x0+R.len)+RULER_INSET,y0:ry,y1:ry+RULER_H,home,ryLo,ryHi};
+  }
+  return {L,b,s,ox,yT,yBot,yDim,X,Y,wx:X2=>(X2-ox)/s,wy:Y2=>(yT-Y2)/s,noteW,noteLines,
+          rows:[{lab:top+LAB_ROW+10,arrow:top+LAB_ROW+28},{lab:top+10,arrow:top+28}],ruler,yScale:b.y1-8};
+}
+/* a force arrow on a row: length |F| / per display units; returns what was drawn */
+function labArrow(ctx,G,xc,F,per,yRow,col){
+  const lenPx=Math.abs(F)/per*G.s, dir=F>0?1:-1, X0=G.X(xc);
+  const room=dir>0?G.b.x1-4-X0:X0-(G.b.x+4);
+  const clipped=lenPx>room, Lp=Math.max(0,Math.min(lenPx,room));
+  if(F===0||Lp<1.5){
+    ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(X0,yRow-4); ctx.lineTo(X0,yRow+4); ctx.stroke();
+    return {lenPx,clipped:false,tiny:F!==0,Lp,dir,X0};
+  }
+  const hl=Math.min(11,Lp*0.45), hw=Math.min(7,Math.max(3,hl*0.6)), sw=2.2, X1=X0+dir*Lp;
+  ctx.beginPath();
+  ctx.moveTo(X0,yRow-sw/2); ctx.lineTo(X1-dir*hl,yRow-sw/2); ctx.lineTo(X1-dir*hl,yRow-hw);
+  ctx.lineTo(X1,yRow); ctx.lineTo(X1-dir*hl,yRow+hw); ctx.lineTo(X1-dir*hl,yRow+sw/2); ctx.lineTo(X0,yRow+sw/2); ctx.closePath();
+  ctx.fillStyle=col; ctx.fill();
+  POLY_SEGS.push(X0,yRow,X1,yRow);
+  if(clipped){      /* it runs off the stage: an orange double chevron where it is cut */
+    ctx.strokeStyle=COL.ref; ctx.lineWidth=1.6;
+    for(const o of [0,6]){ ctx.beginPath(); ctx.moveTo(X1-dir*(o+10),yRow-7); ctx.lineTo(X1-dir*(o+4),yRow); ctx.lineTo(X1-dir*(o+10),yRow+7); ctx.stroke(); }
+  }
+  return {lenPx,clipped,tiny:false,Lp,dir,X0};
+}
+/* a body: filled disc, a lighter rim, a highlight, and the centre dot PhET
+   marks (or, for a charge, its sign) */
+function labBody(ctx,G,bd){
+  const X=G.X(bd.x), Y=G.yT, R=Math.max(1.5,bd.r*G.s);
+  ctx.beginPath(); ctx.arc(X,Y,R,0,TAU); ctx.fillStyle=bd.fill; ctx.fill();
+  ctx.strokeStyle=bd.rim; ctx.lineWidth=1.2; ctx.stroke();
+  if(R>6){ ctx.beginPath(); ctx.arc(X-0.32*R,Y-0.32*R,0.28*R,0,TAU); ctx.fillStyle=mix(bd.fill,'#ffffff',0.35); ctx.fill(); }
+  /* a charge's sign is a symbol, stroked rather than typeset: as text it would
+     be a label the ruler's numbers collide with when the ruler lies across it */
+  if(bd.sign&&R>7){ const a=Math.min(10,R*0.4);
+    ctx.strokeStyle='#ffffff'; ctx.lineWidth=clamp(R*0.07,1.5,3.2); ctx.beginPath(); ctx.moveTo(X-a,Y); ctx.lineTo(X+a,Y);
+    if(bd.sign==='+'){ ctx.moveTo(X,Y-a); ctx.lineTo(X,Y+a); } ctx.stroke(); }
+  else if(!bd.sign){ ctx.beginPath(); ctx.arc(X,Y,2,0,TAU); ctx.fillStyle='#0b0e16'; ctx.fill(); }
+}
+/* the ruler: a translucent strip, tick edge on top, drawn over the bodies and
+   cut at the stage box (a ruler slid past the track would otherwise run under
+   the floating readout).  Its numbers go in the label registry, so the names
+   drawn after it step around them. */
+function labRuler(ctx,W,H,G,LS){
+  const R=LS.ruler, g=G.ruler, b=G.b;
+  const x0=Math.max(g.x0,b.x-RULER_INSET), x1=Math.min(g.x1,b.x1);
+  if(x1-x0<4) return;
+  ctx.fillStyle=rgba(COL.ruler,0.22); ctx.fillRect(x0,g.y0,x1-x0,RULER_H);
+  ctx.strokeStyle=rgba(COL.ruler,0.85); ctx.lineWidth=1; ctx.strokeRect(x0,g.y0,x1-x0,RULER_H);
+  const nMaj=Math.round(R.len/R.major);
+  ctx.strokeStyle=rgba('#f2e7a8',0.9); ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let i=0;i<=nMaj;i++) for(let j=0;j<R.minorPer&&(j===0||i<nMaj);j++){
+    const X=G.X(R.x0+(i+j/R.minorPer)*R.major), len=j===0?10:5;
+    if(X<x0||X>x1) continue;
+    ctx.moveTo(X,g.y0); ctx.lineTo(X,g.y0+len);
+  }
+  ctx.stroke();
+  /* numbers under the major ticks (rows 11-21 px), the unit on a row of its own (22-32 px) */
+  ctx.fillStyle='#efe6b4'; ctx.font='10px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  const step=(G.s*R.major<16)?2:1;              /* thin the numbers when the ticks crowd */
+  for(let i=0;i<=nMaj;i+=step){ const X=G.X(R.x0+i*R.major), w=R.labels[i].length*5.2;
+    if(X-w/2<x0||X+w/2>x1) continue;
+    ctx.fillText(R.labels[i],X,g.y0+11); LABELS.push([X-w/2,g.y0+11,X+w/2,g.y0+22.5]); }
+  ctx.textAlign='right'; ctx.fillStyle=rgba('#efe6b4',0.75);
+  const ux=x1-4, uw=R.unit.length*5.2;
+  if(ux-x0>uw+30){ ctx.fillText(R.unit,ux,g.y0+22); LABELS.push([ux-uw,g.y0+22,ux,g.y0+33.5]); }
+}
+function drawLab(ctx,W,H,LS,Lin){
+  const G=labGeo(ctx,W,H,LS,Lin), b=G.b;
+  /* the track: the centre line and its two ends */
+  const XL=G.X(LS.xL), XR=G.X(LS.xR);
+  ctx.strokeStyle=rgba(COL.struct,0.35); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(XL,G.yT); ctx.lineTo(XR,G.yT); ctx.stroke();
+  ctx.strokeStyle=rgba(COL.struct,0.6); ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(XL,G.yT-9); ctx.lineTo(XL,G.yT+9); ctx.moveTo(XR,G.yT-9); ctx.lineTo(XR,G.yT+9); ctx.stroke();
+  POLY_SEGS.push(XL,G.yT,XR,G.yT);
+  if(LS.under) LS.under(ctx,G);                  /* anything a view paints under the bodies */
+  /* dashed guides from each body up to its arrow row (PhET's marker lines) */
+  LS.bodies.forEach((bd,k)=>{
+    const X=G.X(bd.x), row=G.rows[k];
+    ctx.strokeStyle=rgba(bd.rim,0.55); ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(X,G.yT-Math.max(1.5,bd.r*G.s)-2); ctx.lineTo(X,row.arrow+6); ctx.stroke(); ctx.setLineDash([]);
+  });
+  /* the arrows first, then their labels, so the labels sit on top */
+  const arr=LS.bodies.map((bd,k)=>labArrow(ctx,G,bd.x,LS.F[k],LS.per,G.rows[k].arrow,COL.pos));
+  LS.bodies.forEach((bd,k)=>{
+    const t=plain(LS.labels[k]), w=t.length*11*0.52;
+    const X=clamp(G.X(bd.x),b.x+w/2+2,b.x1-w/2-2);
+    lab(ctx,W,H,X,G.rows[k].lab,t,'#e4e8f0',LAB_FONT,'center');
+  });
+  /* the bodies, the ruler over them, then the names, which step around the ruler's numbers */
+  LS.bodies.forEach(bd=>labBody(ctx,G,bd));
+  if(LS.over) LS.over(ctx,G);                    /* anything a view paints over the bodies */
+  if(LS.ruler) labRuler(ctx,W,H,G,LS);
+  LS.bodies.forEach(bd=>lab(ctx,W,H,G.X(bd.x),G.yT+Math.max(1.5,bd.r*G.s)+10,bd.name+'  '+bd.sub,'#aeb6c6',SM_FONT,'center'));
+  /* the distance between centres */
+  if(LS.showDist&&LS.dimRow){
+    const X1=G.X(LS.bodies[0].x), X2=G.X(LS.bodies[1].x), y=G.yDim;
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.moveTo(X1,y); ctx.lineTo(X2,y); ctx.moveTo(X1,y-5); ctx.lineTo(X1,y+5); ctx.moveTo(X2,y-5); ctx.lineTo(X2,y+5); ctx.stroke();
+    POLY_SEGS.push(X1,y,X2,y);
+    lab(ctx,W,H,(X1+X2)/2,y+9,LS.distText,COL.struct,SM_FONT,'center','top');
+  }
+  /* the scale row: a scale bar, the arrow scale, and anything an arrow could not
+     show — wrapped to the width the layout reserved lines for */
+  const yS=G.yScale, Lb=LS.legend.len*G.s, x0=b.x;
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(x0,yS); ctx.lineTo(x0+Lb,yS); ctx.moveTo(x0,yS-4); ctx.lineTo(x0,yS+4); ctx.moveTo(x0+Lb,yS-4); ctx.lineTo(x0+Lb,yS+4); ctx.stroke();
+  const lines=wrapText(ctx,labNote(LS,arr.some(a=>a.clipped),arr.some(a=>a.tiny)),G.noteW,SM_FONT);
+  ctx.fillStyle='#8b93a6'; ctx.font=SM_FONT; ctx.textAlign='left'; ctx.textBaseline='middle';
+  lines.forEach((ln,i)=>ctx.fillText(ln,x0+Lb+10,yS-(lines.length-1-i)*NOTE_LH));
+  drawCaption(ctx,G.L);
+  return {G,arr};
+}
+/* what the pointer is over, topmost first: the ruler (drawn last), then a body */
+function labHit(G,LS,x,y){
+  const g=G.ruler;
+  if(g&&x>=Math.max(g.x0,G.b.x-RULER_INSET)&&x<=Math.min(g.x1,G.b.x1)&&y>=g.y0&&y<=g.y1) return 'ruler';
+  let best=null, bd=1e9;
+  LS.bodies.forEach((b2,k)=>{ const d=Math.hypot(x-G.X(b2.x),y-G.yT), R=Math.max(8,b2.r*G.s)+4;
+    if(d<=R&&d<bd){ bd=d; best=k+1; } });
+  return best;
+}
+
+/* ================================================================== *
+ *  plot helpers shared by the analysis views                         *
+ * ================================================================== */
+function ticks125(lo,hi){
+  const out=[]; if(!(lo>0)||!(hi>0)) return out;
+  for(let e=Math.floor(Math.log10(lo))-1;e<=Math.ceil(Math.log10(hi));e++)
+    for(const c of [1,2,5]){ const v=c*Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+/* a tick number as its value reads, no padding zeros ("2", "0.5", not "2.00",
+   "0.50") and a true minus sign */
+function tickNum(v){ if(Math.abs(v)<1e-12) return '0'; return String(+v.toPrecision(3)).replace('-','−'); }
+function powLabel(v){           /* a tick value from a log axis: 10ⁿ, or c×10ⁿ */
+  const e=Math.floor(v+1e-9), c=Math.round(Math.pow(10,v-e));
+  if(e>=-2&&e<=3) return tickNum(c*Math.pow(10,e));
+  return (c===1?'':c+'×')+'10'+supText(e);
+}
+/* decades, or 1-2-5 when the span is short — unless the 1-to-2 step would be
+   under 14 px on this panel, where the labels would stack (hpx: its height) */
+function logYTicks(lo,hi,hpx){
+  const d=logTicks(lo,hi);
+  if(d.length>=3) return d.map(Math.log10);
+  const t=ticks125(lo,hi);
+  if(hpx&&hpx*Math.log10(2)/Math.log10(hi/lo)<14) return (d.length>=2?d:t.filter((v,i)=>i%3===0)).map(Math.log10);
+  return t.map(Math.log10);
+}
+/* a linear axis in units of 10^p, so its tick labels stay short enough to
+   clear the rotated axis title 40 px left of the frame */
+function powAxis(hi,name,unit){
+  const p=Math.floor(Math.log10(hi)+1e-9), d=Math.pow(10,p);
+  return {fmt:v=>tickNum(v/d),lab:name+', '+(p===0?'':'10'+supText(p)+' ')+unit,p,d};
+}
+/* a label held inside a plot frame b (lab() alone only keeps it on the canvas,
+   and a label that slides past the frame lands in the tick-label column) */
+function labIn(ctx,W,H,b,x,y,txt,col,align,base){
+  const w=plain(txt).length*10.5*0.52, fh=10.5*1.15, bl=base||'middle';
+  const lo=align==='right'?b.x+2+w:(align==='center'?b.x+2+w/2:b.x+2);
+  const hi=align==='right'?b.x1-2:(align==='center'?b.x1-2-w/2:b.x1-2-w);
+  const ylo=bl==='top'?b.y+2:(bl==='bottom'?b.y+2+fh:b.y+2+fh/2);
+  const yhi=bl==='top'?b.y1-2-fh:(bl==='bottom'?b.y1-2:b.y1-2-fh/2);
+  return lab(ctx,W,H,clamp(x,lo,Math.max(lo,hi)),clamp(y,ylo,Math.max(ylo,yhi)),txt,col,SM_FONT,align,base);
+}
+/* fewer y ticks on a short panel, or their labels stack into each other */
+function nyFor(h){ return h<90?2:(h<140?3:4); }
+/* axesR, plus every tick label and both axis titles in the label registry:
+   axes() registers nothing, so a label that lab() dodges out of its first
+   spot can land on a tick number it cannot see (the standard_model trap,
+   "axesT registers ticks") */
+function axesT(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axesR(ctx,b,xlo,xhi,ylo,yhi,opt);
+  const o=opt||{}, fs=10.5, fh=fs*1.15;
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  for(const t of xt){ const X=b.x+b.w*(t-xlo)/(xhi-xlo||1); if(X<b.x-0.5||X>b.x1+0.5) continue;
+    const w=plain(o.xfmt?o.xfmt(t):fmt(t,2)).length*fs*0.52; LABELS.push([X-w/2,b.y1+5,X+w/2,b.y1+5+fh]); }
+  for(const t of yt){ const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1); if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    const w=plain(o.yfmt?o.yfmt(t):fmt(t,2)).length*fs*0.52; LABELS.push([b.x-6-w,Y-fh/2,b.x-6,Y+fh/2]); }
+  if(o.xlab){ const w=plain(o.xlab).length*11*0.52; LABELS.push([b.x+b.w/2-w/2,b.y1+21,b.x+b.w/2+w/2,b.y1+21+11*1.15]); }
+  if(o.ylab){ const w=plain(o.ylab).length*11*0.52; LABELS.push([b.x-40-11*1.15,b.y+b.h/2-w/2,b.x-40,b.y+b.h/2+w/2]); }
+}
+/* a label beside a point, on whichever side keeps it inside the frame */
+function labBeside(ctx,W,H,b,x,y,txt,col,base){
+  const w=plain(txt).length*10.5*0.52;
+  if(x+10+w<=b.x1-2) return labIn(ctx,W,H,b,x+10,y,txt,col,'left',base);
+  return labIn(ctx,W,H,b,x-10,y,txt,col,'right',base);
+}
+/* the lower panels of a plot view: both on a wide stage, the second alone on
+   a narrow one (stageLayout keeps one bottom row there, so the main plot's
+   axis labels keep their room above it) */
+function lowerPanels(Lo){ return Lo.bottom.length===2?Lo.bottom:[null,Lo.bottom[0]||null]; }
+
+/* ================================================================== *
+ *  the inverse square (shared): F against r on log-log axes, on       *
+ *  linear axes, and F r^2 — flat at the law's constant                *
+ * ================================================================== */
+const INV_BAND={over:'rgba(232,132,58,0.20)',gap:'rgba(232,132,58,0.09)',off:'rgba(139,147,166,0.10)'};
+function drawInverse(ctx,W,H,IV){
+  const I=IV.I, u=IV.uPerM, un=IV.unit, r=IV.r*u, F=IV.F;
+  /* a zero charge: no force at any distance, and no line to put on log axes —
+     say so, rather than let log10(0) = -Infinity reach the axis range */
+  if(!(I.prod>0)){
+    const L0=stageLayoutH(ctx,W,H,IV.capFull,IV.capShort,0,0,0), b0=L0.main;
+    lab(ctx,W,H,b0.x+b0.w/2,b0.y+b0.h*0.4,'One charge is zero: there is no force at any distance, so there is no line to draw.',COL.ref,LAB_FONT,'center');
+    lab(ctx,W,H,b0.x+b0.w/2,b0.y+b0.h*0.4+22,'Give both charges a value to see the inverse square.',COL.dim,SM_FONT,'center');
+    drawCaption(ctx,L0); return;
+  }
+  const Lo=stageLayoutH(ctx,W,H,IV.capFull,IV.capShort,2,0.36,1);
+  const b=Lo.main;
+  /* ---- log-log over [rTouch/2, 2 rTrack] ---- */
+  const xlo=I.lo*u, xhi=I.hi*u, Fmin=I.Fs[I.Fs.length-1], Fmax=I.Fs[0];
+  const X0=Math.log10(xlo), X1=Math.log10(xhi), Y0=Math.log10(Fmin)-0.15, Y1=Math.log10(Fmax)+0.15;
+  const px=x=>b.x+b.w*(Math.log10(x)-X0)/(X1-X0), py=f=>b.y1-b.h*(Math.log10(f)-Y0)/(Y1-Y0);
+  const band=(a,c,col)=>{ const A=clamp(px(a),b.x,b.x1), C=clamp(px(c),b.x,b.x1); if(C>A){ ctx.fillStyle=col; ctx.fillRect(A,b.y,C-A,b.h); } return [A,C]; };
+  const bOver=band(xlo,I.rTouch*u,INV_BAND.over), bGap=band(I.rTouch*u,I.dmin*u,INV_BAND.gap), bOff=band(I.rTrack*u,xhi,INV_BAND.off);
+  axesT(ctx,b,X0,X1,Y0,Y1,{title:titleFor(b,'the force against the distance between centres, log–log: a straight line of slope −2','F against r, log–log'),
+    xlab:'distance between centres r, '+un,ylab:'F, N',xticks:ticks125(xlo,xhi).map(Math.log10),yticks:logYTicks(Math.pow(10,Y0),Math.pow(10,Y1),b.h),
+    xfmt:powLabel,yfmt:powLabel});
+  const lx=[], ly=[], rx=[], ry=[];
+  for(let i=0;i<I.rs.length;i++){ const lg=Math.log10(I.rs[i]*u), lf=Math.log10(I.Fs[i]);
+    lx.push(lg); ly.push(lf); if(I.rs[i]>=I.dmin*(1-1e-12)&&I.rs[i]<=I.rTrack*(1+1e-12)){ rx.push(lg); ry.push(lf); } }
+  polyline(ctx,b,lx,ly,X0,X1,Y0,Y1,rgba(COL.pos,0.55),1.3,[5,4]);
+  polyline(ctx,b,rx,ry,X0,X1,Y0,Y1,COL.pos,2.2);
+  /* the slope triangle: double r, and the model's own F at 2r (a quarter) */
+  if(2*r<=xhi){
+    polyline(ctx,b,[Math.log10(r),Math.log10(2*r),Math.log10(2*r)],[Math.log10(F),Math.log10(F),Math.log10(I.F2r)],X0,X1,Y0,Y1,COL.ref,1.2,[3,3]);
+    lab(ctx,W,H,px(Math.SQRT2*r),py(F)-6,'×2 in r',COL.ref,SM_FONT,'center','bottom');
+    labBeside(ctx,W,H,b,px(2*r)-4,py(Math.sqrt(F*I.F2r)),'÷'+fmt(F/I.F2r,2)+' in F',COL.ref);
+  }
+  marker(ctx,b,X0,X1,Y0,Y1,Math.log10(r),Math.log10(F),COL.live);
+  const fits=(a,t)=>a[1]-a[0]>t.length*10.5*0.52+8;
+  if(fits(bOver,'they would overlap')) lab(ctx,W,H,(bOver[0]+bOver[1])/2,b.y1-12,'they would overlap',COL.ref,SM_FONT,'center');
+  if(fits(bGap,IV.gapText)) lab(ctx,W,H,(bGap[0]+bGap[1])/2,b.y1-28,IV.gapText,COL.ref,SM_FONT,'center');
+  const offLab=fits(bOff,'off the track');
+  if(offLab) lab(ctx,W,H,(bOff[0]+bOff[1])/2,b.y+14,'off the track',COL.dim,SM_FONT,'center');
+  labIn(ctx,W,H,b,px(r)-10,py(F)+14,'r = '+sigf(r,3)+' '+un+',  F = '+sciPlain(F,3)+' N',COL.live,'right','top');
+  lab(ctx,W,H,b.x1-8,b.y+(offLab?30:14),'slope at r: '+fmt(I.slope,4)+'   ·   '+IV.pair,COL.pos,SM_FONT,'right');
+  /* ---- the lower panels, over the distances the track can hold ---- */
+  const [bl,br]=lowerPanels(Lo), a=I.dmin*u, c=I.rTrack*u, xs=I.lin.rs.map(x=>x*u);
+  if(bl){
+    const yh=I.Fnear*1.08, ax=powAxis(yh,'F','N');
+    axesT(ctx,bl,a,c,0,yh,{title:titleFor(bl,'the same force on linear axes, where the track allows','F against r'),xlab:'r, '+un,ylab:ax.lab,nx:5,ny:nyFor(bl.h),
+      xfmt:tickNum,yfmt:ax.fmt});
+    polyline(ctx,bl,xs,I.lin.Fs,a,c,0,yh,COL.pos,2);
+    marker(ctx,bl,a,c,0,yh,r,F,COL.live);
+  }
+  if(br){
+    const yh2=I.prod*1.7, ax=powAxis(yh2,'F r²','N m²');
+    axesT(ctx,br,a,c,0,yh2,{title:titleFor(br,'F r² is flat: it is '+IV.prodName+' (dashed: an inverse cube)','F r² against r'),xlab:'r, '+un,ylab:ax.lab,nx:5,ny:nyFor(br.h),
+      xfmt:tickNum,yfmt:ax.fmt});
+    polyline(ctx,br,xs,I.lin.F3r2,a,c,0,yh2,COL.ref,1.3,[5,4]);
+    polyline(ctx,br,xs,I.lin.Fr2,a,c,0,yh2,COL.pos,2);
+    marker(ctx,br,a,c,0,yh2,r,F*IV.r*IV.r,COL.live);
+    lab(ctx,W,H,br.x1-8,br.y1-br.h*(1.3/1.7),IV.prodName+' = '+sciPlain(I.prod,4)+' N m²',COL.pos,SM_FONT,'right','bottom');
+  }
+  drawCaption(ctx,Lo);
+}
+
+/* ================================================================== *
+ *  captions                                                           *
+ * ================================================================== */
+const MACRO_CAP_FULL='PhET’s macro scale: two charged spheres 1.35 cm across on a 10-cm track, charges in microcoulombs. Drag either '
+  +'charge, or the ruler; the sliders set the charges and positions. The green arrows are the force on each — equal and opposite, pointing '
+  +'together for unlike charges and apart for like ones — drawn to the arrow scale printed below. Positions snap to PhET’s 1-mm grid, and '
+  +'the centres never come closer than 1.4 cm (PhET rounds 13.5 + 1 mm down to 14 mm).';
+const MACRO_CAP_SHORT='Drag the charges or the ruler. Green: the force on each, equal and opposite, to the printed arrow scale.';
+const ATOMIC_CAP_FULL='PhET’s atomic scale: the same law with charges in units of e and distances in picometres, on a 100-pm track. Charge '
+  +'comes only in whole multiples of e, so the sliders step by one. The balls are PhET’s 1.9-pm markers for point charges — a real ion is '
+  +'a hundred times larger, a nucleus a thousand times smaller. The green arrows are the force on each, equal and opposite, to the printed '
+  +'arrow scale; positions snap to PhET’s 1-pm grid.';
+const ATOMIC_CAP_SHORT='Charges in e, distances in pm. Green: the force on each, equal and opposite, to the printed arrow scale.';
+const INV_CAP_FULL='The force between the two charges against the distance between their centres, on the chosen scale. On log–log axes an '
+  +'inverse-square law is a straight line of slope −2, whatever the charges or the units; the solid part is what PhET’s track allows, the '
+  +'orange band the distances at which the balls would overlap, the paler band PhET’s gap. Lower left: the same force on linear axes. '
+  +'Lower right: |F| r², flat at |k q₁q₂| — the dashed curve is an inverse-cube law through the same point.';
+const INV_CAP_SHORT='|F| against r: slope −2 on log–log axes; |F| r² stays flat at |k q₁q₂|.';
+const PROD_CAP_FULL='Every pair of charges on the chosen scale, at the current distance. Like signs repel (the upper-right and lower-left '
+  +'quadrants), unlike signs attract, and on either axis one charge is zero and there is no force at all. |F| = (k/r²)|q₁q₂|, so each '
+  +'contour of equal force is a hyperbola, the same in every quadrant. Lower left: the force on q₂ along the track as q₂ changes sign with '
+  +'q₁ held, and the force on q₁ mirroring it. Lower right: the force on q₂ against the product q₁q₂ — the whole plane on one line.';
+const PROD_CAP_SHORT='Like signs repel, unlike attract; |F| contours are hyperbolas |q₁q₂| = const. Below: straight lines through zero.';
+const GRAV_CAP_FULL='An electron and a proton, the pair in a hydrogen atom: the electric force (green) and the gravitational one (orange) '
+  +'against the distance between them, from a femtometre to a metre. Both fall as 1/r², so the lines are parallel and their ratio is the '
+  +'same everywhere; the cyan line is the Bohr radius. The dashed magenta line is the atomic screen’s own pair. Lower left: the macro '
+  +'screen turned round — the equal masses that would pull as hard as its charges, at any distance. Lower right: the ratio for three pairs.';
+const GRAV_CAP_SHORT='Electric (green) and gravitational (orange) force on an electron and a proton: parallel, 2.27 × 10³⁹ apart.';
+
+/* ================================================================== *
+ *  view: the charge product                                           *
+ * ================================================================== */
+function drawProd(ctx,W,H,M){
+  const L=M.L, P=M.P, T=L.T, qm=Q_MAX, un=L.w==='macro'?'µC':'e';
+  const Lo=stageLayoutH(ctx,W,H,PROD_CAP_FULL,PROD_CAP_SHORT,2,0.36,1);
+  const b=Lo.main, px=q=>b.x+b.w*(q+qm)/(2*qm), py=q=>b.y1-b.h*(q+qm)/(2*qm);
+  /* the quadrants: like signs repel, unlike attract */
+  ctx.fillStyle='rgba(232,132,58,0.07)'; ctx.fillRect(px(0),b.y,b.x1-px(0),py(0)-b.y); ctx.fillRect(b.x,py(0),px(0)-b.x,b.y1-py(0));
+  ctx.fillStyle='rgba(90,200,224,0.06)'; ctx.fillRect(b.x,b.y,px(0)-b.x,py(0)-b.y); ctx.fillRect(px(0),py(0),b.x1-px(0),b.y1-py(0));
+  /* the y axis starts its numbers one tick up: at -10 both axes would label
+     the same corner and the two "-10"s collide */
+  axesT(ctx,b,-qm,qm,-qm,qm,{title:titleFor(b,'the force over every pair of charges at r = '+fmt(L.r*T.uPerM,L.w==='macro'?1:0)+' '+T.unit+' ('+L.w+' scale)','F over (q₁, q₂)'),
+    xlab:'q₁, '+un,ylab:'q₂, '+un,xticks:[-10,-5,0,5,10],yticks:[-5,0,5,10],xfmt:tickNum,yfmt:tickNum});
+  polyline(ctx,b,[-qm,qm],[0,0],-qm,qm,-qm,qm,rgba(COL.struct,0.7),1.2);
+  polyline(ctx,b,[0,0],[-qm,qm],-qm,qm,-qm,qm,rgba(COL.struct,0.7),1.2);
+  for(const C of P.contours) for(const [sx,sy] of [[1,1],[-1,-1],[1,-1],[-1,1]])
+    polyline(ctx,b,C.xs.map(x=>sx*x),C.ys.map(y=>sy*y),-qm,qm,-qm,qm,C.decade?rgba(COL.pos,0.85):rgba(COL.pos,0.35),C.decade?1.4:1);
+  for(const C of P.contours){ if(!C.decade) continue; const d=Math.sqrt(C.c); if(d<qm*0.9) lab(ctx,W,H,px(d)+5,py(d)-5,sciPlain(C.F,1)+' N',COL.pos,SM_FONT,'left','bottom'); }
+  if(P.live.c>0){ const sx=Math.sign(L.Q1), sy=Math.sign(L.Q2);
+    polyline(ctx,b,P.live.xs.map(x=>sx*x),P.live.ys.map(y=>sy*y),-qm,qm,-qm,qm,COL.live,1.4,[5,4]); }
+  lab(ctx,W,H,px(qm*0.55),py(qm*0.93),'repel',COL.ref,SM_FONT,'center');
+  lab(ctx,W,H,px(-qm*0.55),py(-qm*0.93),'repel',COL.ref,SM_FONT,'center');
+  lab(ctx,W,H,px(-qm*0.55),py(qm*0.93),'attract',COL.struct,SM_FONT,'center');
+  lab(ctx,W,H,px(qm*0.55),py(-qm*0.93),'attract',COL.struct,SM_FONT,'center');
+  marker(ctx,b,-qm,qm,-qm,qm,L.Q1,L.Q2,COL.live);
+  labBeside(ctx,W,H,b,px(L.Q1),py(L.Q2)-8,'|F| = '+sciPlain(L.Fmag,3)+' N',COL.live,'bottom');
+  const [bl,br]=lowerPanels(Lo);
+  /* symmetric force axes: y numbers kept 14 px clear of the bottom corner,
+     where the x axis prints its -10 */
+  const symTicks=(yh,bx)=>ticksFor(-yh,yh,nyFor(bx.h)).filter(t=>(t+yh)/(2*yh)*bx.h>14);
+  if(bl&&L.Q1===0){
+    axesT(ctx,bl,-qm,qm,-1,1,{title:titleFor(bl,'the force on q₂ as q₂ changes sign (q₁ held)','F on q₂ against q₂'),xlab:'q₂, '+un,xticks:[-10,-5,0,5,10],yticks:[],xfmt:tickNum});
+    labIn(ctx,W,H,bl,bl.x+bl.w/2,bl.y+bl.h/2,'q₁ is zero: no force on q₂, whatever its charge',COL.ref,'center','middle');
+  } else if(bl){
+    const yh=Math.max(...P.F2s.map(Math.abs))*1.1, ax=powAxis(yh,'F','N');
+    axesT(ctx,bl,-qm,qm,-yh,yh,{title:titleFor(bl,'the force on q₂ as q₂ changes sign (q₁ held)','F on q₂ against q₂'),xlab:'q₂, '+un,ylab:ax.lab,
+      yticks:symTicks(yh,bl),xfmt:tickNum,yfmt:ax.fmt});
+    polyline(ctx,bl,[-qm,qm],[0,0],-qm,qm,-yh,yh,rgba(COL.struct,0.6),1);
+    polyline(ctx,bl,P.q2s,P.F1s,-qm,qm,-yh,yh,COL.ref,1.3,[5,4]);
+    polyline(ctx,bl,P.q2s,P.F2s,-qm,qm,-yh,yh,COL.pos,2);
+    marker(ctx,bl,-qm,qm,-yh,yh,L.Q2,L.F2,COL.live);
+    legendAuto(ctx,bl,[[COL.pos,'on q₂ (+x: pushed away)'],[COL.ref,'on q₁, its mirror']]);
+  }
+  if(br){
+    const pm=qm*qm, yh=Math.max(...P.Fps.map(Math.abs))*1.1, ax=powAxis(yh,'F on q₂','N');
+    axesT(ctx,br,-pm,pm,-yh,yh,{title:titleFor(br,'the force against the product q₁q₂: the whole plane on one line','F against q₁q₂'),xlab:'q₁q₂, '+un+'²',ylab:ax.lab,nx:5,
+      yticks:symTicks(yh,br),xfmt:tickNum,yfmt:ax.fmt});
+    polyline(ctx,br,[-pm,pm],[0,0],-pm,pm,-yh,yh,rgba(COL.struct,0.6),1);
+    polyline(ctx,br,P.ps,P.Fps,-pm,pm,-yh,yh,COL.pos,2);
+    marker(ctx,br,-pm,pm,-yh,yh,P.prod,L.F2,COL.live);
+    labIn(ctx,W,H,br,br.x+br.w*0.25,br.y+12,'attract',COL.struct,'center','top');
+    labIn(ctx,W,H,br,br.x+br.w*0.75,br.y1-14,'repel',COL.ref,'center','bottom');
+  }
+  drawCaption(ctx,Lo);
+}
+
+/* ================================================================== *
+ *  view: electricity and gravity                                      *
+ * ================================================================== */
+function drawGrav(ctx,W,H,M){
+  const E=M.E, La=M.La;
+  const Lo=stageLayoutH(ctx,W,H,GRAV_CAP_FULL,GRAV_CAP_SHORT,2,0.36,1);
+  const b=Lo.main, X0=-15, X1=0, Y0=-70, Y1=5;
+  const px=lr=>b.x+b.w*(lr-X0)/(X1-X0), py=lf=>b.y1-b.h*(lf-Y0)/(Y1-Y0);
+  /* y numbers from 10^-60 up: at 10^-70 they would share the corner with 10^-15;
+     every 20 decades when 10 would put them under 14 px apart (a short panel) */
+  const ystep=b.h*10/(Y1-Y0)<14?20:10;
+  const xt=[], yt=[]; for(let e=X0;e<=X1;e+=3) xt.push(e); for(let e=-60;e<=0;e+=ystep) yt.push(e);
+  axesT(ctx,b,X0,X1,Y0,Y1,{title:titleFor(b,'an electron and a proton: electric and gravitational force against distance, log–log','F against r, log–log'),
+    xlab:'distance r, m',ylab:'F, N',xticks:xt,yticks:yt,xfmt:powLabel,yfmt:powLabel});
+  const lr=E.rs.map(Math.log10);
+  polyline(ctx,b,[Math.log10(A0),Math.log10(A0)],[Y0,Y1],X0,X1,Y0,Y1,rgba(COL.struct,0.7),1.2,[3,4]);
+  polyline(ctx,b,lr,E.Fg.map(Math.log10),X0,X1,Y0,Y1,COL.ref,2);
+  polyline(ctx,b,lr,E.Fe.map(Math.log10),X0,X1,Y0,Y1,COL.pos,2);
+  if(La.Fmag>0) polyline(ctx,b,lr,E.Fa.map(Math.log10),X0,X1,Y0,Y1,COL.live,1.2,[5,4]);
+  marker(ctx,b,X0,X1,Y0,Y1,Math.log10(A0),Math.log10(E.FeA0),COL.pos);
+  marker(ctx,b,X0,X1,Y0,Y1,Math.log10(A0),Math.log10(E.FgA0),COL.ref);
+  if(La.Fmag>0) marker(ctx,b,X0,X1,Y0,Y1,Math.log10(La.r),Math.log10(La.Fmag),COL.live);
+  /* the gap between the parallel lines, at 1 um: the ratio, the same everywhere */
+  const xr=-6, ye=Math.log10(forceMag(K_E,E_CH,E_CH,1e-6)), yg=Math.log10(forceMag(G_N,M_E,M_P,1e-6));
+  ctx.strokeStyle=COL.text; ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(px(xr),py(ye)+4); ctx.lineTo(px(xr),py(yg)-4);
+  ctx.moveTo(px(xr)-4,py(ye)+10); ctx.lineTo(px(xr),py(ye)+4); ctx.lineTo(px(xr)+4,py(ye)+10);
+  ctx.moveTo(px(xr)-4,py(yg)-10); ctx.lineTo(px(xr),py(yg)-4); ctx.lineTo(px(xr)+4,py(yg)-10); ctx.stroke();
+  POLY_SEGS.push(px(xr),py(ye),px(xr),py(yg));
+  lab(ctx,W,H,px(xr)+8,(py(ye)+py(yg))/2,'× '+sciPlain(E.ratioEP,3)+' at every distance',COL.text,LAB_FONT,'left');
+  labIn(ctx,W,H,b,px(Math.log10(A0))+6,py(Math.log10(E.FeA0))-8,'Bohr radius: '+sciPlain(E.FeA0,3)+' N',COL.pos,'left','bottom');
+  labIn(ctx,W,H,b,px(Math.log10(A0))+6,py(Math.log10(E.FgA0))+8,sciPlain(E.FgA0,3)+' N',COL.ref,'left','top');
+  legendAuto(ctx,b,[[COL.pos,'electric, k e²/r²'],[COL.ref,'gravitational, G mₑmₚ/r²'],[COL.live,'the atomic screen’s pair']]);
+  const [bl,br]=lowerPanels(Lo);
+  if(bl){
+    const yh=E.ms[E.ms.length-1]/1000*1.1;
+    axesT(ctx,bl,0,Q_MAX*Q_MAX,0,yh,{title:titleFor(bl,'equal masses that pull as hard as the macro charges','masses for the macro charges'),xlab:'|q₁q₂|, µC²',ylab:'m, tonnes',nx:5,ny:nyFor(bl.h),
+      xfmt:tickNum,yfmt:tickNum});
+    polyline(ctx,bl,E.ps,E.ms.map(m=>m/1000),0,Q_MAX*Q_MAX,0,yh,COL.pos,2);
+    marker(ctx,bl,0,Q_MAX*Q_MAX,0,yh,E.prodM,E.mEq/1000,COL.live);
+    labBeside(ctx,W,H,bl,bl.x+bl.w*E.prodM/(Q_MAX*Q_MAX),bl.y1-bl.h*(E.mEq/1000)/yh+14,E.prodM>0?sigf(E.mEq/1000,3)+' t each, at any r':'no force, no mass',COL.live,'top');
+  }
+  if(br){
+    const rows=[['two electrons',E.ratioEE],['electron–proton',E.ratioEP],['two protons',E.ratioPP]];
+    const lo=30, hi=45, bx=v=>br.x+br.w*(Math.log10(v)-lo)/(hi-lo);
+    axesT(ctx,br,lo,hi,0,3,{title:titleFor(br,'the ratio k e²/(G m m′) for three pairs','the ratio, three pairs'),xlab:'F electric / F gravitational',
+      xticks:[30,33,36,39,42,45],yticks:[],xfmt:powLabel});
+    rows.forEach(([nm,v],i)=>{ const yc=br.y+br.h*(i+0.5)/3, hgt=Math.min(18,br.h/5);
+      ctx.fillStyle=rgba(COL.pos,0.75); ctx.fillRect(br.x,yc-hgt/2,bx(v)-br.x,hgt);
+      labIn(ctx,W,H,br,br.x+6,yc-hgt/2-3,nm+': '+sciPlain(v,3),COL.text,'left','bottom'); });
+  }
+  drawCaption(ctx,Lo);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='macro'||M.view==='atomic') drawLab(ctx,W,H,labSpec(M));
+  else if(M.view==='inv') drawInverse(ctx,W,H,invSpec(M));
+  else if(M.view==='prod') drawProd(ctx,W,H,M);
+  else drawGrav(ctx,W,H,M);
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  S.step=function(){ return false; };             /* nothing here moves on its own */
+  S.ended=function(){ return false; };
+  /* the pointer: the charges and the ruler, on the two scale screens */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    const w=ST.view;
+    if(w!=='macro'&&w!=='atomic') return false;
+    const ctx=canvas.getContext('2d'), M=buildModel(), LS=labSpec(M), G=labGeo(ctx,S.W,S.H,LS), u=TRACKS[w].uPerM;
+    if(type==='down'){
+      const hit=labHit(G,LS,x,y);
+      if(hit==='ruler'){ DRAG.what='ruler'; DRAG.off=G.wx(x)-LS.ruler.x0; DRAG.offY=y-G.ruler.y0; return true; }
+      if(hit===1||hit===2){ DRAG.what=hit; DRAG.off=G.wx(x)-LS.bodies[hit-1].x; return true; }
+      return false;
+    }
+    if(type==='move'){
+      if(DRAG.what===1||DRAG.what===2){ setPosCL(ST,w,DRAG.what,(G.wx(x)-DRAG.off)/u); return true; }
+      if(DRAG.what==='ruler'){ const y0=clamp(y-DRAG.offY,G.ruler.ryLo,G.ruler.ryHi); setRulerCL(ST,w,(G.wx(x)-DRAG.off)/u,G.wy(y0)); return true; }
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    st.view=k;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab2)); });
+  /* the scale screen the display controls act on (the lab views only show them) */
+  const scrW=()=>st.view==='atomic'?'atomic':'macro';
+
+  const rows={};
+  function slider(id,lab2,lo,hi,step2,fmtf,get,set){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:get()});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=get(); val.textContent=fmtf(get()); };
+    inp.addEventListener('input',()=>{ set(parseFloat(inp.value)); syncPanel(); dirty=true; refresh(); });
+    rows[id]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(id,lab2,get,set){
+    const inp=h('input',{type:'checkbox'}); inp.checked=!!get();
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ if(inp.disabled) return; set(inp.checked); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+id]={row:el,inp,sync:()=>{ inp.checked=!!get(); }};
+    return el;
+  }
+  const CHIPROWS=[];
+  function chipRow(list,key){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      wrapEl.appendChild(h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; syncChips(); syncPanel(); dirty=true; refresh(); }},o.name));
+    });
+    CHIPROWS.push([wrapEl,list,key]);
+    return wrapEl;
+  }
+
+  const gScale=h('div',{class:'grp'},h('h3',null,'which scale'));
+  gScale.appendChild(chipRow([{id:'macro',name:'macro scale'},{id:'atomic',name:'atomic scale'}],'scale'));
+
+  const gMac=h('div',{class:'grp'},h('h3',null,'macro charges'));
+  gMac.appendChild(slider('mq1','q₁, µC',-Q_MAX,Q_MAX,1,v=>(v>0?'+':'')+fmt(v,0),()=>st.mq1,v=>setCharge(st,'macro',1,v)));
+  gMac.appendChild(slider('mq2','q₂, µC',-Q_MAX,Q_MAX,1,v=>(v>0?'+':'')+fmt(v,0),()=>st.mq2,v=>setCharge(st,'macro',2,v)));
+  gMac.appendChild(slider('mx1','x₁, cm',-5,5,0.1,v=>fmt(v,1),()=>st.mi1/10,v=>setPosCL(st,'macro',1,v/100)));
+  gMac.appendChild(slider('mx2','x₂, cm',-5,5,0.1,v=>fmt(v,1),()=>st.mi2/10,v=>setPosCL(st,'macro',2,v/100)));
+
+  const gAt=h('div',{class:'grp'},h('h3',null,'atomic charges'));
+  gAt.appendChild(slider('aq1','q₁, e',-Q_MAX,Q_MAX,1,v=>(v>0?'+':'')+fmt(v,0),()=>st.aq1,v=>setCharge(st,'atomic',1,v)));
+  gAt.appendChild(slider('aq2','q₂, e',-Q_MAX,Q_MAX,1,v=>(v>0?'+':'')+fmt(v,0),()=>st.aq2,v=>setCharge(st,'atomic',2,v)));
+  gAt.appendChild(slider('ax1','x₁, pm',-50,50,1,v=>fmt(v,0),()=>st.ai1,v=>setPosCL(st,'atomic',1,v*1e-12)));
+  gAt.appendChild(slider('ax2','x₂, pm',-50,50,1,v=>fmt(v,0),()=>st.ai2,v=>setPosCL(st,'atomic',2,v*1e-12)));
+
+  const gDisp=h('div',{class:'grp'},h('h3',null,'force values'));
+  gDisp.appendChild(h('div',{class:'checks'},
+    checkbox('force','force values',()=>st[PRE[scrW()]+'Force'],v=>{ st[PRE[scrW()]+'Force']=v; }),
+    checkbox('sci','scientific notation',()=>st[PRE[scrW()]+'Sci'],v=>{ st[PRE[scrW()]+'Sci']=v; })));
+  gDisp.appendChild(slider('arrowK','arrow scale',0,ARROW_KMAX,1,k=>sciPlain(arrowStep(k,ARROW_E0[scrW()]),1)+' N/'+TRACKS[scrW()].unit,
+    ()=>st[PRE[scrW()]+'ArrowK'],v=>{ st[PRE[scrW()]+'ArrowK']=Math.round(v); }));
+  gDisp.appendChild(h('div',{class:'checks'},checkbox('dist','the distance between centres',()=>st.showDist,v=>{ st.showDist=v; })));
+  gDisp.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ rulerToQ1(st,scrW()); dirty=true; refresh(); }},'ruler to q₁'),
+    h('button',{onclick:()=>{ rulerHomeCL(st,scrW()); dirty=true; refresh(); }},'ruler home')));
+  const dispTag=h('div',{class:'tag'}); gDisp.appendChild(dispTag);
+
+  const gReset=h('div',{class:'grp'},h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Coulomb&rsquo;s Law (University of Colorado Boulder, '
+      +'phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets.'}),
+    h('div',{class:'src',html:'k = 1/4&pi;&epsilon;<sub>0</sub>, e, G, m<sub>e</sub>, m<sub>p</sub> and the Bohr radius: CODATA 2022 through scipy.constants. '
+      +'PhET&rsquo;s values: radii 6.75 mm and 0.95 pm, the &plusmn;5 cm and &plusmn;50 pm tracks on 1-mm and 1-pm grids, gaps of 1 mm and 0.1 pm, '
+      +'charges &plusmn;10 &micro;C and &plusmn;10 e (read from PhET&rsquo;s build 1.0.32). Every number is pinned in selfTest to build/coulombs-law/derive.py.'}));
+  [gScale,gMac,gAt,gDisp,gReset,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    for(const [cw,list,key] of CHIPROWS) [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+  }
+  function syncPanel(){
+    const v=st.view, sc=(v==='inv'||v==='prod')?st.scale:v;
+    gScale.hidden=!(v==='inv'||v==='prod');
+    gMac.hidden=!(sc==='macro'||v==='grav');
+    gAt.hidden=!(sc==='atomic'||v==='grav');
+    gDisp.hidden=!(v==='macro'||v==='atomic');
+    for(const k in rows) rows[k].sync();
+    /* PhET greys out scientific notation while the force values are hidden: a
+       live control that does nothing is worse than none */
+    const on=!!st[PRE[scrW()]+'Force'];
+    rows.cb_sci.inp.disabled=!on; rows.cb_sci.row.style.opacity=on?'1':'0.45';
+    const T=TRACKS[scrW()];
+    dispTag.innerHTML='drag a charge or the ruler on the canvas; the charges snap to '+(T.unit==='cm'?'1 mm':'1 pm')+', the closest centres are '
+      +sigf(chargeSteps(T)/T.perM*T.uPerM,3)+' '+T.unit+' apart';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='macro'||st.view==='atomic')?'drag a charge or the ruler · 1–5 switch views':'1–5 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel(); const M=S.model(); roEl.innerHTML=readoutHTML(M); tagEl.innerHTML=tagHTML(M); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  function frameLoop(){
+    const advanced=S.step();
+    if(advanced||dirty){ dirty=false; try{ S.draw(); }catch(e){ fail(e); } }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  macro:'Charles-Augustin de Coulomb measured it in 1785 with a torsion balance of his own design: two charged spheres push or pull along '
+    +'the line between them with a force proportional to each charge and to the inverse square of the distance between their centres. Like '
+    +'charges repel and unlike charges attract &mdash; change a sign with its slider and both arrows turn round together, still equal and '
+    +'opposite, because Newton&rsquo;s third law holds for charges at rest. These are PhET&rsquo;s macro-scale charges, spheres 1.35 cm across '
+    +'carrying a few microcoulombs. That is a great deal of charge for a ball this size: a microcoulomb alone would hold it at over a million '
+    +'volts, far beyond what air can insulate, which is why real demonstrations use nanocoulombs. The model puts each charge at its sphere&rsquo;s '
+    +'centre, which is exact for a rigid, uniformly charged sphere; two conducting spheres this close would shift their charge toward or away '
+    +'from each other and depart from the formula.',
+  atomic:'At the atomic scale the law is the same, with charge counted in units of the elementary charge, e = 1.602176634 &times; 10<sup>&minus;19</sup> C '
+    +'(exact since the 2019 redefinition of the SI), and distance in picometres, 10<sup>&minus;12</sup> m. Charge comes only in whole multiples of '
+    +'e, so the sliders step by one. The forces look tiny in newtons &mdash; about a micronewton at the defaults &mdash; but they act on particles of '
+    +'almost no mass: the default pull on a proton would accelerate it at nearly 10<sup>21</sup> m/s&sup2; (the readout prints it). PhET draws each charge as a 1.9-pm ball, a '
+    +'marker for a point charge rather than a picture of an ion (a real ion is about a hundred times larger, a nucleus a thousand times '
+    +'smaller). The law between two point charges holds exactly at these distances; what quantum mechanics changes is where the charge in an '
+    +'atom sits, not the force between two charges.',
+  inv:'Double the distance and the force falls to a quarter, on either scale and for any pair of charges: an inverse-square law is a straight '
+    +'line of slope &minus;2 on logarithmic axes, and the readout measures that slope off the model at the live distance. Multiply the force by '
+    +'r&sup2; and what remains, |k q&#8321;q&#8322;|, does not depend on distance at all &mdash; the lower-right panel shows it flat against the falling '
+    +'curve of an inverse-cube law. Coulomb&rsquo;s torsion balance supported the exponent 2 only roughly; the tight tests are null experiments '
+    +'with charged concentric spheres, first Cavendish&rsquo;s and then Maxwell&rsquo;s, because only an exact inverse square leaves the inside of '
+    +'a charged shell free of field.',
+  prod:'The force depends on the charges only through their product. When q&#8321;q&#8322; is positive &mdash; both charges the same sign &mdash; they '
+    +'repel; when it is negative they attract; on either axis one charge is zero and there is no force at all. Its size is proportional to '
+    +'|q&#8321;q&#8322;|, so the contours of equal force are hyperbolas, the same in all four quadrants. The lower-left panel holds q&#8321; fixed and '
+    +'sweeps q&#8322; through zero: the force on q&#8322; is a straight line through the origin that changes direction as the sign does, and the force '
+    +'on q&#8321; is its mirror image. The lower-right panel collapses the whole plane onto one line: every pair of charges with the same product '
+    +'feels the same force.',
+  grav:'Electricity and gravity are both inverse-square laws, so for any pair of particles their ratio does not depend on the distance. For '
+    +'the electron and proton of a hydrogen atom it is k e&sup2;/(G m<sub>e</sub>m<sub>p</sub>) = 2.27 &times; 10<sup>39</sup>: at the Bohr radius the '
+    +'electric pull is 8.2 &times; 10<sup>&minus;8</sup> N and the gravitational one 3.6 &times; 10<sup>&minus;47</sup> N. That is why atoms, molecules and '
+    +'everything built from them are held together by electric forces, and why gravity only wins for bodies so large that their positive and '
+    +'negative charges cancel almost exactly. The lower-left panel turns the comparison round for the macro screen: two masses that pulled as '
+    +'hard as its charges would need tens of tonnes each, and squeezed into PhET&rsquo;s 1.35-cm spheres they would have a density of about '
+    +'5 &times; 10<sup>10</sup> kg/m&sup3;.',
+};
+
+/* ================================================================== *
+ *  selfTest kit: the text-box recorder  (projects/simulations/        *
+ *  build_buoy/p7_test.js makeShot; unchanged)                        *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+/* ================================================================== *
+ *  the inline layout sweep (lineage: build_buoy/p7_test.js section I, *
+ *  shared by both sims).  Every configuration at every stage size     *
+ *  must draw without throwing, draw substance, keep every text op on  *
+ *  the canvas and free of entities, tags, NaN and undefined, keep     *
+ *  text boxes apart at tools/audit.py's own half-pixel rule, keep     *
+ *  data curves out of the legends it placed, and — on a wide stage —  *
+ *  keep text out from under the floating readout.                     *
+ * ================================================================== */
+function layoutSweep(ok,withState,configs,sizes){
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of configs) for(const [W,H] of sizes){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN|Infinity/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; }
+        if(W>=900&&t.bb[2]>W-13-280-24&&t.bb[1]<470){ bad='under the readout: "'+t.t.slice(0,30)+'"'; break; }
+        /* the HTML #hint's corner (left 14, bottom 11, 11-px text up to ~330 px long) */
+        if(t.bb[0]<14+330&&t.bb[3]>H-26){ bad='in the hint\'s corner: "'+t.t.slice(0,30)+'"'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i=0;i<texts.length&&!hit;i++) for(let j=i+1;j<texts.length;j++){
+        const a=texts[i].bb, b=texts[j].bb;
+        if(Math.min(a[2],b[2])-Math.max(a[0],b[0])>0.5&&Math.min(a[3],b[3])-Math.max(a[1],b[1])>0.5){
+          hit='"'+texts[i].t.slice(0,24)+'" vs "'+texts[j].t.slice(0,24)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i=0;i<POLY_SEGS.length;i+=4){
+        const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses a legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legends clear');
+    });
+  }
+}
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Values labelled (derive) are    *
+ *  lines of build/coulombs-law/refvals.txt, the printed output of     *
+ *  derive.py (scipy.constants CODATA 2022), read in full.             *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    Object.assign(ST,DEFAULTS,over);
+    try{ return fn(); } finally{ Object.assign(ST,stSave); }
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  eq(symRound(-2.5),-3,'symRound(-2.5) = -3, halves away from zero'); eq(symRound(14.499999999999998),14,'a hair under a half rounds down');
+  eq(tickNum(-2),'−2','tick numbers carry a true minus'); eq(tickNum(0.5000000000000001),'0.5','and no floating-point tail');
+
+  /* ---------- A. the constants, against absolute numbers ---------- */
+  eq(EPS0,8.8541878188e-12,'eps0 (scipy CODATA 2022)'); rel(K_E,8987551786.170797,1e-15,'k = 1/(4 pi eps0) (derive)');
+  eq(E_CH,1.602176634e-19,'e, exact since 2019'); eq(G_N,6.6743e-11,'G (CODATA 2022)');
+  eq(M_E,9.1093837139e-31,'m_e (CODATA 2022)'); eq(M_P,1.67262192595e-27,'m_p (CODATA 2022)'); eq(A0,5.29177210544e-11,'the Bohr radius (CODATA 2022)');
+  eq(K_PHET,8987551e3,'PhET\'s k, 8.987551e9'); eq(E_PHET,1.6021766208e-19,'PhET\'s e, CODATA 2014');
+  rel(K_E/K_PHET-1,8.747330593195e-08,1e-6,'k / k_PhET - 1 (derive)'); rel(E_CH/E_PHET-1,8.238791870951e-09,1e-6,'e / e_PhET - 1 (derive)');
+  eq(Q_MAX,10,'charges within +-10 units');
+  const TM=TRACKS.macro, TA=TRACKS.atomic;
+  eq(TM.R,0.00675,'macro radius 6.75 mm (PhET)'); eq(TM.q,0.001,'macro grid 1 mm'); eq(TM.perM,1000,'1000 counts per metre'); eq(TM.sep,0.001,'macro gap 1 mm asked for');
+  eq(TM.iL,-50,'macro track from -5 cm'); eq(TM.iR,50,'to +5 cm'); eq(TM.qSI,1e-6,'microcoulombs'); eq(TM.uPerM,100,'centimetres'); eq(TM.places,3,'3 decimals (PhET)');
+  eq(TA.R,9.5e-13,'atomic radius 0.95 pm (PhET)'); eq(TA.q,1e-12,'atomic grid 1 pm'); eq(TA.perM,1e12,'1e12 counts per metre'); eq(TA.sep,1e-13,'atomic gap 0.1 pm');
+  eq(TA.iL,-50,'atomic track from -50 pm'); eq(TA.iR,50,'to +50 pm'); eq(TA.qSI,E_CH,'charge in e'); eq(TA.uPerM,1e12,'picometres'); eq(TA.places,9,'9 decimals (PhET)');
+  eq(TM.C,K_E,'like charges repel: C = +k'); eq(TA.C,K_E,'on both scales');
+
+  /* ---------- B. PhET's closest distances, floating point and all ---------- */
+  eq(chargeSteps(TM),14,'macro: 6.75 + 6.75 + 1 mm = 14.4999... snaps DOWN to 14 mm (derive)');
+  eq(chargeSteps(TA),2,'atomic: 0.95 + 0.95 + 0.1 pm = 2 pm (derive)');
+  rel(14/TM.perM-2*TM.R,0.0005,1e-9,'so the macro gap is 0.5 mm, half what PhET asks for (derive)');
+  rel(2/TA.perM-2*TA.R,1e-13,1e-9,'and the atomic gap 0.1 pm (derive)');
+  /* a stated property, not a blind spot: with PhET's numbers the gap it asks for
+     changes nothing on either screen — 13.5 mm without it also rounds (half away
+     from zero) to 14, and 1.9 pm to 2 — so dropping it is an equivalent mutant
+     here (it is caught in gravity-force-lab, where the gap matters) */
+  eq(symRound((2*TM.R)/TM.q),chargeSteps(TM),'macro: the closest distance is 14 mm with or without the gap');
+  eq(symRound((2*TA.R)/TA.q),chargeSteps(TA),'atomic: 2 pm with or without the gap');
+  rel(arrowStep(13,ARROW_E0.macro),200,1e-12,'the macro arrow scale starts at 200 N per cm (ladder step 13)');
+  rel(arrowStep(15,ARROW_E0.atomic),1e-7,1e-12,'the atomic one at 1e-7 N per pm (step 15)');
+  withState({},()=>{ rel(screenModel(ST,'macro').per,200,1e-12,'the macro model carries it'); rel(screenModel(ST,'atomic').per,1e-7,1e-12,'and the atomic model'); });
+
+  /* ---------- C. the forces ---------- */
+  const MAC=[[-4,8,-10,20,319.5573968416,'319.557','3.20 × 10²'],[10,10,-7,7,-4585.485605189,'4585.486','4.59 × 10³'],
+             [1,-1,-50,50,0.8987551786171,'0.899','8.99 × 10⁻¹'],[5,5,-10,20,-249.6542162825,'249.654','2.50 × 10²'],[-10,10,-7,7,4585.485605189,'4585.486','4.59 × 10³']];
+  for(const [q1,q2,i1,i2,F1,dec,sci] of MAC) withState({mq1:q1,mq2:q2,mi1:i1,mi2:i2},()=>{
+    const L=screenModel(ST,'macro'), tag='macro '+q1+'/'+q2+' uC at '+i1+'/'+i2+' mm: ';
+    rel(L.F1,F1,1e-12,tag+'force on q1 (derive)'); rel(L.F2,-F1,1e-12,tag+'force on q2 (derive)'); close(L.F1+L.F2,0,1e-9,tag+'equal and opposite, from two evaluations');
+    rel(L.Fmag,Math.abs(F1),1e-12,tag+'|F| (derive)'); eq(decGrouped(L.Fmag,3),dec,tag+'PhET decimal (derive)'); eq(sciText(L.Fmag,2),sci,tag+'PhET scientific (derive)');
+    eq(L.kind,q1*q2<0?'attract':'repel',tag+(q1*q2<0?'unlike signs attract':'like signs repel'));
+    ok(q1*q2<0?L.F1>0:L.F1<0,tag+(q1*q2<0?'q1 is pulled toward q2 (+x)':'q1 is pushed away from q2 (-x)')); });
+  withState({},()=>{ const L=screenModel(ST,'macro');
+    rel(L.kq,-0.2876016571575,1e-12,'macro k q1 q2 at the defaults (derive)'); rel(L.Fphet,319.5573688889,1e-12,'PhET\'s readout with its k (derive)');
+    eq(L.lab1,'Force on q₁ by q₂ = 319.557 N','the macro label, decimal (derive)'); eq(L.lab2,'Force on q₂ by q₁ = 319.557 N','both labels the same magnitude');
+    rel(L.r,0.03,1e-15,'3 cm apart'); rel(L.gap,0.0165,1e-12,'1.65 cm between surfaces'); rel(L.dmin,0.014,1e-15,'closest 1.4 cm'); });
+  const ATO=[[-2,4,-20,20,1.153538775389e-06,'0.000 001 154','1.15 × 10⁻⁶'],[10,10,-1,1,-0.005767693876946,'0.005 767 694','5.77 × 10⁻³'],
+             [1,-1,-50,50,2.307077550778e-08,'0.000 000 023','2.31 × 10⁻⁸'],[3,3,-20,20,-1.297731122313e-06,'0.000 001 298','1.30 × 10⁻⁶']];
+  for(const [q1,q2,i1,i2,F1,dec,sci] of ATO) withState({aq1:q1,aq2:q2,ai1:i1,ai2:i2},()=>{
+    const L=screenModel(ST,'atomic'), tag='atomic '+q1+'/'+q2+' e at '+i1+'/'+i2+' pm: ';
+    rel(L.F1,F1,1e-12,tag+'force on q1 (derive)'); rel(L.F2,-F1,1e-12,tag+'force on q2 (derive)'); close(L.F1+L.F2,0,1e-20,tag+'equal and opposite');
+    eq(decGrouped(L.Fmag,9),dec,tag+'PhET decimal (derive)'); eq(sciText(L.Fmag,2),sci,tag+'PhET scientific (derive)'); });
+  withState({},()=>{ const L=screenModel(ST,'atomic');
+    rel(L.kq,-1.845662040623e-27,1e-12,'atomic k q1 q2 (derive)'); rel(L.Fphet,1.153538655478e-06,1e-12,'PhET\'s readout with its k and e (derive)');
+    eq(L.lab1,'Force on q₁ by q₂ = 1.15 × 10⁻⁶ N','the atomic label, scientific by default (derive)'); eq(L.mode,'sci','the atomic screen starts scientific (PhET)');
+    rel(L.acc,1.153538775389e-06/1.67262192595e-27,1e-12,'the pull on a proton as an acceleration'); });
+  withState({mForce:false},()=>eq(screenModel(ST,'macro').lab1,'Force on q₁ by q₂','force values off: the label keeps no value'));
+  withState({mSci:true},()=>eq(screenModel(ST,'macro').lab1,'Force on q₁ by q₂ = 3.20 × 10² N','macro in scientific notation (derive)'));
+  withState({mq1:0},()=>{ const L=screenModel(ST,'macro'); eq(L.Fmag,0,'a zero charge: no force'); eq(L.kind,'none','and no direction'); eq(L.lab1,'Force on q₁ by q₂ = 0.000 N','labelled 0.000 N'); });
+  withState({aq2:0},()=>eq(screenModel(ST,'atomic').lab1,'Force on q₁ by q₂ = 0.000 000 000 N','a zero force stays decimal in scientific mode (PhET)'));
+
+  /* ---------- D. the actions ---------- */
+  withState({},()=>{
+    setCharge(ST,'macro',1,14); eq(ST.mq1,10,'a charge is clamped to +10'); setCharge(ST,'macro',2,-12); eq(ST.mq2,-10,'and to -10');
+    setCharge(ST,'atomic',1,2.6); eq(ST.aq1,3,'charge is ROUNDED to whole units (2.6 -> 3)');
+    eq(ST.mi1,-10,'a new charge moves nothing (fixed radius)'); eq(ST.mi2,20,'on either side');
+    setPosCL(ST,'macro',1,0.02); eq(ST.mi1,6,'dragging q1 onto q2 stops it 14 mm short'); setPosCL(ST,'macro',2,-0.05); eq(ST.mi2,20,'q2 held: the closest is now 14 mm from q1 at 6 mm');
+    setPosCL(ST,'macro',2,0.0104); eq(ST.mi2,20,'10.4 mm is inside q1\'s exclusion: held at 6 + 14 = 20 mm');
+    setPosCL(ST,'macro',2,0.0414); eq(ST.mi2,41,'41.4 mm snaps to 41 mm'); setPosCL(ST,'macro',2,0.0416); eq(ST.mi2,42,'41.6 mm snaps to 42 mm');
+    setPosCL(ST,'macro',1,-0.09); eq(ST.mi1,-50,'held at the left end, -5 cm');
+    setPosCL(ST,'atomic',1,2e-11); eq(ST.ai1,18,'atomic q1 dragged onto q2 stops 2 pm short');
+    setPosCL(ST,'atomic',2,9e-11); eq(ST.ai2,50,'atomic q2 held at +50 pm');
+    rulerToQ1(ST,'macro'); eq(ST.mRulerI,ST.mi1,'ruler to q1'); eq(ST.mRulerY,0,'tick edge on the centre line');
+    rulerHomeCL(ST,'macro'); eq(ST.mRulerI,-50,'ruler home'); eq(ST.mRulerY,null,'at its home height');
+    setRulerCL(ST,'atomic',-1e-9,0); eq(ST.aRulerI,-100,'the atomic ruler stops half a ruler left of the track');
+    setRulerCL(ST,'atomic',1e-9); eq(ST.aRulerI,50,'and at the right end'); eq(ST.aRulerY,0,'a y left undefined keeps the height'); });
+
+  /* ---------- E. the inverse square ---------- */
+  for(const [w,over,F0,Ft,F2,kq,lo,hi,F3] of [['macro',{scale:'macro'},1467.355393661,28.76016571575,79.88934921041,0.2876016571575,0.00675,0.2,0.6162892653374],
+      ['atomic',{scale:'atomic'},0.0004614155101557,1.845662040623e-07,2.883846938473e-07,1.845662040623e-27,9.5e-13,2e-10,3.691324081245e-26]])
+    withState(Object.assign({view:'inv'},over),()=>{ const I=buildModel().I, tag='inverse square, '+w+': ';
+      rel(I.Fnear,F0,1e-12,tag+'F at the closest distance (derive)'); rel(I.Ffar,Ft,1e-12,tag+'F across the track (derive)'); rel(I.F2r,F2,1e-12,tag+'F at 2r (derive)');
+      rel(I.prod,kq,1e-12,tag+'|k q1 q2| (derive)'); rel(I.lo,lo,1e-12,tag+'window from half the touching distance (derive)'); rel(I.hi,hi,1e-12,tag+'to twice the track (derive)');
+      rel(I.lin.F3r2[0],F3,1e-12,tag+'the inverse-cube comparison through the live point (derive)');
+      close(I.slope,-2,1e-9,tag+'log-log slope -2');
+      let flat=0; for(const v of I.lin.Fr2) flat=Math.max(flat,Math.abs(v/kq-1)); ok(flat<1e-12,tag+'|F| r^2 flat to '+flat.toExponential(1)); });
+  withState({view:'inv',mq1:0},()=>{ const I=buildModel().I; eq(I.prod,0,'a zero charge: the law\'s constant is zero'); });
+
+  /* ---------- F. the charge product ---------- */
+  for(const [w,ku,f0,f1] of [['macro',9.986168651301,10,500],['atomic',1.441923469236e-07,2e-07,1e-05]])
+    withState({view:'prod',scale:w},()=>{ const P=buildModel().P, L=buildModel().L, tag='charge product, '+w+': ';
+      rel(P.ku,ku,1e-12,tag+'|F| per unit^2 of product (derive)'); eq(P.levels.length,6,tag+'six contour levels (derive)');
+      rel(P.levels[0],f0,1e-12,tag+'first level (derive)'); rel(P.levels[5],f1,1e-12,tag+'last level (derive)');
+      for(const C of P.contours){ const i=30; rel(ku*C.xs[i]*C.ys[i],C.F,1e-12,tag+'a point on the '+sciPlain(C.F,1)+' N contour feels it'); }
+      rel(P.F2s[40],forceOn(K_E,L.q1,10*L.T.qSI,L.x1,L.x2,2),1e-12,tag+'the q2 line ends at q2 = +10');
+      close(P.F2s[20],0,1e-30,tag+'and crosses zero at q2 = 0'); rel(P.F1s[40],-P.F2s[40],1e-12,tag+'the force on q1 mirrors it');
+      rel(P.Fps[40],ku*100,1e-12,tag+'the product line: +100 units^2 pushes q2 by ku x 100');
+      ok(P.Fps[0]<0&&P.Fps[40]>0,tag+'negative products attract, positive repel');
+      rel(P.dFdq2,ku*L.Q1,1e-12,tag+'dF2/dq2 = ku q1'); });
+  withState({view:'prod',mq1:0},()=>eq(buildModel().P.live.c,0,'a zero charge has no live contour'));
+
+  /* ---------- G. electricity and gravity ---------- */
+  withState({view:'grav'},()=>{ const E=buildModel().E;
+    rel(E.ratioEP,2.268661431486e+39,1e-11,'k e^2 / (G m_e m_p) (derive)'); rel(E.ratioPP,1.235551631585e+36,1e-11,'two protons (derive)'); rel(E.ratioEE,4.165608752511e+42,1e-11,'two electrons (derive)');
+    rel(E.FeA0,8.238723503832e-08,1e-11,'Coulomb at the Bohr radius (derive)'); rel(E.FgA0,3.631535049475e-47,1e-11,'gravity there (derive)');
+    rel(E.FeA0/E.FgA0,E.ratioEP,1e-12,'the ratio at the Bohr radius is the ratio');
+    rel(E.Fe[0]/E.Fg[0],E.ratioEP,1e-12,'and at a femtometre'); rel(E.Fe[90]/E.Fg[90],E.ratioEP,1e-12,'and at a metre: distance cancels');
+    rel(E.mEq,65643.66647458,1e-11,'equal masses for the macro defaults (derive)'); rel(E.rhoEq,50955715297.57,1e-11,'their density in 6.75-mm spheres (derive)');
+    rel(E.ms[50]/1000,11604.27042653*10/1000,1e-11,'per microcoulomb sqrt(k/G) x 1e-6 C, times 10 at 100 uC^2 (derive)');
+    rel(forceMag(G_N,E.mEq,E.mEq,0.03),319.5573968416,1e-12,'and those masses really pull 319.557 N at 3 cm (derive)');
+    rel(E.Fa0,1.153538775389e-06,1e-12,'the atomic pair at 40 pm (derive)'); eq(E.prodM,32,'|q1 q2| = 32 uC^2'); });
+  rel(ratioEG(M_E,M_P),2.268661431486e+39,1e-11,'ratioEG (derive)'); rel(equalMass(1e-6,1e-6),11604.27042653,1e-11,'equalMass per microcoulomb (derive)');
+
+  /* ---------- H. the models, the readouts, the scene ---------- */
+  for(const [v] of TABS) for(const over of [{},{scale:'atomic'},{mq1:0,aq1:0},{mForce:false,aForce:false},{mq1:10,mq2:10,mi1:-7,mi2:7}]){
+    const M=withState(Object.assign({view:v},over),()=>buildModel());
+    const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+    ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0,'panels clean for '+v+' '+JSON.stringify(over)); }
+  { const rm=withState({view:'macro'},()=>readoutHTML(buildModel()));
+    ok(rm.indexOf('319.6 N')>=0,'the macro readout prints |F| = 319.6 N off the model'); ok(rm.indexOf('attract (unlike signs)')>=0,'and says attract');
+    ok(rm.indexOf('1.40 cm (a 0.50 mm gap)')>=0,'and the 1.40-cm closest distance with its 0.50-mm gap');
+    ok(rm.indexOf('319.5574 N')>=0,'and PhET\'s 319.5574 N');
+    const ra=withState({view:'atomic'},()=>readoutHTML(buildModel())); ok(ra.indexOf('1.154 &times; 10<sup>-6</sup> N')>=0,'the atomic readout prints 1.154e-6 N');
+    ok(ra.indexOf('6.90 &times; 10<sup>20</sup> m/s&sup2;')>=0,'and the 6.90e20 m/s^2 on a proton');
+    const rg=withState({view:'grav'},()=>readoutHTML(buildModel())); ok(rg.indexOf('2.269 &times; 10<sup>39</sup>')>=0,'the gravity readout prints the 2.269e39 ratio');
+    ok(rg.indexOf('65.6 tonnes each')>=0,'and the 65.6-tonne equal masses');
+    const rr=withState({view:'macro',mq1:5,mq2:5},()=>readoutHTML(buildModel())); ok(rr.indexOf('repel (like signs)')>=0,'like charges read repel'); }
+  { const shot=makeShot(1100,712); const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS);
+    ok(!S.step(),'nothing here runs on a clock');
+    for(const w of ['macro','atomic']){
+      ST.view=w; Object.assign(ST,DEFAULTS); ST.view=w;
+      const p=PRE[w], u=TRACKS[w].uPerM;
+      let LS=labSpec(buildModel()), Gm=labGeo(shot,S.W,S.H,LS);
+      const X1=Gm.X(LS.bodies[0].x);
+      ok(S.pointer('down',X1,Gm.yT),w+': pointer-down on q1 grabs it'); eq(DRAG.what,1,w+': it is q1');
+      const step=w==='macro'?0.5:5;                              /* 0.5 cm, 5 pm */
+      S.pointer('move',X1+step*Gm.s,Gm.yT); eq(ST[p+'i1'],w==='macro'?-5:-15,w+': the drag moves q1 by half a unit of the ruler');
+      S.pointer('move',X1+60*step*Gm.s,Gm.yT); eq(ST[p+'i1'],ST[p+'i2']-chargeSteps(TRACKS[w]),w+': and stops at PhET\'s closest distance');
+      ok(S.pointer('up',0,0),w+': released');
+      LS=labSpec(buildModel()); Gm=labGeo(shot,S.W,S.H,LS);
+      /* the hit radius, pinned from both sides: grabbed 0.6 of a radius off
+         centre (a dead-centre press cannot see the radius at all), and missed
+         just outside it */
+      { const X2=Gm.X(LS.bodies[1].x), Rp=Math.max(8,LS.bodies[1].r*Gm.s)+4;
+        ok(S.pointer('down',X2+0.6*LS.bodies[1].r*Gm.s,Gm.yT),w+': q2 grabbed 0.6 of a radius off centre'); eq(DRAG.what,2,w+': it is q2'); S.pointer('up',0,0);
+        ok(!S.pointer('down',X2+Rp+2,Gm.yT)&&DRAG.what===null,w+': a press 2 px outside the hit radius misses'); }
+      const g=Gm.ruler; ok(S.pointer('down',(g.x0+g.x1)/2,g.y0+10),w+': the ruler grabs'); eq(DRAG.what,'ruler',w+': it is the ruler');
+      S.pointer('move',(g.x0+g.x1)/2+2*(w==='macro'?1:10)*Gm.s,g.y0+10); eq(ST[p+'RulerI'],w==='macro'?-30:-30,w+': the ruler slides two major ticks');
+      S.pointer('up',0,0);
+      ok(!S.pointer('down',Gm.b.x+2,Gm.b.y+2),w+': empty stage grabs nothing'); }
+    ST.view='inv'; ok(!S.pointer('down',300,300),'the analysis views ignore the pointer'); ST.view='grav'; ok(!S.pointer('down',300,300),'all of them');
+    Object.assign(ST,stSave); }
+
+  /* ---------- I. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['macro default',{view:'macro'},6],['macro scientific',{view:'macro',mSci:true},6],['macro hidden',{view:'macro',mForce:false},6],
+    ['macro repel',{view:'macro',mq1:5,mq2:5},6],['macro zero',{view:'macro',mq1:0},6],['macro close',{view:'macro',mq1:10,mq2:-10,mi1:-7,mi2:7},6],
+    ['macro far',{view:'macro',mq1:1,mq2:-1,mi1:-50,mi2:50},6],['macro ruler on q1',{view:'macro',mRulerI:-10,mRulerY:0},6],['macro arrows huge',{view:'macro',mArrowK:6},6],
+    ['atomic default',{view:'atomic'},6],['atomic decimal',{view:'atomic',aSci:false},6],['atomic close',{view:'atomic',aq1:10,aq2:10,ai1:-1,ai2:1},6],
+    /* floors from what each draws: at 560 px an atomic charge is a 4-px ball with
+       no highlight and a tick for an arrow (4 fills); a zero charge in the
+       inverse-square view is the background and a sentence saying why (1) */
+    ['atomic far',{view:'atomic',aq1:1,aq2:-1,ai1:-50,ai2:50},4],['atomic zero',{view:'atomic',aq2:0},4],['atomic ruler on q1',{view:'atomic',aRulerI:-20,aRulerY:0},4],
+    ['inv macro',{view:'inv'},5],['inv atomic',{view:'inv',scale:'atomic'},5],['inv repel close',{view:'inv',mq1:10,mq2:10,mi1:-7,mi2:7},5],['inv zero',{view:'inv',mq1:0},1],
+    ['prod macro',{view:'prod'},5],['prod atomic',{view:'prod',scale:'atomic'},5],['prod repel',{view:'prod',mq1:7,mq2:3},5],['prod zero',{view:'prod',mq1:0},5],
+    ['grav default',{view:'grav'},5],['grav zero',{view:'grav',aq1:0,mq1:0},5],['grav big',{view:'grav',mq1:10,mq2:10,aq1:10,aq2:-10,ai1:-1,ai2:1},5],
+  ];
+  layoutSweep(ok,withState,CONFIGS,SIZES);
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

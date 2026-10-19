@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Write mutants.json for tools/mutate.py, checking that every pattern occurs EXACTLY once in the
+extracted script (_out/run.js): a pattern that matches twice mutates two places, and one that
+matches none is a mutant you think you ran and did not.
+
+The engine (build/wave-interference/p2_engine.js) ships inside this file, so its constants are
+mutated here too: this sim's own suite has to pin the engine facts it rests on, not merely
+inherit somebody else's proof.  The engine's unused branches (its plane wave, its slits, its
+analysis helpers) are NOT mutated — nothing here calls them, and wave-interference's suite
+covers them."""
+import io, json, os
+HERE = os.path.dirname(os.path.abspath(__file__))
+js = io.open(os.path.join(HERE, '_out', 'run.js'), encoding='utf-8').read()
+
+M = [
+    # ---- the engine: the lattice and its boundary ----
+    ('Courant number C', 'C:0.5, SRC_I', 'C:0.45, SRC_I', 'p'),
+    ('PhET amplitude calibration 1.2', 'AMP_CAL:1.2', 'AMP_CAL:1.25', 'p'),
+    ('PhET event rate 20*111/61', 'EVENT_RATE:20*111/61', 'EVENT_RATE:20*111/60', 'p'),
+    ('PhET source column 25', 'SRC_I:25, MID:75', 'SRC_I:24, MID:75', 'p'),
+    ('the lattice pad 20', 'LAT={N:151, PAD:20', 'LAT={N:151, PAD:21', 'p'),
+    ('Mur 1st-order coefficient', 'MUR1=(LAT.C-1)/(LAT.C+1)', 'MUR1=(LAT.C-1)/(LAT.C+2)', 'p'),
+    ('Mur 2/(C+1)', 'MUR2A=2/(LAT.C+1)', 'MUR2A=2/(LAT.C+1.01)', 'p'),
+    ('Mur C^2/2(C+1)', 'MUR2B=LAT.C2/(2*(LAT.C+1))', 'MUR2B=LAT.C2/(3*(LAT.C+1))', 'p'),
+    ('Laplacian -4u', 'u[k-nx]-4*c);', 'u[k-nx]-3.99*c);', 'p'),
+    ('leapfrog u^{n-1} coefficient', 'const v=2*c-up[k]+C2*', 'const v=2*c-0.999*up[k]+C2*', 'p'),
+    ('Mur tangential term sign', '        +MUR2B*(u[e+s]-2*u[e]+u[e-s]', '        -MUR2B*(u[e+s]-2*u[e]+u[e-s]', 'p'),
+    ('Mur -u_i^{n-1} sign', 'un[e]=-up[i]+MUR1*', 'un[e]=up[i]+MUR1*', 'p'),
+    ('Mur corner sign', 'un[c]=u[a]+MUR1*(un[a]-u[c])', 'un[c]=u[a]-MUR1*(un[a]-u[c])', 'p'),
+    ('the visited-cell threshold', 'VISIT:1e-3', 'VISIT:1e-2', 'p'),
+    # ---- the engine: dispersion and the calibration this sim rests on ----
+    ('dispersion: the ky term', 'return 2*Math.asin(LAT.C*Math.sqrt(s*s+t*t));', 'return 2*Math.asin(LAT.C*Math.sqrt(s*s+0.9*t*t));', 'p'),
+    ('calibration: pi/Nl', 'return 2*Math.asin(LAT.C*Math.sin(PI/Nl));', 'return 2*Math.asin(LAT.C*Math.sin(TAU/Nl));', 'p'),
+    ('calibration: dt = Om/(2 pi f)', 'return omegaStep(cellsPerWave(S,f))/(TAU*f);', 'return omegaStep(cellsPerWave(S,f))/(PI*f);', 'p'),
+    ('dx = W/111', 'function sceneDx(S){ return S.W/LAT.VIS; }', 'function sceneDx(S){ return S.W/(LAT.VIS+1); }', 'p'),
+    ('the default frequency is mid-range', 'return 0.5*(S.fmin+S.fmax); }', 'return 0.45*(S.fmin+S.fmax); }', 'p'),
+    ('latK bisection direction', 'if(g<want) lo=m; else hi=m;', 'if(g>want) lo=m; else hi=m;', 'p'),
+    ('PhET lambda: sin(Om/2)', 'const s=Math.sin(Om/2)/LAT.C; if(!(s<=1)) return NaN;', 'const s=Math.sin(Om/2.02)/LAT.C; if(!(s<=1)) return NaN;', 'p'),
+    # ---- the engine: the media, in PhET's units ----
+    ('water speed 1.65 cm/s', 'v:1.65,fmin', 'v:1.6,fmin', 'p'),
+    ('sound speed 34.3 cm/ms', 'v:34.3,fmin', 'v:34,fmin', 'p'),
+    ('c in nm/fs', 'const C_NM_FS=299.792458;', 'const C_NM_FS=299.7;', 'p'),
+    ('light red end 780 nm', 'fmin:C_NM_FS/780', 'fmin:C_NM_FS/790', 'p'),
+    ('the water tank is 10 cm across', "water:{id:'water',name:'water',W:10", "water:{id:'water',name:'water',W:12", 'p'),
+    ('PhET time scale (sound)', 'phetTimeScale:2.4187847116091334', 'phetTimeScale:2.42', 'p'),
+    # ---- the engine: the source, the clock, the probes ----
+    ('the source cell: 1.2 A sin(phi)', 'if(R.cont) val=amp*Math.sin(R.phi);', 'if(R.cont) val=amp*Math.sin(R.phi+0.01);', 'p'),
+    ('a pulse lasts one period', 'if(R.pulse.phi<TAU) val=amp', 'if(R.pulse.phi<PI) val=amp', 'p'),
+    ('switching a source on restarts the phase', 'q<R.nSrc)) R.phi=0;', 'q<R.nSrc)&&false) R.phi=0;', 'p'),
+    ('the source column: pad + 25 - PAD', 'function srcCol(L){ return L.pad+LAT.SRC_I-LAT.PAD; }', 'function srcCol(L){ return L.pad+LAT.SRC_I-LAT.PAD+1; }', 'p'),
+    ('model x of a cell: pad - 1/2', 'function cellOfX(R,x){ return R.lat.pad-0.5+', 'function cellOfX(R,x){ return R.lat.pad+0.5+', 'p'),
+    ('the probe’s bilinear neighbour', '(1-fy)*((1-fx)*u[k]+fx*u[k+1])', '(1-fy)*((1-fx)*u[k]+fx*u[k-1])', 'p'),
+    ('the screen column', 'const Sc=R.screen, L=R.lat, col=L.nx-L.pad-1, rows=Sc.rows;', 'const Sc=R.screen, L=R.lat, col=L.nx-L.pad-2, rows=Sc.rows;', 'p'),
+    ('the screen window, PhET’s 90 steps', 'm=Math.max(1,Math.round(90/P));', 'm=Math.max(1,Math.round(60/P));', 'p'),
+    ('the screen is a MEAN SQUARE', 'const v=Sc.buf[off+r]; out[r]+=v*v;', 'const v=Sc.buf[off+r]; out[r]+=Math.abs(v);', 'p'),
+    ('a new medium restarts the clock', 'R.t=0; R.n=0; R.watch.t=0;', 'R.n=0; R.watch.t=0;', 'p'),
+    ('a new light frequency clears', "if(!quiet&&(R.scene==='light'||R.mode==='plane')) runClear(R);", "if(!quiet&&(R.scene==='lightX'||R.mode==='plane')) runClear(R);", 'p'),
+    ('the clock: one frame is 1/60 s', 'CLOCK.acc+=FRAME_DT;', 'CLOCK.acc+=FRAME_DT*1.05;', 'p'),
+    ('the clock: slow is half', "(ST.speed==='slow'?0.5:1)", "(ST.speed==='slow'?0.6:1)", 'p'),
+    ('PhET’s colour scale 2.14', 'const U_FULL=2.14;', 'const U_FULL=2.0;', 'p'),
+    ('the parcels move along +grad p', 'out.push([X+KD*gx,Y+KD*gy]);', 'out.push([X-KD*gx,Y-KD*gy]);', 'p'),
+    ('the parcels’ 0.3 of a spacing', 'KD=0.3*(LAT.VIS/20)/(k*U_FULL)', 'KD=0.36*(LAT.VIS/20)/(k*U_FULL)', 'p'),
+    ('the parcels’ 21 x 21 grid', 'for(let a=0;a<=20;a++) for(let b=0;b<=20;b++){', 'for(let a=0;a<=19;a++) for(let b=0;b<=20;b++){', 'p'),
+    # ---- this sim: PhET's button, PhET's screen ----
+    ('the button in continuous mode', 'if(R.cont){ runSetSource(R,0,!R.src[0]); return true; }', 'if(R.cont){ runSetSource(R,0,R.src[0]); return true; }', 'p'),
+    ('the button is dead while a pulse runs', 'if(R.pulse.on) return false;', 'if(false) return false;', 'p'),
+    ('a new disturbance type stops the source', 'R.cont=cont; R.pulse.on=false; R.pulse.phi=0; R.src[0]=!cont;', 'R.cont=cont; R.pulse.on=false; R.pulse.phi=0; R.src[0]=cont;', 'p'),
+    ('what "the source is running" means', 'function sourceActive(R){ return R.cont?R.src[0]:R.pulse.on; }', 'function sourceActive(R){ return R.cont?R.pulse.on:R.src[0]; }', 'p'),
+    ('PhET’s screen window, 40 rows', 'const SCREEN_AVG=40;', 'const SCREEN_AVG=3;', 'p'),
+    ('PhET’s brightness knot 0.4', '0.002237089269640335,0.4,', '0.002237089269640335,0.45,', 'p'),
+    ('PhET’s brightness knot 0.8', '0.2096934692889395,0.8,', '0.2096934692889395,0.85,', 'p'),
+    ('the brightness interpolation', 'b=T[i+1]+(T[i+3]-T[i+1])*(u-T[i])/(T[i+2]-T[i]);', 'b=T[i+1]+(T[i+3]-T[i+1])*(u-T[i])/T[i+2];', 'p'),
+    ('the 3-row smoothing', 'for(let r=1;r<n-1;r++) out[r]=(I[r-1]+I[r]+I[r+1])/3;', 'for(let r=1;r<n-1;r++) out[r]=(I[r-1]+I[r])/2;', 'p'),
+    ('the smoothing’s two-row ends', 'out[0]=(I[0]+I[1])/2; out[n-1]=(I[n-1]+I[n-2])/2;', 'out[0]=I[0]; out[n-1]=(I[n-1]+I[n-2])/2;', 'p'),
+    ('the screen window counts both sides', 'if(r-d>=0){ s+=I[r-d]; c++; }', 'if(r-d>=0){ s+=I[r-d]; }', 'p'),
+    ('one source on the screen: 1/r', 'out[r]=1/Math.hypot(X,y);', 'out[r]=1/(X*X+y*y);', 'p'),
+    # ---- this sim: the measurement ----
+    ('the fit window starts at 30 cells', 'R0:30, R1:100', 'R0:20, R1:100', 'p'),
+    ('the fit window ends at 100 cells', 'R0:30, R1:100, A:8}', 'R0:30, R1:90, A:8}', 'p'),
+    ('the settle before the fit, 400 steps', 'const MEAS={N0:400,', 'const MEAS={N0:200,', 'p'),
+    ('the fit runs over two periods', 'PER:2,', 'PER:1,', 'p'),
+    ('the fit’s drift term', 'b=[Math.sin(R.phi),Math.cos(R.phi),1,tq]', 'b=[Math.sin(R.phi),Math.cos(R.phi),1,0]', 'p'),
+    ('the phase is atan2(b, a)', 'amp[c]=Math.hypot(x[0],x[1]); ph[c]=Math.atan2(x[1],x[0]);', 'amp[c]=Math.hypot(x[0],x[1]); ph[c]=Math.atan2(x[0],x[1]);', 'p'),
+    # the unwrap's correction is mutated from 2pi to pi, NOT from -= to +=: the second spins for
+    # ever (d only grows), and a mutant that hangs costs the runner its whole timeout and then
+    # aborts the sweep with it.  A mutation pattern on a while loop must leave it terminating.
+    ('the unwrap step', 'while(d>PI) d-=TAU;', 'while(d>PI) d-=PI;', 'p'),
+    ('the unwrap step, the other way', 'while(d<-PI) d+=TAU;', 'while(d<-PI) d+=PI;', 'p'),
+    ('lambda = 2 pi / k', 'const lamCells=TAU/(-lineSlope(rs,un,MEAS.R0,MEAS.R1))', 'const lamCells=PI/(-lineSlope(rs,un,MEAS.R0,MEAS.R1))', 'p'),
+    ('the envelope is fitted in logs', 'rs[c]=c; lr[c]=Math.log(c); la[c]=Math.log(amp[c]);', 'rs[c]=c; lr[c]=c; la[c]=Math.log(amp[c]);', 'p'),
+    ('the 1/sqrt(r) anchor', 'for(let c=MEAS.R0;c<=MEAS.R1;c++) sa+=amp[c]*Math.sqrt(c);', 'for(let c=MEAS.R0;c<=MEAS.R1;c++) sa+=amp[c]*c;', 'p'),
+    ('solve4’s back substitution', 'for(let c=r+1;c<4;c++) s-=A[r][c]*x[c];', 'for(let c=r+1;c<4;c++) s+=A[r][c]*x[c];', 'p'),
+    ('solve4’s pivot search', 'if(Math.abs(A[r][col])>Math.abs(A[piv][col])) piv=r;', 'if(Math.abs(A[r][col])<Math.abs(A[piv][col])) piv=r;', 'p'),
+    ('lineSlope’s denominator', 'num+=(xs[i]-xb)*(ys[i]-yb); den+=(xs[i]-xb)*(xs[i]-xb);', 'num+=(xs[i]-xb)*(ys[i]-yb); den+=(xs[i]-xb)*(xs[i]-xb)*1.01;', 'p'),
+    # ---- this sim: PhET's tone, and the units of the analysis view ----
+    ('the tone is 1000 f Hz', 'return {hz:1000*R.f, level:0.3*R.A/10}; }', 'return {hz:500*R.f, level:0.3*R.A/10}; }', 'p'),
+    ('the tone’s output level 0.3 A/10', 'level:0.3*R.A/10}; }', 'level:0.25*R.A/10}; }', 'p'),
+    ('the tone’s whole cycles', 'const m=Math.max(1,Math.round(hz*TONE_SECONDS))', 'const m=Math.max(1,Math.floor(hz*TONE_SECONDS))', 'p'),
+    ('the tone buffer’s length', 'L=Math.round(m*sr/hz)', 'L=Math.ceil(m*sr/hz)', 'p'),
+    ('the tone is half a second long', 'TONE_SR=44100, TONE_SECONDS=0.5', 'TONE_SR=44100, TONE_SECONDS=0.4', 'p'),
+    ('light’s nanometre', "SI_LEN={water:1e-2, sound:1e-2, light:1e-9}", "SI_LEN={water:1e-2, sound:1e-2, light:1e-6}", 'p'),
+    ('sound’s millisecond', "SI_TIME={water:1, sound:1e-3, light:1e-15}", "SI_TIME={water:1, sound:1e-4, light:1e-15}", 'p'),
+    ('the superscript formatter', "const p=sciParts(x,n); return p[0]+'×10'+supTxt(p[1]);", "const p=sciParts(x,n); return p[0]+'×10'+supTxt(p[1]+1);", 'p'),
+    ('the exponent of a power of ten', 'const e=Math.floor(Math.log10(Math.abs(x)));', 'const e=Math.ceil(Math.log10(Math.abs(x)));', 'p'),
+    # ---- the UI ----
+    ('UI: a drag sets dirty', "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel();", "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ syncPanel();", 'u'),
+    ('UI: a grab sets dirty', "canvas.classList.add('dragging'); dirty=true; syncPanel(); }", "canvas.classList.add('dragging'); syncPanel(); }", 'u'),
+    ('UI: the loop draws on dirty', 'if(advanced||dirty){', 'if(advanced){', 'u'),
+    ('UI: a slider redraws at once', "val.textContent=plain(fmtf(ST[key])); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });", "val.textContent=plain(fmtf(ST[key])); if(onchg) onchg(); syncPanel(); dirty=true; });", 'u'),
+    ('UI: space toggles the clock', "if(e.key===' '){ e.preventDefault(); ST.running=!ST.running;", "if(e.key===' '){ e.preventDefault();", 'u'),
+    ('UI: the clock repaints', 'S.step=function(){ return MEDIA[ST.view]?clockFrame()>0:false; };', 'S.step=function(){ return MEDIA[ST.view]?clockFrame()>1:false; };', 'u'),
+    ('UI: the generator’s button takes the click', "if(Math.hypot(x-g.btn.x,y-g.btn.y)<g.btn.r+3){ DRAG.what='button'; return pressSource(R); }",
+     "if(false){ DRAG.what='button'; return pressSource(R); }", 'u'),
+    ('UI: a tool follows the pointer in y', 'arr[q]=[clamp((x-sq.x)/sq.w,0,1),clamp((y-sq.y)/sq.h,0,1)];', 'arr[q]=[clamp((x-sq.x)/sq.w,0,1),clamp((x-sq.x)/sq.w,0,1)];', 'u'),
+    ('UI: reset restores the tools', 'TOOLS.tape=JSON.parse(JSON.stringify(TOOLS0.tape));', 'TOOLS.tape=TOOLS.tape;', 'u'),
+    ('UI: reset restores the runs', 'resetRuns(); toneSync(); syncChips(); })));', 'toneSync(); syncChips(); })));', 'u'),
+    ('UI: the side-view chips are water’s', "lookChips.hidden=(v!=='water');", 'lookChips.hidden=false;', 'u'),
+    ('UI: the analysis view hides the tools', 'gShow.hidden=!med; gTools.hidden=!med; gTime.hidden=!med;', 'gShow.hidden=!med; gTools.hidden=false; gTime.hidden=!med;', 'u'),
+    ('UI: the p key presses the button', "else if(e.key==='p'){ const R=syncRun(ST.view); if(R&&pressSource(R)){ dirty=true; refresh(); } }",
+     "else if(e.key==='p'){ const R=syncRun(ST.view); if(R&&false){ dirty=true; refresh(); } }", 'u'),
+    ('UI: r clears the waves', "else if(e.key==='r'){ const R=syncRun(ST.view); if(R){ runClear(R);", "else if(e.key==='r'){ const R=syncRun(ST.view); if(R){", 'u'),
+    ('UI: the tone follows the clock', "function toneOn(){ return ST.view==='sound'&&ST.tone&&ST.running&&sourceActive(RUNS.sound); }",
+     "function toneOn(){ return ST.view==='sound'&&ST.tone&&sourceActive(RUNS.sound); }", 'u'),
+    ('UI: the tone follows the source', "function toneOn(){ return ST.view==='sound'&&ST.tone&&ST.running&&sourceActive(RUNS.sound); }",
+     "function toneOn(){ return ST.view==='sound'&&ST.tone&&ST.running; }", 'u'),
+    ('UI: the tone stops when it should', 'if(AUDIO.src){ try{ AUDIO.src.stop(); }catch(e){} AUDIO.src=null; }',
+     'if(AUDIO.src){ AUDIO.src=null; }', 'u'),
+    ('UI: the tone’s gain', 'AUDIO.src=s; AUDIO.buf=tb; AUDIO.gain.gain.value=p.level;', 'AUDIO.src=s; AUDIO.buf=tb; AUDIO.gain.gain.value=0.2;', 'u'),
+    ('UI: the stopwatch button toggles', 'if(R) R.watch.on=!R.watch.on;', 'if(R) R.watch.on=true;', 'u'),
+]
+bad = [(lab, js.count(old)) for lab, old, new, s in M if js.count(old) != 1]
+for lab, n in bad:
+    print('PATTERN COUNT %d: %s' % (n, lab))
+assert not bad, 'fix the patterns above'
+dup = [m[0] for m in M if [q[0] for q in M].count(m[0]) > 1]
+assert not dup, 'duplicate labels: %s' % dup
+io.open(os.path.join(HERE, 'mutants.json'), 'w', encoding='utf-8').write(json.dumps([list(m) for m in M], indent=1, ensure_ascii=False))
+print('%d mutants (%d physics, %d UI) written to mutants.json' % (len(M), sum(1 for m in M if m[3] == 'p'), sum(1 for m in M if m[3] == 'u')))

@@ -1,0 +1,59 @@
+# mutation sweep of waves-intro.html, 2026-09-21
+# Always on a COPY inside _out/ (sim_for_mutants.html): tools/mutate.py writes its scratch
+# _mutant.js next to the html it tests, so an in-place sweep would collide with the parallel
+# builds sharing docs/phets_revised/.
+#
+# 98 mutants in mutants.json: 79 physics, 19 UI.  The engine ships inside this file, so its
+# constants are mutated here too; its unused branches (the plane wave, the slits, the analysis
+# helpers) are not — nothing here calls them, and wave-interference's own suite covers them.
+#
+# Two runners, the same mutants.json and the same rule (caught = the process exits non-zero):
+#   * sweep_jsc.py  — all 79 physics mutants under jsc, which runs the suite in 0.9 s instead
+#     of 30 s.  It proves the runner can see a failure (a hand-broken U_FULL) before trusting
+#     a single green line.  UI mutants need ObjC.import, so jsc cannot run them.
+#   * tools/mutate.py — the shared tool, under osascript: all 19 UI mutants and a 29-mutant
+#     physics cross-section (one from every layer of the file, plus all three mutants that
+#     survived the first pass), which is also the check that the two runners agree.
+
+# 1. the first jsc pass, 79 physics mutants
+BASELINE physics: 946 passed, 0 failed  (0.8 s)
+76 caught, 3 survived, 0 skipped
+   SURVIVOR: a new medium restarts the clock
+   SURVIVOR: the unwrap step, the other way
+   SURVIVOR: solve4's pivot search
+
+# ...and one mutant that HUNG rather than failing: the first draft mutated
+#   while (d > PI) d -= TAU   into   d += TAU
+# which never terminates (d only grows).  tools/mutate.py has no per-mutant timeout handler, so
+# the sweep stalls there and would have died 30 minutes later taking the whole run with it.
+# The pattern now mutates the correction from 2 pi to pi, which still changes the answer and
+# still ends; the other branch is mutated the same way.
+
+# 2. the three survivors, all test gaps, all closed (see changelog_entry.md):
+#   - the clock reset: the physics suite never reset a run that had been STEPPED, so only the
+#     UI suite could see R.t = 0 disappear.  It now asserts t, n, the lattice, the amplitude,
+#     the mode and the stopwatch after resetRuns.
+#   - the unwrap's second branch: this wave travels outward, so its phase only ever falls and
+#     the d < -pi branch is reached by no measurement in the file.  The unwrap is now its own
+#     function with its contract asserted in both directions.
+#   - solve4's pivot search: a well-conditioned 4 x 4 is solved to 1e-12 whichever pivot is
+#     chosen.  It is now given a system whose first pivot is zero, which only a swap can solve.
+
+# 3. the full jsc sweep against the FINAL file (the one that ships)
+BASELINE physics: 968 passed, 0 failed  (0.9 s)
+runner check: a hand-broken constant exits 3, so caught-vs-survived is meaningful
+79 caught, 0 survived, 0 skipped  (70 s)
+
+# 4. tools/mutate.py (osascript) against the same final file: 19 UI + 29 physics
+#    (UI mutants first: only osascript can run them, while every physics mutant is also swept
+#     under jsc, so a machine too busy to finish would have cost the doubly-covered half)
+BASELINE physics: 968 passed, 0 failed  (29.8 s)
+BASELINE ui     : UI: 164 passed, 0 failed
+48 caught, 0 survived, 0 skipped
+
+# Both runners agree on every mutant they share (29 physics), which is the check that the fast
+# loop and the final pass mean the same thing by "caught".
+#
+# Not mutated, on purpose: the engine branches nothing here calls (setPlaneWave, slitOpen,
+# slitCells, runClearRight, murReflection, latPhaseSpeed, latGroupSpeed, latIndex) — this sim
+# has one point source per screen and no barrier, and wave-interference's suite covers them.

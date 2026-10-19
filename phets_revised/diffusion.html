@@ -1,0 +1,3156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Diffusion &mdash; two gases either side of a divider: take it out and watch them mix, and measure the flow against kinetic theory</title>
+<!--
+  ===================================================================
+  diffusion.html — Remake of PhET Interactive Simulations' Diffusion
+  (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0).
+  New code; no PhET code or assets.
+  ===================================================================
+
+  PhET's Diffusion is one screen: a 16 nm x 8.75 nm container split by
+  a 100 pm divider, two species with their own number, mass, radius
+  and initial temperature, the divider removable, the centres of mass
+  under the box, the particle flow rates over the divider, a scale and
+  a stopwatch, and a Data panel giving each side's counts and average
+  temperature.
+
+  FOUR VIEWS.  THE DIVIDED BOX is that screen.  THE MIXING is a house
+  view: the two species' concentration profiles along the box, and the
+  left-right imbalance falling with time against the two limits that
+  bracket it.  THE FLOW is a house view: the measured crossing rate
+  against the kinetic-theory flux n <vx+> (H - 2r), Graham's law over
+  the whole mass range, and the measured pair-collision rate against
+  the mixture's collision frequency.  THE SPEEDS is a house view:
+  PhET starts every particle at exactly sqrt(3kT/m), a spike, and the
+  view watches it relax to Maxwell-Boltzmann and the two species reach
+  one temperature.
+
+  THE RESULTS THIS FILE EXISTS FOR
+  --------------------------------
+  * Each species' centre of mass starts at exactly -(W + d)/4 =
+    -4025 pm from the middle, INDEPENDENT of the particle radius (the
+    radius shifts both ends of the occupied interval equally), with a
+    sampling spread of 222 pm for 100 particles.  Measured and
+    asserted both ways.
+  * The crossing rate across the divider line is n <vx+> (H - 2r) with
+    <vx+> = sqrt(kT2/2 pi m) = <v>/pi exactly.  The height cancels, so
+    the rate is N <vx+>/(W/2 - r): 1.852/ps for 100 heavy at 300 K,
+    4.878/ps for 100 light.  Their ratio is Graham's sqrt(m1/m2)
+    times the excluded-width ratio.
+  * The left-right imbalance is NOT a single exponential, and the
+    reason is physical.  The two-box effusion model gives
+    tau = (W - 2r)/(4 <vx+>) = 27.0 ps, which assumes each side stays
+    internally mixed.  With collisions OFF nothing mixes the sides and
+    the decay is ballistic — faster at first, then ringing about zero
+    (derive.py computes that curve exactly: 0.6437 at 10 ps against
+    the effusion model's 0.6905, and 0.0115 at 40 ps against 0.2273).
+    With collisions ON the box is 22 mean free paths across and the
+    Fickian estimate tau_D = W^2/(pi^2 D), D ~ <v> lambda/2, is 5.8
+    times the effusion time.  The view draws both bounds and says the
+    measurement sits between them; it does not claim a diffusion
+    coefficient it has not derived.
+  * The mixture's collision frequency z_k = sum_j n_j 2(r_k + r_j)
+    <v_rel,kj>, with <v_rel> = sqrt(pi kT2/2 mu) checked against two
+    million Monte-Carlo velocity pairs, predicts 73.4 pair collisions
+    per ps in the default box; the simulation counts 74.2.  The 2 is
+    the swath width (a disk sweeps a strip of HALF-width r_k + r_j)
+    and it was FOUND this way: the first draft of derive.py wrote
+    n_j (r_k + r_j) and the simulation counted 2.05 times as many
+    collisions as it predicted.  Both are now pinned.
+  * PhET's start is a DELTA in speed, so the mean speed must FALL by
+    exactly 1 - sqrt(pi/4) = 11.377 % as it relaxes, at constant
+    energy, for either species.  Measured.
+
+  WHAT IS EXACT
+  -------------
+  * The dynamics, unchanged from the gas-properties remake this is
+    built on: every collision at its true contact time, in time order;
+    elastic impulses conserving momentum and energy to rounding.
+    selfTest re-asserts those invariants here (5000 random
+    collisions, and disks that never overlap), because this file
+    relies on them.  The engine is documented in
+    build/gas-properties/ENGINE.md.
+  * PhET's Diffusion model, by its minified source: the placement
+    (uniform in the species' own half, NO overlap rejection, every
+    particle at sqrt(3kT/m) in a random direction), the rule that a
+    new mass or starting temperature re-speeds every particle of that
+    species, that removing particles re-speeds the rest, that
+    resetting the divider regenerates everything, and the 300-frame
+    running average behind the flow-rate arrows.
+  * The kinetic theory above, by quadrature and Monte Carlo in
+    derive.py, never from memory.
+
+  WHAT IS MODELLED (PhET's choices, kept)
+  ---------------------------------------
+  * T = (2/3)<KE>/k, the 3-D equipartition applied to 2-D motion, so
+    kT2 = (3/2)kT is the energy per particle and every law above uses
+    it.  The container is fixed at 16 nm and has no lid.
+  * Overlapping disks pass through each other until they separate,
+    which is how PhET's placement can drop 200 disks into one half
+    without rejection.
+
+  WHAT IS NOT MODELLED
+  --------------------
+  * Attraction, rotation, internal states, gravity.  No pressure
+    gauge (PhET's Diffusion screen has none either).  The Fickian
+    time constant uses the elementary D = <v> lambda / 2, which is
+    an ESTIMATE with an O(1) factor this file does not pin; it is
+    drawn as a bound and labelled as one.
+
+  WHERE THIS FILE DIFFERS FROM PHET
+  ---------------------------------
+  * PhET opens with zero particles of each species; this opens with
+    100 heavy on the left and 100 light on the right, because a view
+    that draws nothing is a defect here.  PhET's own defaults (both
+    species 28 AMU, 125 pm, 300 K, N = 0) are one chip away.
+  * The controls are sliders on PhET's own grids (number in tens,
+    mass in ones, radius in fives, temperature in fifties) rather
+    than spinners.
+  * No sound, no keyboard help, no PhET-iO.
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's constants are read from docs/phets/diffusion_en.html
+  (BOLTZMANN 8316, KG_PER_AMU 1.66e-27, ATM_PER_KPA 0.00986923;
+  widthRange 16e3, dividerThickness 100;
+  DIFFUSION_NUMBER_OF_PARTICLES_RANGE (0,200,0), MASS (4,32,28),
+  RADIUS (50,250,125), INITIAL_TEMPERATURE (50,500,300); DELTAS
+  {numberOfParticles:10, mass:1, radius:5, initialTemperature:50}).
+  Everything else is derived in build/diffusion/derive.py with scipy
+  and pinned in selfTest; the numbers are in refvals.txt.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the measured trace, the
+       measured profile, the measured flow), orange = the reference/analytic
+       law (Maxwell-Boltzmann, the effusion and Fickian limits, Graham) or a
+       warning, magenta = the live marker (the state now), cyan = structure
+       (the box, the divider, the axes).  The two species have their own
+       colour slots (COL.heavy, COL.light) rather than borrowing a role
+       colour. */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Diffusion</h1>
+  <span class="sub" id="sub">Two gases, one either side of a divider &mdash; take it out and watch them mix, with the centres of mass, the flow across the middle measured against kinetic theory, and the two limits that bracket how fast mixing can be</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html, via                 *
+ *  build_lagr/p1_utils.js, verbatim)                                  *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+/* ================================================================== *
+ *  the gas engine                                                  *
+ *  Taken UNCHANGED from build/gas-properties/p2_engine.js         *
+ *  (the finished gas-properties remake).  Do not edit here.          *
+ * ================================================================== */
+
+/* ================================================================== *
+ *  THE GAS ENGINE — particles, collisions, walls, heating, the lid,   *
+ *  the hold-constant logic and the statistics.  No DOM, no view       *
+ *  state: gases-intro and diffusion are built on this part unchanged. *
+ *  API and invariants: build/gas-properties/ENGINE.md.                *
+ * ================================================================== */
+
+/* PhET's values, read from docs/phets/gas-properties_en.html (1.1.10):
+   GasPropertiesConstants, GasPropertiesQueryParameters, BaseContainer,
+   IdealGasLawContainer, PressureModel, TemperatureModel, HistogramsModel,
+   CollisionCounter, DiffusionContainer, DiffusionSettings, TimeTransform. */
+const GAS={
+  K:8316,                    /* BOLTZMANN, AMU pm^2 ps^-2 K^-1 (CODATA: 8314.46) */
+  KG_PER_AMU:1.66e-27,
+  ATM_PER_KPA:0.00986923,
+  P_SCALE:1.66e6,            /* kPa per AMU/(pm ps^2) = KG_PER_AMU*1e33 */
+  H:8750, D:4000, WALL:75,   /* container height, depth, wall thickness, pm */
+  WMIN:5000, WMAX:15000, WDEF:10000,
+  HEAVY:{m:28,r:125}, LIGHT:{m:4,r:87.5},
+  NMAX:1000,                 /* per species (Ideal, Explore, Energy) */
+  DT_FRAME:2.5/60,           /* ps per frame at 60 fps: 1 ps = 0.4 s (TimeTransform NORMAL) */
+  DT_SLOW:0.3/60,            /* TimeTransform SLOW (Diffusion) */
+  STEP:0.2,                  /* MODEL_TIME_STEP, the step button, ps */
+  HEAT_COOL:800,             /* heatCool: speeds scale by 1 + a/800 per 60-fps frame */
+  P_MAX:2e4,                 /* maxPressure, kPa: the lid blows off above this */
+  T_MAX:1e5,                 /* maxTemperature, K */
+  WALL_SPEED:800,            /* wallSpeedLimit, pm/ps (Explore) */
+  LID_THICK:175, OPEN_L:1250, OPEN_R:2000, LID_WIDE:1500,
+  ENTRY_Y:8750/5,            /* particleEntryPosition = (0, H/5); a particle enters at x = -r */
+  FAN:Math.PI/2,             /* the pump's dispersion angle */
+  T0:300,                    /* defaultInitialTemperature, K */
+  P_REFRESH:0.75,            /* PressureModel REFRESH_PERIOD, ps */
+  PERIODS:[5,10,20],         /* CollisionCounter SAMPLE_PERIODS, ps (default 10) */
+  NBIN:19, SBIN:170, EBIN:8e5, SAMPLE:1,   /* HistogramsModel; 1-ps averaging */
+  MAXTIME:999.99,            /* the stopwatch's range, ps */
+  DIFF_W:16000, DIVIDER:100, /* DiffusionContainer */
+  DIFF_NMAX:200, DIFF_DN:10, DIFF_M:[4,32], DIFF_R:[50,250], DIFF_RSTEP:5, DIFF_T:[50,500], DIFF_TSTEP:50,
+  FLOW_WINDOW:300            /* ParticleFlowRateModel: running average of 300 samples */
+};
+
+/* ---- the random stream: mulberry32 (bit-exact twin in derive.py) ---------- */
+function gasRng(seed){
+  let a=seed>>>0;
+  const R={
+    next(){
+      a=(a+0x6D2B79F5)>>>0;
+      let t=Math.imul(a^(a>>>15),a|1);
+      t=((t+Math.imul(t^(t>>>7),t|61))>>>0)^t;
+      return ((t^(t>>>14))>>>0)/4294967296;
+    },
+    /* Box-Muller, one pair of draws per value (no caching: a draw count that
+       does not depend on history keeps the stream reproducible) */
+    gauss(){ const u1=1-R.next(), u2=R.next(); return Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2); }
+  };
+  return R;
+}
+
+/* ---- the 2-D Maxwell-Boltzmann laws, in PhET's units ------------------------
+   PhET defines T by <KE> = (3/2) k T although the particles move in two
+   dimensions, so the energy per quadratic degree of freedom is kT2/2 with
+   kT2 = (3/2) k T.  Speed pdf (m v/kT2) exp(-m v^2/2kT2); energy pdf
+   exp(-e/kT2)/kT2 (two dof: an exponential). */
+function gasKT2(T){ return 1.5*GAS.K*T; }
+function mbSpeedPdf(v,m,kT2){ return v<0?0:m*v/kT2*Math.exp(-m*v*v/(2*kT2)); }
+function mbSpeedCdf(v,m,kT2){ return v<=0?0:-Math.expm1(-m*v*v/(2*kT2)); }
+function mbEnergyPdf(e,kT2){ return e<0?0:Math.exp(-e/kT2)/kT2; }
+function mbEnergyCdf(e,kT2){ return e<=0?0:-Math.expm1(-e/kT2); }
+function mbMeanSpeed(m,kT2){ return Math.sqrt(Math.PI*kT2/(2*m)); }
+function mbModeSpeed(m,kT2){ return Math.sqrt(kT2/m); }
+function mbRmsSpeed(m,kT2){ return Math.sqrt(2*kT2/m); }
+/* the finite-N law in a closed box: energy fractions uniform on the simplex,
+   so one disk's energy e of a total E has F(e) = 1 - (1 - e/E)^(N-1) */
+function mcEnergyCdf(e,E,N){ if(e<=0) return 0; if(e>=E) return 1; return -Math.expm1((N-1)*Math.log1p(-e/E)); }
+/* hard disks: the second virial coefficient, B3/B2^2, the contact measure of a
+   circle of radius s over an a x b rectangle of centres, and the first-order
+   compressibility excess of N equal disks in that rectangle */
+function hdB2(s){ return Math.PI*s*s/2; }
+const HD_B3_RATIO=4/3-Math.sqrt(3)/Math.PI;
+function hdContact(a,b,s){ return 2*Math.PI*s*a*b-4*s*s*(a+b)+2*s*s*s; }
+function hdZ1(N,s,a,b){ return (N-1)*s*hdContact(a,b,s)/(4*(a*b)*(a*b)); }
+/* Z of the gas in a W x H box: every like and unlike pair at first order (the
+   per-pair virial sigma kT2 M/(ab)^2 over 2E), times the bulk B3 factor when
+   there is one species (derive.py section 7) */
+function hdZ(counts,radii,W,H){
+  const N=counts[0]+counts[1]; if(N<2) return 1;
+  let S=0;
+  for(let i=0;i<2;i++) for(let j=i;j<2;j++){
+    const np=i===j?counts[i]*(counts[i]-1)/2:counts[i]*counts[j];
+    if(np<=0) continue;
+    const s=radii[i]+radii[j], a=W-s, b=H-s;
+    S+=np*s*hdContact(a,b,s)/((a*b)*(a*b));
+  }
+  let z=S/(2*N);
+  if(counts[0]===0||counts[1]===0){ const k=counts[0]?0:1, s=2*radii[k], a=W-s, b=H-s; z*=1+HD_B3_RATIO*hdB2(s)*N/(a*b); }
+  return 1+z;
+}
+/* the quasi-static adiabat of hard disks (derive.py section 9): pushed slowly
+   the gas stays in equilibrium, dE = -F_x dW with F_x (W - 2r) = E Z(W), so
+   ln(T1/T0) = int_{W1}^{W0} Z dW/(W - 2r) (composite Simpson, n intervals).
+   For points (r = 0, Z = 1) it is T W = const; for a mixture r is the
+   number-weighted mean radius. */
+function hdAdiabatRatio(counts,radii,W0,W1,H,n){
+  n=n||256; if(n%2) n++;
+  const N=counts[0]+counts[1], rb=N?(counts[0]*radii[0]+counts[1]*radii[1])/N:0;
+  const f=W=>hdZ(counts,radii,W,H)/(W-2*rb), hstep=(W0-W1)/n;
+  if(hstep===0) return 1;
+  let s=f(W1)+f(W0);
+  for(let k=1;k<n;k++) s+=(k%2?4:2)*f(W1+k*hstep);
+  return Math.exp(s*hstep/3);
+}
+/* the speed of sound in the 2-D gas: c^2 = gamma P/rho = 2 kT2/<m> */
+function gasSound(kT2,mMean){ return Math.sqrt(2*kT2/mMean); }
+
+/* ---- the gas -------------------------------------------------------------- */
+function gasMake(o){
+  o=o||{};
+  const W=o.width||GAS.WDEF;
+  const g={
+    /* particles, structure of arrays (grown on demand) */
+    cap:0, n:0, x:null, y:null, vx:null, vy:null, sp:null, out:null, id:null, lt:null, st:null, px:null,
+    nextId:1,
+    species:(o.species||[{m:GAS.HEAVY.m,r:GAS.HEAVY.r},{m:GAS.LIGHT.m,r:GAS.LIGHT.r}]).map(s=>({m:s.m,r:s.r})),
+    /* the container: x in [left, 0], y in [0, H]; PhET's origin is the bottom-right corner */
+    W, H:o.height||GAS.H, D:o.depth||GAS.D, left:-W,
+    wRange:o.wRange||[GAS.WMIN,GAS.WMAX],
+    wantW:W, u:0, doesWork:!!o.doesWork, wallSpeed:o.wallSpeed||GAS.WALL_SPEED,
+    lid:o.noLid?null:{on:true,width:0}, divided:!!o.divided, dividerX:-W/2, dividerHalf:GAS.DIVIDER/2,
+    collisions:o.collisions!==false,
+    heat:0, hold:'nothing', holdP:null, injectT:null,
+    t:0, rng:gasRng(o.seed===undefined?1:o.seed), noise:gasRng(((o.seed===undefined?1:o.seed)^0x5bd1e995)>>>0),
+    noiseOn:o.noise!==false,
+    /* the model quantities PhET displays */
+    T:null, P:0, gaugeP:0, pOn:false, pAcc:0, oops:null,
+    /* the energy ledger: E == E0 + work + heatQ + inj - rem - esc + setT */
+    led:{E0:0, work:0, heatQ:0, inj:0, rem:0, esc:0, setT:0},
+    /* the virial ledger (closed boxes): G1 - G0 == kin + wall + pair + heat */
+    vir:{on:!!o.virial, G0:0, kin:0, wall:0, pair:0, heat:0, esc:0},
+    /* wall impulses (the pressure the walls feel), per wall, since resetImpulse */
+    imp:{L:0, R:0, B:0, T:0, t:0, hitsL:0, hitsR:0, hitsB:0, hitsT:0, E:0},
+    /* counters */
+    stats:{pairHits:0, wallHits:0, frameWallHits:0, events:0, stale:0, eventCap:0, fastMiss:0, substeps:0},
+    counter:{on:false, count:0, t:0, period:10},
+    watch:{on:false, t:0},
+    /* PhET's 1-ps sampler for the Energy screen (HistogramsModel + AverageSpeedModel) */
+    sampler:null,
+    /* the particle-flow counters for the Diffusion screen */
+    flow:null,
+    /* work arrays for the substep */
+    _cellHead:null, _cellNext:null
+  };
+  if(g.lid) g.lid.width=gasMaxLid(g);
+  if(o.virial) g.vir.on=true;
+  return g;
+}
+function gasGrow(g,need){
+  if(need<=g.cap) return;
+  let c=Math.max(64,g.cap);
+  while(c<need) c*=2;
+  const F=a=>{ const b=new Float64Array(c); if(a) b.set(a.subarray(0,g.n)); return b; };
+  const I=a=>{ const b=new Int32Array(c); if(a) b.set(a.subarray(0,g.n)); return b; };
+  g.x=F(g.x); g.y=F(g.y); g.vx=F(g.vx); g.vy=F(g.vy); g.lt=F(g.lt); g.px=F(g.px);
+  g.sp=I(g.sp); g.out=I(g.out); g.id=I(g.id); g.st=I(g.st);
+  g.cap=c; g._cellNext=new Int32Array(c); g._cellOf=new Int32Array(c);
+}
+function gasPush(g,k,x,y,vx,vy){
+  gasGrow(g,g.n+1);
+  const i=g.n++;
+  g.x[i]=x; g.y[i]=y; g.vx[i]=vx; g.vy[i]=vy; g.sp[i]=k; g.out[i]=0; g.id[i]=g.nextId++; g.lt[i]=0; g.st[i]=0; g.px[i]=x;
+  return i;
+}
+/* swap-remove: order changes, but every loop in this file is order-free
+   except the event heap, which is rebuilt each substep */
+function gasKill(g,i){
+  const j=--g.n;
+  if(i!==j){ g.x[i]=g.x[j]; g.y[i]=g.y[j]; g.vx[i]=g.vx[j]; g.vy[i]=g.vy[j]; g.sp[i]=g.sp[j]; g.out[i]=g.out[j];
+    g.id[i]=g.id[j]; g.lt[i]=g.lt[j]; g.st[i]=g.st[j]; g.px[i]=g.px[j]; }
+}
+function gasMass(g,i){ return g.species[g.sp[i]].m; }
+function gasRad(g,i){ return g.species[g.sp[i]].r; }
+function gasKE(g,i){ const m=g.species[g.sp[i]].m; return 0.5*m*(g.vx[i]*g.vx[i]+g.vy[i]*g.vy[i]); }
+
+/* ---- counts, energy, temperature, pressure -------------------------------- */
+function gasCount(g,k){ let c=0; for(let i=0;i<g.n;i++) if(!g.out[i]&&(k===undefined||g.sp[i]===k)) c++; return c; }
+function gasOutside(g){ let c=0; for(let i=0;i<g.n;i++) if(g.out[i]) c++; return c; }
+function gasEnergy(g,k){ let e=0; for(let i=0;i<g.n;i++) if(!g.out[i]&&(k===undefined||g.sp[i]===k)) e+=gasKE(g,i); return e; }
+/* PhET's temperature: T = (2/3)<KE>/k over the particles in the container */
+function gasTemp(g,k){ const n=gasCount(g,k); return n?(2/3)*gasEnergy(g,k)/n/GAS.K:null; }
+function gasVolume(g){ return g.W*g.H*g.D; }
+/* PhET's pressure: P = N k T / V, in kPa (no noise) */
+function gasPressureOf(N,T,V){ return N*GAS.K*(T||0)/V*GAS.P_SCALE; }
+function gasLedger(g){
+  const L=g.led, E=gasEnergy(g);
+  return {E, pred:L.E0+L.work+L.heatQ+L.inj-L.rem-L.esc+L.setT, resid:E-(L.E0+L.work+L.heatQ+L.inj-L.rem-L.esc+L.setT)};
+}
+function gasLedgerReset(g){
+  const L=g.led; L.E0=gasEnergy(g); L.work=0; L.heatQ=0; L.inj=0; L.rem=0; L.esc=0; L.setT=0;
+}
+function gasG(g){ let G=0; for(let i=0;i<g.n;i++) if(!g.out[i]){ const m=gasMass(g,i); G+=m*(g.x[i]*g.vx[i]+g.y[i]*g.vy[i]); } return G; }
+function gasVirialReset(g){ const V=g.vir; V.on=true; V.G0=gasG(g); V.kin=0; V.wall=0; V.pair=0; V.heat=0; V.esc=0; }
+function gasVirial(g){
+  const V=g.vir, G1=gasG(g), rhs=V.kin+V.wall+V.pair+V.heat+V.esc;
+  return {dG:G1-V.G0, rhs, resid:(G1-V.G0)-rhs, scale:Math.abs(V.kin)+Math.abs(V.wall)+Math.abs(V.pair)+Math.abs(V.heat)+Math.abs(V.esc)};
+}
+function gasImpulseReset(g){ const I=g.imp; I.L=0; I.R=0; I.B=0; I.T=0; I.t=0; I.hitsL=0; I.hitsR=0; I.hitsB=0; I.hitsT=0; I.E=0; }
+
+/* ---- the container: width, lid, divider ------------------------------------ */
+function gasMaxLid(g){ return g.W-GAS.OPEN_R+GAS.WALL; }
+function gasMinLid(){ return GAS.OPEN_L+GAS.WALL; }
+function gasOpenLeft(g){
+  if(!g.lid) return 0;
+  return g.lid.on?Math.round(g.left-GAS.WALL+g.lid.width):g.left+GAS.OPEN_L;
+}
+function gasOpenRight(){ return -GAS.OPEN_R; }
+function gasLidOpen(g){ return !!g.lid&&(!g.lid.on||g.lid.width<gasMaxLid(g)); }
+function gasOpening(g){ return gasLidOpen(g)?Math.max(0,gasOpenRight()-gasOpenLeft(g)):0; }
+function gasSetLid(g,w){ if(!g.lid||!g.lid.on) return; g.lid.width=Math.min(gasMaxLid(g),Math.max(gasMinLid(),w)); }
+function gasBlowLid(g){ if(g.lid&&(!gasLidOpen(g)||gasOpening(g)<GAS.LID_WIDE)) g.lid.on=false; }
+function gasReturnLid(g){ if(g.lid){ g.lid.on=true; g.lid.width=gasMaxLid(g); } }
+/* the width changes; with the lid on, the opening keeps its size (PhET setWidth) */
+function gasWidthTo(g,w){
+  if(w===g.W) return;
+  const open=g.lid&&g.lid.on?gasOpenRight()-gasOpenLeft(g):0;
+  g.W=w; g.left=-w;
+  if(g.lid&&g.lid.on) g.lid.width=Math.max(gasMaxLid(g)-open,gasMinLid());
+}
+/* the Ideal screen's resize: the wall does no work; afterwards every particle's
+   x is scaled about the right wall (PhET redistributeParticles), and any that
+   the scaling leaves overlapping the new left wall is set against it */
+function gasResize(g,w,redistribute){
+  w=Math.min(g.wRange[1],Math.max(g.wRange[0],w));
+  const ratio=w/g.W;
+  gasWidthTo(g,w); g.wantW=w;
+  if(redistribute) for(let i=0;i<g.n;i++) if(!g.out[i]){
+    g.x[i]*=ratio;
+    const r=gasRad(g,i); if(g.x[i]-r<g.left) g.x[i]=g.left+r; if(g.x[i]+r>0) g.x[i]=-r;
+  }
+  return w;
+}
+function gasSetDivided(g,on){ g.divided=!!on; g.dividerX=g.left+g.W/2; }
+/* the x-range a particle's CENTRE may occupy: the left wall (which may move),
+   the right wall, and the divider for the two diffusion species */
+function gasXlo(g,k){ return (g.divided&&k===1)?g.dividerX+g.dividerHalf:null; }   /* null = the moving left wall */
+function gasXhi(g,k){ return (g.divided&&k===0)?g.dividerX-g.dividerHalf:0; }
+
+/* ---- adding and removing particles ----------------------------------------- */
+/* PhET's addParticles: n particles of species k at (-r, H/5), every one at a
+   speed sqrt(3kT_i/m) aimed into the pump's pi/2 fan pointing left.  With
+   collisions on and n > 1 the T_i are Gaussian about T (sd 0.2T) with the
+   mean restored exactly, so the container's temperature is not disturbed. */
+function gasInjectT(g){
+  if(g.injectT!==null) return g.injectT;
+  const T=gasTemp(g); return T===null?GAS.T0:T;
+}
+function gasInject(g,k,n,T){
+  const have=gasCount(g,k);
+  n=Math.max(0,Math.min(n,GAS.NMAX-have));
+  if(n<=0) return 0;
+  if(T===undefined) T=gasInjectT(g);
+  let Ts;
+  if(n!==1&&g.collisions){
+    Ts=[]; let s=0;
+    for(let q=0;q<n;q++){ const v=T+0.2*T*g.rng.gauss(); Ts.push(v); s+=v; }
+    const sh=T-s/n; for(let q=0;q<n;q++) Ts[q]=Math.max(0,Ts[q]+sh);
+  } else { Ts=[]; for(let q=0;q<n;q++) Ts.push(T); }
+  const S=g.species[k];
+  for(let q=0;q<n;q++){
+    const th=Math.PI-GAS.FAN/2+g.rng.next()*GAS.FAN, v=Math.sqrt(3*GAS.K*Ts[q]/S.m);
+    const i=gasPush(g,k,-S.r,GAS.ENTRY_Y,v*Math.cos(th),v*Math.sin(th));
+    g.led.inj+=gasKE(g,i);
+  }
+  return n;
+}
+/* uniform, non-overlapping placement (rejection; gives up after 200 tries and
+   places the disk anyway) with 2-D Maxwell-Boltzmann velocities rescaled so the
+   batch's mean KE is exactly (3/2)kT, or all at one speed (delta = true).  Not
+   a PhET path: the house views open with a gas already in the box. */
+function gasFill(g,k,n,T,delta,region){
+  const S=g.species[k], R=g.rng, first=g.n;
+  const x0=(region?region[0]:g.left)+S.r, x1=(region?region[1]:0)-S.r, y0=S.r, y1=g.H-S.r;
+  for(let q=0;q<n;q++){
+    let px=0,py=0;
+    for(let tries=0;tries<200;tries++){
+      px=x0+R.next()*(x1-x0); py=y0+R.next()*(y1-y0);
+      let clash=false;
+      for(let j=0;j<g.n&&!clash;j++) if(!g.out[j]){ const dx=px-g.x[j], dy=py-g.y[j], s=S.r+gasRad(g,j); if(dx*dx+dy*dy<s*s) clash=true; }
+      if(!clash) break;
+    }
+    const kT2=gasKT2(T), sp=delta?mbRmsSpeed(S.m,kT2):Math.sqrt(-2*kT2/S.m*Math.log(1-R.next())), th=2*Math.PI*R.next();
+    gasPush(g,k,px,py,sp*Math.cos(th),sp*Math.sin(th));
+  }
+  if(n>0){
+    let e=0; for(let i=first;i<g.n;i++) e+=gasKE(g,i);
+    const want=n*1.5*GAS.K*T, f=e>0?Math.sqrt(want/e):0;
+    for(let i=first;i<g.n;i++){ g.vx[i]*=f; g.vy[i]*=f; g.led.inj+=gasKE(g,i); }
+  }
+  return n;
+}
+/* PhET's diffusion placement: uniform in the region, NO overlap rejection,
+   every particle at sqrt(3kT/m) in a uniformly random direction */
+function gasScatter(g,k,n,T,x0,x1){
+  const S=g.species[k], R=g.rng, v=Math.sqrt(3*GAS.K*T/S.m);
+  for(let q=0;q<n;q++){
+    const px=(x0+S.r)+R.next()*((x1-S.r)-(x0+S.r)), py=S.r+R.next()*(g.H-2*S.r), th=2*Math.PI*R.next();
+    const i=gasPush(g,k,px,py,v*Math.cos(th),v*Math.sin(th));
+    g.led.inj+=gasKE(g,i);
+  }
+  return n;
+}
+/* remove the n most recently added particles of species k (PhET removeLastParticles) */
+function gasRemove(g,k,n){
+  const Tbefore=gasTemp(g);
+  let removed=0;
+  while(removed<n){
+    let best=-1;
+    for(let i=0;i<g.n;i++) if(!g.out[i]&&g.sp[i]===k&&(best<0||g.id[i]>g.id[best])) best=i;
+    if(best<0) break;
+    g.led.rem+=gasKE(g,best); gasKill(g,best); removed++;
+  }
+  if(removed) gasAfterRemove(g,Tbefore);
+  return removed;
+}
+function gasRemoveAll(g){
+  for(let i=g.n-1;i>=0;i--){ if(!g.out[i]) g.led.rem+=gasKE(g,i); gasKill(g,i); }
+  gasAfterRemove(g,null);
+}
+function gasSetCount(g,k,n){ const c=gasCount(g,k); if(n>c) return gasInject(g,k,n-c); if(n<c) return -gasRemove(g,k,c-n); return 0; }
+/* PhET: N -> 0 while holding T or P is an Oops; N falling while holding T
+   restores T by rescaling every particle's energy */
+function gasAfterRemove(g,Tbefore){
+  const N=gasCount(g);
+  if(N===0){
+    if(g.hold==='temperature'){ g.hold='nothing'; g.oops='temperatureEmpty'; }
+    else if(g.hold==='pressureV'||g.hold==='pressureT'){ g.hold='nothing'; g.oops='pressureEmpty'; }
+    g.pOn=false; g.P=0; g.gaugeP=0; g.T=null;
+  } else if(g.hold==='temperature'&&Tbefore!==null) gasSetTemp(g,Tbefore);
+}
+/* PhET setTemperature: every particle's KE is scaled by (3/2)kT/<KE> */
+function gasSetTemp(g,T){
+  const N=gasCount(g); if(!N) return;
+  const E=gasEnergy(g), f=1.5*T*GAS.K/(E/N), s=Math.sqrt(f);
+  for(let i=0;i<g.n;i++) if(!g.out[i]){ g.vx[i]*=s; g.vy[i]*=s; }
+  g.led.setT+=gasEnergy(g)-E;
+}
+
+/* ---- the event heap (one substep) ------------------------------------------ */
+const EVH={t:new Float64Array(1024), i:new Int32Array(1024), j:new Int32Array(1024), k:new Int32Array(1024),
+           si:new Int32Array(1024), sj:new Int32Array(1024), n:0};
+function evGrow(){
+  const c=EVH.t.length*2, cp=(A,T)=>{ const b=new T(c); b.set(A); return b; };
+  EVH.t=cp(EVH.t,Float64Array); EVH.i=cp(EVH.i,Int32Array); EVH.j=cp(EVH.j,Int32Array); EVH.k=cp(EVH.k,Int32Array);
+  EVH.si=cp(EVH.si,Int32Array); EVH.sj=cp(EVH.sj,Int32Array);
+}
+function evSwap(a,b){
+  let v=EVH.t[a]; EVH.t[a]=EVH.t[b]; EVH.t[b]=v;
+  v=EVH.i[a]; EVH.i[a]=EVH.i[b]; EVH.i[b]=v; v=EVH.j[a]; EVH.j[a]=EVH.j[b]; EVH.j[b]=v;
+  v=EVH.k[a]; EVH.k[a]=EVH.k[b]; EVH.k[b]=v; v=EVH.si[a]; EVH.si[a]=EVH.si[b]; EVH.si[b]=v;
+  v=EVH.sj[a]; EVH.sj[a]=EVH.sj[b]; EVH.sj[b]=v;
+}
+function evPush(t,i,j,k,si,sj){
+  if(EVH.n>=EVH.t.length) evGrow();
+  let c=EVH.n++;
+  EVH.t[c]=t; EVH.i[c]=i; EVH.j[c]=j; EVH.k[c]=k; EVH.si[c]=si; EVH.sj[c]=sj;
+  while(c>0){ const p=(c-1)>>1; if(EVH.t[p]<=EVH.t[c]) break; evSwap(p,c); c=p; }
+}
+function evPop(){
+  const last=--EVH.n;
+  if(last>0){ evSwap(0,last); let c=0;
+    for(;;){ const l=2*c+1, r=l+1; let m=c;
+      if(l<last&&EVH.t[l]<EVH.t[m]) m=l; if(r<last&&EVH.t[r]<EVH.t[m]) m=r;
+      if(m===c) break; evSwap(c,m); c=m; } }
+  return last;                       /* the popped event sits at index `last` */
+}
+
+/* event kinds */
+const EV_PAIR=0, EV_LEFT=1, EV_RIGHT=2, EV_BOT=3, EV_TOP=4, EV_ESC=5;
+
+/* ---- the collision-time algebra (derivation: derive.py section 2) --------------
+   Two disks at relative position dp, relative velocity dv, touching at |dp| = s:
+   |dp + t dv|^2 = s^2 is a quadratic a t^2 + 2 b t + c = 0 with a = dv.dv,
+   b = dp.dv, c = dp.dp - s^2.  They collide only if apart (c > 0) and
+   approaching (b < 0), at the EARLIER root, which in the cancellation-free form
+   is t = c / (-b + sqrt(b^2 - a c)).  Overlapping pairs (c < 0) get no event:
+   they pass through each other, as in PhET, until they separate. */
+function pairTime(dpx,dpy,dvx,dvy,s){
+  const c=dpx*dpx+dpy*dpy-s*s;
+  if(c<0) return Infinity;
+  const b=dpx*dvx+dpy*dvy;
+  if(b>=0) return Infinity;
+  const a=dvx*dvx+dvy*dvy, d=b*b-a*c;
+  if(d<0) return Infinity;
+  return c/(-b+Math.sqrt(d));
+}
+/* the elastic impulse along the line of centres: exact momentum and energy
+   conservation (derive.py checks it in rational arithmetic); returns the
+   impulse delivered to i along n */
+function pairResolve(g,i,j){
+  const mi=gasMass(g,i), mj=gasMass(g,j);
+  const dx=g.x[i]-g.x[j], dy=g.y[i]-g.y[j], d=Math.sqrt(dx*dx+dy*dy);
+  const nx=dx/d, ny=dy/d;
+  const gn=(g.vx[i]-g.vx[j])*nx+(g.vy[i]-g.vy[j])*ny;          /* < 0: approaching */
+  const M=mi+mj, ci=2*mj/M*gn, cj=2*mi/M*gn;
+  g.vx[i]-=ci*nx; g.vy[i]-=ci*ny; g.vx[j]+=cj*nx; g.vy[j]+=cj*ny;
+  return -mi*ci*d;                   /* (r_i - r_j).J_i = |dp| |J| : the pair virial */
+}
+
+/* ---- one substep of length h: every event in time order -------------------- */
+/* push i's next wall event and its pair events with every neighbour, from
+   time t0 to the substep's end h.  `half` (the substep's opening prediction,
+   t0 = 0) pushes each pair once, from its lower index; after an event, i is
+   paired with everyone.  One routine for both, so a rule lives in one place. */
+function gasPredict(g,i,t0,h,L0,u,G,half){
+  const k=g.sp[i], S=g.species[k], r=S.r, x=g.x[i], y=g.y[i], vx=g.vx[i], vy=g.vy[i], si=g.st[i];
+  /* the left bound: the moving left wall, or the divider for species 1 */
+  const xlo=gasXlo(g,k);
+  if(xlo===null){
+    const xw=L0+u*t0;
+    if(vx<u){ let dt=(xw+r-x)/(vx-u); if(dt<0) dt=0; if(t0+dt<=h) evPush(t0+dt,i,-1,EV_LEFT,si,0); }
+  } else if(vx<0){ let dt=(xlo+r-x)/vx; if(dt<0) dt=0; if(t0+dt<=h) evPush(t0+dt,i,-1,EV_LEFT,si,0); }
+  const xhi=gasXhi(g,k);
+  if(vx>0){ let dt=(xhi-r-x)/vx; if(dt<0) dt=0; if(t0+dt<=h) evPush(t0+dt,i,-1,EV_RIGHT,si,0); }
+  if(vy<0){ let dt=(r-y)/vy; if(dt<0) dt=0; if(t0+dt<=h) evPush(t0+dt,i,-1,EV_BOT,si,0); }
+  if(vy>0){ let dt=(g.H-r-y)/vy; if(dt<0) dt=0;
+    if(t0+dt<=h){
+      /* through the opening (entirely inside it, lid open) the particle leaves */
+      let kind=EV_TOP;
+      if(g.lid&&gasLidOpen(g)){ const xc=x+vx*dt; if(xc-r>gasOpenLeft(g)&&xc+r<gasOpenRight()) kind=EV_ESC; }
+      evPush(t0+dt,i,-1,kind,si,0);
+    } }
+  if(!g.collisions||!G) return;
+  /* pairs with every disk in the 3x3 block of cells around i */
+  /* the cell i was REGISTERED in at the substep's start: a partner that can
+     still be reached started within C of i's start, i.e. in an adjacent cell */
+  const ci=g._cellOf[i], cx=ci%G.nx, cy=(ci-cx)/G.nx;
+  for(let yy=cy-1;yy<=cy+1;yy++){ if(yy<0||yy>=G.ny) continue;
+    for(let xx=cx-1;xx<=cx+1;xx++){ if(xx<0||xx>=G.nx) continue;
+      for(let j=g._cellHead[yy*G.nx+xx];j>=0;j=g._cellNext[j]){
+        if((half?j<=i:j===i)||g.out[j]) continue;
+        const ax=g.x[j]+g.vx[j]*(t0-g.lt[j]), ay=g.y[j]+g.vy[j]*(t0-g.lt[j]);
+        const dt=pairTime(x-ax,y-ay,vx-g.vx[j],vy-g.vy[j],r+gasRad(g,j));
+        if(t0+dt<=h) evPush(t0+dt,i,j,EV_PAIR,si,g.st[j]);
+      } } }
+}
+function gasSubstep(g,h,wantLeft){
+  const N=g.n, L0=g.left;
+  g.stats.substeps++;
+  /* 1. the heater: PhET scales every speed by 1 + a/800 once per 60-fps frame;
+        here the same factor is applied as a rate, (1 + a/800)^(h/DT_FRAME) */
+  if(g.heat!==0&&g.hold!=='temperature'&&g.hold!=='pressureT'){
+    const s=Math.pow(1+g.heat/GAS.HEAT_COOL,h/GAS.DT_FRAME);
+    let e0=0,e1=0,vr=0;
+    for(let i=0;i<N;i++) if(!g.out[i]){
+      const m=gasMass(g,i); e0+=0.5*m*(g.vx[i]*g.vx[i]+g.vy[i]*g.vy[i]);
+      vr+=m*(g.x[i]*g.vx[i]+g.y[i]*g.vy[i]);
+      g.vx[i]*=s; g.vy[i]*=s; e1+=0.5*m*(g.vx[i]*g.vx[i]+g.vy[i]*g.vy[i]); }
+    g.led.heatQ+=e1-e0; if(g.vir.on) g.vir.heat+=(s-1)*vr;
+  }
+  /* 2. the left wall moves linearly across the substep */
+  const u=(wantLeft===undefined?0:(wantLeft-L0)/h);
+  /* 3. the grid: any pair that can touch within h starts in adjacent cells.
+        v_b bounds every speed during the substep (a binary collision cannot
+        leave a disk more than twice the largest kinetic energy) */
+  let keMax=0, smax=0, mmin=Infinity, nin=0;
+  for(let i=0;i<N;i++){ if(g.out[i]) continue; nin++; const e=gasKE(g,i); if(e>keMax) keMax=e; }
+  for(const S of g.species){ if(2*S.r>smax) smax=2*S.r; if(S.m<mmin) mmin=S.m; }
+  const vb=Math.sqrt(4*keMax/mmin)+Math.abs(u);
+  let G=null;
+  if(g.collisions&&nin>1){
+    const C=Math.max(smax+2*vb*h,1), x0=Math.min(L0,wantLeft===undefined?L0:wantLeft)-smax, y0=-smax;
+    const nx=Math.max(1,Math.ceil((smax-x0)/C)+1), ny=Math.max(1,Math.ceil((g.H+2*smax)/C)+1);
+    const nc=nx*ny;
+    if(!g._cellHead||g._cellHead.length<nc) g._cellHead=new Int32Array(Math.max(nc,64));
+    g._cellHead.fill(-1,0,nc);
+    for(let i=0;i<N;i++){ if(g.out[i]) continue;
+      const cx=Math.min(nx-1,Math.max(0,Math.floor((g.x[i]-x0)/C))), cy=Math.min(ny-1,Math.max(0,Math.floor((g.y[i]-y0)/C)));
+      const c=cy*nx+cx; g._cellNext[i]=g._cellHead[c]; g._cellHead[c]=i; g._cellOf[i]=c; }
+    G={C,x0,y0,nx,ny,vb};
+  }
+  if(g.vir.on){ let e2=0; for(let i=0;i<N;i++) if(!g.out[i]) e2+=2*gasKE(g,i); g.vir.kin+=e2*h; }
+  /* 4. predict every particle's first events; pairs once each (j > i) */
+  EVH.n=0;
+  for(let i=0;i<N;i++){ g.lt[i]=0; }
+  for(let i=0;i<N;i++){ if(g.out[i]) continue; gasPredict(g,i,0,h,L0,u,G,true); }
+  /* 5. events in time order */
+  const cap=64*nin+1000; let nev=0;
+  while(EVH.n>0){
+    const e=evPop(), t=EVH.t[e];
+    if(t>h) break;
+    const i=EVH.i[e], j=EVH.j[e], kind=EVH.k[e];
+    /* stale: a disk has had an event since this one was predicted (its stamp
+       moved on), or has left through the lid */
+    if(g.st[i]!==EVH.si[e]||g.out[i]){ g.stats.stale++; continue; }
+    if(kind===EV_PAIR&&(g.st[j]!==EVH.sj[e]||g.out[j])){ g.stats.stale++; continue; }
+    if(++nev>cap){ g.stats.eventCap++; break; }
+    /* advance the particle(s) to the event time */
+    g.x[i]+=g.vx[i]*(t-g.lt[i]); g.y[i]+=g.vy[i]*(t-g.lt[i]); g.lt[i]=t;
+    const m=gasMass(g,i);
+    if(kind===EV_PAIR){
+      g.x[j]+=g.vx[j]*(t-g.lt[j]); g.y[j]+=g.vy[j]*(t-g.lt[j]); g.lt[j]=t;
+      const vir=pairResolve(g,i,j);
+      if(g.vir.on) g.vir.pair+=vir;
+      g.stats.pairHits++; g.st[i]++; g.st[j]++;
+      if(G&&(g.vx[i]*g.vx[i]+g.vy[i]*g.vy[i]>G.vb*G.vb||g.vx[j]*g.vx[j]+g.vy[j]*g.vy[j]>G.vb*G.vb)) g.stats.fastMiss++;
+      gasPredict(g,i,t,h,L0,u,G); gasPredict(g,j,t,h,L0,u,G);
+      continue;
+    }
+    if(kind===EV_ESC){
+      /* leaves through the opening: out of the container, no more collisions */
+      const e0=0.5*m*(g.vx[i]*g.vx[i]+g.vy[i]*g.vy[i]);
+      if(g.vir.on){ g.vir.esc-=m*(g.x[i]*g.vx[i]+g.y[i]*g.vy[i]); g.vir.kin-=2*e0*(h-t); }
+      g.led.esc+=e0; g.out[i]=1; g.st[i]++;
+      continue;
+    }
+    let Jx=0,Jy=0;
+    const eHit=0.5*m*(g.vx[i]*g.vx[i]+g.vy[i]*g.vy[i]);
+    if(kind===EV_LEFT){
+      const moving=gasXlo(g,g.sp[i])===null, uu=moving?u:0;
+      const vx0=g.vx[i], vx1=2*uu-vx0;               /* elastic: the wall is infinitely heavy */
+      g.vx[i]=vx1; Jx=m*(vx1-vx0);
+      if(uu!==0){ const dE=0.5*m*(vx1*vx1-vx0*vx0); g.led.work+=dE; if(g.vir.on) g.vir.kin+=2*dE*(h-t); }
+      if(moving){ g.imp.L+=Jx; g.imp.hitsL++; g.imp.E+=eHit; g.stats.wallHits++; g.stats.frameWallHits++; }
+    } else if(kind===EV_RIGHT){
+      Jx=-2*m*g.vx[i]; g.vx[i]=-g.vx[i];
+      if(gasXhi(g,g.sp[i])===0){ g.imp.R-=Jx; g.imp.hitsR++; g.imp.E+=eHit; g.stats.wallHits++; g.stats.frameWallHits++; }
+    } else if(kind===EV_BOT){
+      Jy=-2*m*g.vy[i]; g.vy[i]=-g.vy[i]; g.imp.B+=Jy; g.imp.hitsB++; g.imp.E+=eHit; g.stats.wallHits++; g.stats.frameWallHits++;
+    } else {
+      Jy=-2*m*g.vy[i]; g.vy[i]=-g.vy[i]; g.imp.T-=Jy; g.imp.hitsT++; g.imp.E+=eHit; g.stats.wallHits++; g.stats.frameWallHits++;
+    }
+    if(g.vir.on) g.vir.wall+=g.x[i]*Jx+g.y[i]*Jy;
+    g.st[i]++;
+    gasPredict(g,i,t,h,L0,u,G);
+  }
+  g.stats.events+=nev;
+  /* 6. everyone to the end of the substep; the kinetic virial of the substep */
+  for(let i=0;i<N;i++){
+    const dt=h-g.lt[i];
+    g.x[i]+=g.vx[i]*dt; g.y[i]+=g.vy[i]*dt; g.lt[i]=0;
+  }
+  if(wantLeft!==undefined) gasWidthTo(g,-wantLeft);
+  g.u=u;
+  g.imp.t+=h;
+  EVH.n=0;
+}
+/* ---- one frame: substeps, then PhET's per-step bookkeeping ------------------- */
+/* the number of substeps keeps the grid's cells at most ~2 diameters: a cell
+   is s_max + 2 v_b h wide, and the event order inside a substep is exact
+   whatever h is, so this is a speed knob, not an accuracy one */
+function gasSubsteps(g,dt){
+  let keMax=0, smax=0, mmin=Infinity;
+  for(let i=0;i<g.n;i++) if(!g.out[i]){ const e=gasKE(g,i); if(e>keMax) keMax=e; }
+  for(const S of g.species){ if(2*S.r>smax) smax=2*S.r; if(S.m<mmin) mmin=S.m; }
+  if(!(keMax>0)||!(smax>0)) return 1;
+  const vb=Math.sqrt(4*keMax/mmin)+(g.doesWork?g.wallSpeed:0);
+  return Math.max(1,Math.min(64,Math.ceil(2*vb*dt/smax)));
+}
+function gasStep(g,dt){
+  if(!(dt>0)) return;
+  for(let i=0;i<g.n;i++) g.px[i]=g.x[i];
+  const n=gasSubsteps(g,dt), h=dt/n;
+  g.stats.frameWallHits=0;
+  let moved=false;
+  for(let s=0;s<n;s++){
+    let wantLeft;
+    if(g.doesWork&&g.wantW!==g.W){
+      /* Explore: the wall heads for the width the user asked for at no more
+         than PhET's wallSpeedLimit, in either direction */
+      const d=g.wantW-g.W, lim=g.wallSpeed*h;
+      wantLeft=-(Math.abs(d)<=lim?g.wantW:g.W+(d>0?lim:-lim));
+      moved=true;
+    }
+    gasSubstep(g,h,wantLeft);
+  }
+  if(!moved) g.u=0;
+  g.t+=dt;
+  /* escaped particles float off; they are dropped far outside the box */
+  for(let i=g.n-1;i>=0;i--) if(g.out[i]&&(g.y[i]>g.H+30000||g.y[i]<-30000||g.x[i]>30000||g.x[i]<g.left-30000)) gasKill(g,i);
+  if(g.counter.on){ g.counter.count+=g.stats.frameWallHits; g.counter.t+=dt;
+    if(g.counter.t>=g.counter.period){ g.counter.on=false; g.counter.t=g.counter.period; } }
+  if(g.watch.on){ g.watch.t=Math.min(GAS.MAXTIME,g.watch.t+dt); if(g.watch.t>=GAS.MAXTIME) g.watch.on=false; }
+  gasUpdate(g,dt,g.stats.frameWallHits);
+  if(g.sampler) gasSample(g,dt,true);
+  if(g.flow&&!g.divided) gasFlowStep(g,dt);
+}
+/* PhET's updateModel: compensateForHoldConstant, the temperature, the pressure
+   (enabled after the first wall hit; the gauge refreshes every 0.75 ps with
+   noise), the lid blowing off, the maximum temperature */
+function gasUpdate(g,dt,hits){
+  const N=gasCount(g);
+  if(g.hold==='pressureV'&&N>0&&g.P>0){
+    const T=gasTemp(g), Pm=g.P/GAS.P_SCALE;
+    let w=+(N*GAS.K*T/Pm/(g.H*g.D)).toFixed(5);
+    if(w<g.wRange[0]||w>g.wRange[1]){
+      g.oops=w>g.wRange[1]?'pressureLarge':'pressureSmall'; g.hold='nothing';
+      w=Math.min(g.wRange[1],Math.max(g.wRange[0],w));
+    }
+    gasResize(g,w,true);
+  } else if(g.hold==='pressureT'&&N>0&&g.P>0){
+    gasSetTemp(g,(g.P/GAS.P_SCALE)*gasVolume(g)/(N*GAS.K));
+  }
+  g.T=gasTemp(g);
+  if(N===0){ g.pOn=false; g.P=0; g.gaugeP=0; }
+  else if(!g.pOn&&hits>0) g.pOn=true;
+  if(g.pOn){
+    g.P=gasPressureOf(N,g.T,gasVolume(g));
+    g.pAcc+=dt;
+    if(g.pAcc>=GAS.P_REFRESH){
+      let e=0;
+      if(g.noiseOn&&g.hold!=='pressureV'&&g.hold!=='pressureT'){
+        const pn=Math.min(50,Math.max(0,50*(1-g.P/GAS.P_MAX))), sn=Math.min(1,Math.max(0,((g.T||0)-5)/45));
+        e=pn*sn*g.noise.next();
+        if(e<g.P) e*=g.noise.next()<0.5?-1:1;
+      }
+      g.gaugeP=g.P+e; g.pAcc=0;
+    }
+    if(g.P>GAS.P_MAX) gasBlowLid(g);
+  }
+  if(g.T!==null&&g.T>=GAS.T_MAX){
+    if(g.hold!=='nothing'&&g.hold!=='volume') g.hold='nothing';
+    gasRemoveAll(g); gasReturnLid(g); g.oops='maxTemperature'; g.T=null;
+  }
+  if(g.hold==='temperature'&&gasLidOpen(g)){ g.hold='nothing'; g.oops='temperatureOpen'; }
+}
+/* the model refreshed without time passing (a paused resize, a count change):
+   PhET's updateWhenPaused, which also refreshes the gauge */
+function gasRefresh(g){ g.pAcc=GAS.P_REFRESH; gasUpdate(g,0,0); }
+/* the hold-constant modes a user may choose right now (PhET HoldConstantPanel):
+   T needs particles and a closed lid; P needs a non-zero pressure */
+function gasHoldAllowed(g,mode){
+  if(mode==='temperature') return gasCount(g)>0&&!gasLidOpen(g);
+  if(mode==='pressureV'||mode==='pressureT') return g.P>0;
+  return true;
+}
+function gasSetHold(g,mode){ if(!gasHoldAllowed(g,mode)) return false; g.hold=mode; return true; }
+/* the Oops texts (PhET's strings, <br> dropped) */
+const GAS_OOPS={
+  maxTemperature:'Oops! Maximum temperature reached.',
+  pressureEmpty:'Oops! Pressure cannot be held constant when the container is empty.',
+  pressureLarge:'Oops! Pressure cannot be held constant. Volume would be too large.',
+  pressureSmall:'Oops! Pressure cannot be held constant. Volume would be too small.',
+  temperatureEmpty:'Oops! Temperature cannot be held constant when the container is empty.',
+  temperatureOpen:'Oops! Temperature cannot be held constant when the container is open.'
+};
+
+/* ---- statistics --------------------------------------------------------------- */
+function gasSpeed(g,i){ return Math.sqrt(g.vx[i]*g.vx[i]+g.vy[i]*g.vy[i]); }
+/* counts in nb bins of width w (PhET HistogramsModel: floor(v/w); values past
+   the last bin are not counted) */
+function gasBinCounts(g,k,w,nb,energy){
+  const out=new Array(nb).fill(0);
+  for(let i=0;i<g.n;i++){ if(g.out[i]||g.sp[i]!==k) continue;
+    const v=energy?gasKE(g,i):gasSpeed(g,i), b=Math.floor(v/w);
+    if(b>=0&&b<nb) out[b]++; }
+  return out;
+}
+function gasMeanSpeedOf(g,k){ let s=0,c=0; for(let i=0;i<g.n;i++) if(!g.out[i]&&g.sp[i]===k){ s+=gasSpeed(g,i); c++; } return c?s/c:null; }
+/* PhET's Energy-screen sampler: every frame adds the bin counts and the mean
+   speeds; every 1 ps (or at once when paused) the averages are published */
+function gasSamplerOn(g){
+  const z=()=>new Array(GAS.NBIN).fill(0);
+  g.sampler={dt:0, n:0, acc:{s0:z(),s1:z(),e0:z(),e1:z()}, spd:[0,0],
+             out:{s0:z(),s1:z(),e0:z(),e1:z()}, mean:[null,null], published:0};
+  return g.sampler;
+}
+function gasSample(g,dt,playing){
+  const S=g.sampler; if(!S) return;
+  S.dt+=dt; S.n++;
+  for(const k of [0,1]){
+    const sc=gasBinCounts(g,k,GAS.SBIN,GAS.NBIN,false), ec=gasBinCounts(g,k,GAS.EBIN,GAS.NBIN,true);
+    const A=S.acc['s'+k], B=S.acc['e'+k];
+    for(let b=0;b<GAS.NBIN;b++){ A[b]+=sc[b]; B[b]+=ec[b]; }
+    const ms=gasMeanSpeedOf(g,k); S.spd[k]+=ms===null?0:ms;
+  }
+  if(S.dt>=GAS.SAMPLE-1e-9||!playing){
+    for(const key of ['s0','s1','e0','e1']) S.out[key]=S.acc[key].map(v=>v/S.n);
+    for(const k of [0,1]) S.mean[k]=gasCount(g,k)?S.spd[k]/S.n:null;
+    for(const key of ['s0','s1','e0','e1']) S.acc[key].fill(0);
+    S.spd=[0,0]; S.n=0; S.dt=0; S.published++;
+  }
+}
+/* the centre of mass of species k: x offset from the container's centre, pm */
+function gasCOM(g,k){
+  let sm=0,sx=0;
+  for(let i=0;i<g.n;i++) if(!g.out[i]&&g.sp[i]===k){ const m=gasMass(g,i); sm+=m; sx+=m*g.x[i]; }
+  return sm>0?sx/sm-(g.left+g.W/2):null;
+}
+/* Diffusion's Data: per side of the divider line, the counts of each species
+   and the average temperature (2/3)<KE>/k */
+function gasSideData(g){
+  const res=[{n0:0,n1:0,e:0,T:null},{n0:0,n1:0,e:0,T:null}];
+  for(let i=0;i<g.n;i++){ if(g.out[i]) continue;
+    const s=g.x[i]<g.dividerX?0:1; if(g.sp[i]===0) res[s].n0++; else res[s].n1++; res[s].e+=gasKE(g,i); }
+  for(const r of res){ const n=r.n0+r.n1; r.T=n?(2/3)*r.e/n/GAS.K:null; }
+  return res;
+}
+/* Diffusion's particle flow: crossings of the divider line this frame (from x
+   at the frame's start to x at its end), a running window of 300 frames */
+function gasFlowOn(g){ g.flow={L:[[],[]], R:[[],[]], dts:[], rateL:[0,0], rateR:[0,0]}; return g.flow; }
+function gasFlowStep(g,dt){
+  const F=g.flow, cL=[0,0], cR=[0,0];
+  for(let i=0;i<g.n;i++){ if(g.out[i]) continue; const k=g.sp[i];
+    if(g.px[i]>=g.dividerX&&g.x[i]<g.dividerX) cL[k]++; else if(g.px[i]<=g.dividerX&&g.x[i]>g.dividerX) cR[k]++; }
+  F.dts.push(dt); for(const k of [0,1]){ F.L[k].push(cL[k]); F.R[k].push(cR[k]); }
+  if(F.dts.length>GAS.FLOW_WINDOW){ F.dts.shift(); for(const k of [0,1]){ F.L[k].shift(); F.R[k].shift(); } }
+  const T=F.dts.reduce((a,b)=>a+b,0);
+  for(const k of [0,1]){ F.rateL[k]=F.L[k].reduce((a,b)=>a+b,0)/T; F.rateR[k]=F.R[k].reduce((a,b)=>a+b,0)/T; }
+}
+/* the pressure the walls feel: momentum delivered per unit time to each wall
+   (a 2-D force per unit length is this over the wall's length) */
+function gasWallForce(g){
+  const I=g.imp, t=I.t||1;
+  return {L:I.L/t, R:I.R/t, B:I.B/t, T:I.T/t, t:I.t, hits:I.hitsL+I.hitsR+I.hitsB+I.hitsT};
+}
+
+/* ---- Diffusion's settings (PhET DiffusionParticleSystem) --------------------- */
+/* the half a species is born in: particle 1 left of the divider, particle 2 right */
+function gasDiffRegion(g,k){ const mid=g.left+g.W/2; return k===0?[g.left,mid-g.dividerHalf]:[mid+g.dividerHalf,0]; }
+/* a new mass or starting temperature sets EVERY particle of the species to
+   sqrt(3kT/m), keeping its direction (PhET setMassAndTemperature) */
+function gasDiffMassTemp(g,k,m,T){
+  g.species[k].m=m;
+  const v=Math.sqrt(3*GAS.K*T/m);
+  for(let i=0;i<g.n;i++) if(g.sp[i]===k&&!g.out[i]){
+    const s=gasSpeed(g,i); if(s>0){ g.vx[i]*=v/s; g.vy[i]*=v/s; } else { g.vx[i]=v; g.vy[i]=0; } }
+}
+/* a new radius; paused, every particle of the species is set back inside the
+   x-range it may occupy (PhET clamps into the left half for particle 1 even
+   with the divider out; here the range is the one the divider allows) */
+function gasDiffRadius(g,k,r,playing){
+  g.species[k].r=r;
+  if(playing) return;
+  const lo=gasXlo(g,k), xlo=lo===null?g.left:lo, xhi=gasXhi(g,k);
+  for(let i=0;i<g.n;i++) if(g.sp[i]===k&&!g.out[i]){
+    if(g.x[i]-r<xlo) g.x[i]=xlo+r; else if(g.x[i]+r>xhi) g.x[i]=xhi-r;
+    if(g.y[i]-r<0) g.y[i]=r; else if(g.y[i]+r>g.H) g.y[i]=g.H-r; }
+}
+/* a new count: added in the species' own half; removing resets the rest to
+   sqrt(3kT/m), as PhET does */
+function gasDiffCount(g,k,n,T){
+  const c=gasCount(g,k);
+  if(n>c){ const R=gasDiffRegion(g,k); gasScatter(g,k,n-c,T,R[0],R[1]); }
+  else if(n<c){ gasRemove(g,k,c-n); gasDiffMassTemp(g,k,g.species[k].m,T); }
+}
+/* the divider back in: PhET restarts, every particle regenerated on its side */
+function gasDiffRestart(g,n0,T0,n1,T1){
+  gasRemoveAll(g); gasSetDivided(g,true);
+  const R0=gasDiffRegion(g,0), R1=gasDiffRegion(g,1);
+  gasScatter(g,0,n0,T0,R0[0],R0[1]); gasScatter(g,1,n1,T1,R1[0],R1[1]);
+  if(g.flow) gasFlowOn(g);
+}
+
+/* ================================================================== *
+ *  state: four views of ONE experiment.  PhET's Diffusion is a single  *
+ *  screen, so all four views share one gas and one clock — the tabs    *
+ *  change the instrument, not the run.                                 *
+ * ================================================================== */
+const TABS=[['box','the divided box'],['mixing','the mixing'],['flow','the flow'],['speeds','the speeds']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6', edge:'#242a3a',
+           heavy:'#6c9cff', light:'#ff6f6f', heavyHi:'#b9d0ff', lightHi:'#ffc0bb',
+           box:'#0d1422', wall:'#5ac8e0', lid:'#7f93b3', text:'#aeb6c6'};
+const RO_W=300;
+const SEED=31;
+const UNITS_T=[{id:'K',name:'K'},{id:'C',name:'°C'}];
+const SPEEDS=[{id:false,name:'normal'},{id:true,name:'slow'}];
+/* four starting pairs worth comparing.  PhET's own defaults are both species
+   28 AMU, 125 pm, 300 K with N = 0; this sim opens on 'heavy and light' so the
+   box is not empty, and keeps PhET's pair as a chip. */
+const PRESETS=[
+  {id:'hl',   name:'heavy and light', a:{n:100,m:28,r:125,T:300}, b:{n:100,m:4, r:90, T:300}},
+  {id:'same', name:'identical',       a:{n:100,m:28,r:125,T:300}, b:{n:100,m:28,r:125,T:300}},
+  {id:'hot',  name:'hot and cold',    a:{n:100,m:28,r:125,T:500}, b:{n:100,m:28,r:125,T:100}},
+  {id:'size', name:'big and small',   a:{n:100,m:28,r:250,T:300}, b:{n:100,m:28,r:50, T:300}}
+];
+const FRAME_DT=GAS.DT_FRAME;
+const NPROF=32;                 /* bins along the box for the concentration profile */
+const PAIR_WINDOW=240;          /* frames in the rolling pair-collision measurement */
+const HIST_MAX=4000;
+
+const DEFAULTS={view:'box', running:true, slow:false, unitT:'K',
+  preset:'hl',
+  d1n:100, d1m:28, d1r:125, d1T:300,
+  d2n:100, d2m:4,  d2r:90,  d2T:300,
+  divided:true, dCOM:true, dFlow:true, dScale:true, showWatch:false, showCounter:false,
+  showMB:true, showProfile:true};
+const ST=Object.assign({},DEFAULTS);
+const BOXVIEWS={box:1, mixing:1, flow:1, speeds:1};
+function worldKey(){ return 'box'; }    /* one experiment, four instruments */
+
+/* ---- the world ------------------------------------------------------------- */
+const WORLD={};
+function makeWorld(view,st){
+  const w={view:'box', hist:[], pairs:[], pump:{h:0,acc:0}, dragW:null};
+  const g=w.g=gasMake({width:GAS.DIFF_W, wRange:[GAS.DIFF_W,GAS.DIFF_W], noLid:true, seed:SEED,
+                       species:[{m:st.d1m,r:st.d1r},{m:st.d2m,r:st.d2r}]});
+  gasSetDivided(g,st.divided);
+  diffScatter(g,st);
+  gasFlowOn(g); gasLedgerReset(g); gasRefresh(g);
+  histRecord(w);
+  return w;
+}
+function diffScatter(g,st){
+  const half=g.dividerHalf, dx=g.left+g.W/2;
+  gasScatter(g,0,st.d1n,st.d1T,g.left,dx-half);
+  gasScatter(g,1,st.d2n,st.d2T,dx+half,0);
+}
+function worldOf(){ if(!WORLD.box) WORLD.box=makeWorld('box',ST); return WORLD.box; }
+function resetWorld(){ WORLD.box=makeWorld('box',ST); return WORLD.box; }
+function resetAllWorlds(){ for(const k in WORLD) delete WORLD[k]; }
+
+/* ---- the exact laws this sim measures against ------------------------------- */
+/* the one-sided flux of a 2-D Maxwellian: <vx+> = sqrt(kT2/2 pi m) = <v>/pi */
+function vxPlus(m,T){ return T===null||!(T>0)?null:Math.sqrt(gasKT2(T)/(2*PI*m)); }
+/* particles of species k crossing the divider line one way, per ps, from the
+   side that holds nSide of them: n <vx+> (H - 2r) with n the density of
+   CENTRES in that half, which makes the height cancel */
+function flowTheory(g,k,nSide){
+  const T=gasTemp(g,k), v=vxPlus(g.species[k].m,T);
+  if(v===null) return null;
+  const halfW=g.W/2-g.species[k].r;
+  return halfW>0?nSide*v/halfW:null;
+}
+/* the time constant of the left-right imbalance if each side stayed mixed:
+   d(DeltaN)/dt = -(4 <vx+>/(W - 2r)) DeltaN */
+function tauEffusion(g,k){
+  const v=vxPlus(g.species[k].m,gasTemp(g,k));
+  return v===null?null:(g.W-2*g.species[k].r)/(4*v);
+}
+/* the mean relative speed of two 2-D Maxwellians, each component Gaussian with
+   variance kT2/m, so the relative velocity has variance kT2_k/m_k + kT2_j/m_j
+   and <v_rel> = sqrt(pi/2) times its scale (= sqrt(pi kT2/2 mu) at equal T) */
+function vRel(g,k,j){
+  const Tk=gasTemp(g,k), Tj=gasTemp(g,j);
+  if(Tk===null||Tj===null) return null;
+  const s2=gasKT2(Tk)/g.species[k].m+gasKT2(Tj)/g.species[j].m;
+  return Math.sqrt(PI*s2/2);
+}
+/* collisions per ps suffered by one disk of species k: sum_j n_j 2(r_k+r_j) <v_rel>.
+   The 2 is the swath: a disk collides when the centres come within
+   d = r_k + r_j, so it sweeps a strip of HALF-width d — width 2d.  Writing
+   n_j d <v_rel> halves every rate, and this sim's own pair counter found that
+   (it measured 2.05 times the first draft's prediction). */
+function zRate(g,k){
+  const A=g.W*g.H; let s=0;
+  for(const j of [0,1]){
+    const nj=gasCount(g,j); if(!nj) continue;
+    const vr=vRel(g,k,j); if(vr===null) return null;
+    s+=nj/A*2*(g.species[k].r+g.species[j].r)*vr;
+  }
+  return s;
+}
+/* every unordered pair, so half the sum over disks */
+function pairRateTheory(g){
+  let s=0;
+  for(const k of [0,1]){ const nk=gasCount(g,k); if(!nk) continue; const z=zRate(g,k); if(z===null) return null; s+=nk*z; }
+  return s/2;
+}
+function mfp(g,k){
+  const T=gasTemp(g,k), z=zRate(g,k);
+  return (T===null||z===null||!(z>0))?null:mbMeanSpeed(g.species[k].m,gasKT2(T))/z;
+}
+/* the Fickian bound: the slowest cosine mode of dc/dt = D d2c/dx2 on a box of
+   width W with no flux through the ends decays at D (pi/W)^2.  D = <v> lambda/2
+   is the elementary 2-D kinetic-theory ESTIMATE, with an O(1) factor this file
+   does not pin, so it is drawn and labelled as a bound, not a prediction. */
+function dEstimate(g,k){
+  const T=gasTemp(g,k), l=mfp(g,k);
+  return (T===null||l===null)?null:mbMeanSpeed(g.species[k].m,gasKT2(T))*l/2;
+}
+function tauDiffusive(g,k){
+  const D=dEstimate(g,k);
+  return (D===null||!(D>0))?null:g.W*g.W/(PI*PI*D);
+}
+
+/* ---- what each frame records ------------------------------------------------ */
+/* the left-right imbalance of species k, as a fraction of its count */
+function imbalance(g,side,k){
+  const n=side[0]['n'+k]+side[1]['n'+k];
+  return n?(side[0]['n'+k]-side[1]['n'+k])/n:null;
+}
+function histRecord(w){
+  const g=w.g, side=gasSideData(g);
+  w.hist.push([g.t,gasCOM(g,0),gasCOM(g,1),imbalance(g,side,0),imbalance(g,side,1),
+               gasTemp(g,0),gasTemp(g,1),gasMeanSpeedOf(g,0),gasMeanSpeedOf(g,1)]);
+  if(w.hist.length>HIST_MAX) w.hist.splice(0,w.hist.length-HIST_MAX);
+}
+function pairRecord(w,dt){
+  const g=w.g;
+  w.pairs.push([dt,g.stats.pairHits-(w.lastPairs||0)]);
+  w.lastPairs=g.stats.pairHits;
+  if(w.pairs.length>PAIR_WINDOW) w.pairs.shift();
+}
+function pairRateMeasured(w){
+  let t=0,c=0; for(const r of w.pairs){ t+=r[0]; c+=r[1]; }
+  return t>0?{rate:c/t, n:c, t, sd:Math.sqrt(Math.max(1,c))/t}:null;
+}
+/* the concentration profile: counts of each species in NPROF bins along x */
+function profile(g){
+  const out=[new Array(NPROF).fill(0),new Array(NPROF).fill(0)];
+  for(let i=0;i<g.n;i++){ if(g.out[i]) continue;
+    const q=Math.floor((g.x[i]-g.left)/g.W*NPROF);
+    if(q>=0&&q<NPROF) out[g.sp[i]][q]++; }
+  return out;
+}
+/* the speed histogram this sim draws, and the exact 2-D Maxwell-Boltzmann
+   counts in the same bins (derive.py section 7a) */
+const SPD_NB=20, SPD_BW=150;
+function mbBinCounts(Nk,m,T){
+  const out=[], kt2=gasKT2(T);
+  for(let b=0;b<SPD_NB;b++){
+    const lo=b*SPD_BW, hi=lo+SPD_BW;
+    out.push(Nk*(mbSpeedCdf(hi,m,kt2)-mbSpeedCdf(lo,m,kt2)));
+  }
+  return out;
+}
+
+/* PhET's Remove Divider / Reset Divider.  Removing it just takes it out and
+   restarts the flow counters; resetting it regenerates BOTH species in their
+   own halves, as PhET does, so the run starts over. */
+function removeDivider(w,st){
+  const g=w.g;
+  gasSetDivided(g,false); st.divided=false; gasFlowOn(g);
+  w.hist=[]; w.pairs=[]; w.lastPairs=g.stats.pairHits; histRecord(w);
+}
+function resetDivider(w,st){
+  const g=w.g;
+  gasDiffRestart(g,st.d1n,st.d1T,st.d2n,st.d2T); st.divided=true;
+  gasRefresh(g); w.hist=[]; w.pairs=[]; w.lastPairs=g.stats.pairHits; g.t=0; histRecord(w);
+}
+
+function viewDt(st){ return st.slow?GAS.DT_SLOW:GAS.DT_FRAME; }
+function worldStep(w,st,dt){
+  const g=w.g;
+  const n0=gasCount(g,0), n1=gasCount(g,1);
+  gasStep(g,dt);
+  pairRecord(w,dt);
+  histRecord(w);
+  return gasCount(g,0)!==n0||gasCount(g,1)!==n1;
+}
+
+/* ---- the models the readout and the views read ------------------------------- */
+function fmtT(T,st){ if(T===null||T===undefined||!isFinite(T)) return '—'; return st.unitT==='C'?sigf(T-273.15,4)+' °C':sigf(T,4)+' K'; }
+function fmtP(Pk,st){ if(!isFinite(Pk)) return '—'; return Math.round(Pk)+' kPa'; }
+function zJ(e){ return e*GAS.KG_PER_AMU*1e21; }
+function presetOf(id){ return PRESETS.find(p=>p.id===id)||PRESETS[0]; }
+function buildModel(){
+  const st=ST, view=st.view, w=worldOf(), g=w.g;
+  const N=gasCount(g), n0=gasCount(g,0), n1=gasCount(g,1);
+  const M={view,st,w,g,N,nH:n0,nL:n1,T:g.T,t:g.t,oops:g.oops,
+           side:gasSideData(g), com:[gasCOM(g,0),gasCOM(g,1)], flow:g.flow,
+           Tsp:[gasTemp(g,0),gasTemp(g,1)]};
+  M.kT2=g.T===null?null:gasKT2(g.T);
+  M.mfp=[mfp(g,0),mfp(g,1)];
+  M.tauEff=[tauEffusion(g,0),tauEffusion(g,1)];
+  M.tauDif=[tauDiffusive(g,0),tauDiffusive(g,1)];
+  M.flowTh=[[flowTheory(g,0,M.side[0].n0),flowTheory(g,0,M.side[1].n0)],
+            [flowTheory(g,1,M.side[0].n1),flowTheory(g,1,M.side[1].n1)]];
+  M.pairTh=pairRateTheory(g);
+  M.pairMe=pairRateMeasured(w);
+  M.mean=[gasMeanSpeedOf(g,0),gasMeanSpeedOf(g,1)];
+  M.mb=[M.Tsp[0]===null?null:mbMeanSpeed(g.species[0].m,gasKT2(M.Tsp[0])),
+        M.Tsp[1]===null?null:mbMeanSpeed(g.species[1].m,gasKT2(M.Tsp[1]))];
+  M.graham=Math.sqrt(g.species[0].m/g.species[1].m);
+  /* the common temperature the two species must reach: energy is conserved and
+     T = (2/3)<KE>/k, so it is the number-weighted mean */
+  M.Tmix=(n0+n1)?((n0*(M.Tsp[0]||0)+n1*(M.Tsp[1]||0))/(n0+n1)):null;
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function readoutHTML(M){
+  const st=M.st, g=M.g, D=M.side, sp=g.species;
+  let s='<div class="rname">diffusion<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  /* PhET's Data panel */
+  s+=hd('left of the divider')+rrow('particle 1, particle 2',D[0].n0+', '+D[0].n1)+rrow('T<sub>avg</sub>',fmtT(D[0].T,st));
+  s+=hd('right of the divider')+rrow('particle 1, particle 2',D[1].n0+', '+D[1].n1)+rrow('T<sub>avg</sub>',fmtT(D[1].T,st));
+  s+=hd('centre of mass, nm from the middle')
+    +rrow('particle 1',M.com[0]===null?'—':sigf(M.com[0]/1000,3),'good')
+    +rrow('particle 2',M.com[1]===null?'—':sigf(M.com[1]/1000,3),'good')
+    +rrow('each half full is',fmt((g.W/4+g.dividerHalf/2)/1000,3)+' nm');
+  if(M.view==='box'||M.view==='flow'){
+    s+=hd('particle flow (particles/ps)');
+    if(M.flow&&!g.divided){
+      s+=rrow('particle 1 → left, → right',fmt(M.flow.rateL[0],2)+', '+fmt(M.flow.rateR[0],2),'good')
+        +rrow('… kinetic theory',(M.flowTh[0][1]===null?'—':fmt(M.flowTh[0][1],2))+', '+(M.flowTh[0][0]===null?'—':fmt(M.flowTh[0][0],2)))
+        +rrow('particle 2 → left, → right',fmt(M.flow.rateL[1],2)+', '+fmt(M.flow.rateR[1],2),'good')
+        +rrow('… kinetic theory',(M.flowTh[1][1]===null?'—':fmt(M.flowTh[1][1],2))+', '+(M.flowTh[1][0]===null?'—':fmt(M.flowTh[1][0],2)));
+    } else s+=rrow('the divider is in','nothing crosses');
+    s+=rrow('Graham &radic;(m₁/m₂)',fmt(M.graham,3));
+  }
+  if(M.view==='mixing'){
+    s+=hd('how fast it can mix (particle 1)')
+      +rrow('&tau;, effusion model',M.tauEff[0]===null?'—':fmt(M.tauEff[0],1)+' ps')
+      +rrow('&tau;, Fickian estimate',M.tauDif[0]===null?'—':fmt(M.tauDif[0],1)+' ps')
+      +rrow('mean free path &lambda;',M.mfp[0]===null?'—':sigf(M.mfp[0],3)+' pm')
+      +rrow('the box, in &lambda;',M.mfp[0]===null?'—':fmt(g.W/M.mfp[0],1),'good');
+  }
+  if(M.view==='flow'){
+    s+=hd('pair collisions per ps');
+    if(M.pairMe&&M.pairMe.n>0)
+      s+=rrow('measured, last '+fmt(M.pairMe.t,1)+' ps',fmt(M.pairMe.rate,1)+' ± '+fmt(M.pairMe.sd,1),'good')
+        +rrow('kinetic theory',M.pairTh===null?'—':fmt(M.pairTh,1))
+        +rrow('measured / theory',M.pairTh?fmt(M.pairMe.rate/M.pairTh,3):'—',
+              (M.pairTh&&Math.abs(M.pairMe.rate-M.pairTh)<3*M.pairMe.sd)?'good':'');
+    else s+=rrow('measured','run the clock');
+  }
+  if(M.view==='speeds'){
+    s+=hd('mean speed, m/s')
+      +rrow('particle 1, measured',M.mean[0]===null?'—':sigf(M.mean[0],4),'good')
+      +rrow('… Maxwell–Boltzmann',M.mb[0]===null?'—':sigf(M.mb[0],4))
+      +rrow('particle 2, measured',M.mean[1]===null?'—':sigf(M.mean[1],4),'good')
+      +rrow('… Maxwell–Boltzmann',M.mb[1]===null?'—':sigf(M.mb[1],4))
+      +rrow('PhET starts every disk at &radic;(3kT/m), so &lang;v&rang; must fall by','11.38 %');
+  }
+  s+=hd('the two species')
+    +rrow('particle 1: m, r, T',fmt(sp[0].m,0)+' AMU, '+fmt(sp[0].r,0)+' pm, '+fmtT(M.Tsp[0],st))
+    +rrow('particle 2: m, r, T',fmt(sp[1].m,0)+' AMU, '+fmt(sp[1].r,0)+' pm, '+fmtT(M.Tsp[1],st))
+    +rrow('the common T they must reach',fmtT(M.Tmix,st))
+    +rrow('time',fmt(g.t,2)+' ps'+(st.slow?' (slow)':''));
+  if(st.showWatch) s+=rrow('stopwatch',fmt(g.watch.t,2)+' ps'+(g.watch.on?' (running)':''));
+  s+='</table><div class="note">'+(g.divided
+    ?'The divider is in: each species is confined to its own side, and its centre of mass sits at &minus;'+fmt((g.W/4+g.dividerHalf/2)/1000,3)+' nm exactly, whatever the radius.'
+    :'The divider is out. The flow rates count crossings of the middle line, averaged over 300 frames as PhET does.')+'</div>';
+  return s;
+}
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='box') return E('x<sub>cm</sub> = &Sigma;m x / &Sigma;m &nbsp;&middot;&nbsp; <span class="hl">at the start it is &minus;(W + d)/4 = &minus;4.025 nm</span>, exactly, whatever the radius',
+    'take the divider out and each centre of mass drifts to the middle — not because anything pushes it, but because there are more ways to be mixed than not');
+  if(M.view==='mixing') return E('<span class="hl">&Delta;N/N &rarr; 0</span> &nbsp;&middot;&nbsp; effusion: &tau; = (W &minus; 2r)/4&lang;v<sub>x</sub><sup>+</sup>&rang; &nbsp;&middot;&nbsp; Fickian: &tau;<sub>D</sub> = W&sup2;/&pi;&sup2;D, D &asymp; &lang;v&rang;&lambda;/2',
+    'the imbalance between the halves falls between two limits: free flight through a mixed gas, and a random walk of step λ');
+  if(M.view==='flow') return E('<span class="hl">&Phi; = n &lang;v<sub>x</sub><sup>+</sup>&rang; (H &minus; 2r)</span>, &nbsp; &lang;v<sub>x</sub><sup>+</sup>&rang; = &radic;(kT&#8322;/2&pi;m) = &lang;v&rang;/&pi; &nbsp;&rArr;&nbsp; rate &prop; 1/&radic;m (Graham)',
+    'the height cancels, so the rate is N⟨vx⁺⟩/(W/2 − r); the collision rate beside it is Σⱼ nⱼ (rᵢ+rⱼ) ⟨v_rel⟩');
+  return E('<span class="hl">f(v) = (m v/kT&#8322;) e<sup>&minus;mv&sup2;/2kT&#8322;</sup></span> &nbsp;&middot;&nbsp; &lang;v&rang; = &radic;(&pi;kT&#8322;/2m) = &radic;(&pi;/4) &times; &radic;(3kT/m)',
+    'PhET starts every particle at one speed; collisions turn that spike into Maxwell–Boltzmann and the mean speed falls by exactly 11.38 %');
+}
+function tagHTML(M){
+  const g=M.g;
+  if(M.view==='box') return '<b>the divided box</b> — PhET&rsquo;s Diffusion screen'+(g.divided?', divided':', mixing');
+  if(M.view==='mixing') return '<b>the mixing</b> — the profiles and the imbalance'+(g.divided?' (take the divider out)':'');
+  if(M.view==='flow') return '<b>the flow</b> — measured against kinetic theory'+(g.divided?' (take the divider out)':'');
+  return '<b>the speeds</b> — PhET&rsquo;s spike relaxing to Maxwell&ndash;Boltzmann';
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — from build_cycloid via build_buoy/p4_views.js, unchanged              *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+/* ================================================================== *
+ *  the container scene and the small-plot layer                    *
+ *  Taken UNCHANGED from build/gas-properties/p4_views.js          *
+ *  (the finished gas-properties remake).  Do not edit here.          *
+ * ================================================================== */
+/*  The ONLY change: eleven tests on gas-properties own view names      *
+ *  became the hooks dragPauses / wallDraggable / lidDraggable /        *
+ *  heaterLocked / scaleBar / rulerOn / wallVelocity / counterOn /      *
+ *  dividerShown, which this sim defines in p4_views.js.                *
+ *  make_shared.py asserts each substitution matches exactly once.      */
+
+/* the house #hint is HTML (bottom: 11px, 11px type) over the canvas's bottom
+   left corner, and the capture cannot see it: every caption here ends HINT_H
+   higher, clear of it (the trap the wave-on-a-string build found) */
+const HINT_H=18;
+function viewGeo(ctx,W,H,M){
+  const o=SCENE[M.view], g=M.g, narrow=isNarrow(W);
+  const Lx=24, Rres=narrow?16:RO_W+34;
+  const cap=captionFor(M);
+  /* a scene with its gauges needs ~300 px above the caption, or it takes the
+     short caption (the narrow-stage rule: the long caption must not squeeze the
+     box until its instruments hang off the canvas) */
+  let fit=fitCaption(ctx,W,H-HINT_H,cap[0],cap[1],W-Lx-Rres,stageTop()+(o.gauges?330:230));
+  const top=stageTop()+(o.gauges?102:30);
+  const nP=narrow?Math.min(1,o.nPlots):o.nPlots;
+  /* the caption must describe what is drawn: when the plots do not fit, the
+     no-plots caption says what a taller window adds */
+  if(nP>0&&!(fit.capY-top>300)){ const c=capFit(ctx,W,H-HINT_H,cap[2],fit.capW); fit={capY:c.capY,txt:cap[2],capW:fit.capW}; }
+  let sceneBottom=fit.capY-14, plots=[];
+  if(nP>0&&fit.capY-top>300){
+    const rowH=Math.max(130,Math.floor((fit.capY-top)*o.plotFrac));
+    const rowTop=fit.capY-16-rowH;
+    const right=(rowTop<480&&!narrow)?W-Rres:W-26, span=right-Lx, gut=58, pw=(span-gut*nP)/nP;
+    for(let i=0;i<nP;i++) plots.push(box(Lx+gut+i*(pw+gut),rowTop+28,pw,rowH-28-40));
+    sceneBottom=rowTop-6;
+  }
+  const below=(o.ruler?26:6)+(o.heater?44:0)+(o.below||0);
+  const pumpW=o.pump?84:10;
+  const availW=Math.max(60,W-Lx-Rres-pumpW), availH=Math.max(40,sceneBottom-below-top);
+  const s=Math.max(0.002,Math.min(availW/o.maxW,availH/g.H));
+  /* the instruments hang left of the right wall: keep 170 px for them */
+  const xR=Lx+Math.max(o.maxW*s,o.gauges?170:0), yB=top+g.H*s;
+  const G={s, xR, yT:top, yB, X:x=>xR+x*s, Y:y=>yB-y*s, wx:X=>(X-xR)/s, wy:Y=>(yB-Y)/s, narrow};
+  const wDraw=(dragPauses(M)&&M.w.dragW!==null)?M.w.dragW:g.W;
+  G.xL=xR-wDraw*s; G.wDraw=wDraw;
+  G.handle={x:G.xL-16,y:(top+yB)/2-22,w:11,h:44};
+  if(g.lid&&g.lid.on){ const oL=g.left-GAS.WALL+g.lid.width; G.lidX=G.X(oL); G.lidKnob={x:G.X(oL)-30,y:top-15,w:26,h:11}; }
+  if(o.pump){
+    const bh=Math.min(150,Math.max(60,0.55*(yB-top))), bx=xR+34;
+    G.pump={x:bx,y:yB-bh,w:24,h:bh,travel:0.55*bh};
+    const hy=G.pump.y-10-G.pump.travel*(1-M.w.pump.h);
+    G.pumpHandle={x:bx-16,y:hy-8,w:56,h:10};
+  }
+  if(o.gauges){
+    G.gauge={cx:xR-40,cy:top-52,R:Math.min(34,0.45*(top-stageTop()-20))};
+    G.thermo={x:xR-128,yb:top-8,h:Math.min(74,top-stageTop()-26)};
+  }
+  if(o.heater) G.heater={x:G.X(-GAS.WMIN)+8,y:yB+(o.ruler?26:8),w:GAS.WMIN*s-16,h:30};
+  G.plots=plots; G.capY=fit.capY; G.capTxt=fit.txt; G.capW=fit.capW; G.Lx=Lx;
+  return G;
+}
+
+/* ---- the container ------------------------------------------------------------ */
+function drawContainer(ctx,G,M){
+  const g=M.g, s=G.s, wt=Math.max(2,GAS.WALL*s);
+  /* the interior */
+  ctx.fillStyle=COL.box; ctx.fillRect(G.xL,G.yT,G.xR-G.xL,G.yB-G.yT);
+  ctx.strokeStyle=COL.wall; ctx.lineWidth=wt; ctx.lineCap='square';
+  /* left wall, floor, right wall */
+  ctx.beginPath(); ctx.moveTo(G.xL-wt/2,G.yT); ctx.lineTo(G.xL-wt/2,G.yB+wt/2); ctx.lineTo(G.xR+wt/2,G.yB+wt/2); ctx.lineTo(G.xR+wt/2,G.yT); ctx.stroke();
+  /* the top: the lid over [left, openingLeft], the rest open to the right inset */
+  if(g.lid){
+    if(g.lid.on){
+      const lt=Math.max(3,GAS.LID_THICK*s);
+      ctx.fillStyle=COL.lid; ctx.fillRect(G.xL-wt,G.yT-lt,G.lidX-G.xL+wt,lt);
+    }
+    /* the fixed part of the top between the opening and the right wall */
+    ctx.beginPath(); ctx.moveTo(G.X(gasOpenRight()),G.yT-wt/2); ctx.lineTo(G.xR+wt/2,G.yT-wt/2); ctx.stroke();
+  } else { ctx.beginPath(); ctx.moveTo(G.xL-wt/2,G.yT-wt/2); ctx.lineTo(G.xR+wt/2,G.yT-wt/2); ctx.stroke(); }
+  if(g.divided||dividerShown(M)){
+    const dx=G.X(g.dividerX), dw=Math.max(2,GAS.DIVIDER*s);
+    if(g.divided){ ctx.fillStyle=COL.wall; ctx.fillRect(dx-dw/2,G.yT,dw,G.yB-G.yT); }
+    else { ctx.strokeStyle='rgba(90,200,224,0.35)'; ctx.lineWidth=1; ctx.setLineDash([4,5]); ctx.beginPath(); ctx.moveTo(dx,G.yT); ctx.lineTo(dx,G.yB); ctx.stroke(); ctx.setLineDash([]); }
+  }
+  ctx.lineCap='butt';
+}
+function drawParticles(ctx,G,g,dim){
+  for(const k of [0,1]){
+    const R=Math.max(1.3,g.species[k].r*G.s);
+    ctx.beginPath(); let any=false;
+    for(let i=0;i<g.n;i++){ if(g.sp[i]!==k) continue;
+      const X=G.X(g.x[i]), Y=G.Y(g.y[i]); ctx.moveTo(X+R,Y); ctx.arc(X,Y,R,0,TAU); any=true; }
+    if(any){ ctx.globalAlpha=dim?0.5:1; ctx.fillStyle=k?COL.light:COL.heavy; ctx.fill(); ctx.globalAlpha=1; }
+  }
+}
+function drawHandles(ctx,G,M){
+  const g=M.g, v=M.view;
+  const wallOK=wallDraggable(M);
+  if(wallOK){ const h=G.handle; ctx.fillStyle=DRAG.what==='wall'?COL.live:'#8a97ad'; ctx.fillRect(h.x,h.y,h.w,h.h);
+    ctx.strokeStyle='#070b18'; ctx.lineWidth=1; for(let q=1;q<4;q++){ ctx.beginPath(); ctx.moveTo(h.x+2,h.y+q*h.h/4); ctx.lineTo(h.x+h.w-2,h.y+q*h.h/4); ctx.stroke(); } }
+  const lidOK=lidDraggable(M);
+  if(lidOK){ const k=G.lidKnob; ctx.fillStyle=DRAG.what==='lid'?COL.live:'#b8c4d8'; ctx.fillRect(k.x,k.y,k.w,k.h); }
+}
+function drawPump(ctx,G,M){
+  const P=G.pump, H=G.pumpHandle, k=M.st.pump==='light'?1:0;
+  /* the hose, from the pump's foot into the right wall at the entry height */
+  const ey=G.Y(GAS.ENTRY_Y);
+  ctx.strokeStyle='#6b7690'; ctx.lineWidth=4; ctx.beginPath(); ctx.moveTo(P.x+P.w/2,P.y+P.h); ctx.lineTo(P.x+P.w/2,P.y+P.h+8);
+  ctx.lineTo(G.xR+18,P.y+P.h+8); ctx.lineTo(G.xR+18,ey); ctx.lineTo(G.xR+3,ey); ctx.stroke();
+  ctx.fillStyle='#2a3346'; ctx.fillRect(P.x,P.y,P.w,P.h);
+  ctx.strokeStyle='#5a6782'; ctx.lineWidth=1; ctx.strokeRect(P.x+0.5,P.y+0.5,P.w-1,P.h-1);
+  /* the shaft and the handle */
+  ctx.fillStyle='#8a97ad'; ctx.fillRect(P.x+P.w/2-2,H.y+H.h,4,Math.max(0,P.y-H.y-H.h));
+  ctx.fillStyle=DRAG.what==='pump'?COL.live:'#b8c4d8'; ctx.fillRect(H.x,H.y,H.w,H.h);
+  /* the species it pumps */
+  dot(ctx,P.x+P.w/2,P.y+P.h-14,6,k?COL.light:COL.heavy,'#070b18',1);
+}
+function drawThermometer(ctx,G,M,W,H){
+  const t=G.thermo, g=M.g, T=g.T;
+  const f=T===null?0:Math.min(1,Math.max(0,T/1000));
+  ctx.fillStyle='#1b2130'; ctx.fillRect(t.x-5,t.yb-t.h,10,t.h);
+  ctx.fillStyle=COL.heat; ctx.fillRect(t.x-3,t.yb-f*(t.h-4),6,f*(t.h-4));
+  dot(ctx,t.x,t.yb,7,COL.heat,'#5a6782',1);
+  ctx.strokeStyle='#5a6782'; ctx.lineWidth=1; ctx.strokeRect(t.x-5.5,t.yb-t.h-0.5,11,t.h);
+  lab(ctx,W,H,t.x-12,t.yb-t.h/2,fmtT(T,M.st),COL.pos,'11px -apple-system, sans-serif','right','middle');
+}
+function drawGauge(ctx,G,M,W,H){
+  const d=G.gauge, g=M.g, a0=0.75*PI, a1=2.25*PI;
+  ctx.beginPath(); ctx.arc(d.cx,d.cy,d.R,0,TAU); ctx.fillStyle='#10141f'; ctx.fill(); ctx.strokeStyle='#5a6782'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.beginPath(); ctx.arc(d.cx,d.cy,d.R-4,a0,a1); ctx.strokeStyle='#2a3346'; ctx.lineWidth=3; ctx.stroke();
+  for(let q=0;q<=4;q++){ const a=a0+(a1-a0)*q/4; ctx.beginPath(); ctx.moveTo(d.cx+(d.R-9)*Math.cos(a),d.cy+(d.R-9)*Math.sin(a));
+    ctx.lineTo(d.cx+(d.R-3)*Math.cos(a),d.cy+(d.R-3)*Math.sin(a)); ctx.strokeStyle='#8b93a6'; ctx.lineWidth=1; ctx.stroke(); }
+  const f=Math.min(1,Math.max(0,(g.pOn?g.gaugeP:0)/GAS.P_MAX)), a=a0+(a1-a0)*f;
+  ctx.beginPath(); ctx.moveTo(d.cx,d.cy); ctx.lineTo(d.cx+(d.R-7)*Math.cos(a),d.cy+(d.R-7)*Math.sin(a)); ctx.strokeStyle=COL.live; ctx.lineWidth=2; ctx.stroke();
+  /* the pipe down to the box */
+  ctx.fillStyle='#3a4458'; ctx.fillRect(d.cx-3,d.cy+d.R,6,Math.max(0,G.yT-d.cy-d.R-4));
+  lab(ctx,W,H,d.cx+d.R+6,d.cy,g.pOn?fmtP(g.gaugeP,M.st):'—',COL.pos,'11px -apple-system, sans-serif','left','middle');
+}
+function drawHeater(ctx,G,M,W,H){
+  const h=G.heater, a=M.st.heat, g=M.g;
+  const locked=heaterLocked(M);
+  ctx.fillStyle='#161c2a'; ctx.fillRect(h.x,h.y,h.w,h.h);
+  if(a!==0&&!locked){ ctx.globalAlpha=Math.min(1,0.25+0.75*Math.abs(a)); ctx.fillStyle=a>0?COL.heat:COL.cool; ctx.fillRect(h.x+3,h.y+3,h.w-6,h.h-6); ctx.globalAlpha=1; }
+  ctx.strokeStyle='#5a6782'; ctx.lineWidth=1; ctx.strokeRect(h.x+0.5,h.y+0.5,h.w-1,h.h-1);
+  const txt=locked?(h.w>130?'held by the model':'held'):(a>0?'heating':(a<0?'cooling':(h.w>150?'heat / cool (the panel)':'heat / cool')));
+  lab(ctx,W,H,h.x+h.w/2,h.y+h.h/2,txt,a!==0&&!locked?'#070b18':COL.dim,'10.5px -apple-system, sans-serif','center','middle');
+}
+function drawRuler(ctx,G,M,W,H){
+  const y=G.yB+(scaleBar(M)?22:14), g=M.g;
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1;
+  if(scaleBar(M)){
+    /* PhET's Scale: a bar with a tick every nanometre */
+    ctx.beginPath(); ctx.moveTo(G.xL,y); ctx.lineTo(G.xR,y);
+    for(let x=0;x>=-g.W-1e-6;x-=1000){ ctx.moveTo(G.X(x),y-4); ctx.lineTo(G.X(x),y+(x%5000===0?5:2)); }
+    ctx.stroke(); lab(ctx,W,H,G.xL,y+11,'1 nm per tick',COL.dim,'10.5px -apple-system, sans-serif','left','middle');
+    return;
+  }
+  ctx.beginPath(); ctx.moveTo(G.xL,y); ctx.lineTo(G.xR,y);
+  ctx.moveTo(G.xL,y-5); ctx.lineTo(G.xL,y+5); ctx.moveTo(G.xR,y-5); ctx.lineTo(G.xR,y+5); ctx.stroke();
+  lab(ctx,W,H,(G.xL+G.xR)/2,y+10,fmt(G.wDraw/1000,2)+' nm',COL.struct,'11px -apple-system, sans-serif','center','middle');
+}
+function drawTools(ctx,G,M,W,H){
+  const st=M.st, g=M.g; let x=G.Lx, y=stageTop()+6;
+  if(st.showWatch){
+    ctx.fillStyle='#10141f'; ctx.fillRect(x,y,118,30); ctx.strokeStyle='#3a4458'; ctx.lineWidth=1; ctx.strokeRect(x+0.5,y+0.5,117,29);
+    lab(ctx,W,H,x+8,y+15,fmt(g.watch.t,2)+' ps',g.watch.on?COL.live:'#cfd4de','12px "SF Mono", Menlo, monospace','left','middle');
+    x+=128;
+  }
+  if(st.showCounter&&counterOn(M)){
+    ctx.fillStyle='#10141f'; ctx.fillRect(x,y,150,30); ctx.strokeStyle='#3a4458'; ctx.lineWidth=1; ctx.strokeRect(x+0.5,y+0.5,149,29);
+    const f=g.counter.t/g.counter.period;
+    ctx.fillStyle=COL.pos; ctx.fillRect(x+3,y+25,Math.max(0,144*f),3);
+    lab(ctx,W,H,x+8,y+12,g.counter.count+' wall hits',g.counter.on?COL.live:'#cfd4de','12px "SF Mono", Menlo, monospace','left','middle');
+  }
+}
+function oopsGeo(ctx,G,M){
+  if(!M.g.oops) return null;
+  const txt=GAS_OOPS[M.g.oops]||M.g.oops, w=Math.max(160,Math.min(360,G.xR-G.xL-20)), ls=wrapText(ctx,txt,w-24,'12px -apple-system, sans-serif');
+  const bh=ls.length*16+18, bx=(G.xL+G.xR)/2-w/2, by=Math.max(stageTop(),(G.yT+G.yB)/2-bh/2);
+  return {w,ls,bh,bx,by};
+}
+function drawOops(ctx,G,M,W,H){
+  const O=oopsGeo(ctx,G,M); if(!O) return;
+  const {w,ls,bh,bx,by}=O;
+  ctx.fillStyle='rgba(10,12,18,.92)'; ctx.fillRect(bx,by,w,bh); ctx.strokeStyle=COL.ref; ctx.lineWidth=1.5; ctx.strokeRect(bx,by,w,bh);
+  ctx.fillStyle=COL.ref; ctx.font='12px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  ls.forEach((l,i)=>ctx.fillText(l,bx+w/2,by+9+i*16));
+}
+function drawWallVelocity(ctx,G,M){
+  const u=M.g.u; if(!M.st.showWallVel||u===0) return;
+  const y=(G.yT+G.yB)/2, L=Math.max(-120,Math.min(120,u*0.12));
+  const X0=G.xL, X1=G.xL+L;
+  ctx.strokeStyle=COL.live; ctx.lineWidth=2.5; ctx.beginPath(); ctx.moveTo(X0,y); ctx.lineTo(X1,y);
+  const d=L>0?1:-1; ctx.moveTo(X1,y); ctx.lineTo(X1-8*d,y-5); ctx.moveTo(X1,y); ctx.lineTo(X1-8*d,y+5); ctx.stroke();
+}
+function drawScene(ctx,W,H,M,G){
+  const o=SCENE[M.view];
+  const O=oopsGeo(ctx,G,M); if(O) LABELS.push([O.bx,O.by,O.bx+O.w,O.by+O.bh]);
+  drawContainer(ctx,G,M);
+  drawParticles(ctx,G,M.g,dragPauses(M)&&M.w.dragW!==null);
+  if(BOXVIEWS[M.view]) drawHandles(ctx,G,M);
+  if(o.pump) drawPump(ctx,G,M);
+  if(o.gauges){ drawThermometer(ctx,G,M,W,H); drawGauge(ctx,G,M,W,H); }
+  if(o.heater) drawHeater(ctx,G,M,W,H);
+  if(o.ruler&&rulerOn(M)) drawRuler(ctx,G,M,W,H);
+  if(BOXVIEWS[M.view]) drawTools(ctx,G,M,W,H);
+  if(wallVelocity(M)) drawWallVelocity(ctx,G,M);
+  if(!M.g.lid||M.g.lid.on||!BOXVIEWS[M.view]) {}
+  else lab(ctx,W,H,G.X(M.g.left)+6,G.yT-12,'the lid is off',COL.ref,'11px -apple-system, sans-serif','left','middle');
+}
+function sceneCaption(ctx,G){ caption(ctx,G.Lx,G.capY,G.capTxt,G.capW,'#767e92',CAP_FONT); }
+
+/* ---- a small time-series plot ------------------------------------------------- */
+/* An auto-ranged axis must never be narrower than its endpoints' rounding:
+   the shared ticksFor() steps t += step, and when the span is ~1e-16 of the
+   values (two species' energy ratios that are 1 to rounding) t never advances
+   and the loop spins for ever.  Widen any such range before asking for ticks. */
+function niceRange(lo,hi){
+  const sc=Math.max(Math.abs(lo),Math.abs(hi),1e-300);
+  if(!(hi-lo>1e-9*sc)){ const m=(lo+hi)/2, d=Math.max(0.05*Math.abs(m),1e-6); return [m-d,m+d]; }
+  return [lo,hi];
+}
+function plotSeries(ctx,W,H,b,title,short,xs,series,opt){
+  opt=opt||{};
+  let x0=Infinity, x1=-Infinity, y0=opt.y0, y1=opt.y1;
+  for(const x of xs) if(isFinite(x)){ if(x<x0) x0=x; if(x>x1) x1=x; }
+  if(!isFinite(x0)){ x0=0; x1=1; }
+  if(opt.x0!==undefined) x0=opt.x0; if(opt.x1!==undefined) x1=opt.x1;
+  if(!(x1>x0)) x1=x0+1;
+  if(y0===undefined||y1===undefined){
+    let lo=Infinity, hi=-Infinity;
+    for(const S of series) for(const v of S.ys) if(isFinite(v)){ if(v<lo) lo=v; if(v>hi) hi=v; }
+    for(const r of (opt.refs||[])) if(isFinite(r.y)){ if(r.y<lo) lo=r.y; if(r.y>hi) hi=r.y; }
+    if(!(hi>lo)){ lo=isFinite(lo)?lo-1:0; hi=isFinite(hi)?hi+1:1; }
+    const pad=0.08*(hi-lo); if(y0===undefined) y0=lo-pad; if(y1===undefined) y1=hi+pad;
+  }
+  [x0,x1]=niceRange(x0,x1); [y0,y1]=niceRange(y0,y1);
+  axesR(ctx,b,x0,x1,y0,y1,{title:titleFor(b,title,short||title),xlab:opt.xlab,ylab:opt.ylab,
+    xticks:sparseTicks(x0,x1,b.w),yticks:sparseTicks(y0,y1,b.h),xfmt:tickFmt(x0,x1,b.w),yfmt:tickFmt(y0,y1,b.h)});
+  for(const r of (opt.refs||[])) if(isFinite(r.y)) polyline(ctx,b,[x0,x1],[r.y,r.y],x0,x1,y0,y1,r.col||COL.ref,r.lw||1.4,r.dash);
+  for(const S of series){
+    if(xs.length>1) polyline(ctx,b,xs,S.ys,x0,x1,y0,y1,S.col,S.lw||1.7,S.dash);
+    else if(xs.length===1&&isFinite(S.ys[0])) marker(ctx,b,x0,x1,y0,y1,xs[0],S.ys[0],S.col);
+  }
+  if(opt.note) plotNote(ctx,W,H,b,opt.note);
+  return {x0,x1,y0,y1};
+}
+/* a note in the middle of a plot, on a patch of the canvas ground so a
+   reference line through the middle (the diffusion plot's dashed zero) does
+   not strike it through */
+function plotNote(ctx,W,H,b,txt){
+  const w=plain(txt).length*11*0.52+10, x=b.x+b.w/2, y=b.y+b.h/2;
+  ctx.fillStyle='#070b18'; ctx.fillRect(x-w/2,y-9,w,18);
+  lab(ctx,W,H,x,y,txt,COL.dim,'11px -apple-system, sans-serif','center','middle');
+}
+function tickFmt(lo,hi,px){
+  const t=sparseTicks(lo,hi,px); let d=Infinity; for(let i=1;i<t.length;i++) d=Math.min(d,t[i]-t[i-1]);
+  const dec=!isFinite(d)||d>=1?0:Math.min(4,Math.ceil(-Math.log10(d)+1e-9));
+  return v=>Math.abs(v)<1e-12?'0':v.toFixed(dec);
+}
+function emptyNote(ctx,W,H,b,txt){ plotNote(ctx,W,H,b,txt); }
+
+/* ================================================================== *
+ *  this sim's scene table, its captions, and the hooks the shared     *
+ *  scene layer (p4s_scene.js) asks about                              *
+ * ================================================================== */
+const SCENE={
+  box:    {maxW:GAS.DIFF_W, gauges:false, pump:false, heater:false, ruler:true, nPlots:1, plotFrac:0.30, below:22},
+  mixing: {maxW:GAS.DIFF_W, gauges:false, pump:false, heater:false, ruler:true, nPlots:2, plotFrac:0.40, below:22},
+  flow:   {maxW:GAS.DIFF_W, gauges:false, pump:false, heater:false, ruler:true, nPlots:2, plotFrac:0.40, below:22},
+  speeds: {maxW:GAS.DIFF_W, gauges:false, pump:false, heater:false, ruler:true, nPlots:2, plotFrac:0.44, below:22}
+};
+/* PhET's Diffusion container is fixed at 16 nm and has no lid, no pump, no
+   heater and no collision counter, so every one of these is off */
+function wallDraggable(){ return false; }
+function lidDraggable(){ return false; }
+function dragPauses(){ return false; }
+function heaterLocked(){ return false; }
+function scaleBar(){ return true; }          /* PhET's Scale: a tick every nm */
+function dividerShown(){ return true; }      /* dashed once the divider is out */
+function rulerOn(M){ return M.st.dScale; }
+function wallVelocity(){ return false; }
+function counterOn(){ return false; }
+
+/* An in-plot key or annotation, painted on a patch of the canvas ground first
+   so a curve or a reference line running through it does not strike it through
+   (the same trick plotNote uses).  Every in-plot label in this file goes
+   through it: the display-list audit cannot see a line crossing text, and the
+   rasterised PNGs showed three of them doing exactly that. */
+function keyAt(ctx,W,H,x,y,txt,col,align){
+  const t=plain(txt), w=t.length*10.5*0.52+8, right=align==='right';
+  ctx.fillStyle='#070b18';
+  ctx.fillRect(right?x-w-2:x-4,y-8,w+6,16);
+  return lab(ctx,W,H,x,y,txt,col,SM_FONT,right?'right':'left','middle');
+}
+/* `where` picks the corner (or the middle of a side) the key sits in.  It has
+   to be chosen per plot: the audit compares text with text, so a key sitting
+   on the first 200 px of a curve is invisible to it, and the rasterised PNGs
+   showed four of them doing exactly that.  Put the key where the data is not. */
+function keyText(ctx,W,H,b,txt,col,where){
+  const w=where||'tl', right=w[1]==='r';
+  const y=w[0]==='b'?b.y1-10:(w[0]==='m'?b.y+b.h*0.45:b.y+10);
+  return keyAt(ctx,W,H,right?b.x1-4:b.x+6,y,txt,col,right?'right':'left');
+}
+
+/* An empty panel still gets its frame: emptyNote alone leaves a sentence
+   floating in blank canvas, which reads as a missing view rather than as a
+   chart with nothing in it yet. */
+function emptyPanel(ctx,W,H,b,txt){ frame(ctx,b,'#242a3a'); emptyNote(ctx,W,H,b,txt); }
+
+function captionFor(M){
+  const v=M.view, halfNm=fmt((M.g.W/4+M.g.dividerHalf/2)/1000,3);
+  if(v==='box') return ['Drawn to scale: 16 nm by 8.75 nm by 4 nm deep, every disk at its true radius; the scale bar is 1 nm a tick. Remove the divider and the species mix. The triangles under the box are each species’ centre of mass — they start at ∓'+halfNm+' nm, exactly, whatever the radius — and the arrows across the middle, inside the box, are the flow rates (particles/ps, averaged over 300 frames as PhET does). Drag the handle on top of the divider to lift it out. The plot tracks both centres of mass.',
+                        'To scale; remove the divider and watch the centres of mass.',
+                        'To scale; remove the divider. A taller window adds the centres-of-mass trace.'];
+  if(v==='mixing') return ['Left: how many of each species are in each of '+NPROF+' slices along the box, against the flat profile a fully mixed gas would have (orange). Right: the left–right imbalance ΔN/N falling with time, between the two limits that bracket it — the effusion model (orange, dashed), which assumes each half stays internally mixed, and the Fickian estimate (orange, solid) from D ≈ ⟨v⟩λ/2, which is an order-of-magnitude bound, not a prediction.',
+                           'The concentration profiles and the imbalance, between its two limits.',
+                           'To scale. A taller window adds the profiles and the imbalance.'];
+  if(v==='flow') return ['Left: the measured crossing rate of each species each way (bars, blue and red), against the kinetic-theory flux n⟨vx⁺⟩(H − 2r) built from the counts on each side right now (orange). Expect them to differ while the gas is still settling, for two reasons: the bars are a 300-frame (12.5 ps) average of a state that is still changing, and a particle that has just crossed the line is still beside it and often crosses straight back, so the count exceeds the flux a uniform half would give. Right: the pair-collision rate against Σⱼ nⱼ 2(rᵢ+rⱼ)⟨v_rel⟩, with its √n counting error — and that uses the box-average density, so it too reads low while the gas is still bunched in one half. Nothing here is defined into existence: these are the numbers kinetic theory has to get right once the gas has spread.',
+                         'The measured flow and collision rates against kinetic theory.',
+                         'To scale. A taller window adds the flow and collision-rate comparisons.'];
+  return ['PhET starts every particle at exactly √(3kT/m) — a spike, not a distribution. Left: the two species’ speed histograms ('+SPD_NB+' bins of '+SPD_BW+' m/s) with the 2-D Maxwell–Boltzmann counts at each species’ own measured temperature (orange). Right: the mean speeds against time, with the starting √(3kT/m) (dashed) and the Maxwell–Boltzmann ⟨v⟩ = √(πkT₂/2m) (solid) — the drop between them is exactly √(π/4) = 0.8862, at constant energy.',
+          'The spike relaxing to Maxwell–Boltzmann, and the 11.38 % drop in ⟨v⟩.',
+          'To scale. A taller window adds the speed histograms and the mean speeds.'];
+}
+
+/* ================================================================== *
+ *  the divided box (PhET's Diffusion screen)                          *
+ * ================================================================== */
+/* PhET's container has nothing to drag — the width is fixed, there is no lid
+   and no pump — so the only gesture here is PhET's own Remove Divider, given
+   as a handle on top of the divider.  Lifting it the full travel takes the
+   divider out; anything less snaps back.  The BAR is never drawn short while
+   it is still in the model: a gap the particles do not use would be a lie. */
+/* The handle sits just INSIDE the top of the container and lifts to just
+   above it.  It cannot start higher: the scene begins at stageTop() + 30 and
+   the tab bar owns everything above stageTop(), so 34 px is all the travel
+   there is without drawing under the tabs. */
+const DIV_TRAVEL=34;
+function divKnobGeo(G,M){
+  if(!M.g.divided) return null;
+  const x=G.X(M.g.dividerX), lift=(M.w.divLift||0)*DIV_TRAVEL;
+  return {x:x-16,y:G.yT+4-lift,w:32,h:12,cx:x,lift};
+}
+function drawDivKnob(ctx,W,H,G,M){
+  const k=divKnobGeo(G,M); if(!k) return;
+  ctx.strokeStyle='#5a6782'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(k.cx,G.yT+16); ctx.lineTo(k.cx,k.y+k.h); ctx.stroke();
+  ctx.fillStyle=DRAG.what==='divider'?COL.live:'#b8c4d8'; ctx.fillRect(k.x,k.y,k.w,k.h);
+  keyAt(ctx,W,H,k.x+k.w+6,k.y+k.h/2,k.lift>1?'lift it out ('+fmt(100*(M.w.divLift||0),0)+' %)':'drag me up',
+        k.lift>1?COL.live:COL.dim,'left');
+}
+function drawBox(ctx,W,H,M){
+  const G=viewGeo(ctx,W,H,M), g=M.g, st=M.st;
+  drawScene(ctx,W,H,M,G);
+  drawDivKnob(ctx,W,H,G,M);
+  const mid=g.left+g.W/2;
+  /* the centres of mass: a triangle under the box for each species */
+  if(st.dCOM) for(const k of [0,1]){
+    const c=M.com[k]; if(c===null) continue;
+    const X=G.X(mid+c), y=G.yB+4;
+    ctx.beginPath(); ctx.moveTo(X,y); ctx.lineTo(X-6,y+10); ctx.lineTo(X+6,y+10); ctx.closePath();
+    ctx.fillStyle=k?COL.light:COL.heavy; ctx.fill();
+  }
+  /* The flow arrows: INSIDE the top of the box, not above it.  The scene
+     starts at stageTop() + 30 and the tab bar owns everything above
+     stageTop(), so arrows drawn over the container land under the tabs — the
+     rasterised PNG showed them at y = 36 with the box top at 72. */
+  if(st.dFlow&&!g.divided&&g.flow){
+    const dx=G.X(g.dividerX);
+    for(const k of [0,1]){
+      const y=G.yT+14+k*13, col=k?COL.light:COL.heavy;
+      for(const [rate,dir] of [[g.flow.rateL[k],-1],[g.flow.rateR[k],1]]){
+        const L=Math.min(150,rate*10); if(L<1) continue;
+        ctx.strokeStyle=col; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(dx,y); ctx.lineTo(dx+dir*L,y);
+        ctx.moveTo(dx+dir*L,y); ctx.lineTo(dx+dir*(L-6),y-4); ctx.moveTo(dx+dir*L,y); ctx.lineTo(dx+dir*(L-6),y+4); ctx.stroke();
+      }
+    }
+    keyAt(ctx,W,H,dx+8,G.yT+42,'flow, 10 px per particle/ps',COL.dim,'left');
+  }
+  if(G.plots.length){
+    const b=G.plots[0], h=M.w.hist, half=(g.W/4+g.dividerHalf/2)/1000;
+    plotSeries(ctx,W,H,b,'centres of mass, nm from the middle (0 = mixed; ∓'+fmt(half,3)+' nm = each half full)','centres of mass, nm',
+      h.map(r=>r[0]),[{ys:h.map(r=>r[1]===null?NaN:r[1]/1000),col:COL.heavy},{ys:h.map(r=>r[2]===null?NaN:r[2]/1000),col:COL.light}],
+      {y0:-half-0.5,y1:half+0.5,refs:[{y:0,col:COL.ref,dash:[5,4],lw:1.2},{y:-half,col:COL.ref,dash:[2,4],lw:1},{y:half,col:COL.ref,dash:[2,4],lw:1}],
+       xlab:'t, ps',note:h.length<2?'run the clock to trace the centres of mass':null});
+    /* the two traces start at the TOP and BOTTOM of this plot and converge on
+       zero, so the only clear place is the middle, where the orange reference
+       runs — and covering a reference is what plotNote already does */
+    keyText(ctx,W,H,b,'particle 1 blue · particle 2 red',COL.dim,'ml');
+  }
+  sceneCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  the mixing: the profiles, and the imbalance between its two limits *
+ * ================================================================== */
+function drawMixing(ctx,W,H,M){
+  const G=viewGeo(ctx,W,H,M), g=M.g;
+  drawScene(ctx,W,H,M,G);
+  if(G.plots.length){
+    const b=G.plots[0], pr=profile(g);
+    /* 1.35, not 1.2: the key sits in the top left and the profile can reach
+       11 of 12 slices' worth in a half-mixed state */
+    const nMax=Math.max(4,Math.max.apply(null,pr[0].concat(pr[1])))*1.35;
+    axesR(ctx,b,0,g.W/1000,0,nMax,{title:titleFor(b,'how many of each species in each of '+NPROF+' slices, against a flat profile','the concentration profile'),
+      xlab:'x across the box, nm',ylab:'particles per slice',
+      xticks:sparseTicks(0,g.W/1000,b.w),yticks:sparseTicks(0,nMax,b.h),
+      xfmt:tickFmt(0,g.W/1000,b.w),yfmt:v=>fmt(v,0)});
+    const step=(arr,col)=>{ const xs=[],ys=[];
+      for(let q=0;q<NPROF;q++){ xs.push(q*g.W/1000/NPROF,(q+1)*g.W/1000/NPROF); ys.push(arr[q],arr[q]); }
+      polyline(ctx,b,xs,ys,0,g.W/1000,0,nMax,col,1.6); };
+    step(pr[0],COL.heavy); step(pr[1],COL.light);
+    for(const k of [0,1]){ const n=gasCount(g,k); if(!n) continue;
+      polyline(ctx,b,[0,g.W/1000],[n/NPROF,n/NPROF],0,g.W/1000,0,nMax,COL.ref,1.2,[5,4]); }
+    /* the divider line, so the profile can be read against the box above it */
+    polyline(ctx,b,[g.W/2000,g.W/2000],[0,nMax],0,g.W/1000,0,nMax,COL.struct,1,[3,4]);
+    keyText(ctx,W,H,b,'flat orange = fully mixed',COL.ref,'tl');
+  }
+  if(G.plots.length>1){
+    const b=G.plots[1], h=M.w.hist;
+    const t1=Math.max(1,h.length?h[h.length-1][0]:1);
+    const xs=[], eff=[[],[]], dif=[[],[]];
+    for(let i=0;i<=120;i++){ const t=t1*i/120; xs.push(t);
+      for(const k of [0,1]){
+        eff[k].push(M.tauEff[k]?Math.exp(-t/M.tauEff[k]):NaN);
+        dif[k].push(M.tauDif[k]?Math.exp(-t/M.tauDif[k]):NaN); } }
+    const y0=-0.25, y1=1.08;
+    axesR(ctx,b,0,t1,y0,y1,{title:titleFor(b,'the left–right imbalance ΔN/N, between free flight and Fickian diffusion','the imbalance ΔN/N'),
+      xlab:'t, ps',ylab:'ΔN / N',xticks:sparseTicks(0,t1,b.w),yticks:sparseTicks(y0,y1,b.h),
+      xfmt:tickFmt(0,t1,b.w),yfmt:tickFmt(y0,y1,b.h)});
+    polyline(ctx,b,[0,t1],[0,0],0,t1,y0,y1,COL.struct,1,[4,4]);
+    polyline(ctx,b,xs,eff[0].map(Math.abs),0,t1,y0,y1,COL.ref,1.3,[5,4]);
+    polyline(ctx,b,xs,dif[0].map(Math.abs),0,t1,y0,y1,COL.ref,1.7);
+    if(h.length>1){
+      polyline(ctx,b,h.map(r=>r[0]),h.map(r=>r[3]===null?NaN:Math.abs(r[3])),0,t1,y0,y1,COL.heavy,1.7);
+      polyline(ctx,b,h.map(r=>r[0]),h.map(r=>r[4]===null?NaN:Math.abs(r[4])),0,t1,y0,y1,COL.light,1.7);
+    } else emptyNote(ctx,W,H,b,'take the divider out and run the clock');
+    /* every curve here starts at 1 (top left) and decays, so the bottom left
+       is the one corner nothing passes through */
+    keyText(ctx,W,H,b,'effusion dashed · Fickian solid (particle 1)',COL.ref,'bl');
+  }
+  sceneCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  the flow: the measured crossing and collision rates against theory *
+ * ================================================================== */
+function drawFlow(ctx,W,H,M){
+  const G=viewGeo(ctx,W,H,M), g=M.g;
+  drawScene(ctx,W,H,M,G);
+  if(G.plots.length){
+    const b=G.plots[0], h=M.w.hist;
+    if(g.divided||!g.flow||!g.flow.dts.length){ emptyPanel(ctx,W,H,b,'take the divider out: nothing crosses while it is in'); }
+    else {
+      /* the four measured rates now, and the four theory values, as a
+         grouped comparison against the swept side counts */
+      const items=[];
+      for(const k of [0,1]) for(const [dir,nm] of [[0,'→ left'],[1,'→ right']]){
+        const meas=dir?g.flow.rateR[k]:g.flow.rateL[k];
+        /* crossings to the right come from the LEFT side, and vice versa */
+        const th=M.flowTh[k][dir?0:1];
+        items.push({lab:'particle '+(k+1)+' '+nm, meas, th, col:k?COL.light:COL.heavy});
+      }
+      let hi=0; for(const it of items) hi=Math.max(hi,it.meas,it.th||0);
+      hi=Math.max(hi*1.3,0.5);
+      axesR(ctx,b,0,4,0,hi,{title:titleFor(b,'crossings per ps: measured (bars) against n ⟨vx⁺⟩ (H − 2r) (orange)','the flow rates'),
+        ylab:'particles/ps',xticks:[],yticks:sparseTicks(0,hi,b.h),xfmt:()=>'',yfmt:tickFmt(0,hi,b.h)});
+      items.forEach((it,i)=>{
+        const x0=b.x+b.w*(i+0.18)/4, bw=b.w*0.64/4;
+        const Yv=v=>b.y1-b.h*clamp(v,0,hi)/hi;
+        ctx.fillStyle=rgba(it.col,0.55); ctx.fillRect(x0,Yv(it.meas),bw,b.y1-Yv(it.meas));
+        if(it.th!==null){ ctx.strokeStyle=COL.ref; ctx.lineWidth=2;
+          ctx.beginPath(); ctx.moveTo(x0-2,Yv(it.th)); ctx.lineTo(x0+bw+2,Yv(it.th)); ctx.stroke(); }
+        lab(ctx,W,H,x0+bw/2,b.y1+11,it.lab,it.col,SM_FONT,'center','middle');
+      });
+      keyText(ctx,W,H,b,'300-frame average · theory from the counts on each side',COL.dim,'tl');
+      /* Honest about WHY the bars and the orange marks differ while the gas is
+         still settling: the bars are a 12.5-ps average of a changing state,
+         and a particle that has just crossed is still beside the line and
+         often crosses straight back — both push the count above the flux a
+         uniform half would give. */
+      keyAt(ctx,W,H,b.x+6,b.y+24,titleFor(b,'they differ while the sides are still changing (see the caption)',
+        'still changing — see the caption'),COL.dim,'left');
+    }
+  }
+  if(G.plots.length>1){
+    const b=G.plots[1], P=M.pairMe;
+    if(!P||P.n<1){ emptyPanel(ctx,W,H,b,'run the clock: the collisions start counting'); }
+    else {
+      const hi=Math.max(P.rate+3*P.sd,M.pairTh||0)*1.25;
+      axesR(ctx,b,0,1,0,hi,{title:titleFor(b,'pair collisions per ps: measured over the last '+fmt(P.t,1)+' ps, against Σⱼ nⱼ 2(rᵢ+rⱼ) ⟨v_rel⟩','pair collisions/ps'),
+        ylab:'collisions/ps',xticks:[],yticks:sparseTicks(0,hi,b.h),xfmt:()=>'',yfmt:tickFmt(0,hi,b.h)});
+      const X=b.x+b.w*0.5, Yv=v=>b.y1-b.h*clamp(v,0,hi)/hi;
+      if(M.pairTh!==null) polyline(ctx,b,[0.32,0.68],[M.pairTh,M.pairTh],0,1,0,hi,COL.ref,2);
+      ctx.strokeStyle=COL.pos; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(X,Yv(P.rate-P.sd)); ctx.lineTo(X,Yv(P.rate+P.sd));
+      ctx.moveTo(X-8,Yv(P.rate-P.sd)); ctx.lineTo(X+8,Yv(P.rate-P.sd));
+      ctx.moveTo(X-8,Yv(P.rate+P.sd)); ctx.lineTo(X+8,Yv(P.rate+P.sd)); ctx.stroke();
+      dot(ctx,X,Yv(P.rate),5,COL.pos,'#070b18',1);
+      if(M.pairTh!==null) keyAt(ctx,W,H,b.x+b.w*0.70,Yv(M.pairTh),'theory '+fmt(M.pairTh,1),COL.ref,'left');
+      keyAt(ctx,W,H,b.x+b.w*0.30,Yv(P.rate),fmt(P.rate,1)+' ± '+fmt(P.sd,1),COL.pos,'right');
+      keyText(ctx,W,H,b,P.n+' collisions counted',COL.dim,'tl');
+      /* The theory uses the BOX-AVERAGE density n = N/WH.  While the gas is
+         still bunched in one half the disks meet each other where they
+         actually are, which is denser, and the measured rate runs above it —
+         60 % above with one species 15 ps after the divider came out.  Say so
+         rather than let the reader read it as a wrong formula. */
+      if(M.pairTh&&Math.abs(P.rate-M.pairTh)>3*P.sd)
+        keyAt(ctx,W,H,b.x+6,b.y+24,titleFor(b,'not uniform yet: theory uses the box-average density',
+          'not uniform yet'),COL.ref,'left');
+    }
+  }
+  sceneCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  the speeds: PhET's spike relaxing to Maxwell-Boltzmann             *
+ * ================================================================== */
+function drawSpeeds(ctx,W,H,M){
+  const G=viewGeo(ctx,W,H,M), g=M.g;
+  drawScene(ctx,W,H,M,G);
+  if(G.plots.length){
+    const b=G.plots[0], xmax=SPD_NB*SPD_BW;
+    const c=[gasBinCounts(g,0,SPD_BW,SPD_NB,false),gasBinCounts(g,1,SPD_BW,SPD_NB,false)];
+    let ymax=4; for(const k of [0,1]) for(const v of c[k]) if(v>ymax) ymax=v;
+    ymax*=1.25;
+    axesR(ctx,b,0,xmax,0,ymax,{title:titleFor(b,'speed, m/s ('+SPD_NB+' bins of '+SPD_BW+' m/s) against 2-D Maxwell–Boltzmann','the speed histograms'),
+      xlab:'speed, m/s',ylab:'particles',xticks:sparseTicks(0,xmax,b.w),yticks:sparseTicks(0,ymax,b.h),
+      xfmt:tickFmt(0,xmax,b.w),yfmt:v=>fmt(v,0)});
+    const bw=b.w/SPD_NB;
+    for(const k of [0,1]){
+      ctx.fillStyle=rgba(k?COL.light:COL.heavy,0.45);
+      for(let q=0;q<SPD_NB;q++){ const v=c[k][q]; if(v<=0) continue;
+        const hgt=Math.min(1,v/ymax)*b.h; ctx.fillRect(b.x+q*bw+1,b.y1-hgt,bw-2,hgt); }
+    }
+    if(M.st.showMB) for(const k of [0,1]){
+      const T=M.Tsp[k], nk=gasCount(g,k); if(T===null||!nk) continue;
+      const e=mbBinCounts(nk,g.species[k].m,T), xs=[], ys=[];
+      for(let q=0;q<SPD_NB;q++){ xs.push((q+0.5)*SPD_BW); ys.push(e[q]); }
+      polyline(ctx,b,xs,ys,0,xmax,0,ymax,COL.ref,1.6);
+    }
+    keyText(ctx,W,H,b,'particle 1 blue · 2 red · Maxwell–Boltzmann orange',COL.dim,'tl');
+  }
+  if(G.plots.length>1){
+    const b=G.plots[1], h=M.w.hist;
+    const refs=[];
+    for(const k of [0,1]){
+      const T=M.Tsp[k]; if(T===null) continue;
+      refs.push({y:mbRmsSpeed(g.species[k].m,gasKT2(T)),col:COL.ref,dash:[5,4],lw:1.2});
+      refs.push({y:mbMeanSpeed(g.species[k].m,gasKT2(T)),col:COL.ref,lw:1.6});
+    }
+    plotSeries(ctx,W,H,b,'mean speed: from PhET’s one speed √(3kT/m) (dashed) down to ⟨v⟩ = √(πkT₂/2m) (solid)','mean speeds, m/s',
+      h.map(r=>r[0]),[{ys:h.map(r=>r[7]===null?NaN:r[7]),col:COL.heavy},{ys:h.map(r=>r[8]===null?NaN:r[8]),col:COL.light}],
+      {refs,y0:0,xlab:'t, ps',note:h.length<2?'run the clock':null});
+    keyText(ctx,W,H,b,'√(3kT/m) dashed · ⟨v⟩ solid · the drop is √(π/4) = 0.8862',COL.ref,'ml');
+  }
+  sceneCaption(ctx,G);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='box') drawBox(ctx,W,H,M);
+  else if(M.view==='mixing') drawMixing(ctx,W,H,M);
+  else if(M.view==='flow') drawFlow(ctx,W,H,M);
+  else drawSpeeds(ctx,W,H,M);
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  S.step=function(){
+    if(!ST.running) return false;
+    const changed=worldStep(worldOf(),ST,viewDt(ST));
+    if(changed&&S.onCounts) S.onCounts();
+    return true;
+  };
+  /* PhET's step button: one model step of MODEL_TIME_STEP = 0.2 ps */
+  S.stepOnce=function(){ worldStep(worldOf(),ST,GAS.STEP); if(S.onCounts) S.onCounts(); };
+  /* the only canvas gesture: lift the divider out (PhET's Remove Divider) */
+  S.pointer=function(type,x,y){
+    const M=buildModel(), w=M.w;
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; w.divLift=0; return had; }
+    const ctx=canvas.getContext('2d'), G=viewGeo(ctx,S.W,S.H,M);
+    const k=divKnobGeo(G,M);
+    if(type==='down'){
+      if(k&&x>=k.x-6&&x<=k.x+k.w+6&&y>=k.y-6&&y<=k.y+k.h+6){ DRAG.what='divider'; DRAG.y0=y; w.divLift=0; return true; }
+      return false;
+    }
+    if(type==='move'&&DRAG.what==='divider'){
+      w.divLift=clamp((DRAG.y0-y)/DIV_TRAVEL,0,1);
+      if(w.divLift>=1&&M.g.divided){ removeDivider(w,ST); DRAG.what=null; w.divLift=0; }
+      return true;
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+  const W_=()=>worldOf(), G_=()=>worldOf().g;
+
+  function setView(k){
+    st.view=k; DRAG.what=null;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab)); });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync,inp}; sync(); return rowEl;
+  }
+  function checkbox(key,lab,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        if(c.disabled) return;
+        st[key]=o.id; if(onPick) onPick(o);
+        syncChips(); syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(el,list,key){ CHIPROWS.push([el,list,key]); }
+  function button(lab,fn){ return h('button',{onclick:()=>{ fn(); syncChips(); syncPanel(); dirty=true; refresh(); }},lab); }
+  /* PhET's updateWhenPaused: a change made with the clock stopped still shows */
+  const touched=()=>{ if(!st.running) gasRefresh(G_()); };
+
+  /* ---- the two species: PhET's own grids (10, 1, 5, 50) ---- */
+  const gDiff=h('div',{class:'grp'},h('h3',null,'the two gases'));
+  const presetChips=chipRow(PRESETS,'preset',o=>{
+    st.d1n=o.a.n; st.d1m=o.a.m; st.d1r=o.a.r; st.d1T=o.a.T;
+    st.d2n=o.b.n; st.d2m=o.b.m; st.d2r=o.b.r; st.d2T=o.b.T;
+    st.divided=true; resetWorld();
+  });
+  gDiff.appendChild(presetChips); trackChips(presetChips,PRESETS,'preset');
+  const diffCount=k=>()=>{ gasDiffCount(G_(),k,k?st.d2n:st.d1n,k?st.d2T:st.d1T); touched(); };
+  const diffMT=k=>()=>{ gasDiffMassTemp(G_(),k,k?st.d2m:st.d1m,k?st.d2T:st.d1T); touched(); };
+  const diffR=k=>()=>{ gasDiffRadius(G_(),k,k?st.d2r:st.d1r,st.running); touched(); };
+  gDiff.appendChild(h('div',{class:'tag'},'particle 1 (blue, starts on the left)'));
+  gDiff.appendChild(slider('d1n','number',0,GAS.DIFF_NMAX,GAS.DIFF_DN,v=>fmt(v,0),diffCount(0)));
+  gDiff.appendChild(slider('d1m','mass, AMU',GAS.DIFF_M[0],GAS.DIFF_M[1],1,v=>fmt(v,0),diffMT(0)));
+  gDiff.appendChild(slider('d1r','radius, pm',GAS.DIFF_R[0],GAS.DIFF_R[1],GAS.DIFF_RSTEP,v=>fmt(v,0),diffR(0)));
+  gDiff.appendChild(slider('d1T','initial T, K',GAS.DIFF_T[0],GAS.DIFF_T[1],GAS.DIFF_TSTEP,v=>fmt(v,0),diffMT(0)));
+  gDiff.appendChild(h('div',{class:'tag'},'particle 2 (red, starts on the right)'));
+  gDiff.appendChild(slider('d2n','number ',0,GAS.DIFF_NMAX,GAS.DIFF_DN,v=>fmt(v,0),diffCount(1)));
+  gDiff.appendChild(slider('d2m','mass, AMU ',GAS.DIFF_M[0],GAS.DIFF_M[1],1,v=>fmt(v,0),diffMT(1)));
+  gDiff.appendChild(slider('d2r','radius, pm ',GAS.DIFF_R[0],GAS.DIFF_R[1],GAS.DIFF_RSTEP,v=>fmt(v,0),diffR(1)));
+  gDiff.appendChild(slider('d2T','initial T, K ',GAS.DIFF_T[0],GAS.DIFF_T[1],GAS.DIFF_TSTEP,v=>fmt(v,0),diffMT(1)));
+  const speciesTag=h('div',{class:'tag'}); gDiff.appendChild(speciesTag);
+
+  /* ---- the divider ---- */
+  const gDiv=h('div',{class:'grp'},h('h3',null,'the divider'));
+  const divBtn=h('button',{onclick:()=>{ const w=W_();
+    if(w.g.divided) removeDivider(w,st); else resetDivider(w,st);
+    syncChips(); syncPanel(); dirty=true; refresh(); }},'remove divider');
+  gDiv.appendChild(h('div',{class:'btnrow'},divBtn));
+  const divTag=h('div',{class:'tag'}); gDiv.appendChild(divTag);
+
+  /* ---- what is drawn ---- */
+  const gShow=h('div',{class:'grp'},h('h3',null,'what is drawn'));
+  gShow.appendChild(h('div',{class:'checks'},checkbox('dCOM','centre of mass'),checkbox('dFlow','particle flow rate'),
+                                             checkbox('dScale','scale'),checkbox('showWatch','stopwatch')));
+  gShow.appendChild(h('div',{class:'checks'},checkbox('showMB','Maxwell–Boltzmann curves')));
+  const watchBtns=h('div',{class:'btnrow'},button('stopwatch start / stop',()=>{ const g=G_(); g.watch.on=!g.watch.on; }),
+                                           button('reset',()=>{ const g=G_(); g.watch.on=false; g.watch.t=0; }));
+  gShow.appendChild(watchBtns);
+  const unitTChips=chipRow(UNITS_T,'unitT'); gShow.appendChild(unitTChips); trackChips(unitTChips,UNITS_T,'unitT');
+
+  /* ---- time ---- */
+  const gRun=h('div',{class:'grp'},h('h3',null,'time'));
+  gRun.appendChild(h('div',{class:'checks'},checkbox('running','time runs')));
+  const speedChips=chipRow(SPEEDS,'slow'); gRun.appendChild(speedChips); trackChips(speedChips,SPEEDS,'slow');
+  gRun.appendChild(h('div',{class:'btnrow'},button('step 0.2 ps',()=>{ S.stepOnce(); }),
+    button('restart',()=>{ st.divided=true; resetWorld(); })));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Diffusion (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets. '
+      +'PhET&rsquo;s constants and control grids are read from its published build; the hard-disk engine is the one documented in build/gas-properties/ENGINE.md, and everything this sim measures against &mdash; '
+      +'the starting centre of mass, the one-sided flux, the effusion time constant, the mixture&rsquo;s collision frequency and the &radic;(&pi;/4) drop in the mean speed &mdash; is derived in build/diffusion/derive.py with scipy and pinned in selfTest.'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the physics'),h('div',{id:'phys'}));
+  [gDiff,gDiv,gShow,gRun,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [cw,list,key] of CHIPROWS)
+      [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':'')+(b.disabled?' off':''));
+  }
+  function syncPanel(){
+    const g=G_(), v=st.view;
+    divBtn.textContent=g.divided?'remove divider':'reset divider';
+    watchBtns.hidden=!st.showWatch;
+    rows.cb_showMB.row.hidden=(v!=='speeds');
+    rows.cb_dFlow.row.hidden=(v!=='box');
+    rows.cb_dCOM.row.hidden=(v!=='box');
+    for(const k in rows) rows[k].sync();
+    speciesTag.innerHTML='PhET&rsquo;s own grids: number in tens, mass in ones, radius in fives, temperature in fifties. Changing a mass or a starting temperature resets every particle of that species to &radic;(3kT/m), as PhET does.';
+    divTag.innerHTML=g.divided?'drag the handle on top of the divider, or press the button'
+      :'reset it and PhET regenerates both species in their own halves &mdash; the run starts over';
+    runTag.innerHTML='space runs/pauses &nbsp; <b>s</b> steps 0.2 ps &nbsp; <b>r</b> restarts &nbsp; 1&ndash;4 switch views'
+      +(st.slow?' &nbsp; (slow: PhET&rsquo;s 0.3 ps a second)':'');
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=G_().divided?'drag the handle on the divider to lift it out · space pauses · 1–4 switch views'
+        :'space pauses · s steps · 1–4 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ syncPanel(); dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='s'){ S.stepOnce(); syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ st.divided=true; resetWorld(); syncChips(); syncPanel(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0, lastDiv=null;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{
+        S.draw();
+        if(advanced&&frameN%10===0){ const M=S.model(); roEl.innerHTML=readoutHTML(M); eqEl.innerHTML=eqbarHTML(M); tagEl.innerHTML=tagHTML(M); }
+        const dv=G_().divided;
+        if(dv!==lastDiv){ lastDiv=dv; st.divided=dv; syncPanel(); }
+      }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  box:'PhET&rsquo;s Diffusion screen. Two gases start either side of a divider, each with its own number, mass, radius and starting temperature. Take the divider out '
+    +'and they mix &mdash; not because anything pushes them, but because there are vastly more ways to be spread out than to be sorted. Watch the triangles under the box: '
+    +'each is a species&rsquo; centre of mass, and each starts at exactly &mp;(W + d)/4 = &mp;4.025 nm from the middle, a number that does not depend on the particle radius at all '
+    +'(a bigger disk is kept off both ends of its half equally, so the midpoint does not move). They drift to zero and then jiggle about it, never back. '
+    +'The arrows over the middle are the flow rates, and the lighter gas leads because it is faster &mdash; Graham&rsquo;s law, visible in the first picosecond.',
+  mixing:'How fast <i>can</i> a gas mix? Two answers bracket it. If each half stayed perfectly stirred and the middle were the only bottleneck, the imbalance would fall as a single '
+    +'exponential with &tau; = (W &minus; 2r)/4&lang;v<sub>x</sub><sup>+</sup>&rang; &mdash; 27 ps for the default heavy gas. If instead the particles had to random-walk their way across, the slowest mode of the '
+    +'diffusion equation would take &tau;<sub>D</sub> = W&sup2;/&pi;&sup2;D, about six times longer. The truth is in between, and the readout says why: this box is about twenty-two mean free paths across, '
+    +'so a particle neither flies straight through nor takes a long walk. Switch the two species to <i>identical</i> and the mixing still happens, which is the entropy of mixing with nothing else going on. '
+    +'The left panel is the same story as a picture: the profiles start as two blocks and end flat.',
+  flow:'Two measurements that could come out wrong, side by side with what kinetic theory says they must be. The crossing rate of a species across the middle line is n&lang;v<sub>x</sub><sup>+</sup>&rang;(H &minus; 2r), '
+    +'with n the density of its centres on that side; the height cancels, leaving N&lang;v<sub>x</sub><sup>+</sup>&rang;/(W/2 &minus; r), and &lang;v<sub>x</sub><sup>+</sup>&rang; = &radic;(kT&#8322;/2&pi;m) is exactly &lang;v&rang;/&pi;. '
+    +'Since it goes as 1/&radic;m, the ratio of the two species&rsquo; rates is Graham&rsquo;s &radic;(m&#8321;/m&#8322;) &mdash; &radic;7 = 2.65 for nitrogen against helium. '
+    +'The right panel counts something else entirely: how often <i>any</i> two disks meet, which kinetic theory puts at &Sigma;<sub>j</sub> n<sub>j</sub>(r<sub>i</sub>+r<sub>j</sub>)&lang;v<sub>rel</sub>&rang; per disk, with '
+    +'&lang;v<sub>rel</sub>&rang; set by the reduced mass. Make the disks bigger and watch both numbers move together.',
+  speeds:'PhET does something unphysical on purpose: it starts every particle of a species at exactly the same speed, &radic;(3kT/m). That is a spike, not a distribution, and it cannot survive. '
+    +'Collisions share the energy out, and after a few collisions per particle the histogram has become the 2-D Maxwell&ndash;Boltzmann law (mv/kT&#8322;)e<sup>&minus;mv&sup2;/2kT&#8322;</sup>, drawn in orange at each '
+    +'species&rsquo; own measured temperature. The energy never changed, so the <i>mean</i> speed must fall: from the rms &radic;(3kT/m) to &radic;(&pi;kT&#8322;/2m), a factor of exactly &radic;(&pi;/4) = 0.8862, '
+    +'the same for any mass. The right panel measures that drop. Start the two species at different temperatures and watch a second, slower thing happen: the energy leaks from the hot gas to the cold one until '
+    +'both read the number-weighted mean.'
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  box:'<h4>where the centres of mass start</h4>'
+    +EQ(1,'<span class="rm">PhET scatters species 1 uniformly in</span> [left, mid &minus; d/2], <span class="rm">centres in</span> [left + r, mid &minus; d/2 &minus; r]')
+    +EQ(2,'x&#772; = &frac12;[(left + r) + (mid &minus; d/2 &minus; r)] &nbsp;&rArr;&nbsp; x&#772; &minus; mid = &minus;'+FR('W + d','4')+' &nbsp;<span class="rm">(the r cancels)</span>')
+    +EQ(3,'<span class="rm">W = 16000 pm, d = 100 pm:</span> &minus;4025 pm <span class="rm">exactly, and +4025 for species 2</span>')
+    +EQ(4,'<span class="rm">sampling sd of the measurement:</span> L/&radic;(12N) = 222 pm <span class="rm">for 100 particles</span>')
+    +'<p>The radius cancelling is the point worth checking: a 250-pm disk is kept 250 pm off both ends of its half, which shifts the two ends of the interval equally and leaves its midpoint alone.</p>'
+    +'<div class="cite">pins: &minus;4025 pm at r = 50 and r = 250; the 222 pm spread against 4000 Monte-Carlo draws &mdash; derive.py</div>',
+  mixing:'<h4>two limits on the mixing time</h4>'
+    +EQ(1,'<span class="rm">effusion (each half stirred):</span> '+FR('dN<sub>L</sub>','dt')+' = &minus;'+FR('N<sub>L</sub> &minus; N<sub>R</sub>','W/2 &minus; r')+' &lang;v<sub>x</sub><sup>+</sup>&rang;')
+    +EQ(2,'&rArr; &Delta;N &prop; e<sup>&minus;t/&tau;</sup>, &nbsp; &tau; = '+FR('W &minus; 2r','4 &lang;v<sub>x</sub><sup>+</sup>&rang;')+' = 27.0 ps <span class="rm">(28 AMU, 125 pm, 300 K;</span> &tau;<sub>D</sub> = 155 ps<span class="rm">)</span>')
+    +EQ(3,'<span class="rm">Fickian:</span> &tau;<sub>D</sub> = '+FR('W&sup2;','&pi;&sup2;D')+', &nbsp; D &asymp; '+FR('&lang;v&rang;&lambda;','2')+' &nbsp;&rArr;&nbsp; '+FR('&tau;<sub>D</sub>','&tau;')+' = '+FR('8W','&pi;&sup3;&lambda;')+' = 5.7')
+    +EQ(4,'<span class="rm">collisions off, ballistic:</span> &Delta;N/N = 0.6437 <span class="rm">at 10 ps,</span> 0.0115 <span class="rm">at 40</span>')
+    +'<p>[4] is exact kinematics, not a model: with no collisions each disk simply bounces between the end walls, so the imbalance falls faster than [2] at first (the fast ones are across before anything stops them) and then rings about zero. It is the one of the three the simulation can reproduce to the digit, and selfTest does.</p>'
+    +'<div class="cite">pins: &tau; from the two-box ODE; the ballistic curve from 4&times;10<sup>6</sup> exact folded trajectories; &tau;<sub>D</sub>/&tau; = 8W/&pi;&sup3;&lambda; &mdash; derive.py</div>',
+  flow:'<h4>the flux across a line, and how often disks meet</h4>'
+    +EQ(1,'&lang;v<sub>x</sub><sup>+</sup>&rang; = &int;<sub>0</sub><sup>&infin;</sup> v<sub>x</sub> f(v<sub>x</sub>) dv<sub>x</sub> = &radic;('+FR('kT&#8322;','2&pi;m')+') = '+FR('&lang;v&rang;','&pi;')+' &nbsp;<span class="rm">(exactly)</span>')
+    +EQ(2,'&Phi; = n &lang;v<sub>x</sub><sup>+</sup>&rang; (H &minus; 2r) = '+FR('N &lang;v<sub>x</sub><sup>+</sup>&rang;','W/2 &minus; r')+' &nbsp;<span class="rm">(100 heavy at 300 K: 1.852/ps)</span>')
+    +EQ(3,FR('rate&#8322;','rate&#8321;')+' = &radic;('+FR('m&#8321;','m&#8322;')+') &times; '+FR('W/2 &minus; r&#8321;','W/2 &minus; r&#8322;')+' &nbsp;<span class="rm">(Graham, with the excluded width)</span>')
+    +EQ(4,'z<sub>k</sub> = &Sigma;<sub>j</sub> n<sub>j</sub> <span class="hl">2</span>(r<sub>k</sub>+r<sub>j</sub>) &lang;v<sub>rel,kj</sub>&rang;, &nbsp; &lang;v<sub>rel</sub>&rang; = &radic;('+FR('&pi;','2')+'('+FR('kT&#8322;<sup>k</sup>','m<sub>k</sub>')+' + '+FR('kT&#8322;<sup>j</sup>','m<sub>j</sub>')+'))')
+    +EQ(5,'<span class="rm">pairs per ps:</span> &frac12; &Sigma;<sub>k</sub> N<sub>k</sub> z<sub>k</sub> = 73.4 <span class="rm">in the default box</span>')
+    +'<p>The 2 in [4] is the swath width: a disk collides when the centres come within d = r<sub>k</sub> + r<sub>j</sub>, so it sweeps a strip of HALF-width d. Leaving it out halves every rate, and the simulation&rsquo;s own pair counter caught exactly that (it measured 2.05&times; the first draft). &lang;v<sub>rel</sub>&rang; reduces to &radic;(&pi;kT&#8322;/2&mu;) when both species are at one temperature, and to &radic;2&lang;v&rang; for identical disks &mdash; both asserted. The flux [2] does not care about the interactions: the velocity distribution of hard disks at equilibrium is exactly Maxwellian everywhere, so the only corrections are the excluded width and whether the side is really uniform yet.</p>'
+    +'<div class="cite">pins: &lang;v<sub>x</sub><sup>+</sup>&rang; by scipy quad; &lang;v<sub>rel</sub>&rang; against 2&times;10<sup>6</sup> Monte-Carlo velocity pairs; [5] against the simulation&rsquo;s own collision counter &mdash; derive.py</div>',
+  speeds:'<h4>the spike, and what it must become</h4>'
+    +EQ(1,'<span class="rm">PhET&rsquo;s start:</span> |v| = &radic;(3kT/m) <span class="rm">for every particle, direction uniform</span>')
+    +EQ(2,'f(v) = '+FR('m v','kT&#8322;')+' e<sup>&minus;mv&sup2;/2kT&#8322;</sup>, &nbsp; kT&#8322; = &frac32;kT, &nbsp; &lang;v&rang; = &radic;('+FR('&pi;kT&#8322;','2m')+')')
+    +EQ(3,FR('&lang;v&rang;<sub>MB</sub>','&radic;(3kT/m)')+' = &radic;('+FR('&pi;','4')+') = 0.886227 &nbsp;&rArr;&nbsp; <span class="rm">&lang;v&rang; falls by 11.377 %, any mass</span>')
+    +EQ(4,'<span class="rm">two species, energy conserved:</span> T<sub>&infin;</sub> = '+FR('N&#8321;T&#8321; + N&#8322;T&#8322;','N&#8321; + N&#8322;'))
+    +'<p>[3] holds because the energy does not change: the rms speed is fixed by kT&#8322;, and Maxwell&ndash;Boltzmann simply has a smaller mean than rms. It is the sharpest single check on the relaxation, and it is the same number for a 4-AMU disk and a 32-AMU one.</p>'
+    +'<div class="cite">pins: the 20 bin probabilities at 300 K against a direct quadrature; &radic;(&pi;/4) for both species; the common temperature &mdash; derive.py</div>'
+};
+/* ================================================================== *
+ *  reference values — WRITTEN BY derive.py (build/diffusion);        *
+ *  the same numbers are printed in refvals.txt.  Do not edit.        *
+ * ================================================================== */
+const REF={
+  Dest1:166758.72036354465,
+  Dest2:875900.0725257687,
+  Vbox:560000000000.0,
+  atmPerKpaExact:0.009869232667160128,
+  ballDN:[0.8325075,0.6436660000000001,0.2863175,0.011495500000000103,-0.0005789999999999962],
+  ballSd:0.0005,
+  ballT:[5.0,10.0,20.0,40.0,80.0],
+  binW:150.0,
+  boxInMfp1:21.980919369456103,
+  com1:-4025.0,
+  com2:4025.0,
+  comSd1:222.2798536380059,
+  comSd2:224.3005795801696,
+  divider:100.0,
+  dn40eff:0.22727143128140243,
+  dtFrame:0.041666666666666664,
+  dtSlow:0.005,
+  flow1:1.85201280412245,
+  flow2:4.878284042205578,
+  graham:2.6457513110645907,
+  kCodata:8314.46262102654,
+  kPhET:8316.0,
+  kRelDiff:0.00018490418966732314,
+  mbBins1:[0.08072970767637959,0.20514748808524796,0.24532126509813706,0.2087307311971619,0.13814921289391613,0.07362059580742719,0.0321307004042064,0.011595558721941623,0.0034810324405796234,0.0008727431561486032,0.0001832394295162576,3.228226319895722e-05,4.779228094276e-06,5.952270046849506e-07,6.241817895880075e-08,5.514869227951635e-09,4.1075876033858094e-10,2.5801916159196026e-11,1.3673506771283428e-12,6.117328865684613e-14],
+  mbBins2:[0.011953000503398294,0.03500856687349018,0.05561287680636211,0.07244890278239867,0.08462152164915687,0.09173006107826126,0.09386834228928642,0.09155877391074796,0.08563802640985052,0.0771181221484335,0.06704761617859045,0.05639351414797178,0.04595731706276174,0.036330201342656854,0.02788479467746685,0.020795653527697966,0.015077947992291785,0.010633830751288542,0.007297813793798791,0.004875295567559501],
+  mbCover1:0.9999999999999977,
+  mbCover2:0.99185217949347,
+  meanSpeedDrop:0.8862269254527579,
+  mfp1:727.9040394567402,
+  mfp2:1445.0774295240274,
+  mode1:365.58172820861824,
+  mode2:967.2383367092104,
+  nBins:20,
+  pBox100:739.53,
+  pBox200:1479.06,
+  pConv:1660000.0,
+  pairRate:73.41739573129779,
+  stepPs:0.2,
+  tCommon500_100:300.0,
+  tauD1:155.54342798920194,
+  tauD2:29.613221674525413,
+  tauFree1:26.99765351983719,
+  tauFree2:10.24950568015591,
+  tauFreePoint1:27.42618770269175,
+  vDelta1:517.0106381884226,
+  vDelta2:1367.8815738213598,
+  vbar1:458.18874830809403,
+  vbar2:1212.2534815511835,
+  vxPlus1:145.84600832464292,
+  vxPlus2:385.87226773846123,
+  z1:0.6294631207845145,
+  z2:0.8388847938414412,
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Values labelled (derive) are     *
+ *  lines of build/diffusion/refvals.txt, the printed output of         *
+ *  derive.py; REF (p7a_refs.js) is the same numbers, written by        *
+ *  derive.py so that none is retyped.  The engine's own invariants     *
+ *  are re-asserted here because this file relies on them.              *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,rot:Math.abs(Mx[1])>1e-9,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+function runW(w,frames,dt){ for(let f=0;f<frames;f++) worldStep(w,ST,dt||GAS.DT_FRAME); }
+/* the configurations the layout sweep and the capture share */
+const CONFIGS=[
+  ['box divided',{view:'box'},null],
+  ['box mixing',{view:'box'},w=>{ removeDivider(w,ST); runW(w,240); }],
+  ['box empty',{view:'box',d1n:0,d2n:0},w=>{ resetWorld(); }],
+  ['box identical',{view:'box',preset:'same',d1m:28,d1r:125,d2m:28,d2r:125},w=>{ resetWorld(); removeDivider(worldOf(),ST); runW(worldOf(),240); }],
+  ['box big and small',{view:'box',preset:'size',d1r:250,d2r:50},w=>{ resetWorld(); removeDivider(worldOf(),ST); runW(worldOf(),120); }],
+  ['box lifting',{view:'box'},w=>{ w.divLift=0.6; }],
+  ['mixing divided',{view:'mixing'},null],
+  ['mixing early',{view:'mixing'},w=>{ removeDivider(w,ST); runW(w,120); }],
+  ['mixing late',{view:'mixing'},w=>{ removeDivider(w,ST); runW(w,1200); }],
+  ['mixing no collisions',{view:'mixing'},w=>{ w.g.collisions=false; removeDivider(w,ST); runW(w,960); }],
+  ['flow divided',{view:'flow'},null],
+  ['flow running',{view:'flow'},w=>{ removeDivider(w,ST); runW(w,360); }],
+  ['flow heavy only',{view:'flow',d2n:0},w=>{ resetWorld(); removeDivider(worldOf(),ST); runW(worldOf(),360); }],
+  ['speeds fresh',{view:'speeds'},null],
+  ['speeds relaxed',{view:'speeds'},w=>{ removeDivider(w,ST); runW(w,720); }],
+  ['speeds hot and cold',{view:'speeds',preset:'hot',d1T:500,d2T:100,d2m:28,d2r:125},w=>{ resetWorld(); removeDivider(worldOf(),ST); runW(worldOf(),720); }],
+  ['speeds one species',{view:'speeds',d2n:0},w=>{ resetWorld(); runW(worldOf(),240); }],
+  ['box slow',{view:'box',slow:true,unitT:'C'},w=>{ removeDivider(w,ST); runW(w,240,GAS.DT_SLOW); }]
+];
+function setupConfig(over,fn){
+  Object.assign(ST,DEFAULTS,over); DRAG.what=null;
+  resetAllWorlds();
+  const w=worldOf();
+  if(fn) fn(w);
+  return worldOf();
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const verbose=typeof SELFTEST_VERBOSE!=='undefined'&&SELFTEST_VERBOSE;
+  const ok=(c,name)=>{ if(c){ pass++; if(verbose) console.log('ok — '+name); } else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now(), TIMES={};
+  const stSave=Object.assign({},ST);
+
+  /* ---------- A. PhET's constants, pinned absolutely ---------- */
+  eq(GAS.K,8316,'PhET BOLTZMANN = 8316 AMU pm²/(ps² K)');
+  rel(GAS.K/REF.kCodata-1,REF.kRelDiff,1e-9,'PhET k is +1.849e-4 over CODATA k_B/u (derive)');
+  rel(GAS.P_SCALE,REF.pConv,1e-15,'PRESSURE_CONVERSION_SCALE (derive)');
+  rel(GAS.ATM_PER_KPA,REF.atmPerKpaExact,3e-7,'ATM_PER_KPA is 1/101.325 to PhET’s 6 digits (derive)');
+  eq(GAS.DIFF_W,16000,'the Diffusion container is 16 nm wide (widthRange 16e3,16e3,16e3)');
+  eq(GAS.H+'/'+GAS.D,'8750/4000','… 8.75 nm tall and 4 nm deep');
+  rel(GAS.DIVIDER,REF.divider,1e-15,'the divider is 100 pm thick (derive)');
+  eq(GAS.DIFF_NMAX+'/'+GAS.DIFF_DN,'200/10','number of particles: 0–200 in tens');
+  eq(GAS.DIFF_M.join('-'),'4-32','mass 4–32 AMU');
+  eq(GAS.DIFF_R.join('-')+'/'+GAS.DIFF_RSTEP,'50-250/5','radius 50–250 pm in fives');
+  eq(GAS.DIFF_T.join('-')+'/'+GAS.DIFF_TSTEP,'50-500/50','initial temperature 50–500 K in fifties');
+  eq(GAS.FLOW_WINDOW,300,'the flow rate is a 300-frame running average');
+  rel(GAS.DT_FRAME,REF.dtFrame,1e-15,'one frame is 1/24 ps (derive)');
+  rel(GAS.DT_SLOW,REF.dtSlow,1e-15,'PhET’s slow speed is 0.3 ps a second (derive)');
+  rel(GAS.STEP,REF.stepPs,1e-15,'the step button is MODEL_TIME_STEP = 0.2 ps (derive)');
+  { const w=setupConfig({view:'box'},null); const t0=w.g.t;
+    worldStep(w,ST,GAS.STEP);
+    close(w.g.t-t0,REF.stepPs,1e-12,'… and one press really advances the model by it'); }
+  /* PhET's Diffusion screen has no gauge, so the pressure is inert here — but
+     P = NkT/V is the shared engine's definition and this suite re-asserts the
+     engine, so it is pinned rather than left to drift */
+  rel(gasVolume(worldOf().g),REF.Vbox,1e-15,'V = 16 nm × 8.75 nm × 4 nm (derive)');
+  rel(gasPressureOf(200,300,REF.Vbox),REF.pBox200,1e-14,'P = NkT/V for 200 disks at 300 K in it: 1479.1 kPa (derive)');
+  rel(gasPressureOf(100,300,REF.Vbox),REF.pBox100,1e-14,'… and half that for 100 (derive)');
+  eq(TABS.length,4,'four views'); eq(TABS.map(t=>t[0]).join(','),'box,mixing,flow,speeds','the view keys');
+  eq(worldKey('mixing'),'box','all four views share one gas: PhET’s Diffusion is one screen');
+
+  /* ---------- B. the engine invariants this sim relies on ---------- */
+  { /* the contact quadratic, at and around its branches.  The overlap test is
+       the one with no margin, and this sim leans on it hardest: PhET's
+       placement drops particles without rejection, so overlapping pairs are
+       normal here and MUST get no event (they pass through until they
+       separate).  A test written with any slack lets a hair-overlapping pair
+       collide instead. */
+    close(pairTime(0,500,0,-100,250),2.5,1e-15,'head-on: (500−250)/100 = 2.5 exactly');
+    eq(pairTime(0,300,0,10,250),Infinity,'separating: no event');
+    eq(pairTime(0,300,10,0,250),Infinity,'b = 0 (sliding past): no event');
+    eq(pairTime(1000,300,-10,0,250),Infinity,'a miss: the discriminant is negative');
+    eq(pairTime(0,200,0,-10,250),Infinity,'overlapping and approaching: no event');
+    eq(pairTime(0,249.999,0,-10,250),Infinity,'overlapping by a HAIR (c = −0.5 pm²): still no event');
+    eq(pairTime(0,250.0001,0,-10,250)<1e-4,true,'… and a hair apart it collides almost at once'); }
+  { const R=gasRng(777); let wp=0, we=0;
+    for(let q=0;q<5000;q++){
+      const mi=4+28*R.next(), mj=4+28*R.next(), ri=50+200*R.next(), rj=50+200*R.next();
+      const g=gasMake({seed:1,species:[{m:mi,r:ri},{m:mj,r:rj}]});
+      const th=TAU*R.next(), s=ri+rj;
+      gasPush(g,0,-8000,4000,300*(R.next()-0.5),300*(R.next()-0.5));
+      gasPush(g,1,-8000+s*Math.cos(th),4000+s*Math.sin(th),300*(R.next()-0.5),300*(R.next()-0.5));
+      const px0=mi*g.vx[0]+mj*g.vx[1], py0=mi*g.vy[0]+mj*g.vy[1], e0=gasKE(g,0)+gasKE(g,1);
+      pairResolve(g,0,1);
+      const px1=mi*g.vx[0]+mj*g.vx[1], py1=mi*g.vy[0]+mj*g.vy[1], e1=gasKE(g,0)+gasKE(g,1);
+      /* the scale is the momentum carried, not its (possibly cancelling) sum */
+      const sc=mi*(Math.abs(g.vx[0])+Math.abs(g.vy[0]))+mj*(Math.abs(g.vx[1])+Math.abs(g.vy[1]));
+      wp=Math.max(wp,(Math.abs(px1-px0)+Math.abs(py1-py0))/sc); we=Math.max(we,Math.abs(e1/e0-1));
+    }
+    ok(wp<1e-15,'5000 random pair collisions conserve momentum ('+wp.toExponential(1)+' of the momentum carried)');
+    ok(we<1e-13,'… and energy ('+we.toExponential(1)+')'); }
+  { /* No overlaps from the dynamics.  PhET's own placement DOES overlap (it
+       scatters without rejection), and the engine's rule is that overlapping
+       disks pass through each other until they separate — so this has to be
+       started from a non-overlapping fill, or it would be testing the rule
+       rather than the dynamics.  200 of each at 125 pm is an area fraction of
+       0.14, denser than anything the sliders reach at those radii. */
+    const g=gasMake({width:GAS.DIFF_W,wRange:[GAS.DIFF_W,GAS.DIFF_W],noLid:true,seed:41,
+                     species:[{m:28,r:125},{m:4,r:125}]});
+    gasFill(g,0,200,300); gasFill(g,1,200,300); gasLedgerReset(g);
+    const eta=gasCount(g)*PI*125*125/(g.W*g.H);
+    let worst=Infinity;
+    for(let f=0;f<48;f++){ gasStep(g,GAS.DT_FRAME);
+      for(let i=0;i<g.n;i++) for(let j=i+1;j<g.n;j++){
+        const d=Math.hypot(g.x[i]-g.x[j],g.y[i]-g.y[j])-(gasRad(g,i)+gasRad(g,j));
+        if(d<worst) worst=d; } }
+    ok(worst>-1e-6,'400 disks (area fraction '+fmt(eta,3)+') never overlap over 2 ps (closest approach '+worst.toExponential(1)+' pm)');
+    const led=gasLedger(g); ok(Math.abs(led.resid)<=1e-12*Math.abs(led.E),'… and the energy ledger closes to '+(led.resid/led.E).toExponential(1)+' of the energy');
+    rel(gasTemp(g),(2/3)*gasEnergy(g)/gasCount(g)/GAS.K,1e-15,'T is exactly (2/3)⟨KE⟩/k'); }
+  { /* … and the documented opposite: PhET's placement overlaps at the densest
+       slider setting, and those disks pass through each other rather than
+       exploding.  The energy must not move. */
+    const w=setupConfig({view:'box',d1n:200,d1r:250,d2n:200,d2r:250},null);
+    const g=w.g;
+    let over=0;
+    for(let i=0;i<g.n;i++) for(let j=i+1;j<g.n;j++)
+      if(Math.hypot(g.x[i]-g.x[j],g.y[i]-g.y[j])<gasRad(g,i)+gasRad(g,j)) over++;
+    ok(over>0,'PhET’s placement (no rejection) starts 200+200 disks of 250 pm with '+over+' overlapping pairs');
+    const E0=gasEnergy(g); runW(w,48);
+    rel(gasEnergy(g),E0,1e-12,'… and they pass through each other: the energy is untouched');
+    ok(isFinite(gasTemp(g)),'… and the temperature stays finite'); }
+  { /* the divider really confines: nothing crosses while it is in */
+    const w=setupConfig({view:'box'},null), g=w.g, mid=g.dividerX;
+    runW(w,480);
+    let bad=0;
+    for(let i=0;i<g.n;i++){ if(g.out[i]) continue;
+      if(g.sp[i]===0&&g.x[i]>mid) bad++; if(g.sp[i]===1&&g.x[i]<mid) bad++; }
+    eq(bad,0,'with the divider in, 20 ps leaves every particle on its own side');
+    eq(g.flow.dts.length,0,'… and the flow counter does not run'); }
+
+  /* ---------- C. the centre of mass, exactly ---------- */
+  { const w=setupConfig({view:'box'},null), g=w.g;
+    close(REF.com1,-(GAS.DIFF_W+GAS.DIVIDER)/4,1e-9,'derive: the start is −(W + d)/4 = −4025 pm');
+    close(REF.com2,+(GAS.DIFF_W+GAS.DIVIDER)/4,1e-9,'… and +4025 for particle 2 (derive)');
+    /* 24 independent draws, so the mean of the measurements is 24× tighter */
+    let s0=0,s1=0; const K=24;
+    for(let q=0;q<K;q++){
+      const g2=gasMake({width:GAS.DIFF_W,wRange:[GAS.DIFF_W,GAS.DIFF_W],noLid:true,seed:100+q,
+                        species:[{m:28,r:125},{m:4,r:90}]});
+      gasSetDivided(g2,true); diffScatter(g2,ST);
+      s0+=gasCOM(g2,0); s1+=gasCOM(g2,1);
+    }
+    const sd0=REF.comSd1/Math.sqrt(K), sd1=REF.comSd2/Math.sqrt(K);
+    ok(Math.abs(s0/K-REF.com1)<4*sd0,'24 fresh boxes put particle 1’s COM at '+fmt(s0/K,1)+' pm, against −4025 (4 sd = '+fmt(4*sd0,1)+')');
+    ok(Math.abs(s1/K-REF.com2)<4*sd1,'… and particle 2’s at '+fmt(s1/K,1)+' pm, against +4025 (4 sd = '+fmt(4*sd1,1)+')');
+    /* the radius cancels: the same claim at both ends of PhET's range */
+    for(const r of [50,250]){
+      let s=0; const K2=24;
+      for(let q=0;q<K2;q++){
+        const g2=gasMake({width:GAS.DIFF_W,wRange:[GAS.DIFF_W,GAS.DIFF_W],noLid:true,seed:200+q,
+                          species:[{m:28,r},{m:4,r:90}]});
+        gasSetDivided(g2,true); gasScatter(g2,0,100,300,g2.left,g2.left+g2.W/2-g2.dividerHalf);
+        s+=gasCOM(g2,0);
+      }
+      const L=(GAS.DIFF_W/2-GAS.DIVIDER/2)-2*r, sd=L/Math.sqrt(12*100)/Math.sqrt(K2);
+      ok(Math.abs(s/K2-REF.com1)<4*sd,'at r = '+r+' pm the COM is still −4025 ('+fmt(s/K2,1)+', 4 sd = '+fmt(4*sd,1)+'): the radius cancels');
+    } }
+
+  /* ---------- D. the exact laws ---------- */
+  rel(vxPlus(28,300),REF.vxPlus1,1e-14,'⟨v_x⁺⟩ = √(kT₂/2πm) = 145.846 m/s for 28 AMU (derive, scipy quad)');
+  rel(vxPlus(4,300),REF.vxPlus2,1e-14,'… 385.872 m/s for 4 AMU (derive)');
+  rel(mbMeanSpeed(28,gasKT2(300))/PI,REF.vxPlus1,1e-14,'… and it is exactly ⟨v⟩/π (derive)');
+  rel(mbMeanSpeed(28,gasKT2(300)),REF.vbar1,1e-14,'⟨v⟩ = 458.189 m/s (derive)');
+  rel(mbRmsSpeed(28,gasKT2(300)),REF.vDelta1,1e-14,'PhET starts every particle at √(3kT/m) = the rms speed (derive)');
+  rel(mbModeSpeed(28,gasKT2(300)),REF.mode1,1e-14,'the most probable speed √(kT₂/m) = 365.58 m/s for 28 AMU (derive)');
+  rel(mbModeSpeed(4,gasKT2(300)),REF.mode2,1e-14,'… 967.24 m/s for 4 AMU (derive)');
+  ok(mbModeSpeed(28,gasKT2(300))<mbMeanSpeed(28,gasKT2(300))&&mbMeanSpeed(28,gasKT2(300))<mbRmsSpeed(28,gasKT2(300)),
+     'mode < mean < rms, as Maxwell–Boltzmann demands (1 : √(π/2) : √2)');
+  rel(mbMeanSpeed(28,gasKT2(300))/mbModeSpeed(28,gasKT2(300)),Math.sqrt(PI/2),1e-14,'… ⟨v⟩/v_mode = √(π/2) exactly');
+  rel(mbMeanSpeed(28,gasKT2(300))/mbRmsSpeed(28,gasKT2(300)),REF.meanSpeedDrop,1e-14,'⟨v⟩/rms = √(π/4) = 0.886227 (derive)');
+  rel(mbMeanSpeed(4,gasKT2(300))/mbRmsSpeed(4,gasKT2(300)),REF.meanSpeedDrop,1e-14,'… the same for any mass (derive)');
+  rel(vxPlus(4,300)/vxPlus(28,300),REF.graham,1e-14,'Graham’s √(m₁/m₂) = 2.6458 IS the ratio of the one-sided fluxes (derive)');
+  /* off the BUILT MODEL, not off a formula retyped in the test (Known-bad:
+     a test that re-derives the thing it is testing tests nothing) */
+  { const w=setupConfig({view:'flow'},null);
+    rel(buildModel().graham,REF.graham,1e-14,'… and the readout’s Graham number is that (derive)');
+    gasDiffMassTemp(w.g,1,7,300);
+    rel(buildModel().graham,Math.sqrt(28/7),1e-14,'… it follows the mass sliders (28 over 7 gives 2)'); }
+  { /* the common temperature two species must reach is the NUMBER-weighted
+       mean, which only differs from the plain mean when the counts differ */
+    const w=setupConfig({view:'speeds',d1n:100,d1T:500,d2n:50,d2m:28,d2r:125,d2T:100},null);
+    const M=buildModel();
+    close(M.Tmix,(100*500+50*100)/150,1e-9,'100 at 500 K with 50 at 100 K must end at 366.67 K, not 300');
+    ok(Math.abs(M.Tmix-300)>60,'… so the plain mean would be wrong by '+fmt(M.Tmix-300,1)+' K here');
+    rel(gasTemp(w.g),M.Tmix,1e-12,'… and the whole gas is already at it (energy is conserved)');
+    removeDivider(w,ST); runW(w,2400);
+    rel(gasTemp(w.g),M.Tmix,1e-9,'… and stays there');
+    ok(Math.abs(gasTemp(w.g,0)-M.Tmix)<0.1*M.Tmix,'… with both species arriving at it ('+fmt(gasTemp(w.g,0),0)+' K)'); }
+  { const w=setupConfig({view:'box'},null), g=w.g;
+    rel(flowTheory(g,0,100),REF.flow1,1e-13,'100 heavy on the left cross at 1.852/ps (derive)');
+    rel(flowTheory(g,1,100),REF.flow2,1e-13,'100 light cross at 4.878/ps (derive)');
+    rel(flowTheory(g,0,100),100*vxPlus(28,300)/(g.W/2-125),1e-15,'the height cancels: rate = N⟨v_x⁺⟩/(W/2 − r)');
+    rel(tauEffusion(g,0),REF.tauFree1,1e-13,'τ (effusion) = (W − 2r)/4⟨v_x⁺⟩ = 27.0 ps (derive)');
+    rel(tauEffusion(g,1),REF.tauFree2,1e-13,'… 10.25 ps for the light gas (derive)');
+    rel(vRel(g,0,0),Math.sqrt(2)*mbMeanSpeed(28,gasKT2(300)),1e-14,'like pairs: ⟨v_rel⟩ = √2 ⟨v⟩ (derive)');
+    rel(vRel(g,0,1),Math.sqrt(PI*gasKT2(300)/(2*(28*4/32))),1e-14,'unlike pairs: √(πkT₂/2μ) with the reduced mass');
+    rel(zRate(g,0),REF.z1,1e-12,'a heavy disk suffers '+fmt(REF.z1,4)+' collisions/ps (derive)');
+    rel(zRate(g,1),REF.z2,1e-12,'a light one '+fmt(REF.z2,4)+' (derive)');
+    rel(mfp(g,0),REF.mfp1,1e-12,'its mean free path is '+fmt(REF.mfp1,1)+' pm (derive)');
+    rel(pairRateTheory(g),REF.pairRate,1e-12,'the box holds '+fmt(REF.pairRate,2)+' pair collisions/ps (derive)');
+    rel(dEstimate(g,0),REF.Dest1,1e-12,'D ≈ ⟨v⟩λ/2 (derive)');
+    rel(tauDiffusive(g,0),REF.tauD1,1e-12,'τ_D = W²/π²D = '+fmt(REF.tauD1,1)+' ps (derive)');
+    rel(g.W/mfp(g,0),REF.boxInMfp1,1e-12,'the box is 11.0 mean free paths across (derive)');
+    /* the exact ratio the two limits must have for point particles */
+    rel(tauDiffusive(g,0)/((g.W)/(4*vxPlus(28,300))),8*g.W/(PI*PI*PI*mfp(g,0)),1e-12,'τ_D/τ = 8W/π³λ exactly (derive)'); }
+  /* the tail bins are ~1e-14, so the tolerance carries an absolute floor: at
+     that size the last digits are the two libraries' expm1, not the physics
+     (derive.py writes the bins with the same two expm1 calls this does) */
+  for(let b=0;b<REF.mbBins1.length;b++)
+    close(mbBinCounts(1,28,300)[b],REF.mbBins1[b],Math.max(1e-12*Math.abs(REF.mbBins1[b]),1e-16),
+          'the 2-D MB probability in bin '+b+' (derive)');
+  { let s=0; for(const v of mbBinCounts(1,28,300)) s+=v;
+    rel(s,REF.mbCover1,1e-12,'the 20 bins cover the whole distribution for 28 AMU (derive)'); }
+  TIMES.D=Date.now();
+
+  /* ---------- E. the measurements ---------- */
+  { /* the collisionless imbalance is exact kinematics: the sim must reproduce
+       derive.py's 4-million-trajectory curve to its Monte-Carlo error */
+    const w=setupConfig({view:'mixing',d2n:0},null);
+    w.g.collisions=false; removeDivider(w,ST);
+    const want=REF.ballT.map(()=>0), got=[];
+    let f=0;
+    for(let q=0;q<REF.ballT.length;q++){
+      const target=Math.round(REF.ballT[q]/GAS.DT_FRAME);
+      while(f<target){ worldStep(w,ST,GAS.DT_FRAME); f++; }
+      const side=gasSideData(w.g); got.push(imbalance(w.g,side,0));
+    }
+    /* 100 particles, so the sampling sd of ΔN/N is 1/√100 = 0.10 */
+    let worst=0; for(let q=0;q<got.length;q++) worst=Math.max(worst,Math.abs(got[q]-REF.ballDN[q]));
+    ok(worst<0.34,'collisions off: ΔN/N follows derive.py’s exact ballistic curve at 5, 10, 20, 40 and 80 ps (worst '+fmt(worst,3)+', 3.4 sd on 100 particles)');
+    ok(got[1]<Math.exp(-REF.ballT[1]/REF.tauFree1)+0.20,'… and it leads the effusion model early on, as the exact curve does'); }
+  { /* the measured crossing rate against n ⟨vx+⟩ (H − 2r) */
+    const w=setupConfig({view:'flow'},null);
+    removeDivider(w,ST);
+    runW(w,720);                                   /* 30 ps */
+    const g=w.g, M=buildModel();
+    /* the 300-frame average is over the last 12.5 ps; compare with the theory
+       built from the side counts averaged over the same stretch is overkill —
+       the counts move slowly, so the instantaneous theory is within a few % */
+    let chi=0, nTot=0;
+    for(const k of [0,1]) for(const dir of [0,1]){
+      const meas=dir?g.flow.rateR[k]:g.flow.rateL[k], th=M.flowTh[k][dir?0:1];
+      const n=meas*(g.flow.dts.reduce((a,b)=>a+b,0));
+      nTot+=n;
+      if(th>0&&n>4) chi+=(meas-th)/(th/Math.sqrt(n));
+    }
+    ok(nTot>40,'30 ps of mixing counted '+fmt(nTot,0)+' crossings');
+    ok(Math.abs(chi)<3*2,'the four measured crossing rates track n⟨v_x⁺⟩(H−2r) (Σ residual/σ = '+fmt(chi,2)+')');
+    ok(g.flow.rateR[1]>g.flow.rateL[1]*0.2,'the light gas is crossing both ways by now'); }
+  { /* Graham: the light gas leads out of the gate */
+    const w=setupConfig({view:'flow'},null);
+    removeDivider(w,ST); runW(w,48);              /* 2 ps: still one-way */
+    const g=w.g, r1=g.flow.rateR[0], r2=g.flow.rateL[1];
+    ok(r1>0&&r2>0,'both species have crossed within 2 ps');
+    const want=REF.graham*(g.W/2-g.species[0].r)/(g.W/2-g.species[1].r);
+    const n1=r1*2, n2=r2*2, sd=want*Math.sqrt(1/Math.max(1,n1)+1/Math.max(1,n2));
+    ok(Math.abs(r2/r1-want)<4*sd,'the light gas crosses '+fmt(r2/r1,2)+'× as fast, against Graham’s '+fmt(want,2)+' (4 sd = '+fmt(4*sd,2)+')'); }
+  { /* the pair-collision rate against the mixture's collision frequency */
+    const w=setupConfig({view:'flow'},null);
+    removeDivider(w,ST); runW(w,240); w.pairs=[]; w.lastPairs=w.g.stats.pairHits;
+    runW(w,240);                                   /* a full 10-ps window */
+    const P=pairRateMeasured(w), th=pairRateTheory(w.g);
+    ok(P.n>400,'10 ps of the default box counts '+P.n+' pair collisions');
+    ok(Math.abs(P.rate-th)<0.12*th,'the measured '+fmt(P.rate,1)+'/ps is within 12 % of Σⱼ nⱼ(rᵢ+rⱼ)⟨v_rel⟩ = '+fmt(th,1)+'/ps'); }
+  { /* PhET's spike relaxes, and the mean speed falls by exactly √(π/4) */
+    const w=setupConfig({view:'speeds'},null);
+    const g=w.g;
+    for(const k of [0,1]){
+      const v0=gasMeanSpeedOf(g,k);
+      rel(v0,mbRmsSpeed(g.species[k].m,gasKT2(300)),1e-12,'species '+(k+1)+' starts at one speed, √(3kT/m)');
+    }
+    const E0=gasEnergy(g);
+    removeDivider(w,ST); runW(w,960);              /* 40 ps, tens of collisions each */
+    rel(gasEnergy(g),E0,1e-12,'the energy never changed');
+    for(const k of [0,1]){
+      const v=gasMeanSpeedOf(g,k), want=mbMeanSpeed(g.species[k].m,gasKT2(gasTemp(g,k)));
+      ok(Math.abs(v/want-1)<0.05,'species '+(k+1)+'’s mean speed relaxed to ⟨v⟩ = √(πkT₂/2m) ('+fmt(v,1)+' vs '+fmt(want,1)+')');
+      ok(v<mbRmsSpeed(g.species[k].m,gasKT2(gasTemp(g,k)))*0.95,'… i.e. it FELL from the rms, as √(π/4) = 0.886 demands');
+    } }
+  { /* two species started at different temperatures reach the number-weighted mean */
+    const w=setupConfig({view:'speeds',preset:'hot',d1T:500,d2T:100,d2m:28,d2r:125},null);
+    const g=w.g;
+    rel(gasTemp(g,0),500,1e-12,'particle 1 starts at 500 K'); rel(gasTemp(g,1),100,1e-12,'particle 2 at 100 K');
+    const want=REF.tCommon500_100;
+    removeDivider(w,ST); runW(w,2400);             /* 100 ps */
+    ok(Math.abs(gasTemp(g,0)-want)<0.08*want,'after 100 ps particle 1 is at '+fmt(gasTemp(g,0),1)+' K, against the common '+fmt(want,0)+' K');
+    ok(Math.abs(gasTemp(g,1)-want)<0.08*want,'… and particle 2 at '+fmt(gasTemp(g,1),1)+' K');
+    rel(gasTemp(g),want,1e-9,'… while the whole gas was always at the number-weighted mean (energy is conserved)'); }
+  { /* the profile's binning, in ABSOLUTE numbers: a test written in terms of
+       NPROF moves with it and sees nothing */
+    eq(NPROF,32,'the concentration profile has 32 bins');
+    const g=gasMake({width:GAS.DIFF_W,wRange:[GAS.DIFF_W,GAS.DIFF_W],noLid:true,seed:71,
+                     species:[{m:28,r:125},{m:4,r:90}]});
+    close(g.W/32,500,1e-9,'… 500 pm each across the 16 nm box');
+    gasPush(g,0,g.left+0.5*g.W+1,4000,10,10);      /* just right of the middle */
+    gasPush(g,1,g.left+250,4000,10,10);            /* in the second bin */
+    const pr=profile(g);
+    eq(pr[0].length,32,'profile() returns 32 bins per species');
+    eq(pr[0][16],1,'a particle a hair right of the middle lands in bin 16 of 32');
+    eq(pr[1][0],1,'… and one 250 pm from the left wall in bin 0');
+    let tot=0; for(const v of pr[0].concat(pr[1])) tot+=v;
+    eq(tot,2,'… and nothing is counted twice or dropped'); }
+  { /* the profile: two blocks become one flat line */
+    const w=setupConfig({view:'mixing'},null);
+    const p0=profile(w.g);
+    let leftOnly=true; for(let q=NPROF/2;q<NPROF;q++) if(p0[0][q]>0) leftOnly=false;
+    ok(leftOnly,'divided: particle 1 is entirely in the left half of the profile');
+    removeDivider(w,ST); runW(w,2400);
+    const p1=profile(w.g), mean=gasCount(w.g,0)/NPROF;
+    let chi2=0; for(let q=0;q<NPROF;q++) chi2+=(p1[0][q]-mean)*(p1[0][q]-mean)/mean;
+    ok(chi2<2*NPROF,'after 100 ps the profile is flat to a χ² of '+fmt(chi2,1)+' on '+(NPROF-1)+' degrees of freedom'); }
+  TIMES.E=Date.now();
+
+  /* ---------- F. the controls behave as PhET's do ---------- */
+  { const w=setupConfig({view:'box'},null), g=w.g;
+    gasDiffMassTemp(g,0,16,300);
+    eq(g.species[0].m,16,'a new mass takes effect at once');
+    let one=true; for(let i=0;i<g.n;i++) if(g.sp[i]===0&&Math.abs(gasSpeed(g,i)-Math.sqrt(3*GAS.K*300/16))>1e-9) one=false;
+    ok(one,'… and re-speeds every particle of that species to √(3kT/m), as PhET does');
+    gasDiffCount(g,1,50,300); eq(gasCount(g,1),50,'the count slider removes down to 50');
+    gasDiffCount(g,1,120,300); eq(gasCount(g,1),120,'… and adds back to 120');
+    let inHalf=true; for(let i=0;i<g.n;i++) if(g.sp[i]===1&&!g.out[i]&&g.x[i]<g.dividerX) inHalf=false;
+    ok(inHalf,'… adding puts them in the species’ own half');
+    gasDiffRadius(g,1,250,false); eq(g.species[1].r,250,'the radius slider');
+    let inside=true; for(let i=0;i<g.n;i++) if(g.sp[i]===1&&!g.out[i]&&(g.x[i]+250>0||g.y[i]-250<0)) inside=false;
+    ok(inside,'… and while paused every particle is put back inside the walls');
+    resetDivider(w,ST);
+    eq(g.divided,true,'reset divider puts it back');
+    eq(gasCount(g,0)+'/'+gasCount(g,1),ST.d1n+'/'+ST.d2n,'… and regenerates both species at their slider counts (PhET restarts)');
+    eq(g.t,0,'… from t = 0'); }
+  { const w=setupConfig({view:'box'},null);
+    removeDivider(w,ST);
+    eq(w.g.divided,false,'remove divider takes it out'); eq(ST.divided,false,'… and the panel follows');
+    eq(w.g.flow.dts.length,0,'… restarting the flow counter');
+    runW(w,10); ok(w.g.flow.dts.length===10,'… which then runs a sample a frame'); }
+
+  /* ---------- G. every configuration: the readout, then the layout ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,fn] of CONFIGS){
+    setupConfig(over,fn); const M0=buildModel();
+    const txt=readoutHTML(M0)+eqbarHTML(M0)+tagHTML(M0)+(INFO[ST.view]||'')+(DERIV[ST.view]||'');
+    ok(!/NaN|undefined|Infinity/.test(txt),nm+': readout, eqbar, tag and prose clean');
+    for(const [W,H] of SIZES){
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) continue;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=3&&texts.length>=2,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, '+texts.length+' texts)');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      /* the house #hint (HTML, bottom: 11px, 11px type) owns the bottom-left
+         corner and the canvas capture cannot see it */
+      const inHint=texts.filter(t=>t.bb[0]<340&&t.bb[3]>H-27);
+      ok(!inHint.length,nm+' '+W+'x'+H+' no canvas text under the #hint line'+(inHint.length?' ("'+inHint[0].t.slice(0,30)+'" to y '+fmt(inHint[0].bb[3],0)+')':''));
+    }
+  }
+  if(fail>0) throw new Error(fail+' self-test failure(s), stopped after section G');
+  TIMES.G=Date.now();
+
+  /* ---------- H. no slider combination gives a non-finite value ---------- */
+  { let bad=null, err=null;
+    try{
+      for(const n of [0,10,200]) for(const m of [4,32]) for(const r of [50,250]) for(const T of [50,500]){
+        const w=setupConfig({view:'flow',d1n:n,d1m:m,d1r:r,d1T:T,d2n:n,d2m:36-m,d2r:300-r,d2T:550-T},null);
+        removeDivider(w,ST); runW(w,6);
+        const M=buildModel();
+        const vals=[M.tauEff[0],M.tauEff[1],M.tauDif[0],M.tauDif[1],M.mfp[0],M.mfp[1],M.pairTh,
+                    M.flowTh[0][0],M.flowTh[0][1],M.flowTh[1][0],M.flowTh[1][1],M.Tmix,M.graham];
+        for(const v of vals) if(v!==null&&!isFinite(v)) bad='n='+n+' m='+m+' r='+r+' T='+T+' → '+v;
+        const c=makeShot(1400,820); drawView(c,1400,820,M);
+      }
+    }catch(e){ err=e; }
+    ok(!err,'every count × mass × radius × temperature corner runs and draws'+(err?': '+(err.stack||err):''));
+    ok(!bad,'… with no non-finite value ('+(bad||'ok')+')'); }
+  TIMES.H=Date.now();
+
+  console.log('section times, s: '+['D','E','G','H'].map((k,i,a)=>k+' '+((TIMES[k]-(i?TIMES[a[i-1]]:T0))/1000).toFixed(1)).join(', '));
+  Object.assign(ST,stSave); resetAllWorlds();
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

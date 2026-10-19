@@ -1,0 +1,2106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gravity Force Lab &mdash; Newton&rsquo;s inverse-square law between two spheres</title>
+<!--
+  ===================================================================
+  gravity-force-lab.html — Newton's law of gravitation between two
+  spheres on a track: drag them, change their masses, and read the
+  equal and opposite pull
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Gravity Force Lab (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets.  PhET's build 2.2.25 (docs/phets/gravity-force-lab_en.html)
+  was read only for its model constants, each cited below as "PhET's value".
+  Its sibling coulombs-law.html runs on the same inverse-square engine.
+
+  Four views.  THE LAB is PhET's screen: two uniform spheres on a 10-m
+  track, masses 10-1000 kg, dragged along a 0.1-m grid; a force arrow on
+  each (equal and opposite, drawn to one printed scale), the force in
+  PhET's decimal or scientific notation, a draggable metre ruler, and the
+  switch between mass-scaled spheres (150 kg/m^3) and constant-size ones.
+  THE INVERSE SQUARE: the same force against the distance on log-log axes
+  (a straight line of slope -2), on linear axes, and as F r^2, which is
+  flat at G m1 m2 — with the distances the spheres cannot reach shaded.
+  THE MASS PRODUCT: the force over every pair of masses at the current
+  distance (hyperbolas m1 m2 = F r^2 / G), the force against one mass
+  (a straight line through the origin), and the strongest pull two equal
+  masses can ever reach — m^2 for constant-size spheres, about m^(4/3)
+  for real ones, because a heavier sphere is also a bigger one.
+  LET THEM GO: what the lab's forces would do if the track let the
+  spheres move — the radial two-body free fall from rest, in closed form:
+  the centre of mass stays put, the lighter sphere covers more ground,
+  and two lab-sized masses take about twelve hours to touch.
+
+  WHAT IS EXACT
+  -------------
+  F = G m1 m2 / r^2 with G = 6.6743e-11 m^3 kg^-1 s^-2 (CODATA 2022, read
+  from scipy.constants 1.18 in build/gravity-force-lab/derive.py).  r is the
+  distance between centres, which for uniform spheres is exact (Newton's
+  shell theorem), not an approximation.  The mass-scaled radius is
+  (3m / 4 pi rho)^(1/3).  The free fall is the closed form
+  t(r) = sqrt(r0^3 / 2GM) [sqrt(x(1-x)) + asin sqrt(1-x)], x = r/r0,
+  inverted by bisection; derive.py checks it against scipy solve_ivp
+  integrating both bodies (8e-12), and selfTest against an RK4 of its own.
+  Every number is pinned in selfTest to build/gravity-force-lab/refvals.txt.
+
+  WHAT IS MODELLED (PhET's choices, reproduced)
+  ---------------------------------------------
+  PhET's values: the density 150 kg/m^3, the constant-size radius 0.5 m,
+  masses 10-1000 kg in 10-kg steps, centres on a 0.1-m grid within +-5 m,
+  and the no-overlap rule — centres at least snap(r1 + r2 + 0.1 m) apart.
+  Rounding r1 + r2 + 0.1 to the grid can cut the gap below 0.1 m; derive.py
+  enumerates all 10,000 reachable mass pairs and the gap never falls below
+  0.05004 m (140 and 940 kg), so the spheres never touch.  When a sphere
+  grows into its neighbour, the neighbour is pushed aside, or, if it is
+  against the end of the track, the grown sphere moves (PhET's rule;
+  switching the size mode counts as m2 growing last, PhET's update order).
+  PhET uses G = 6.67408e-11 (CODATA 2014), so its forces read 3.3e-5 lower.
+
+  NOT MODELLED
+  ------------
+  PhET's cartoon pullers, sounds and screen-reader descriptions.  The
+  Earth: the spheres sit in free space on a frictionless track.  In "let
+  them go", nothing after the spheres touch.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed force, orange = the reference or a
+       warning (the forbidden zone, a clipped arrow), magenta = the live marker,
+       cyan = structure (the track, the ruler, the axes). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --struct:#5ac8e0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:grab;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .bar{height:7px; border-radius:4px; background:#1b1f29; overflow:hidden; margin-top:4px;
+                box-shadow:inset 0 0 0 1px rgba(255,255,255,.05); position:relative;}
+  #readout .fill{height:100%; border-radius:4px; background:linear-gradient(90deg,#4a7f3a,#b8ec4c);}
+  #readout .fill.r{background:linear-gradient(90deg,#7a2f70,#cd35c4);}
+  #readout .tick{position:absolute; top:-2px; bottom:-2px; width:1px; background:#e8e8f0; opacity:.75;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  #panel{width:300px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:96px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:70px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match the live site's style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Gravity Force Lab</h1>
+  <span class="sub" id="sub">Newton&rsquo;s law of gravitation between two spheres you can drag: the pull is equal and opposite, proportional to each mass, and falls as the square of the distance between their centres</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities, colour helpers and h()  (projects/simulations/   *
+ *  diffraction.html, the PLAYBOOK scaffold cut; camera dropped)      *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI, DEG=Math.PI/180, RAD=180/Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+
+/* ================================================================== *
+ *  the 2-D plotting layer  (projects/simulations/build_buoy/          *
+ *  p1_utils.js: the copy carrying every Known-bad fix)               *
+ * ================================================================== */
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the inverse-square engine — PhET's INVERSE_SQUARE_LAW_COMMON,      *
+ *  rebuilt from its behaviour: two bodies on a line, a force          *
+ *  C v1 v2 / r^2, and the rule that keeps them apart.  Shared         *
+ *  verbatim by gravity-force-lab.html and coulombs-law.html           *
+ *  (source: build/gravity-force-lab/p2_engine.js).                    *
+ * ================================================================== */
+
+/* PhET's roundSymmetric: the nearest integer, halves away from zero.
+   Math.round alone sends -2.5 to -2, which would make the grid lopsided. */
+function symRound(y){ return y<0?-Math.round(-y):Math.round(y); }
+
+/* A track T (built per screen): centres live on a grid of q metres; perM is
+   the grid count per metre (10, 1000 or 1e12 — an exact integer, so
+   i / perM is the double nearest the decimal position); counts iL..iR are
+   the ends of the track; sep is the surface gap PhET asks for; C is the
+   signed force constant — C > 0 pushes like values apart (Coulomb's k),
+   C < 0 pulls them together (-G for masses). */
+function posOf(T,i){ return i/T.perM; }
+
+/* The fewest grid steps two centres may be apart.  PhET snaps r1 + r2 + sep
+   to the grid, summed in that order: a sum a hair under a half step rounds
+   DOWN (Coulomb's macro screen: 6.75 + 6.75 + 1 mm = 14.4999... mm -> 14). */
+function minSteps(T,r1,r2){ return symRound((r1+r2+T.sep)/T.q); }
+
+/* After a body grows into its neighbour.  k is the body whose size changed
+   LAST: its neighbour is pushed aside, unless the neighbour is against the
+   end of the track, in which case the grown body moves instead (PhET's
+   ISLCModel.step; its two-frame resolution collapses to this one call).
+   Returns the new pair of counts. */
+function settlePair(i1,i2,n,iL,iR,k){
+  if(i2-i1>=n) return [i1,i2];
+  if(k===1){ if(i2<iR) i2=Math.min(i1+n,iR); if(i2-i1<n) i1=i2-n; }
+  else     { if(i1>iL) i1=Math.max(i2-n,iL); if(i2-i1<n) i2=i1+n; }
+  return [i1,i2];
+}
+
+/* A drag of body k to x (metres): snapped to the grid, held inside the track
+   and clear of the other body.  The bounds are grid counts, so clamping and
+   snapping commute (PhET clamps first; the result is the same). */
+function dragSteps(T,k,x,i1,i2,n){
+  const i=symRound(x*T.perM);
+  return k===1?clamp(i,T.iL,i2-n):clamp(i,i1+n,T.iR);
+}
+
+/* The force ON body `on` along +x: C v1 v2 (x_on - x_other) / |x_on - x_other|^3.
+   Each body's force is computed from its own geometry, so Newton's third law
+   (F_on1 = -F_on2) is an output the tests check, not an assumption. */
+function forceOn(C,v1,v2,x1,x2,on){
+  const d=on===1?x1-x2:x2-x1;
+  return C*v1*v2*d/(Math.abs(d)*d*d);
+}
+function forceMag(C,v1,v2,r){ return Math.abs(C*v1*v2)/(r*r); }
+
+/* PhET's two readout formats.  Decimal: `places` decimals with the digits
+   after the point grouped in threes.  Scientific: a two-decimal mantissa and
+   a power of ten (none when the exponent is 0).  A zero force stays decimal
+   in either mode, as PhET's does. */
+const SUPS={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+function supText(n){ return String(n).replace(/[-0-9]/g,c=>SUPS[c]); }
+function decGrouped(x,places){
+  const s=Number(x).toFixed(places), i=s.indexOf('.');
+  if(i<0) return s;
+  let out=s.slice(0,i+4);
+  for(let j=i+4;j<s.length;j+=3) out+=' '+s.slice(j,j+3);
+  return out;
+}
+function sciText(x,digits){
+  const s=Number(x).toExponential(digits), k=s.indexOf('e'), ex=parseInt(s.slice(k+1),10);
+  return ex===0?s.slice(0,k):s.slice(0,k)+' × 10'+supText(ex);
+}
+function forceValueText(F,mode,places){
+  const a=Math.abs(F);
+  return (mode==='sci'&&a!==0)?sciText(a,2):decGrouped(a,places);
+}
+/* the label PhET prints over each arrow */
+function forceLabel(me,other,F,mode,places){
+  return 'Force on '+me+' by '+other+(mode==='hid'?'':' = '+forceValueText(F,mode,places)+' N');
+}
+/* the same number for the HTML readout, significant figures and a real
+   superscript (sigf's ×10^ form is for the canvas-free fallbacks) */
+function sciHTML(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  const a=Math.abs(x);
+  if(a>=1e-3&&a<1e5) return sigf(x,n);
+  const s=x.toExponential(n-1), k=s.indexOf('e');
+  return s.slice(0,k)+' &times; 10<sup>'+parseInt(s.slice(k+1),10)+'</sup>';
+}
+/* ...and for canvas text (no markup: Unicode superscripts) */
+function sciPlain(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  const a=Math.abs(x);
+  if(a>=1e-3&&a<1e5) return sigf(x,n);
+  const s=x.toExponential(n-1), k=s.indexOf('e');
+  return s.slice(0,k)+' × 10'+supText(parseInt(s.slice(k+1),10));
+}
+
+/* The force-arrow scale: a 1-2-5 ladder.  Step k is
+   [1,2,5][k mod 3] x 10^(floor(k/3) + e0) newtons per display unit of arrow. */
+function arrowStep(k,e0){ return [1,2,5][((k%3)+3)%3]*Math.pow(10,Math.floor(k/3)+e0); }
+
+/* The inverse-square view's samples, all through forceMag (never a closed form
+   of the answer), so a wrong exponent shows as an F r^2 that is not flat:
+   a log-spaced sweep over [lo, hi], a linear one over the distances the track
+   can hold [dmin, rTrack], the log-log slope measured at the live distance by
+   a central difference, and the inverse-cube comparison through the live point. */
+function invSample(C,v1,v2,r,rTouch,dmin,rTrack){
+  const lo=0.5*rTouch, hi=2*rTrack, n=120, rs=[], Fs=[];
+  for(let i=0;i<=n;i++){ const x=lo*Math.pow(hi/lo,i/n); rs.push(x); Fs.push(forceMag(C,v1,v2,x)); }
+  const lin={rs:[],Fs:[],Fr2:[],F3r2:[]}, Fnow=forceMag(C,v1,v2,r);
+  for(let i=0;i<=100;i++){ const x=dmin+(rTrack-dmin)*i/100, F=forceMag(C,v1,v2,x);
+    lin.rs.push(x); lin.Fs.push(F); lin.Fr2.push(F*x*x); lin.F3r2.push(Fnow*r*r*r/x); }
+  const e=1e-3, slope=(Math.log(forceMag(C,v1,v2,r*(1+e)))-Math.log(forceMag(C,v1,v2,r*(1-e))))/(Math.log(1+e)-Math.log(1-e));
+  return {lo,hi,rs,Fs,lin,rTouch,dmin,rTrack,slope,Fnow,F2r:forceMag(C,v1,v2,2*r),
+          Fnear:forceMag(C,v1,v2,dmin),Ffar:forceMag(C,v1,v2,rTrack),prod:Math.abs(C*v1*v2)};
+}
+
+/* the radius of a uniform sphere of mass m and density rho */
+function scaledRadius(m,rho){ return Math.pow(3*m/rho/(4*PI),1/3); }
+
+/* ================================================================== *
+ *  gravity: CODATA's G, PhET's spheres and track, the free fall       *
+ * ================================================================== */
+const G_N=6.6743e-11;          /* m^3 kg^-1 s^-2, CODATA 2022 (scipy.constants 1.18, derive.py) */
+const G_PHET=6.67408e-11;      /* PhET's value (PHET_CORE/PhysicalConstants, CODATA 2014) */
+const RHO_S=150;               /* PhET's value: sphere density for the mass-scaled size, kg/m^3 */
+const R_CONST=0.5;             /* PhET's value: the radius in "constant size", m */
+const M_MIN=10, M_MAX=1000, M_STEP=10;   /* PhET's mass range and its 10-kg slider rounding */
+/* PhET's track: centres within +-5 m on a 0.1-m grid, surfaces 0.1 m apart.
+   C = -G: like "charges" (masses) attract. */
+const TRACK={q:0.1, perM:10, iL:-50, iR:50, sep:0.1, C:-G_N};
+function sphereRadius(m,cs){ return cs?R_CONST:scaledRadius(m,RHO_S); }
+function pairSteps(m1,m2,cs){ return minSteps(TRACK,sphereRadius(m1,cs),sphereRadius(m2,cs)); }
+/* the strongest pull two equal masses m can reach: centres pairSteps apart */
+function fmaxEqual(m,cs){ return forceMag(TRACK.C,m,m,pairSteps(m,m,cs)/TRACK.perM); }
+
+/* ---- let them go: the radial two-body free fall from rest ---------------
+   Released at separation r0, the separation obeys r'' = -G(m1+m2)/r^2 and
+   energy gives the closing speed r' = -sqrt(2GM (1/r - 1/r0)).  From rest,
+      t(r) = sqrt(r0^3 / 2GM) [ sqrt(x(1-x)) + asin sqrt(1-x) ],  x = r/r0.
+   The asin form, not the textbook acos sqrt(x): near release x -> 1 and acos
+   of a number near 1 loses half its digits.  1 - x is formed as (r0-r)/r0,
+   exact for r within a factor of two of r0 (Sterbenz), never as 1 - r/r0. */
+function fallTime(r,r0,GM){
+  const x=r/r0, u=(r0-r)/r0;
+  return Math.sqrt(r0*r0*r0/(2*GM))*(Math.sqrt(x*u)+Math.asin(Math.sqrt(u)));
+}
+/* the inverse r(t) by bisection on [rc, r0]: t(r) falls monotonically to 0 at r0 */
+function fallR(t,r0,rc,GM){
+  let lo=rc, hi=r0;
+  for(let k=0;k<80;k++){ const m=0.5*(lo+hi); if(fallTime(m,r0,GM)>t) lo=m; else hi=m; }
+  return 0.5*(lo+hi);
+}
+/* a run lasts FALL_FRAMES frames whatever its real duration; the clock factor is printed */
+const FALL_FRAMES=600;
+function fallModel(m1,m2,x1,x2,cs){
+  const M=m1+m2, GM=G_N*M, r0=x2-x1, rc=sphereRadius(m1,cs)+sphereRadius(m2,cs);
+  const tau=Math.sqrt(r0*r0*r0/(2*GM)), tc=fallTime(rc,r0,GM);
+  return {m1,m2,M,GM,r0,rc,tau,tc,tff:PI/2*tau,xcm:(m1*x1+m2*x2)/M,x10:x1,x20:x2,clock:tc/(FALL_FRAMES/60)};
+}
+/* the state at time t: both bodies from the separation and the fixed centre of mass */
+function fallState(F,t){
+  const tt=clamp(t,0,F.tc);
+  const r=tt<=0?F.r0:(tt>=F.tc?F.rc:fallR(tt,F.r0,F.rc,F.GM));
+  const rdot=-Math.sqrt(Math.max(0,2*F.GM*(1/r-1/F.r0)));
+  const x1=F.xcm-F.m2/F.M*r, x2=F.xcm+F.m1/F.M*r;
+  return {t:tt,r,x1,x2,rdot,v1:-F.m2/F.M*rdot,v2:F.m1/F.M*rdot,
+          F1:forceOn(TRACK.C,F.m1,F.m2,x1,x2,1),F2:forceOn(TRACK.C,F.m1,F.m2,x1,x2,2)};
+}
+/* the clock: hours and minutes (rounded to the minute) past an hour, else
+   minutes and seconds (rounded to the second, so 59.6 s carries into 1 min) */
+function hms(t){
+  if(!isFinite(t)) return '—';
+  const T=Math.round(t);
+  if(T>=3600){ const Tm=Math.round(t/60), hh=Math.floor(Tm/60), mm=Tm-60*hh; return hh+' h '+(mm<10?'0':'')+mm+' min'; }
+  const mm=Math.floor(T/60), ss=T-60*mm;
+  return mm>0?mm+' min '+(ss<10?'0':'')+ss+' s':ss+' s';
+}
+
+/* ================================================================== *
+ *  state, actions, the per-view models, readout / eqbar / tag         *
+ * ================================================================== */
+const TABS=[['lab','the lab'],['inv','the inverse square'],['prod','the mass product'],['fall','let them go']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6', edge:'#242a3a',
+           text:'#cfd4de', bg:'#070b18', b1:'#7e9be6', b2:'#e07e74', ruler:'#c9b458', vel:'#cd35c4'};
+const RO_W=300;                       /* the floating readout's footprint (stageLayout reserves it) */
+const G0=9.80665;                     /* standard gravity, exact by definition — only for "the weight of" */
+const ARROW_E0=-10, ARROW_KMAX=17;    /* arrow scale ladder: 1e-10 ... 5e-5 N per metre of arrow */
+
+const DEFAULTS={view:'lab', m1:100, m2:400, i1:-30, i2:10, cs:false,      /* PhET's defaults */
+                fmode:'dec', arrowK:9, showDist:true, rulerI:-50, rulerY:null, running:true};
+const ST=Object.assign({},DEFAULTS);
+
+/* ---- the fall run: FALL_FRAMES frames from the lab's state at "release" ---- */
+const RUN={active:false, frame:0, F:null};
+function simReset(){ RUN.active=false; RUN.frame=0; RUN.F=null; }
+function startRun(st){
+  const L=labModel(st);
+  RUN.F=fallModel(st.m1,st.m2,L.x1,L.x2,st.cs); RUN.frame=0; RUN.active=true; return true;
+}
+function runStep(){
+  if(!RUN.active||RUN.frame>=FALL_FRAMES) return false;
+  RUN.frame++; return true;
+}
+
+/* ---- actions: every change goes through PhET's rules, and stops a run ----- */
+function setMass(st,k,m){
+  const v=clamp(Math.round(m/M_STEP)*M_STEP,M_MIN,M_MAX);
+  if(k===1) st.m1=v; else st.m2=v;
+  const n=pairSteps(st.m1,st.m2,st.cs), p=settlePair(st.i1,st.i2,n,TRACK.iL,TRACK.iR,k);
+  st.i1=p[0]; st.i2=p[1]; simReset();
+}
+/* the size mode changes both radii; PhET's radii update m1 first, so m2 is
+   the body that "changed last" and m1 is the one pushed aside */
+function setConstSize(st,cs){
+  st.cs=!!cs;
+  const n=pairSteps(st.m1,st.m2,st.cs), p=settlePair(st.i1,st.i2,n,TRACK.iL,TRACK.iR,2);
+  st.i1=p[0]; st.i2=p[1]; simReset();
+}
+function setPos(st,k,x){
+  const n=pairSteps(st.m1,st.m2,st.cs), i=dragSteps(TRACK,k,x,st.i1,st.i2,n);
+  if(k===1) st.i1=i; else st.i2=i;
+  simReset();
+}
+/* the ruler: its zero tick on the grid, anywhere from half a ruler left of the
+   track to its right end (PhET's bounds); y is free (null = home) */
+function setRuler(st,x0,y){
+  st.rulerI=clamp(symRound(x0*TRACK.perM),TRACK.iL-(TRACK.iR-TRACK.iL)/2,TRACK.iR);
+  if(y!==undefined) st.rulerY=y;
+}
+function rulerHome(st){ st.rulerI=TRACK.iL; st.rulerY=null; }
+function rulerToM1(st){ st.rulerI=st.i1; st.rulerY=0; }
+
+/* ---- the models -------------------------------------------------------------- */
+function labModel(st){
+  const r1=sphereRadius(st.m1,st.cs), r2=sphereRadius(st.m2,st.cs), n=pairSteps(st.m1,st.m2,st.cs);
+  const x1=posOf(TRACK,st.i1), x2=posOf(TRACK,st.i2), r=(st.i2-st.i1)/TRACK.perM;
+  const F1=forceOn(TRACK.C,st.m1,st.m2,x1,x2,1), F2=forceOn(TRACK.C,st.m1,st.m2,x1,x2,2);
+  const Fmag=forceMag(TRACK.C,st.m1,st.m2,r);
+  return {m1:st.m1,m2:st.m2,cs:st.cs,r1,r2,n,dmin:n/TRACK.perM,x1,x2,r,gap:r-r1-r2,F1,F2,Fmag,
+          Fr2:Fmag*r*r,Gm1m2:G_N*st.m1*st.m2,wtKg:Fmag/G0,Fphet:G_PHET*st.m1*st.m2/(r*r),
+          per:arrowStep(st.arrowK,ARROW_E0),
+          lab1:forceLabel('m₁','m₂',F1,st.fmode,12),lab2:forceLabel('m₂','m₁',F2,st.fmode,12)};
+}
+/* the inverse-square view: the engine's shared sampler over this track */
+function invModel(L){
+  return invSample(TRACK.C,L.m1,L.m2,L.r,L.r1+L.r2,L.dmin,(TRACK.iR-TRACK.iL)/TRACK.perM);
+}
+/* the mass-product view: contour levels at the live distance, the two lines,
+   and the strongest pull of two equal masses in each size mode */
+function prodModel(L){
+  const k=G_N/(L.r*L.r), levels=[];
+  const Flo=k*M_MIN*M_MIN, Fhi=k*M_MAX*M_MAX;
+  for(let e=Math.floor(Math.log10(Flo));e<=Math.ceil(Math.log10(Fhi));e++)
+    for(const c of [1,2,5]){ const F=c*Math.pow(10,e); if(F>Flo*1.0001&&F<Fhi*0.9999) levels.push(F); }
+  const ms=[], fsc=[], fcs=[];
+  for(let m=M_MIN;m<=M_MAX;m+=M_STEP){ ms.push(m); fsc.push(fmaxEqual(m,false)); fcs.push(fmaxEqual(m,true)); }
+  const slopeSc=Math.log10(fsc[fsc.length-1]/fsc[0])/Math.log10(M_MAX/M_MIN);
+  const slopeCs=Math.log10(fcs[fcs.length-1]/fcs[0])/Math.log10(M_MAX/M_MIN);
+  /* each contour m1 m2 = F / k, log-spaced in m1 where it lies inside [0, M_MAX]^2 */
+  const contours=levels.map(F=>{ const c=F/k, a=c/M_MAX, m1s=[], m2s=[];
+    for(let i=0;i<=80;i++){ const m1=a*Math.pow(M_MAX/a,i/80); m1s.push(m1); m2s.push(c/m1); }
+    return {F,c,m1s,m2s,decade:Math.abs(Math.log10(F)-Math.round(Math.log10(F)))<1e-9}; });
+  const live={c:L.m1*L.m2,m1s:[],m2s:[]};
+  for(let i=0;i<=80;i++){ const m1=live.c/M_MAX*Math.pow(M_MAX*M_MAX/live.c,i/80); live.m1s.push(m1); live.m2s.push(live.c/m1); }
+  /* the pairs on PhET's grid that could NOT sit this far apart in the current
+     size mode: for each m1, the lightest blocked m2 (null: none) */
+  const steps=Math.round(L.r*TRACK.perM), edge=[];
+  let nBlocked=0;
+  for(let m1=M_MIN;m1<=M_MAX;m1+=M_STEP){ let e=null;
+    for(let m2=M_MIN;m2<=M_MAX;m2+=M_STEP) if(pairSteps(m1,m2,L.cs)>steps){ e=m2; break; }
+    edge.push(e); if(e!==null) nBlocked+=(M_MAX-e)/M_STEP+1; }
+  return {k,levels,Flo,Fhi,ms,fsc,fcs,slopeSc,slopeCs,dFdm1:k*L.m2,dFdm2:k*L.m1,contours,live,edge,nBlocked,
+          FmaxHere:fmaxEqual(Math.max(L.m1,L.m2),L.cs)};
+}
+/* the fall's curves against time (they do not change during a run: memoised) */
+let FALL_MEMO={key:'',val:null};
+function fallCurves(F){
+  const key=[F.m1,F.m2,F.x10,F.x20,F.rc].join('|');
+  if(FALL_MEMO.key===key) return FALL_MEMO.val;
+  const ts=[], x1s=[], x2s=[], rs=[];
+  for(let i=0;i<=120;i++){ const s=fallState(F,F.tc*i/120); ts.push(s.t); x1s.push(s.x1); x2s.push(s.x2); rs.push(s.r); }
+  FALL_MEMO={key,val:{ts,x1s,x2s,rs}};
+  return FALL_MEMO.val;
+}
+/* the ladder step that draws a quantity q at no more than `room` display units */
+function ladderFor(q,room,e0){ let k=0; while(k<60&&q/arrowStep(k,e0)>room) k++; return arrowStep(k,e0); }
+
+function buildModel(){
+  const st=ST, L=labModel(st);
+  const M={view:st.view,st,L};
+  if(st.view==='inv') M.I=invModel(L);
+  if(st.view==='prod') M.P=prodModel(L);
+  if(st.view==='fall'){
+    M.Fa=RUN.active?RUN.F:fallModel(st.m1,st.m2,L.x1,L.x2,st.cs);
+    M.run=RUN.active;
+    M.fs=fallState(M.Fa,RUN.active?RUN.frame/FALL_FRAMES*M.Fa.tc:0);
+    M.done=RUN.active&&RUN.frame>=FALL_FRAMES;
+    M.Fc=fallCurves(M.Fa);
+    /* the fall's own arrow scales, fixed for the run so the arrows grow as the
+       spheres close: the contact force fits 4.5 m, the fastest speed 3 m */
+    const s1=fallState(M.Fa,M.Fa.tc);
+    M.perF=ladderFor(Math.abs(s1.F1),4.5,-12); M.perV=ladderFor(Math.max(Math.abs(s1.v1),Math.abs(s1.v2)),3,-9);
+  }
+  return M;
+}
+
+/* ---- the shared lab drawing reads a descriptor, not the state ---- */
+function sphereFill(k,m,cs){
+  const base=k===1?COL.b1:COL.b2;
+  return cs?mix(COL.bg,base,0.3+0.7*m/M_MAX):base;     /* constant size: the colour carries the mass */
+}
+function labSpec(M){
+  const L=M.L, st=M.st;
+  return {capFull:LAB_CAP_FULL,capShort:LAB_CAP_SHORT,xL:TRACK.iL/TRACK.perM,xR:TRACK.iR/TRACK.perM,
+    rmax:sphereRadius(M_MAX,false),pad:0.15,unit:'m',
+    bodies:[{x:L.x1,r:L.r1,fill:sphereFill(1,L.m1,st.cs),rim:COL.b1,name:'m₁',sub:fmt(L.m1,0)+' kg',sign:''},
+            {x:L.x2,r:L.r2,fill:sphereFill(2,L.m2,st.cs),rim:COL.b2,name:'m₂',sub:fmt(L.m2,0)+' kg',sign:''}],
+    F:[L.F1,L.F2],per:L.per,labels:[L.lab1,L.lab2],
+    arrowText:'force arrows: 1 m of arrow = '+sciPlain(L.per,1)+' N',
+    showDist:st.showDist,distText:'r = '+fmt(L.r,1)+' m between centres',
+    ruler:{x0:st.rulerI/TRACK.perM,y:st.rulerY,len:(TRACK.iR-TRACK.iL)/TRACK.perM,major:1,minorPer:5,
+           labels:['0','1','2','3','4','5','6','7','8','9','10'],unit:'metres'},
+    legend:{len:1,text:'1 m'},dimRow:true};
+}
+function invSpec(M){
+  const L=M.L, I=M.I;
+  return {I,r:L.r,F:L.Fmag,unit:'m',uPerM:1,pair:'m₁ = '+fmt(L.m1,0)+' kg, m₂ = '+fmt(L.m2,0)+' kg, attracting',
+          gapText:'PhET’s gap',capFull:INV_CAP_FULL,capShort:INV_CAP_SHORT,prodName:'G m₁m₂'};
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function fN(x){ return sciHTML(x,4)+' N'; }
+function readoutHTML(M){
+  const st=M.st, L=M.L;
+  let s='<div class="rname">gravity force lab<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  s+=hd('the spheres')+rrow('m<sub>1</sub>, m<sub>2</sub>',fmt(L.m1,0)+' kg, '+fmt(L.m2,0)+' kg')
+    +rrow(st.cs?'radii (constant size)':'radii at 150 kg/m&sup3;',sigf(L.r1,3)+' m, '+sigf(L.r2,3)+' m');
+  if(M.view==='lab'||M.view==='inv'||M.view==='prod'){
+    s+=hd('the distance')+rrow('between centres, r',fmt(L.r,1)+' m','good')+rrow('between surfaces',sigf(L.gap,3)+' m')
+      +rrow('closest PhET allows',fmt(L.dmin,1)+' m');
+    s+=hd('the force')+rrow('F = G m<sub>1</sub>m<sub>2</sub>/r<sup>2</sup>',fN(L.Fmag),'good')
+      +rrow('on m<sub>1</sub>, on m<sub>2</sub> (along +x)',sciHTML(L.F1,4)+', '+sciHTML(L.F2,4))
+      +rrow('F r<sup>2</sup> = G m<sub>1</sub>m<sub>2</sub>',sciHTML(L.Fr2,4)+' N m&sup2;')
+      +rrow('the weight of',sigf(L.wtKg*1e9,3)+' &micro;g on Earth');
+  }
+  if(M.view==='lab'){
+    s+=hd('the drawing')+rrow('arrow scale',sciHTML(L.per,1)+' N per metre')+rrow('ruler zero at',fmt(st.rulerI/TRACK.perM,1)+' m');
+  }
+  else if(M.view==='inv'){
+    const I=M.I;
+    s+=hd('the law')+rrow('F at 2r',fN(I.F2r))+rrow('F(r) / F(2r)',fmt(L.Fmag/I.F2r,6),'good')
+      +rrow('log-log slope at r',fmt(I.slope,6),'good')+rrow('reachable r',fmt(I.dmin,1)+' &ndash; '+fmt(I.rTrack,0)+' m')
+      +rrow('F there',sciHTML(I.Fnear,3)+' &ndash; '+sciHTML(I.Ffar,3)+' N');
+  }
+  else if(M.view==='prod'){
+    const P=M.P;
+    s+=hd('the product')+rrow('m<sub>1</sub>m<sub>2</sub>',sigf(L.m1*L.m2,4)+' kg&sup2;')+rrow('F per kg of m<sub>1</sub>',fN(P.dFdm1))
+      +rrow('F per kg of m<sub>2</sub>',fN(P.dFdm2))+rrow('strongest pull, two '+fmt(Math.max(L.m1,L.m2),0)+'-kg spheres',fN(P.FmaxHere));
+    s+=hd('equal masses, 10 &rarr; 1000 kg')+rrow('F<sub>max</sub> slope, constant size',fmt(P.slopeCs,3))+rrow('F<sub>max</sub> slope, real size',fmt(P.slopeSc,3),'good');
+  }
+  else {
+    const F=M.Fa, fs=M.fs;
+    s+=hd('released at r<sub>0</sub> = '+fmt(F.r0,1)+' m')+rrow('they touch at r = r<sub>1</sub> + r<sub>2</sub>',sigf(F.rc,4)+' m')
+      +rrow('after',hms(F.tc),'good')+rrow('closing speed then',sigf(Math.abs(fallState(F,F.tc).rdot)*1000,3)+' mm/s')
+      +rrow('centre of mass (fixed)',sigf(F.xcm,4)+' m')+rrow('clock',sigf(F.clock,3)+'&times; real time');
+    s+=hd(M.run?(M.done?'touching':'falling'):'not released')+rrow('t',hms(fs.t))+rrow('r',sigf(fs.r,5)+' m')
+      +rrow('v<sub>1</sub>, v<sub>2</sub>',sciHTML(fs.v1,3)+', '+sciHTML(fs.v2,3)+' m/s')
+      +rrow('m<sub>1</sub>v<sub>1</sub> + m<sub>2</sub>v<sub>2</sub>',sciHTML(F.m1*fs.v1+F.m2*fs.v2,2)+' kg m/s','good');
+  }
+  s+='</table><div class="note">G = 6.6743 &times; 10<sup>&minus;11</sup> m&sup3; kg<sup>&minus;1</sup> s<sup>&minus;2</sup> (CODATA 2022). '
+    +'PhET uses 6.67408 &times; 10<sup>&minus;11</sup> (CODATA 2014), so its readout here would say '+sciHTML(L.Fphet,6)+' N. '
+    +'Everything is pinned in selfTest to derive.py.</div>';
+  return s;
+}
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='lab') return E('<span class="hl">F = G m<sub>1</sub>m<sub>2</sub> / r<sup>2</sup></span> &nbsp;&middot;&nbsp; F<sub>on 1</sub> = &minus;F<sub>on 2</sub> &nbsp;&middot;&nbsp; G = 6.6743 &times; 10<sup>&minus;11</sup> m<sup>3</sup> kg<sup>&minus;1</sup> s<sup>&minus;2</sup>',
+    'Newton’s law of gravitation: each sphere pulls the other with the same force, along the line between their centres');
+  if(M.view==='inv') return E('F &prop; 1/r<sup>2</sup> &nbsp;&middot;&nbsp; log F = log(G m<sub>1</sub>m<sub>2</sub>) &minus; 2 log r &nbsp;&middot;&nbsp; <span class="hl">F r<sup>2</sup> = G m<sub>1</sub>m<sub>2</sub></span>',
+    'double the distance and the force falls to a quarter: on log–log axes the law is a straight line of slope −2');
+  if(M.view==='prod') return E('<span class="hl">F = (G / r<sup>2</sup>) m<sub>1</sub> m<sub>2</sub></span> &nbsp;&middot;&nbsp; F<sub>max</sub>(m) = G m<sup>2</sup> / d<sub>min</sub>(m)<sup>2</sup>, &nbsp; d<sub>min</sub> &asymp; 2(3m/4&pi;&rho;)<sup>1/3</sup>',
+    'the force is proportional to each mass: every hyperbola m₁m₂ = const is one force — and heavier spheres are bigger, so they cannot get as close');
+  return E('r&Prime; = &minus;G(m<sub>1</sub>+m<sub>2</sub>)/r<sup>2</sup> &nbsp;&middot;&nbsp; <span class="hl">t = &radic;(r<sub>0</sub><sup>3</sup>/2GM) [&radic;(x(1&minus;x)) + asin &radic;(1&minus;x)]</span>, &nbsp;x = r/r<sub>0</sub> &nbsp;&middot;&nbsp; m<sub>1</sub>v<sub>1</sub> + m<sub>2</sub>v<sub>2</sub> = 0',
+    'released from rest the spheres fall together; the centre of mass never moves, so the lighter one covers more of the gap');
+}
+function tagHTML(M){
+  const L=M.L;
+  const base=' — m₁ '+fmt(L.m1,0)+' kg, m₂ '+fmt(L.m2,0)+' kg, r = '+fmt(L.r,1)+' m';
+  if(M.view==='fall') return '<b>let them go</b>'+base+(M.run?(M.done?', touching':', falling'):'');
+  return '<b>'+TABS.find(t=>t[0]===M.view)[1]+'</b>'+base+(M.L.cs?', constant size':'');
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views  (projects/simulations/       *
+ *  build_buoy/p4_views.js, lineage build_cycloid; unchanged)         *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  the lab (shared by both sims): the track, the bodies, the force    *
+ *  arrows, the distance line, the ruler, the scale row.  Everything   *
+ *  it draws comes from a descriptor LS built per sim, so the drawing  *
+ *  never reads the state (source: build/gravity-force-lab/p4_lab.js)  *
+ * ================================================================== */
+const LAB_ROW=38, RULER_H=34, RULER_INSET=8, NOTE_LH=13;
+/* The house #hint (HTML: left 14 px, bottom 11 px, 11-px text) sits exactly on
+   the last line of a caption that stageLayout anchors to the canvas bottom
+   (capY = H - 12 - 14 lines), and the display-list capture cannot see it
+   because the hint is not canvas.  Every view here lays out to H - HINT_H, and
+   the layout sweep asserts no canvas text enters the hint's corner
+   (phets_revised Known-bad candidate from wave-on-a-string). */
+const HINT_H=18;
+function stageLayoutH(ctx,W,H,capFull,capShort,nB,frac,nBN){ return stageLayout(ctx,W,H-HINT_H,capFull,capShort,nB,frac,nBN); }
+/* the scale row's note at its longest (both warnings on), so the layout can
+   reserve its lines before knowing which arrows are clipped */
+function labNote(LS,clipped,tiny){
+  let s=LS.legend.text+' (drawn to scale)   ·   '+LS.arrowText;
+  if(clipped) s+='   ·   ≫ an arrow runs off the stage';
+  if(tiny) s+='   ·   an arrow under a pixel is a tick';
+  if(LS.legend.note) s+='   ·   '+LS.legend.note;
+  return s;
+}
+function labGeo(ctx,W,H,LS,Lin){
+  const L=Lin||stageLayoutH(ctx,W,H,LS.capFull,LS.capShort,0,0,0);
+  const b=L.main, xa=LS.xL-LS.rmax-LS.pad, xb=LS.xR+LS.rmax+LS.pad, sW=b.w/(xb-xa);
+  /* the note starts after the scale bar, whose longest is at the width-limited
+     scale: wrap to what is left then, so the lines reserved are never too few */
+  const noteW=Math.max(120,b.w-LS.legend.len*sW-12);
+  const noteLines=wrapText(ctx,labNote(LS,true,true),noteW,SM_FONT).length, scaleH=NOTE_LH*noteLines+8;
+  /* px that do not scale with the world: two arrow rows, the distance row (or
+     the name labels alone), a view's extra row, the ruler at home, the note */
+  const FX=(2*LAB_ROW+10)+(LS.dimRow?54:22)+(LS.extra||0)+(LS.ruler?RULER_H+6:0)+scaleH;
+  const s=Math.min(sW,Math.max(1,(b.h-FX)/(2*LS.rmax)));
+  const ox=b.x+(b.w-(xb-xa)*s)/2-xa*s;
+  /* spare height: the band sits a third of the way down, not glued to the top */
+  const off=Math.max(0,(b.h-FX-2*LS.rmax*s)*0.33);
+  const top=b.y+off;
+  /* below the largest sphere: its name (to +16), the distance line at +28, its
+     label (to +49), and the ruler's home tick edge at +54 */
+  const yT=top+2*LAB_ROW+10+LS.rmax*s, yBot=yT+LS.rmax*s, yDim=yBot+28;
+  const X=x=>ox+x*s, Y=y=>yT-y*s;
+  let ruler=null;
+  if(LS.ruler){
+    const R=LS.ruler, home=(LS.dimRow?yDim+26:yBot+20);
+    const ryLo=yT-LS.rmax*s, ryHi=Math.max(ryLo,b.y1-scaleH-RULER_H-6);
+    const ry=clamp((R.y===null||R.y===undefined)?home:Y(R.y),ryLo,ryHi);
+    ruler={x0:X(R.x0)-RULER_INSET,x1:X(R.x0+R.len)+RULER_INSET,y0:ry,y1:ry+RULER_H,home,ryLo,ryHi};
+  }
+  return {L,b,s,ox,yT,yBot,yDim,X,Y,wx:X2=>(X2-ox)/s,wy:Y2=>(yT-Y2)/s,noteW,noteLines,
+          rows:[{lab:top+LAB_ROW+10,arrow:top+LAB_ROW+28},{lab:top+10,arrow:top+28}],ruler,yScale:b.y1-8};
+}
+/* a force arrow on a row: length |F| / per display units; returns what was drawn */
+function labArrow(ctx,G,xc,F,per,yRow,col){
+  const lenPx=Math.abs(F)/per*G.s, dir=F>0?1:-1, X0=G.X(xc);
+  const room=dir>0?G.b.x1-4-X0:X0-(G.b.x+4);
+  const clipped=lenPx>room, Lp=Math.max(0,Math.min(lenPx,room));
+  if(F===0||Lp<1.5){
+    ctx.strokeStyle=col; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(X0,yRow-4); ctx.lineTo(X0,yRow+4); ctx.stroke();
+    return {lenPx,clipped:false,tiny:F!==0,Lp,dir,X0};
+  }
+  const hl=Math.min(11,Lp*0.45), hw=Math.min(7,Math.max(3,hl*0.6)), sw=2.2, X1=X0+dir*Lp;
+  ctx.beginPath();
+  ctx.moveTo(X0,yRow-sw/2); ctx.lineTo(X1-dir*hl,yRow-sw/2); ctx.lineTo(X1-dir*hl,yRow-hw);
+  ctx.lineTo(X1,yRow); ctx.lineTo(X1-dir*hl,yRow+hw); ctx.lineTo(X1-dir*hl,yRow+sw/2); ctx.lineTo(X0,yRow+sw/2); ctx.closePath();
+  ctx.fillStyle=col; ctx.fill();
+  POLY_SEGS.push(X0,yRow,X1,yRow);
+  if(clipped){      /* it runs off the stage: an orange double chevron where it is cut */
+    ctx.strokeStyle=COL.ref; ctx.lineWidth=1.6;
+    for(const o of [0,6]){ ctx.beginPath(); ctx.moveTo(X1-dir*(o+10),yRow-7); ctx.lineTo(X1-dir*(o+4),yRow); ctx.lineTo(X1-dir*(o+10),yRow+7); ctx.stroke(); }
+  }
+  return {lenPx,clipped,tiny:false,Lp,dir,X0};
+}
+/* a body: filled disc, a lighter rim, a highlight, and the centre dot PhET
+   marks (or, for a charge, its sign) */
+function labBody(ctx,G,bd){
+  const X=G.X(bd.x), Y=G.yT, R=Math.max(1.5,bd.r*G.s);
+  ctx.beginPath(); ctx.arc(X,Y,R,0,TAU); ctx.fillStyle=bd.fill; ctx.fill();
+  ctx.strokeStyle=bd.rim; ctx.lineWidth=1.2; ctx.stroke();
+  if(R>6){ ctx.beginPath(); ctx.arc(X-0.32*R,Y-0.32*R,0.28*R,0,TAU); ctx.fillStyle=mix(bd.fill,'#ffffff',0.35); ctx.fill(); }
+  /* a charge's sign is a symbol, stroked rather than typeset: as text it would
+     be a label the ruler's numbers collide with when the ruler lies across it */
+  if(bd.sign&&R>7){ const a=Math.min(10,R*0.4);
+    ctx.strokeStyle='#ffffff'; ctx.lineWidth=clamp(R*0.07,1.5,3.2); ctx.beginPath(); ctx.moveTo(X-a,Y); ctx.lineTo(X+a,Y);
+    if(bd.sign==='+'){ ctx.moveTo(X,Y-a); ctx.lineTo(X,Y+a); } ctx.stroke(); }
+  else if(!bd.sign){ ctx.beginPath(); ctx.arc(X,Y,2,0,TAU); ctx.fillStyle='#0b0e16'; ctx.fill(); }
+}
+/* the ruler: a translucent strip, tick edge on top, drawn over the bodies and
+   cut at the stage box (a ruler slid past the track would otherwise run under
+   the floating readout).  Its numbers go in the label registry, so the names
+   drawn after it step around them. */
+function labRuler(ctx,W,H,G,LS){
+  const R=LS.ruler, g=G.ruler, b=G.b;
+  const x0=Math.max(g.x0,b.x-RULER_INSET), x1=Math.min(g.x1,b.x1);
+  if(x1-x0<4) return;
+  ctx.fillStyle=rgba(COL.ruler,0.22); ctx.fillRect(x0,g.y0,x1-x0,RULER_H);
+  ctx.strokeStyle=rgba(COL.ruler,0.85); ctx.lineWidth=1; ctx.strokeRect(x0,g.y0,x1-x0,RULER_H);
+  const nMaj=Math.round(R.len/R.major);
+  ctx.strokeStyle=rgba('#f2e7a8',0.9); ctx.lineWidth=1;
+  ctx.beginPath();
+  for(let i=0;i<=nMaj;i++) for(let j=0;j<R.minorPer&&(j===0||i<nMaj);j++){
+    const X=G.X(R.x0+(i+j/R.minorPer)*R.major), len=j===0?10:5;
+    if(X<x0||X>x1) continue;
+    ctx.moveTo(X,g.y0); ctx.lineTo(X,g.y0+len);
+  }
+  ctx.stroke();
+  /* numbers under the major ticks (rows 11-21 px), the unit on a row of its own (22-32 px) */
+  ctx.fillStyle='#efe6b4'; ctx.font='10px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  const step=(G.s*R.major<16)?2:1;              /* thin the numbers when the ticks crowd */
+  for(let i=0;i<=nMaj;i+=step){ const X=G.X(R.x0+i*R.major), w=R.labels[i].length*5.2;
+    if(X-w/2<x0||X+w/2>x1) continue;
+    ctx.fillText(R.labels[i],X,g.y0+11); LABELS.push([X-w/2,g.y0+11,X+w/2,g.y0+22.5]); }
+  ctx.textAlign='right'; ctx.fillStyle=rgba('#efe6b4',0.75);
+  const ux=x1-4, uw=R.unit.length*5.2;
+  if(ux-x0>uw+30){ ctx.fillText(R.unit,ux,g.y0+22); LABELS.push([ux-uw,g.y0+22,ux,g.y0+33.5]); }
+}
+function drawLab(ctx,W,H,LS,Lin){
+  const G=labGeo(ctx,W,H,LS,Lin), b=G.b;
+  /* the track: the centre line and its two ends */
+  const XL=G.X(LS.xL), XR=G.X(LS.xR);
+  ctx.strokeStyle=rgba(COL.struct,0.35); ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(XL,G.yT); ctx.lineTo(XR,G.yT); ctx.stroke();
+  ctx.strokeStyle=rgba(COL.struct,0.6); ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(XL,G.yT-9); ctx.lineTo(XL,G.yT+9); ctx.moveTo(XR,G.yT-9); ctx.lineTo(XR,G.yT+9); ctx.stroke();
+  POLY_SEGS.push(XL,G.yT,XR,G.yT);
+  if(LS.under) LS.under(ctx,G);                  /* anything a view paints under the bodies */
+  /* dashed guides from each body up to its arrow row (PhET's marker lines) */
+  LS.bodies.forEach((bd,k)=>{
+    const X=G.X(bd.x), row=G.rows[k];
+    ctx.strokeStyle=rgba(bd.rim,0.55); ctx.lineWidth=1; ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(X,G.yT-Math.max(1.5,bd.r*G.s)-2); ctx.lineTo(X,row.arrow+6); ctx.stroke(); ctx.setLineDash([]);
+  });
+  /* the arrows first, then their labels, so the labels sit on top */
+  const arr=LS.bodies.map((bd,k)=>labArrow(ctx,G,bd.x,LS.F[k],LS.per,G.rows[k].arrow,COL.pos));
+  LS.bodies.forEach((bd,k)=>{
+    const t=plain(LS.labels[k]), w=t.length*11*0.52;
+    const X=clamp(G.X(bd.x),b.x+w/2+2,b.x1-w/2-2);
+    lab(ctx,W,H,X,G.rows[k].lab,t,'#e4e8f0',LAB_FONT,'center');
+  });
+  /* the bodies, the ruler over them, then the names, which step around the ruler's numbers */
+  LS.bodies.forEach(bd=>labBody(ctx,G,bd));
+  if(LS.over) LS.over(ctx,G);                    /* anything a view paints over the bodies */
+  if(LS.ruler) labRuler(ctx,W,H,G,LS);
+  LS.bodies.forEach(bd=>lab(ctx,W,H,G.X(bd.x),G.yT+Math.max(1.5,bd.r*G.s)+10,bd.name+'  '+bd.sub,'#aeb6c6',SM_FONT,'center'));
+  /* the distance between centres */
+  if(LS.showDist&&LS.dimRow){
+    const X1=G.X(LS.bodies[0].x), X2=G.X(LS.bodies[1].x), y=G.yDim;
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.2;
+    ctx.beginPath(); ctx.moveTo(X1,y); ctx.lineTo(X2,y); ctx.moveTo(X1,y-5); ctx.lineTo(X1,y+5); ctx.moveTo(X2,y-5); ctx.lineTo(X2,y+5); ctx.stroke();
+    POLY_SEGS.push(X1,y,X2,y);
+    lab(ctx,W,H,(X1+X2)/2,y+9,LS.distText,COL.struct,SM_FONT,'center','top');
+  }
+  /* the scale row: a scale bar, the arrow scale, and anything an arrow could not
+     show — wrapped to the width the layout reserved lines for */
+  const yS=G.yScale, Lb=LS.legend.len*G.s, x0=b.x;
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1.4;
+  ctx.beginPath(); ctx.moveTo(x0,yS); ctx.lineTo(x0+Lb,yS); ctx.moveTo(x0,yS-4); ctx.lineTo(x0,yS+4); ctx.moveTo(x0+Lb,yS-4); ctx.lineTo(x0+Lb,yS+4); ctx.stroke();
+  const lines=wrapText(ctx,labNote(LS,arr.some(a=>a.clipped),arr.some(a=>a.tiny)),G.noteW,SM_FONT);
+  ctx.fillStyle='#8b93a6'; ctx.font=SM_FONT; ctx.textAlign='left'; ctx.textBaseline='middle';
+  lines.forEach((ln,i)=>ctx.fillText(ln,x0+Lb+10,yS-(lines.length-1-i)*NOTE_LH));
+  drawCaption(ctx,G.L);
+  return {G,arr};
+}
+/* what the pointer is over, topmost first: the ruler (drawn last), then a body */
+function labHit(G,LS,x,y){
+  const g=G.ruler;
+  if(g&&x>=Math.max(g.x0,G.b.x-RULER_INSET)&&x<=Math.min(g.x1,G.b.x1)&&y>=g.y0&&y<=g.y1) return 'ruler';
+  let best=null, bd=1e9;
+  LS.bodies.forEach((b2,k)=>{ const d=Math.hypot(x-G.X(b2.x),y-G.yT), R=Math.max(8,b2.r*G.s)+4;
+    if(d<=R&&d<bd){ bd=d; best=k+1; } });
+  return best;
+}
+
+/* ================================================================== *
+ *  plot helpers shared by the analysis views                         *
+ * ================================================================== */
+function ticks125(lo,hi){
+  const out=[]; if(!(lo>0)||!(hi>0)) return out;
+  for(let e=Math.floor(Math.log10(lo))-1;e<=Math.ceil(Math.log10(hi));e++)
+    for(const c of [1,2,5]){ const v=c*Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+/* a tick number as its value reads, no padding zeros ("2", "0.5", not "2.00",
+   "0.50") and a true minus sign */
+function tickNum(v){ if(Math.abs(v)<1e-12) return '0'; return String(+v.toPrecision(3)).replace('-','−'); }
+function powLabel(v){           /* a tick value from a log axis: 10ⁿ, or c×10ⁿ */
+  const e=Math.floor(v+1e-9), c=Math.round(Math.pow(10,v-e));
+  if(e>=-2&&e<=3) return tickNum(c*Math.pow(10,e));
+  return (c===1?'':c+'×')+'10'+supText(e);
+}
+/* decades, or 1-2-5 when the span is short — unless the 1-to-2 step would be
+   under 14 px on this panel, where the labels would stack (hpx: its height) */
+function logYTicks(lo,hi,hpx){
+  const d=logTicks(lo,hi);
+  if(d.length>=3) return d.map(Math.log10);
+  const t=ticks125(lo,hi);
+  if(hpx&&hpx*Math.log10(2)/Math.log10(hi/lo)<14) return (d.length>=2?d:t.filter((v,i)=>i%3===0)).map(Math.log10);
+  return t.map(Math.log10);
+}
+/* a linear axis in units of 10^p, so its tick labels stay short enough to
+   clear the rotated axis title 40 px left of the frame */
+function powAxis(hi,name,unit){
+  const p=Math.floor(Math.log10(hi)+1e-9), d=Math.pow(10,p);
+  return {fmt:v=>tickNum(v/d),lab:name+', '+(p===0?'':'10'+supText(p)+' ')+unit,p,d};
+}
+/* a label held inside a plot frame b (lab() alone only keeps it on the canvas,
+   and a label that slides past the frame lands in the tick-label column) */
+function labIn(ctx,W,H,b,x,y,txt,col,align,base){
+  const w=plain(txt).length*10.5*0.52, fh=10.5*1.15, bl=base||'middle';
+  const lo=align==='right'?b.x+2+w:(align==='center'?b.x+2+w/2:b.x+2);
+  const hi=align==='right'?b.x1-2:(align==='center'?b.x1-2-w/2:b.x1-2-w);
+  const ylo=bl==='top'?b.y+2:(bl==='bottom'?b.y+2+fh:b.y+2+fh/2);
+  const yhi=bl==='top'?b.y1-2-fh:(bl==='bottom'?b.y1-2:b.y1-2-fh/2);
+  return lab(ctx,W,H,clamp(x,lo,Math.max(lo,hi)),clamp(y,ylo,Math.max(ylo,yhi)),txt,col,SM_FONT,align,base);
+}
+/* fewer y ticks on a short panel, or their labels stack into each other */
+function nyFor(h){ return h<90?2:(h<140?3:4); }
+/* axesR, plus every tick label and both axis titles in the label registry:
+   axes() registers nothing, so a label that lab() dodges out of its first
+   spot can land on a tick number it cannot see (the standard_model trap,
+   "axesT registers ticks") */
+function axesT(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axesR(ctx,b,xlo,xhi,ylo,yhi,opt);
+  const o=opt||{}, fs=10.5, fh=fs*1.15;
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  for(const t of xt){ const X=b.x+b.w*(t-xlo)/(xhi-xlo||1); if(X<b.x-0.5||X>b.x1+0.5) continue;
+    const w=plain(o.xfmt?o.xfmt(t):fmt(t,2)).length*fs*0.52; LABELS.push([X-w/2,b.y1+5,X+w/2,b.y1+5+fh]); }
+  for(const t of yt){ const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1); if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    const w=plain(o.yfmt?o.yfmt(t):fmt(t,2)).length*fs*0.52; LABELS.push([b.x-6-w,Y-fh/2,b.x-6,Y+fh/2]); }
+  if(o.xlab){ const w=plain(o.xlab).length*11*0.52; LABELS.push([b.x+b.w/2-w/2,b.y1+21,b.x+b.w/2+w/2,b.y1+21+11*1.15]); }
+  if(o.ylab){ const w=plain(o.ylab).length*11*0.52; LABELS.push([b.x-40-11*1.15,b.y+b.h/2-w/2,b.x-40,b.y+b.h/2+w/2]); }
+}
+/* a label beside a point, on whichever side keeps it inside the frame */
+function labBeside(ctx,W,H,b,x,y,txt,col,base){
+  const w=plain(txt).length*10.5*0.52;
+  if(x+10+w<=b.x1-2) return labIn(ctx,W,H,b,x+10,y,txt,col,'left',base);
+  return labIn(ctx,W,H,b,x-10,y,txt,col,'right',base);
+}
+/* the lower panels of a plot view: both on a wide stage, the second alone on
+   a narrow one (stageLayout keeps one bottom row there, so the main plot's
+   axis labels keep their room above it) */
+function lowerPanels(Lo){ return Lo.bottom.length===2?Lo.bottom:[null,Lo.bottom[0]||null]; }
+
+/* ================================================================== *
+ *  the inverse square (shared): F against r on log-log axes, on       *
+ *  linear axes, and F r^2 — flat at the law's constant                *
+ * ================================================================== */
+const INV_BAND={over:'rgba(232,132,58,0.20)',gap:'rgba(232,132,58,0.09)',off:'rgba(139,147,166,0.10)'};
+function drawInverse(ctx,W,H,IV){
+  const I=IV.I, u=IV.uPerM, un=IV.unit, r=IV.r*u, F=IV.F;
+  /* a zero charge: no force at any distance, and no line to put on log axes —
+     say so, rather than let log10(0) = -Infinity reach the axis range */
+  if(!(I.prod>0)){
+    const L0=stageLayoutH(ctx,W,H,IV.capFull,IV.capShort,0,0,0), b0=L0.main;
+    lab(ctx,W,H,b0.x+b0.w/2,b0.y+b0.h*0.4,'One charge is zero: there is no force at any distance, so there is no line to draw.',COL.ref,LAB_FONT,'center');
+    lab(ctx,W,H,b0.x+b0.w/2,b0.y+b0.h*0.4+22,'Give both charges a value to see the inverse square.',COL.dim,SM_FONT,'center');
+    drawCaption(ctx,L0); return;
+  }
+  const Lo=stageLayoutH(ctx,W,H,IV.capFull,IV.capShort,2,0.36,1);
+  const b=Lo.main;
+  /* ---- log-log over [rTouch/2, 2 rTrack] ---- */
+  const xlo=I.lo*u, xhi=I.hi*u, Fmin=I.Fs[I.Fs.length-1], Fmax=I.Fs[0];
+  const X0=Math.log10(xlo), X1=Math.log10(xhi), Y0=Math.log10(Fmin)-0.15, Y1=Math.log10(Fmax)+0.15;
+  const px=x=>b.x+b.w*(Math.log10(x)-X0)/(X1-X0), py=f=>b.y1-b.h*(Math.log10(f)-Y0)/(Y1-Y0);
+  const band=(a,c,col)=>{ const A=clamp(px(a),b.x,b.x1), C=clamp(px(c),b.x,b.x1); if(C>A){ ctx.fillStyle=col; ctx.fillRect(A,b.y,C-A,b.h); } return [A,C]; };
+  const bOver=band(xlo,I.rTouch*u,INV_BAND.over), bGap=band(I.rTouch*u,I.dmin*u,INV_BAND.gap), bOff=band(I.rTrack*u,xhi,INV_BAND.off);
+  axesT(ctx,b,X0,X1,Y0,Y1,{title:titleFor(b,'the force against the distance between centres, log–log: a straight line of slope −2','F against r, log–log'),
+    xlab:'distance between centres r, '+un,ylab:'F, N',xticks:ticks125(xlo,xhi).map(Math.log10),yticks:logYTicks(Math.pow(10,Y0),Math.pow(10,Y1),b.h),
+    xfmt:powLabel,yfmt:powLabel});
+  const lx=[], ly=[], rx=[], ry=[];
+  for(let i=0;i<I.rs.length;i++){ const lg=Math.log10(I.rs[i]*u), lf=Math.log10(I.Fs[i]);
+    lx.push(lg); ly.push(lf); if(I.rs[i]>=I.dmin*(1-1e-12)&&I.rs[i]<=I.rTrack*(1+1e-12)){ rx.push(lg); ry.push(lf); } }
+  polyline(ctx,b,lx,ly,X0,X1,Y0,Y1,rgba(COL.pos,0.55),1.3,[5,4]);
+  polyline(ctx,b,rx,ry,X0,X1,Y0,Y1,COL.pos,2.2);
+  /* the slope triangle: double r, and the model's own F at 2r (a quarter) */
+  if(2*r<=xhi){
+    polyline(ctx,b,[Math.log10(r),Math.log10(2*r),Math.log10(2*r)],[Math.log10(F),Math.log10(F),Math.log10(I.F2r)],X0,X1,Y0,Y1,COL.ref,1.2,[3,3]);
+    lab(ctx,W,H,px(Math.SQRT2*r),py(F)-6,'×2 in r',COL.ref,SM_FONT,'center','bottom');
+    labBeside(ctx,W,H,b,px(2*r)-4,py(Math.sqrt(F*I.F2r)),'÷'+fmt(F/I.F2r,2)+' in F',COL.ref);
+  }
+  marker(ctx,b,X0,X1,Y0,Y1,Math.log10(r),Math.log10(F),COL.live);
+  const fits=(a,t)=>a[1]-a[0]>t.length*10.5*0.52+8;
+  if(fits(bOver,'they would overlap')) lab(ctx,W,H,(bOver[0]+bOver[1])/2,b.y1-12,'they would overlap',COL.ref,SM_FONT,'center');
+  if(fits(bGap,IV.gapText)) lab(ctx,W,H,(bGap[0]+bGap[1])/2,b.y1-28,IV.gapText,COL.ref,SM_FONT,'center');
+  const offLab=fits(bOff,'off the track');
+  if(offLab) lab(ctx,W,H,(bOff[0]+bOff[1])/2,b.y+14,'off the track',COL.dim,SM_FONT,'center');
+  labIn(ctx,W,H,b,px(r)-10,py(F)+14,'r = '+sigf(r,3)+' '+un+',  F = '+sciPlain(F,3)+' N',COL.live,'right','top');
+  lab(ctx,W,H,b.x1-8,b.y+(offLab?30:14),'slope at r: '+fmt(I.slope,4)+'   ·   '+IV.pair,COL.pos,SM_FONT,'right');
+  /* ---- the lower panels, over the distances the track can hold ---- */
+  const [bl,br]=lowerPanels(Lo), a=I.dmin*u, c=I.rTrack*u, xs=I.lin.rs.map(x=>x*u);
+  if(bl){
+    const yh=I.Fnear*1.08, ax=powAxis(yh,'F','N');
+    axesT(ctx,bl,a,c,0,yh,{title:titleFor(bl,'the same force on linear axes, where the track allows','F against r'),xlab:'r, '+un,ylab:ax.lab,nx:5,ny:nyFor(bl.h),
+      xfmt:tickNum,yfmt:ax.fmt});
+    polyline(ctx,bl,xs,I.lin.Fs,a,c,0,yh,COL.pos,2);
+    marker(ctx,bl,a,c,0,yh,r,F,COL.live);
+  }
+  if(br){
+    const yh2=I.prod*1.7, ax=powAxis(yh2,'F r²','N m²');
+    axesT(ctx,br,a,c,0,yh2,{title:titleFor(br,'F r² is flat: it is '+IV.prodName+' (dashed: an inverse cube)','F r² against r'),xlab:'r, '+un,ylab:ax.lab,nx:5,ny:nyFor(br.h),
+      xfmt:tickNum,yfmt:ax.fmt});
+    polyline(ctx,br,xs,I.lin.F3r2,a,c,0,yh2,COL.ref,1.3,[5,4]);
+    polyline(ctx,br,xs,I.lin.Fr2,a,c,0,yh2,COL.pos,2);
+    marker(ctx,br,a,c,0,yh2,r,F*IV.r*IV.r,COL.live);
+    lab(ctx,W,H,br.x1-8,br.y1-br.h*(1.3/1.7),IV.prodName+' = '+sciPlain(I.prod,4)+' N m²',COL.pos,SM_FONT,'right','bottom');
+  }
+  drawCaption(ctx,Lo);
+}
+
+/* ================================================================== *
+ *  captions                                                           *
+ * ================================================================== */
+const LAB_CAP_FULL='Two uniform spheres on a frictionless track: PhET’s lab. Drag either sphere, or the ruler; the sliders set the masses '
+  +'and the positions. The green arrows are the force on each sphere — always the same size, always opposite — drawn to the arrow scale '
+  +'printed below, and the labels read it in PhET’s decimal or scientific notation. Positions snap to PhET’s 0.1-m grid, and the centres '
+  +'never come closer than the two radii plus about 0.1 m, so the spheres never touch.';
+const LAB_CAP_SHORT='Drag the spheres or the ruler. Green: the force on each, equal and opposite, to the printed arrow scale.';
+const INV_CAP_FULL='The force between the spheres against the distance between their centres, at the current masses. On log–log axes an '
+  +'inverse-square law is a straight line of slope −2; the solid part is what PhET’s track allows, the orange band the distances at which '
+  +'the spheres would overlap, the paler band PhET’s gap between surfaces. Lower left: the same force on linear axes. Lower right: F r², '
+  +'which an inverse-square law keeps flat at G m₁m₂ — the dashed curve is what an inverse-cube law through the same point would do.';
+const INV_CAP_SHORT='F against r: slope −2 on log–log axes; F r² stays flat at G m₁m₂.';
+const PROD_CAP_FULL='Every pair of masses at the current distance: F = (G/r²) m₁m₂, so each contour — one force — is a hyperbola '
+  +'m₁m₂ = F r²/G. The magenta dot is the live pair and the magenta curve the pairs that feel the same force; where the spheres would be '
+  +'too big to sit this far apart the plane is shaded. Lower left: the force against one mass with the other held — straight lines through '
+  +'the origin. Lower right: the strongest pull two equal masses can reach, at their closest allowed distance: m² for constant-size spheres, '
+  +'about m^(4/3) for real ones, because the heavier sphere is also the bigger one.';
+const PROD_CAP_SHORT='F over (m₁, m₂): hyperbolas m₁m₂ = F r²/G. Below: F linear in each mass, and the strongest reachable pull.';
+const FALL_CAP_FULL='What the lab’s forces would do if the track let go: released from rest, the spheres fall together. Their momenta stay '
+  +'equal and opposite, so the centre of mass (cyan) never moves and the lighter sphere covers more of the gap; the dashed circles are where '
+  +'they started. Green arrows are the forces, magenta the velocities, each to its own printed scale, fixed for the run so both grow as the '
+  +'spheres close. The separation follows the exact free-fall law and the run stops at contact, where the model ends. Lower left: both '
+  +'positions and the centre of mass against time. Lower right: the separation.';
+const FALL_CAP_SHORT='Released from rest: the centre of mass stays put and the lighter sphere moves more; they touch at the printed time.';
+
+/* ================================================================== *
+ *  view: the mass product                                             *
+ * ================================================================== */
+function drawProd(ctx,W,H,M){
+  const L=M.L, P=M.P;
+  const Lo=stageLayoutH(ctx,W,H,PROD_CAP_FULL,PROD_CAP_SHORT,2,0.36,1);
+  const b=Lo.main, mx=M_MAX;
+  const px=m=>b.x+b.w*m/mx, py=m=>b.y1-b.h*m/mx;
+  /* the pairs too big to sit r apart: one batched fill of column rectangles */
+  if(P.nBlocked>0){
+    ctx.beginPath();
+    P.edge.forEach((e,i)=>{ if(e===null) return; const m1=M_MIN+i*M_STEP;
+      const x0=px(Math.max(0,m1-M_STEP/2)), x1=px(Math.min(mx,m1+M_STEP/2)), y0=py(mx), y1=py(Math.max(0,e-M_STEP/2));
+      ctx.rect(x0,y0,x1-x0,y1-y0); });
+    ctx.fillStyle='rgba(232,132,58,0.16)'; ctx.fill();
+  }
+  /* PhET's masses start at 10 kg: the strips below are out of reach */
+  ctx.fillStyle='rgba(139,147,166,0.10)';
+  ctx.fillRect(b.x,b.y,px(M_MIN)-b.x,b.h); ctx.fillRect(b.x,py(M_MIN),b.w,b.y1-py(M_MIN));
+  axesT(ctx,b,0,mx,0,mx,{title:titleFor(b,'the force over every pair of masses at r = '+fmt(L.r,1)+' m: hyperbolas m₁m₂ = F r²/G','F over (m₁, m₂)'),
+    xlab:'m₁, kg',ylab:'m₂, kg',nx:5,ny:5,xfmt:v=>fmt(v,0),yfmt:v=>fmt(v,0)});
+  for(const C of P.contours)
+    polyline(ctx,b,C.m1s,C.m2s,0,mx,0,mx,C.decade?rgba(COL.pos,0.85):rgba(COL.pos,0.38),C.decade?1.5:1);
+  for(const C of P.contours){ if(!C.decade) continue; const d=Math.sqrt(C.c);
+    if(d>30&&d<mx*0.92) lab(ctx,W,H,px(d)+6,py(d)-6,sciPlain(C.F,1)+' N',COL.pos,SM_FONT,'left','bottom'); }
+  polyline(ctx,b,P.live.m1s,P.live.m2s,0,mx,0,mx,COL.live,1.4,[5,4]);
+  marker(ctx,b,0,mx,0,mx,L.m1,L.m2,COL.live);
+  /* above the marker: the live hyperbola runs up-left and down-right of it,
+     so the upper right is the one quadrant it never crosses */
+  labBeside(ctx,W,H,b,px(L.m1),py(L.m2)-8,'F = '+sciPlain(L.Fmag,3)+' N',COL.live,'bottom');
+  if(P.nBlocked>0) lab(ctx,W,H,b.x1-8,b.y+14,'shaded: too big to sit '+fmt(L.r,1)+' m apart ('+P.nBlocked+' of 10000 pairs)',COL.ref,SM_FONT,'right');
+  const [bl,br]=lowerPanels(Lo);
+  if(bl){
+    /* the force against one mass, the other held: straight lines through the origin */
+    const yh=Math.max(P.k*L.m2*mx,P.k*L.m1*mx)*1.08, ax=powAxis(yh,'F','N');
+    axesT(ctx,bl,0,mx,0,yh,{title:titleFor(bl,'F against one mass, the other held: straight lines','F against one mass'),xlab:'the varied mass, kg',ylab:ax.lab,nx:5,ny:nyFor(bl.h),
+      xfmt:v=>fmt(v,0),yfmt:ax.fmt});
+    /* sampled finely although straight: the legend placer tests each segment's
+       bounding box, and one segment's box would cover the whole panel */
+    const mg=[], f1=[], f2=[]; for(let i=0;i<=50;i++){ const m=mx*i/50; mg.push(m); f1.push(P.k*L.m2*m); f2.push(P.k*L.m1*m); }
+    polyline(ctx,bl,mg,f1,0,mx,0,yh,COL.b1,1.8);
+    polyline(ctx,bl,mg,f2,0,mx,0,yh,COL.b2,1.8);
+    marker(ctx,bl,0,mx,0,yh,L.m1,L.Fmag,COL.live); marker(ctx,bl,0,mx,0,yh,L.m2,L.Fmag,COL.live);
+    legendAuto(ctx,bl,[[COL.b1,'m₁ varied, m₂ = '+fmt(L.m2,0)+' kg'],[COL.b2,'m₂ varied, m₁ = '+fmt(L.m1,0)+' kg']]);
+  }
+  if(br){
+    /* the strongest pull of two equal masses: log-log, both size modes */
+    const lo=Math.min(P.fsc[0],P.fcs[0]), hi=Math.max(P.fsc[P.fsc.length-1],P.fcs[P.fcs.length-1]);
+    const X0=1, X1=3, Y0=Math.log10(lo)-0.2, Y1=Math.log10(hi)+0.2;
+    axesT(ctx,br,X0,X1,Y0,Y1,{title:titleFor(br,'the strongest pull of two equal masses, log–log','strongest pull'),xlab:'m, kg',ylab:'F max, N',
+      xticks:[1,Math.log10(20),Math.log10(50),2,Math.log10(200),Math.log10(500),3],yticks:logYTicks(Math.pow(10,Y0),Math.pow(10,Y1),br.h),xfmt:powLabel,yfmt:powLabel});
+    const lx=P.ms.map(Math.log10);
+    polyline(ctx,br,lx,P.fcs.map(Math.log10),X0,X1,Y0,Y1,COL.ref,1.6,[5,4]);
+    polyline(ctx,br,lx,P.fsc.map(Math.log10),X0,X1,Y0,Y1,COL.pos,2);
+    const mh=Math.max(L.m1,L.m2);
+    marker(ctx,br,X0,X1,Y0,Y1,Math.log10(mh),Math.log10(P.FmaxHere),COL.live);
+    legendAuto(ctx,br,[[COL.ref,'constant size: slope '+fmt(P.slopeCs,2)],[COL.pos,'real size: slope '+fmt(P.slopeSc,2)]]);
+  }
+  drawCaption(ctx,Lo);
+}
+
+/* ================================================================== *
+ *  view: let them go                                                  *
+ * ================================================================== */
+function fallSpec(M,W,H){
+  const F=M.Fa, fs=M.fs;
+  const LS=labSpec(M);
+  LS.capFull=FALL_CAP_FULL; LS.capShort=FALL_CAP_SHORT;
+  LS.bodies[0].x=fs.x1; LS.bodies[1].x=fs.x2;
+  LS.F=[fs.F1,fs.F2]; LS.per=M.perF;
+  LS.labels=[forceLabel('m₁','m₂',fs.F1,'sci',12),forceLabel('m₂','m₁',fs.F2,'sci',12)];
+  LS.arrowText='force arrows: 1 m = '+sciPlain(M.perF,1)+' N, velocity arrows (magenta): 1 m = '+sciPlain(M.perV,1)+' m/s';
+  LS.ruler=null; LS.showDist=false; LS.dimRow=true; LS.extra=44;   /* the velocity row, its label, the clock line */
+  LS.legend={len:1,text:'1 m'};
+  LS.under=(ctx,G)=>{
+    /* where they started (dashed), and the centre of mass, which never moves */
+    [[F.x10,LS.bodies[0]],[F.x20,LS.bodies[1]]].forEach(([x,bd])=>{
+      ctx.beginPath(); ctx.arc(G.X(x),G.yT,Math.max(1.5,bd.r*G.s),0,TAU); ctx.strokeStyle=rgba(bd.rim,0.45);
+      ctx.lineWidth=1; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]); });
+    const Xc=G.X(F.xcm);
+    ctx.strokeStyle=rgba(COL.struct,0.7); ctx.lineWidth=1; ctx.setLineDash([2,3]);
+    ctx.beginPath(); ctx.moveTo(Xc,G.yT-G.s*LS.rmax); ctx.lineTo(Xc,G.yDim+12); ctx.stroke(); ctx.setLineDash([]);
+  };
+  LS.over=(ctx,G)=>{
+    /* the centre-of-mass diamond goes OVER the bodies: it usually lies inside the heavier one */
+    const Xc=G.X(F.xcm);
+    ctx.beginPath(); ctx.moveTo(Xc,G.yT-6); ctx.lineTo(Xc+6,G.yT); ctx.lineTo(Xc,G.yT+6); ctx.lineTo(Xc-6,G.yT); ctx.closePath();
+    ctx.fillStyle=COL.struct; ctx.fill(); ctx.strokeStyle='#070b18'; ctx.lineWidth=1; ctx.stroke();
+    const yv=G.yDim+4;
+    labArrow(ctx,G,fs.x1,fs.v1,M.perV,yv,COL.vel); labArrow(ctx,G,fs.x2,fs.v2,M.perV,yv,COL.vel);
+    lab(ctx,W,H,G.X(F.xcm),G.yDim+22,'centre of mass',COL.struct,SM_FONT,'center','top');
+  };
+  return LS;
+}
+function drawFall(ctx,W,H,M){
+  const F=M.Fa, fs=M.fs, C=M.Fc;
+  /* narrow stage: the band alone — with a plot under it the band's fixed rows
+     overflow a 157-px main box at 820 x 520 */
+  const Lo=stageLayoutH(ctx,W,H,FALL_CAP_FULL,FALL_CAP_SHORT,2,0.36,0);
+  const G=drawLab(ctx,W,H,fallSpec(M,W,H),Lo).G;
+  const clock=M.run?(M.done?'touching after '+hms(F.tc):'t = '+hms(fs.t)+' of '+hms(F.tc)):'press "release": they would touch after '+hms(F.tc);
+  lab(ctx,W,H,G.b.x+4,G.yDim+40,clock+'   ·   clock ×'+sigf(F.clock,3),M.done?COL.ref:COL.live,LAB_FONT,'left','top');
+  const [bl,br]=lowerPanels(Lo), th=C.ts.map(t=>t/3600), T1=F.tc/3600, tn=fs.t/3600;
+  if(bl){
+    const ylo=Math.min(F.x10,F.x20)-0.3, yhi=Math.max(F.x10,F.x20)+0.3;
+    axesT(ctx,bl,0,T1,ylo,yhi,{title:titleFor(bl,'the positions: the centre of mass never moves','positions'),xlab:'t, hours',ylab:'x, m',nx:5,ny:nyFor(bl.h),
+      xfmt:tickNum,yfmt:tickNum});
+    polyline(ctx,bl,[0,T1],[F.xcm,F.xcm],0,T1,ylo,yhi,COL.struct,1.2,[4,4]);
+    polyline(ctx,bl,th,C.x1s,0,T1,ylo,yhi,COL.b1,1.8);
+    polyline(ctx,bl,th,C.x2s,0,T1,ylo,yhi,COL.b2,1.8);
+    polyline(ctx,bl,[tn,tn],[ylo,yhi],0,T1,ylo,yhi,rgba(COL.live,0.5),1);
+    marker(ctx,bl,0,T1,ylo,yhi,tn,fs.x1,COL.live); marker(ctx,bl,0,T1,ylo,yhi,tn,fs.x2,COL.live);
+    legendAuto(ctx,bl,[[COL.b1,'m₁, '+fmt(F.m1,0)+' kg'],[COL.b2,'m₂, '+fmt(F.m2,0)+' kg'],[COL.struct,'centre of mass']]);
+  }
+  if(br){
+    const rhi=F.r0*1.08;
+    axesT(ctx,br,0,T1,0,rhi,{title:titleFor(br,'the separation, to contact at r₁ + r₂ = '+sigf(F.rc,3)+' m','separation'),xlab:'t, hours',ylab:'r, m',nx:5,ny:nyFor(br.h),
+      xfmt:tickNum,yfmt:tickNum});
+    polyline(ctx,br,[0,T1],[F.rc,F.rc],0,T1,0,rhi,COL.ref,1.2,[4,4]);
+    polyline(ctx,br,th,C.rs,0,T1,0,rhi,COL.pos,2);
+    marker(ctx,br,0,T1,0,rhi,tn,fs.r,COL.live);
+    lab(ctx,W,H,br.x+8,br.y1-br.h*(F.rc/rhi)-4,'contact',COL.ref,SM_FONT,'left','bottom');
+  }
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='lab') drawLab(ctx,W,H,labSpec(M));
+  else if(M.view==='inv') drawInverse(ctx,W,H,invSpec(M));
+  else if(M.view==='prod') drawProd(ctx,W,H,M);
+  else drawFall(ctx,W,H,M);
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame: only a released fall moves anything (runStep carries the guard) */
+  S.step=function(){ if(!ST.running||ST.view!=='fall') return false; return runStep(); };
+  /* the step that reached contact: the readout must say so at once, not at the
+     next tenth frame, which never comes because nothing advances after it */
+  S.ended=function(){ return RUN.active&&RUN.frame>=FALL_FRAMES; };
+  /* the pointer: the spheres and the ruler, in the lab only */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    if(ST.view!=='lab') return false;
+    const ctx=canvas.getContext('2d'), LS=labSpec(buildModel()), G=labGeo(ctx,S.W,S.H,LS);
+    if(type==='down'){
+      const hit=labHit(G,LS,x,y);
+      if(hit==='ruler'){ DRAG.what='ruler'; DRAG.off=G.wx(x)-LS.ruler.x0; DRAG.offY=y-G.ruler.y0; return true; }
+      if(hit===1||hit===2){ DRAG.what=hit; DRAG.off=G.wx(x)-LS.bodies[hit-1].x; return true; }
+      return false;
+    }
+    if(type==='move'){
+      if(DRAG.what===1||DRAG.what===2){ setPos(ST,DRAG.what,G.wx(x)-DRAG.off); return true; }
+      if(DRAG.what==='ruler'){ const y0=clamp(y-DRAG.offY,G.ruler.ryLo,G.ruler.ryHi); setRuler(ST,G.wx(x)-DRAG.off,G.wy(y0)); return true; }
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    if(st.view!==k){ st.view=k; simReset(); }
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab2)); });
+
+  const rows={};
+  /* a slider bound either to st[key] or to a get/set pair (the actions that
+     enforce PhET's rules); after every input the whole panel re-syncs, so a
+     slider pushed past a constraint springs back to where the rule held it */
+  function slider(key,lab2,lo,hi,step2,fmtf,opt){
+    const o=opt||{}, get=o.get||(()=>st[key]), set=o.set||(v=>{ st[key]=v; });
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:get()});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=get(); val.textContent=fmtf(get()); };
+    inp.addEventListener('input',()=>{ set(parseFloat(inp.value)); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab2,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ if(onchg) onchg(inp.checked); else st[key]=inp.checked; syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  const CHIPROWS=[];
+  function chipRow(list,key){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      wrapEl.appendChild(h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        st[key]=o.id; syncChips(); syncPanel(); dirty=true; refresh(); }},o.name));
+    });
+    CHIPROWS.push([wrapEl,list,key]);
+    return wrapEl;
+  }
+
+  const gSph=h('div',{class:'grp'},h('h3',null,'the spheres'));
+  gSph.appendChild(slider('m1','mass m₁, kg',M_MIN,M_MAX,M_STEP,v=>fmt(v,0),{set:v=>setMass(st,1,v)}));
+  gSph.appendChild(slider('m2','mass m₂, kg',M_MIN,M_MAX,M_STEP,v=>fmt(v,0),{set:v=>setMass(st,2,v)}));
+  gSph.appendChild(slider('x1','centre x₁, m',TRACK.iL/TRACK.perM,TRACK.iR/TRACK.perM,0.1,v=>fmt(v,1),
+    {get:()=>st.i1/TRACK.perM,set:v=>setPos(st,1,v)}));
+  gSph.appendChild(slider('x2','centre x₂, m',TRACK.iL/TRACK.perM,TRACK.iR/TRACK.perM,0.1,v=>fmt(v,1),
+    {get:()=>st.i2/TRACK.perM,set:v=>setPos(st,2,v)}));
+  gSph.appendChild(h('div',{class:'checks'},checkbox('cs','constant size (0.5 m)',v=>setConstSize(st,v))));
+  const sphTag=h('div',{class:'tag'}); gSph.appendChild(sphTag);
+
+  const gDisp=h('div',{class:'grp'},h('h3',null,'force values'));
+  gDisp.appendChild(chipRow([{id:'dec',name:'decimal notation'},{id:'sci',name:'scientific notation'},{id:'hid',name:'hidden'}],'fmode'));
+  gDisp.appendChild(slider('arrowK','arrow scale',0,ARROW_KMAX,1,k=>sciPlain(arrowStep(k,ARROW_E0),1)+' N/m'));
+  gDisp.appendChild(h('div',{class:'checks'},checkbox('showDist','the distance between centres')));
+  gDisp.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ rulerToM1(st); dirty=true; refresh(); }},'ruler to m₁'),
+    h('button',{onclick:()=>{ rulerHome(st); dirty=true; refresh(); }},'ruler home')));
+  const dispTag=h('div',{class:'tag'}); gDisp.appendChild(dispTag);
+
+  const gRun=h('div',{class:'grp'},h('h3',null,'the release'));
+  gRun.appendChild(h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ startRun(st); dirty=true; refresh(); }},'release'),
+    h('button',{onclick:()=>{ simReset(); dirty=true; refresh(); }},'stop & reset')));
+  gRun.appendChild(h('div',{class:'checks'},checkbox('running','time runs')));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gReset=h('div',{class:'grp'},h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; simReset();
+      syncChips(); syncPanel(); dirty=true; refresh(); }},'reset all')));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Gravity Force Lab (University of Colorado Boulder, '
+      +'phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets.'}),
+    h('div',{class:'src',html:'G: CODATA 2022 through scipy.constants. PhET&rsquo;s values: density 150 kg/m&sup3;, constant radius 0.5 m, '
+      +'masses 10&ndash;1000 kg, the &plusmn;5 m track on a 0.1-m grid, a 0.1-m gap between surfaces (read from PhET&rsquo;s build 2.2.25). '
+      +'Every number is pinned in selfTest to build/gravity-force-lab/derive.py (scipy solve_ivp and brentq for the fall).'}));
+  [gSph,gDisp,gRun,gReset,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    for(const [cw,list,key] of CHIPROWS) [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+  }
+  function syncPanel(){
+    const v=st.view;
+    gDisp.hidden=(v!=='lab');
+    gRun.hidden=(v!=='fall');
+    for(const k in rows) rows[k].sync();
+    const L=labModel(st);
+    sphTag.innerHTML='centres at least '+fmt(L.dmin,1)+' m apart here (r&#8321; + r&#8322; + 0.1 m, snapped to the grid)';
+    dispTag.innerHTML='drag a sphere or the ruler on the canvas; the ruler snaps to 0.1 m';
+    runTag.innerHTML='space pauses &nbsp; <b>r</b> resets the run &nbsp; 1&ndash;4 switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='lab')?'drag a sphere or the ruler · 1–4 switch views'
+        :(st.view==='fall')?'release, then space pauses · r resets · 1–4 switch views':'1–4 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel(); const M=S.model(); roEl.innerHTML=readoutHTML(M); tagEl.innerHTML=tagHTML(M); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ simReset(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw();
+        if(advanced&&(frameN%10===0||S.ended())){ const M=S.model(); roEl.innerHTML=readoutHTML(M); tagEl.innerHTML=tagHTML(M); } }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  simReset(); resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  lab:'Newton&rsquo;s law of universal gravitation, published in the <i>Principia</i> in 1687, says that any two masses attract with a force '
+    +'proportional to each mass and to the inverse square of the distance between them. Henry Cavendish first measured that pull between '
+    +'laboratory lead spheres in 1797&ndash;98, which is what fixes the constant G. Drag either sphere, or set it with the sliders, and change the '
+    +'masses: both arrows always change together, because the force on m&#8321; by m&#8322; and the force on m&#8322; by m&#8321; are the same size and '
+    +'point opposite ways &mdash; Newton&rsquo;s third law. The distance is measured between the centres, and for a uniform sphere that is exact '
+    +'rather than an approximation: a spherical shell attracts as though all its mass sat at its centre (Newton&rsquo;s shell theorem). With '
+    +'constant size off, a sphere&rsquo;s radius grows as the cube root of its mass at 150 kg/m&sup3; (PhET&rsquo;s choice, about a seventh of '
+    +'water&rsquo;s density, so the spheres fit on screen); with it on, every sphere has a radius of 0.5 m and its colour carries the mass. '
+    +'The ruler measures distances: drag it, or send its zero to the centre of m&#8321;.',
+  inv:'The law&rsquo;s signature is its exponent. Double the distance and the force falls to a quarter; halve it and the force grows four '
+    +'times. On logarithmic axes an inverse-square law is a straight line of slope &minus;2 &mdash; any other power would tilt it &mdash; and the '
+    +'readout measures that slope off the model at the live distance. Multiplying the force by r&sup2; should then leave a constant, '
+    +'G m&#8321;m&#8322;, whatever the distance: the lower-right panel shows it flat, against the falling curve an inverse-cube law would draw. '
+    +'The shaded bands are the distances the spheres cannot reach: inside the orange band they would overlap, and the paler one is the gap '
+    +'PhET keeps between their surfaces. The same exponent has been tested from torsion balances at sub-millimetre range out to the orbits of '
+    +'the planets.',
+  prod:'The force is proportional to each mass separately: double m&#8321; and the force doubles, double both and it quadruples. So at a '
+    +'fixed distance every pair with the same product m&#8321;m&#8322; feels the same force, and the contours of equal force are hyperbolas. '
+    +'PhET&rsquo;s spheres add a twist. Their size grows with their mass, as the cube root at 150 kg/m&sup3;, and the centres can never come '
+    +'closer than the two radii plus a gap, so heavy spheres cannot be brought as close as light ones. The lower-right panel shows the '
+    +'strongest pull two equal masses can reach: for constant-size spheres it grows as m&sup2;, but for real ones the closest distance grows '
+    +'with the mass too, and the maximum rises only about as m<sup>4/3</sup> &mdash; for touching spheres exactly '
+    +'G m<sup>4/3</sup>(4&pi;&rho;/3)<sup>2/3</sup>/4. It is the reason a planet&rsquo;s surface gravity grows only as the cube root of its mass '
+    +'when its density is fixed.',
+  fall:'PhET holds the spheres in place. Here they are let go. Released from rest they fall toward each other along the track, and because '
+    +'the forces on them are equal and opposite, their momenta stay equal and opposite: the centre of mass never moves, and the lighter sphere '
+    +'covers most of the gap. The separation obeys one equation, r&Prime; = &minus;G(m&#8321; + m&#8322;)/r&sup2;, solved exactly here &mdash; the '
+    +'time to fall from r&#8320; to r is the closed form in the equation bar, the same one that describes a comet plunging straight into the '
+    +'Sun. For laboratory masses the answer is startling: 100 kg and 400 kg released 4 m apart take about twelve hours to touch, and meet at '
+    +'a closing speed of 0.18 mm/s. Gravity is by far the weakest of the forces; only masses the size of planets make it feel strong. The '
+    +'clock runs thousands of times fast, and the run stops at the moment of contact, where the model ends.',
+};
+
+/* ================================================================== *
+ *  selfTest kit: the text-box recorder  (projects/simulations/        *
+ *  build_buoy/p7_test.js makeShot; unchanged)                        *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+/* ================================================================== *
+ *  the inline layout sweep (lineage: build_buoy/p7_test.js section I, *
+ *  shared by both sims).  Every configuration at every stage size     *
+ *  must draw without throwing, draw substance, keep every text op on  *
+ *  the canvas and free of entities, tags, NaN and undefined, keep     *
+ *  text boxes apart at tools/audit.py's own half-pixel rule, keep     *
+ *  data curves out of the legends it placed, and — on a wide stage —  *
+ *  keep text out from under the floating readout.                     *
+ * ================================================================== */
+function layoutSweep(ok,withState,configs,sizes){
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of configs) for(const [W,H] of sizes){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN|Infinity/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; }
+        if(W>=900&&t.bb[2]>W-13-280-24&&t.bb[1]<470){ bad='under the readout: "'+t.t.slice(0,30)+'"'; break; }
+        /* the HTML #hint's corner (left 14, bottom 11, 11-px text up to ~330 px long) */
+        if(t.bb[0]<14+330&&t.bb[3]>H-26){ bad='in the hint\'s corner: "'+t.t.slice(0,30)+'"'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i=0;i<texts.length&&!hit;i++) for(let j=i+1;j<texts.length;j++){
+        const a=texts[i].bb, b=texts[j].bb;
+        if(Math.min(a[2],b[2])-Math.max(a[0],b[0])>0.5&&Math.min(a[3],b[3])-Math.max(a[1],b[1])>0.5){
+          hit='"'+texts[i].t.slice(0,24)+'" vs "'+texts[j].t.slice(0,24)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i=0;i<POLY_SEGS.length;i+=4){
+        const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses a legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legends clear');
+    });
+  }
+}
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Values labelled (derive) are    *
+ *  lines of build/gravity-force-lab/refvals.txt, the printed output   *
+ *  of derive.py (scipy.constants CODATA 2022, solve_ivp and brentq    *
+ *  for the fall, the full 100 x 100 mass-pair enumeration), read in   *
+ *  full.                                                              *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    Object.assign(ST,DEFAULTS,over); simReset();
+    if(over.release){ startRun(ST); for(let k=0;k<(over.frames||0);k++) runStep(); }
+    try{ return fn(); } finally{ Object.assign(ST,stSave); simReset(); }
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  eq(mix('rgb(10,20,30)','#ffffff',0),'rgb(10,20,30)','mix() accepts its own output');
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  eq(logTicks(0,10).length,0,'logTicks refuses a non-positive bound');
+  eq(symRound(2.5),3,'symRound(2.5) = 3'); eq(symRound(-2.5),-3,'symRound(-2.5) = -3, halves away from zero (Math.round gives -2)');
+  eq(symRound(-2.4),-2,'symRound(-2.4) = -2'); eq(symRound(14.499999999999998),14,'a hair under a half rounds down');
+  eq(supText(-11),'⁻¹¹','superscript digits');
+  /* the default force sits on a rounding tie at 12 decimals: the model's own
+     double G m1 m2 / r^2 is 1.6685749999999998e-7 and reads ...857, the retyped
+     literal 1.668575e-7 is one ulp over the tie and reads ...858 — so the pin is
+     taken off the model's double, as derive.py does */
+  eq(decGrouped(forceMag(TRACK.C,100,400,4),12),'0.000 000 166 857','PhET decimal grouping of the model\'s force (derive)');
+  eq(decGrouped(1.668575e-7,12),'0.000 000 166 858','the literal is on the other side of the tie');
+  eq(sciText(1.668575e-7,2),'1.67 × 10⁻⁷','PhET scientific (derive: 1.67 x 10^-7)'); eq(sciText(3.2,2),'3.20','no power of ten at exponent 0');
+  eq(forceValueText(0,'sci',12),'0.000 000 000 000','a zero force stays decimal in scientific mode (PhET)');
+  eq(sciHTML(1.668575e-7,4),'1.669 &times; 10<sup>-7</sup>','the readout form');
+
+  /* ---------- A. the constants, against absolute numbers ---------- */
+  eq(G_N,6.6743e-11,'G = 6.6743e-11 m^3 kg^-1 s^-2 (scipy CODATA 2022)');
+  eq(G_PHET,6.67408e-11,'PhET\'s G = 6.67408e-11 (CODATA 2014, read from its build)');
+  rel(G_N/G_PHET-1,3.296334476044e-05,1e-9,'G / G_PhET - 1 (derive)');
+  eq(RHO_S,150,'PhET density 150 kg/m^3'); eq(R_CONST,0.5,'PhET constant radius 0.5 m');
+  eq(TRACK.q,0.1,'the 0.1-m grid'); eq(TRACK.perM,10,'10 counts per metre'); eq(TRACK.iL,-50,'track from -5 m'); eq(TRACK.iR,50,'to +5 m');
+  eq(TRACK.sep,0.1,'0.1 m between surfaces'); eq(TRACK.C,-G_N,'masses attract: C = -G');
+  eq(M_MIN,10,'masses from 10 kg'); eq(M_MAX,1000,'to 1000 kg'); eq(M_STEP,10,'in 10-kg steps'); eq(G0,9.80665,'standard gravity, exact');
+  eq(FALL_FRAMES,600,'a run is 600 frames');
+
+  /* ---------- B. the radii ---------- */
+  for(const [m,r] of [[10,0.2515397995802],[100,0.5419260701393],[400,0.8602540138281],[1000,1.167544324941]])
+    rel(sphereRadius(m,false),r,1e-12,'radius of '+m+' kg at 150 kg/m^3 (derive)');
+  rel(scaledRadius(78.53981633974,150),0.5,1e-12,'78.54 kg is the mass whose scaled radius is 0.5 m (derive)');
+  eq(sphereRadius(1000,true),0.5,'constant size: 0.5 m whatever the mass');
+  rel(4/3*PI*Math.pow(sphereRadius(400,false),3)*RHO_S,400,1e-12,'the scaled sphere really has its mass at 150 kg/m^3');
+
+  /* ---------- C. the no-overlap rule ---------- */
+  for(const [m1,m2,cs,n] of [[100,400,false,15],[1000,1000,false,24],[10,10,false,6],[100,400,true,11],[1000,400,false,21],
+                            [100,1000,false,18],[1000,1000,true,11],[200,200,false,15],[500,500,false,20],[140,940,false,18]])
+    eq(pairSteps(m1,m2,cs),n,'closest centres for '+m1+'/'+m2+(cs?' (constant size)':'')+' in 0.1-m steps (derive)');
+  { /* every pair the sliders can reach, both modes: the snapped rule never lets them touch */
+    for(const cs of [false,true]){
+      let gmin=9, at=null, nmax=0;
+      for(let m1=M_MIN;m1<=M_MAX;m1+=M_STEP) for(let m2=M_MIN;m2<=M_MAX;m2+=M_STEP){
+        const n=pairSteps(m1,m2,cs), g=n/TRACK.perM-sphereRadius(m1,cs)-sphereRadius(m2,cs);
+        if(g<gmin){ gmin=g; at=[m1,m2]; } nmax=Math.max(nmax,n); }
+      if(!cs){ rel(gmin,0.05004309588792,1e-9,'smallest gap over all 10000 scaled pairs (derive)'); ok(at[0]===140&&at[1]===940,'at 140 and 940 kg (derive)'); eq(nmax,24,'max closest distance 2.4 m (derive)'); }
+      else { rel(gmin,0.1,1e-12,'constant size: the gap is always 0.1 m'); eq(nmax,11,'and the centres 1.1 m (derive)'); }
+      ok(gmin>0,(cs?'constant':'scaled')+' size: the spheres never touch'); } }
+
+  /* ---------- D. the push rule, through the actions ---------- */
+  const SC=[['a default, m1 -> 1000',{i1:-30,i2:10},()=>setMass(ST,1,1000),[-30,10]],
+            ['b m2 -> 1000 at 1.5 m',{i1:-30,i2:-15},()=>setMass(ST,2,1000),[-33,-15]],
+            ['c m1 on the left wall, m2 -> 1000',{i1:-50,i2:-35},()=>setMass(ST,2,1000),[-50,-32]],
+            ['d m2 on the right wall, m1 -> 1000',{i1:35,i2:50},()=>setMass(ST,1,1000),[29,50]],
+            ['e constant size off, 1000/1000 at 1.1 m',{i1:-6,i2:5,m1:1000,m2:1000,cs:true},()=>setConstSize(ST,false),[-19,5]]];
+  for(const [nm,over,act,want] of SC) withState(over,()=>{ act(); ok(ST.i1===want[0]&&ST.i2===want[1],'push rule '+nm+' -> '+ST.i1+', '+ST.i2+' (derive '+want+')'); });
+  eq(settlePair(0,5,10,-50,50,1)[1],10,'settlePair pushes body 2 when body 1 grew'); eq(settlePair(0,5,10,-50,50,2)[0],-5,'and body 1 when body 2 grew');
+  eq(settlePair(40,50,15,-50,50,1)[0],35,'body 2 against the right end: body 1 moves instead');
+  eq(settlePair(-50,-40,15,-50,50,2)[1],-35,'body 1 against the left end: body 2 moves instead');
+  withState({},()=>{ setMass(ST,1,1234); eq(ST.m1,1000,'a mass is clamped to 1000 kg'); setMass(ST,2,3); eq(ST.m2,10,'and to 10 kg');
+    setMass(ST,2,456); eq(ST.m2,460,'and ROUNDED to 10 kg (456 -> 460: floor would give 450)'); });
+
+  /* ---------- E. dragging ---------- */
+  withState({},()=>{
+    setPos(ST,1,3); eq(ST.i1,-5,'dragging m1 at x = 3 stops it 1.5 m short of m2 (x = -0.5)');
+    setPos(ST,2,-2); eq(ST.i2,10,'m2 cannot be dragged through m1 either (stays at 1.0: the closest is 1.0 now)');
+    setPos(ST,2,7); eq(ST.i2,50,'past the right end: held at +5 m');
+    setPos(ST,1,-9); eq(ST.i1,-50,'past the left end: held at -5 m');
+    setPos(ST,1,-3.04); eq(ST.i1,-30,'-3.04 snaps to -3.0'); setPos(ST,1,-3.06); eq(ST.i1,-31,'-3.06 snaps to -3.1');
+    eq(dragSteps(TRACK,1,0.26,-30,10,15),-5,'dragSteps clamps body 1 at i2 - n'); eq(dragSteps(TRACK,2,-2.6,-30,10,15),-15,'and body 2 at i1 + n');
+    eq(dragSteps(TRACK,2,-0.26,-30,10,15),-3,'inside the allowed range a drag is only snapped'); });
+
+  /* ---------- F. the force ---------- */
+  withState({},()=>{
+    const L=labModel(ST);
+    rel(L.Fmag,1.668575e-07,1e-12,'F at the defaults: 100 kg, 400 kg, 4 m (derive)');
+    rel(L.F1,1.668575e-07,1e-12,'the force on m1 points +x, toward m2'); rel(L.F2,-1.668575e-07,1e-12,'the force on m2 points -x, toward m1');
+    close(L.F1+L.F2,0,1e-22,'Newton\'s third law, from two independent evaluations');
+    rel(L.Fr2,2.66972e-06,1e-12,'F r^2 = G m1 m2 (derive)'); rel(L.Fphet,1.66852e-07,1e-12,'PhET\'s G gives 1.66852e-7 (derive)');
+    rel(L.wtKg*1e9,17.0147298007,1e-10,'the weight of 17.01 micrograms (derive)');
+    eq(L.r,4,'r = 4.0 m'); rel(L.gap,4-0.5419260701393-0.8602540138281,1e-12,'the gap between surfaces'); rel(L.dmin,1.5,1e-15,'closest allowed 1.5 m');
+    eq(L.lab1,'Force on m₁ by m₂ = 0.000 000 166 857 N','the canvas label, decimal (derive)');
+    eq(L.lab2,'Force on m₂ by m₁ = 0.000 000 166 857 N','both labels read the same magnitude'); });
+  withState({fmode:'sci'},()=>eq(labModel(ST).lab1,'Force on m₁ by m₂ = 1.67 × 10⁻⁷ N','scientific notation (derive: 1.67 x 10^-7)'));
+  withState({fmode:'hid'},()=>eq(labModel(ST).lab1,'Force on m₁ by m₂','hidden: the label keeps no value'));
+  rel(withState({m1:10,m2:10,i1:-50,i2:50},()=>labModel(ST).Fmag),6.6743e-11,1e-12,'the weakest pull: 10 kg, 10 kg, 10 m (derive)');
+  eq(withState({m1:10,m2:10,i1:-50,i2:50},()=>labModel(ST).lab1),'Force on m₁ by m₂ = 0.000 000 000 067 N','its decimal label (derive)');
+  rel(withState({m1:1000,m2:1000,i1:-12,i2:12},()=>labModel(ST).Fmag),1.158732638889e-05,1e-12,'the strongest, scaled: 1000 kg each, 2.4 m (derive)');
+  eq(withState({m1:1000,m2:1000,i1:-12,i2:12},()=>labModel(ST).lab1),'Force on m₁ by m₂ = 0.000 011 587 326 N','its decimal label (derive)');
+  rel(withState({m1:1000,m2:1000,i1:-6,i2:5,cs:true},()=>labModel(ST).Fmag),5.515950413223e-05,1e-12,'the strongest, constant size: 1.1 m (derive)');
+  eq(withState({i1:-30,i2:40},()=>labModel(ST).lab1),'Force on m₁ by m₂ = 0.000 000 054 484 N','7 m apart (derive)');
+  eq(withState({i1:-30,i2:40,fmode:'sci'},()=>labModel(ST).lab1),'Force on m₁ by m₂ = 5.45 × 10⁻⁸ N','7 m apart, scientific (derive)');
+  close(forceOn(-1,1,1,0,2,1),0.25,1e-15,'forceOn: a unit attraction at 2 pulls body 1 by +1/4');
+  close(forceOn(1,1,1,0,2,1),-0.25,1e-15,'and a unit repulsion pushes it by -1/4');
+  close(forceOn(1,1,1,0,2,2),0.25,1e-15,'while body 2 is pushed by +1/4');
+
+  /* ---------- G. the inverse square ---------- */
+  withState({view:'inv'},()=>{
+    const M=buildModel(), I=M.I;
+    for(const [r,F] of [[1.5,1.186542222222e-06],[2,6.6743e-07],[4,1.668575e-07],[8,4.1714375e-08],[10,2.66972e-08]])
+      rel(forceMag(TRACK.C,100,400,r),F,1e-12,'F at '+r+' m (derive)');
+    rel(I.F2r,4.1714375e-08,1e-12,'F at 2r (derive)'); rel(M.L.Fmag/I.F2r,4,1e-12,'doubling r quarters F');
+    close(I.slope,-2,1e-9,'the log-log slope measured off the model is -2');
+    let flat=0; for(const v of I.lin.Fr2) flat=Math.max(flat,Math.abs(v/2.66972e-06-1));
+    ok(flat<1e-12,'F r^2 is flat at G m1 m2 over the whole reachable range (worst '+flat.toExponential(2)+')');
+    rel(I.prod,2.66972e-06,1e-12,'the law\'s constant G m1 m2 (derive)');
+    rel(I.lin.F3r2[0]/I.lin.F3r2[100],10/1.5,1e-12,'the inverse-cube comparison falls as 1/r');
+    rel(I.lin.F3r2[0],7.119253333333e-06,1e-12,'and passes through the live point: F r^3 / d_min (derive)');
+    rel(I.lo,0.5*1.402180083967,1e-12,'the log-log window opens at half the touching distance'); eq(I.hi,20,'and closes at twice the track');
+    rel(I.Fnear,1.186542222222e-06,1e-12,'F at the closest allowed distance (derive)'); rel(I.Ffar,2.66972e-08,1e-12,'and at the far end (derive)'); });
+
+  /* ---------- H. the mass product ---------- */
+  withState({view:'prod'},()=>{
+    const P=buildModel().P;
+    rel(P.k,4.1714375e-12,1e-12,'k = G/r^2 at 4 m (derive)'); eq(P.levels.length,12,'twelve 1-2-5 contour levels (derive)');
+    rel(P.levels[0],5e-10,1e-12,'first 5e-10 N (derive)'); rel(P.levels[11],2e-6,1e-12,'last 2e-6 N (derive)');
+    for(const C of P.contours){ const i=40; rel(forceMag(TRACK.C,C.m1s[i],C.m2s[i],4),C.F,1e-12,'a point on the '+sciPlain(C.F,1)+' N contour feels that force'); }
+    rel(P.dFdm1,4.1714375e-12*400,1e-12,'dF/dm1 = G m2/r^2'); rel(P.dFdm2,4.1714375e-12*100,1e-12,'dF/dm2 = G m1/r^2');
+    eq(P.nBlocked,0,'at 4 m no pair is too big');
+    rel(P.slopeSc,1.397940008672,1e-10,'strongest-pull log slope, real size (derive)'); rel(P.slopeCs,2,1e-12,'constant size: exactly 2 (derive)');
+    for(const [m,sc,cs] of [[10,1.853972222222e-08,5.515950413223e-09],[100,4.634930555556e-07,5.515950413223e-07],[500,4.1714375e-06,1.378987603306e-05],[1000,1.158732638889e-05,5.515950413223e-05]]){
+      rel(fmaxEqual(m,false),sc,1e-12,'F max, two '+m+'-kg spheres, real size (derive)'); rel(fmaxEqual(m,true),cs,1e-12,'constant size (derive)'); }
+    const mm=1000, rt=2*sphereRadius(mm,false);
+    rel(forceMag(TRACK.C,mm,mm,rt),1.224049491735e-05,1e-12,'touching 1000-kg spheres (derive)');
+    rel(forceMag(TRACK.C,mm,mm,rt),G_N*Math.pow(mm,4/3)*Math.pow(4*PI*RHO_S/3,2/3)/4,1e-12,'= G m^(4/3)(4 pi rho/3)^(2/3)/4'); });
+  withState({view:'prod',i1:-10,i2:10},()=>{ const P=buildModel().P; eq(P.nBlocked,3148,'at 2.0 m: 3148 pairs too big (derive)'); eq(P.edge[99],310,'the lightest blocked partner of 1000 kg is 310 kg (derive)'); });
+  withState({view:'prod',i1:-8,i2:7},()=>{ const P=buildModel().P; eq(P.nBlocked,8323,'at 1.5 m: 8323 pairs (derive)'); eq(P.edge[99],20,'1000 kg blocks every partner above 10 kg (derive)'); });
+
+  /* ---------- I. let them go ---------- */
+  { const F=fallModel(100,400,-3,1,false);
+    eq(F.r0,4,'released 4 m apart'); rel(F.rc,1.402180083967,1e-12,'contact at r1 + r2 (derive)'); rel(F.tau,30966.14372415,1e-12,'sqrt(r0^3 / 2GM) (derive)');
+    rel(F.tc,43795.84797766,1e-11,'contact after 43795.8 s (derive closed form)'); rel(F.tc,43795.84797801,1e-10,'= scipy solve_ivp integrating both bodies (derive CHECK)');
+    rel(F.tff,48641.50481689,1e-12,'the full fall to r = 0 (derive)'); rel(F.xcm,0.2,1e-15,'the centre of mass (derive)'); rel(F.clock,43795.84797766/10,1e-11,'the clock factor: the run is 10 s');
+    close(fallTime(F.r0,F.r0,F.GM),0,1e-12,'t(r0) = 0'); rel(fallTime(1e-12,F.r0,F.GM),F.tff,1e-6,'t(0) = pi/2 sqrt(r0^3/2GM)');
+    const want={150:[10948.96199441,3.87364903867,-2.898919230965,0.9747298077411,1.866345282634e-05,-4.665863206584e-06],
+                300:[21897.92398883,3.476916945367,-2.581533556296,0.8953833890741,4.008215105956e-05,-1.002053776489e-05],
+                450:[32846.88598324,2.739115751617,-1.991292601288,0.7478231503221,7.011247047384e-05,-1.752811761846e-05],
+                600:[43795.84797766,1.402180083967,-0.9217440672229,0.4804360168057,0.0001406583365317,-3.516458413292e-05]};
+    for(const k in want){ const w=want[k], s=fallState(F,k/FALL_FRAMES*F.tc);
+      rel(s.t,w[0],1e-12,'frame '+k+': t (derive)'); rel(s.r,w[1],1e-10,'frame '+k+': r (derive brentq)');
+      rel(s.x1,w[2],1e-9,'frame '+k+': x1 (derive solve_ivp)'); rel(s.x2,w[3],1e-9,'frame '+k+': x2 (derive solve_ivp)');
+      rel(s.v1,w[4],1e-8,'frame '+k+': v1 (derive)'); rel(s.v2,w[5],1e-8,'frame '+k+': v2 (derive)');
+      close(F.m1*s.v1+F.m2*s.v2,0,1e-18,'frame '+k+': the momenta cancel'); rel((F.m1*s.x1+F.m2*s.x2)/F.M,0.2,1e-12,'frame '+k+': the centre of mass has not moved'); }
+    const s1=fallState(F,F.tc); rel(Math.abs(s1.rdot),0.0001758229206646,1e-10,'closing speed at contact (derive)');
+    rel(F.m1*s1.v1,0.01406583365317,1e-10,'momentum at contact (derive)');
+    /* the independent route: RK4 on BOTH bodies, each pushed by forceOn — Newton's third law is an output */
+    let y=[-3,1,0,0]; const N=4000, dt=F.tc/N;
+    const f=z=>{ const a1=forceOn(TRACK.C,100,400,z[0],z[1],1)/100, a2=forceOn(TRACK.C,100,400,z[0],z[1],2)/400; return [z[2],z[3],a1,a2]; };
+    let rMid=null, pmax=0;
+    for(let i=0;i<N;i++){ const k1=f(y), k2=f(y.map((v,j)=>v+dt/2*k1[j])), k3=f(y.map((v,j)=>v+dt/2*k2[j])), k4=f(y.map((v,j)=>v+dt*k3[j]));
+      y=y.map((v,j)=>v+dt*(k1[j]+2*k2[j]+2*k3[j]+k4[j])/6);
+      pmax=Math.max(pmax,Math.abs(100*y[2]+400*y[3])); if(i===N/2-1) rMid=y[1]-y[0]; }
+    rel(rMid,fallState(F,F.tc/2).r,1e-10,'RK4 on both bodies agrees with the closed form at t_c/2');
+    rel(y[1]-y[0],F.rc,1e-8,'and reaches contact at t_c'); ok(pmax<1e-16,'total momentum stays zero in the RK4 run ('+pmax.toExponential(1)+')');
+    let lo=F.rc+1e-9, prev=fallTime(lo,F.r0,F.GM), mono=true;
+    for(let i=1;i<=200;i++){ const r=F.rc+(F.r0-F.rc)*i/200, t=fallTime(r,F.r0,F.GM); if(t>prev) mono=false; prev=t; }
+    ok(mono,'t(r) decreases monotonically from contact to release (the bisection needs it)'); }
+  { const F=fallModel(100,400,-3,1,true);
+    eq(F.rc,1,'constant size: contact at 1 m'); rel(F.tc,45836.40343911,1e-11,'constant-size contact time (derive)');
+    rel(fallState(F,150/FALL_FRAMES*F.tc).r,3.8614578575,1e-10,'frame 150 (derive)'); rel(fallState(F,450/FALL_FRAMES*F.tc).r,2.599600027411,1e-10,'frame 450 (derive)');
+    rel(Math.abs(fallState(F,F.tc).rdot),0.0002237347760184,1e-10,'closing speed at contact (derive)'); }
+  { const F=fallModel(1000,10,-5,5,false);
+    rel(F.tc,132071.4676861,1e-11,'1000 kg and 10 kg, 10 m apart: contact time (derive)'); rel(F.xcm,-4.90099009901,1e-11,'the centre of mass sits by the heavy one (derive)');
+    const s=fallState(F,F.tc); rel(s.v1,2.826961696628e-06,1e-9,'the heavy sphere barely moves (derive)'); rel(s.v2,-0.0002826961696628,1e-9,'the light one does the falling (derive)');
+    rel(fallState(F,300/FALL_FRAMES*F.tc).r,8.449150409963,1e-10,'frame 300 (derive)'); }
+  withState({view:'fall'},()=>{ const M=buildModel(); rel(M.perF,5e-7,1e-12,'the fall\'s force arrows: 1 m = 5e-7 N (derive ladder)'); rel(M.perV,5e-5,1e-12,'its velocity arrows: 1 m = 5e-5 m/s (derive ladder)');
+    eq(M.run,false,'before release nothing runs'); eq(M.fs.r,4,'and the spheres sit at r0'); });
+  withState({view:'fall',release:true,frames:300},()=>{ const M=buildModel(); eq(RUN.frame,300,'300 frames stepped'); rel(M.fs.r,3.476916945367,1e-10,'the model run is at the frame-300 separation (derive)'); ok(!M.done,'not yet touching'); });
+  withState({view:'fall',release:true,frames:700},()=>{ const M=buildModel(); eq(RUN.frame,600,'the run stops at frame 600'); ok(M.done,'touching'); rel(M.fs.r,1.402180083967,1e-12,'at r1 + r2'); ok(!runStep(),'no further steps'); });
+  rel(arrowStep(9,-10),1e-7,1e-12,'arrow ladder step 9 = 1e-7 N/m (derive)'); rel(arrowStep(0,-10),1e-10,1e-12,'step 0 (derive)'); rel(arrowStep(17,-10),5e-5,1e-12,'step 17 (derive)');
+  rel(arrowStep(10,-10),2e-7,1e-12,'step 10: the ladder\'s 2 rung (derive)');
+  eq(hms(43795.84797766),'12 h 10 min','the contact time reads 12 h 10 min'); eq(hms(59.6),'1 min 00 s','hms carries a rounded 60 s into the minute'); eq(hms(5),'5 s','and seconds alone');
+
+  /* ---------- J. the models, the readouts, the scene ---------- */
+  for(const [v] of TABS) for(const over of [{},{cs:true},{m1:1000,m2:10,i1:-50,i2:50},{fmode:'hid'},{release:true,frames:600}]){
+    const M=withState(Object.assign({view:v},over),()=>buildModel());
+    const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+    ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0,'panels clean for '+v+' '+JSON.stringify(over)); }
+  { const ro=withState({view:'lab'},()=>readoutHTML(buildModel()));
+    ok(ro.indexOf('1.669 &times; 10<sup>-7</sup> N')>=0,'the lab readout prints F = 1.669e-7 N off the model');
+    ok(ro.indexOf('17.0 &micro;g')>=0,'and the 17.0-microgram weight'); ok(ro.indexOf('1.66852 &times; 10<sup>-7</sup>')>=0,'and PhET\'s 1.66852e-7');
+    const rf=withState({view:'fall'},()=>readoutHTML(buildModel())); ok(rf.indexOf('12 h 10 min')>=0,'the fall readout prints the 12 h 10 min contact time');
+    const ri=withState({view:'inv'},()=>readoutHTML(buildModel())); ok(ri.indexOf('4.000000')>=0,'the inverse-square readout prints F(r)/F(2r) = 4.000000');
+    const rp=withState({view:'prod'},()=>readoutHTML(buildModel())); ok(rp.indexOf('1.398')>=0,'the product readout prints the 1.398 slope'); }
+  { const shot=makeShot(1100,712); const S=makeScene({getContext:()=>shot});
+    Object.assign(ST,DEFAULTS); simReset();
+    ok(!S.step(),'the lab has no clock'); ST.view='fall'; ok(!S.step(),'the fall idles until release');
+    ok(startRun(ST),'release starts a run'); ok(S.step(),'then a frame advances'); eq(RUN.frame,1,'by one frame');
+    ST.running=false; ok(!S.step(),'paused: no frame'); ST.running=true; ok(S.step(),'resumed');
+    ST.view='inv'; ok(!S.step(),'another view does not step the fall');
+    /* the pointer: the spheres and the ruler in the lab */
+    Object.assign(ST,DEFAULTS); simReset();
+    let LS=labSpec(buildModel()), Gm=labGeo(shot,S.W,S.H,LS);
+    ok(S.pointer('down',Gm.X(-3),Gm.yT),'pointer-down on m1 grabs it'); eq(DRAG.what,1,'it is m1');
+    S.pointer('move',Gm.X(-2),Gm.yT); eq(ST.i1,-20,'dragging m1 by 1 m moves it to -2.0 m');
+    S.pointer('move',Gm.X(4),Gm.yT); eq(ST.i1,-5,'and it stops 1.5 m short of m2');
+    ok(S.pointer('up',0,0),'pointer-up releases'); eq(DRAG.what,null,'nothing dragged');
+    ok(S.pointer('down',Gm.X(1)+0.5*Gm.s,Gm.yT),'grabbing m2 off-centre'); S.pointer('move',Gm.X(3)+0.5*Gm.s,Gm.yT); eq(ST.i2,30,'keeps the grab offset: m2 to 3.0 m'); S.pointer('up',0,0);
+    LS=labSpec(buildModel()); Gm=labGeo(shot,S.W,S.H,LS);
+    const g=Gm.ruler; ok(S.pointer('down',(g.x0+g.x1)/2,g.y0+10),'pointer-down on the ruler grabs it'); eq(DRAG.what,'ruler','it is the ruler');
+    S.pointer('move',(g.x0+g.x1)/2+2*Gm.s,g.y0+10); eq(ST.rulerI,-30,'the ruler moves 2 m (snapped)');
+    S.pointer('move',(g.x0+g.x1)/2+2*Gm.s,g.y0-400); rel(Gm.Y(ST.rulerY),Gm.ruler.ryLo,1e-9,'held below the arrow rows'); S.pointer('up',0,0);
+    ok(!S.pointer('down',Gm.b.x+2,Gm.b.y+2),'a pointer-down on empty stage grabs nothing');
+    ST.view='inv'; ok(!S.pointer('down',Gm.X(-3),Gm.yT),'the other views ignore the pointer'); ST.view='lab';
+    rulerToM1(ST); eq(ST.rulerI,ST.i1,'ruler to m1: its zero on the centre of m1'); eq(ST.rulerY,0,'with its tick edge on the centre line');
+    rulerHome(ST); eq(ST.rulerI,-50,'ruler home: zero at -5 m'); eq(ST.rulerY,null,'at its home height');
+    setRuler(ST,-20,0); eq(ST.rulerI,-100,'the ruler stops half a ruler left of the track'); setRuler(ST,20,0); eq(ST.rulerI,50,'and at the right end');
+    Object.assign(ST,stSave); simReset(); }
+
+  /* ---------- K. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['lab default',{view:'lab'},6],['lab constant size',{view:'lab',cs:true,m1:1000,m2:10},6],['lab scientific',{view:'lab',fmode:'sci'},6],
+    ['lab hidden',{view:'lab',fmode:'hid'},6],['lab heavy close',{view:'lab',m1:1000,m2:1000,i1:-12,i2:12},6],['lab light far',{view:'lab',m1:10,m2:10,i1:-50,i2:50},6],
+    ['lab arrows tiny',{view:'lab',arrowK:17},6],['lab arrows huge',{view:'lab',arrowK:0},6],['lab ruler measuring',{view:'lab',rulerI:-30,rulerY:0},6],
+    ['lab no distance',{view:'lab',showDist:false},6],['lab at the walls',{view:'lab',i1:-50,i2:50,m1:1000,m2:1000},6],
+    ['inv default',{view:'inv'},5],['inv heavy close',{view:'inv',m1:1000,m2:1000,i1:-12,i2:12},5],['inv light far',{view:'inv',m1:10,m2:10,i1:-50,i2:50},5],['inv constant',{view:'inv',cs:true},5],
+    ['prod default',{view:'prod'},3],['prod blocked',{view:'prod',i1:-10,i2:10},4],['prod constant',{view:'prod',cs:true,i1:-6,i2:5,m1:1000,m2:1000},3],['prod light',{view:'prod',m1:10,m2:20},3],
+    ['fall idle',{view:'fall'},6],['fall running',{view:'fall',release:true,frames:300},6],['fall touching',{view:'fall',release:true,frames:600},6],
+    ['fall constant',{view:'fall',cs:true,release:true,frames:450},6],['fall heavy light',{view:'fall',m1:1000,m2:10,i1:-50,i2:50,release:true,frames:400},6],
+  ];
+  layoutSweep(ok,withState,CONFIGS,SIZES);
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

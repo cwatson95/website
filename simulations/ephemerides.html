@@ -104,12 +104,17 @@
   magenta #cd35c4 = LISA, warm yellow #f5d76b = Sun, olive #a8b471 =
   belt). Orrery: ecliptic view, tilt/zoom sliders, optional
   log-compressed radius ln(1 + r/0.3 au) so Mercury..Pluto share one
-  frame. System view (panel 2): its own camera - pointer-drag turns
-  (yaw) and tilts (elevation), wheel zooms, double-click resets.
-  Panels 3 and 4 carry minimize buttons: one minimized collapses to a
-  side strip (the neighbor takes the width), both minimized collapse
-  the bottom row to a bar (the top row takes the height); click a strip
-  to restore. Single file, no dependencies, works over file://.
+  frame. Orrery (panel 1) and system view (panel 2) each have a pointer
+  camera - drag turns (yaw) and tilts (elevation), wheel zooms,
+  double-click resets; the orrery camera drives the tilt/zoom sliders.
+  Panel 3: wheel zooms the time axis about the cursor, drag pans.
+  Panel 4: wheel zooms the map extent (recomputed, computed over sqrt 2
+  x the view so rotation never shows corners), drag rotates in-plane.
+  All four panels carry minimize buttons: one minimized in a row
+  collapses to a side strip (the neighbor takes the width), both in a
+  row collapse that row to a bar (the other row takes the height); click
+  a strip to restore. Canvases re-size their bitmap on width OR height
+  change (height-only changes used to CSS-stretch the top row). Single file, no dependencies, works over file://.
 
   HEADLESS SELF-TEST: extract the inline script (substring between the
   LAST script open/close tags - use rindex) and run it with
@@ -135,8 +140,8 @@
 -->
 <style>
   :root{
-    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
-    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4; --warn:#f5d76b;
+    --bg:#070b18; --panel:#0c1630; --panel2:#0f1a33; --text:#d4d9e4; --dim:#a3acbf;
+    --accent:#58c4dd; --edge:#24314f; --neon-a:#b8ec4c; --neon-b:#cd35c4; --warn:#f5d76b;
   }
   *{box-sizing:border-box; margin:0; padding:0;}
   html,body{height:100%; overflow:hidden;}
@@ -158,7 +163,7 @@
   .box canvas{position:absolute; inset:0; width:100%; height:100%;}
   .paneltag{position:absolute; top:6px; left:10px; z-index:3; font-size:11.5px; color:var(--dim);
             letter-spacing:.3px; pointer-events:none;}
-  #badge{position:absolute; top:6px; right:10px; z-index:3; font-size:11px; color:var(--warn);
+  #badge{position:absolute; top:6px; right:34px; z-index:3; font-size:11px; color:var(--warn);
          pointer-events:none;}
   #impstatus{position:absolute; top:6px; right:32px; z-index:3; font-size:11px; color:var(--dim);
              pointer-events:none;}
@@ -166,12 +171,15 @@
         background:var(--panel2); color:var(--dim); border:1px solid var(--edge); border-radius:4px;
         font-size:12px; line-height:1; cursor:pointer;}
   .pmin:hover{border-color:var(--accent); color:var(--accent);}
-  #botrow .box.min{flex:0 0 30px; cursor:pointer; overflow:hidden;}
-  #botrow .box.min canvas, #botrow .box.min #impstatus{display:none;}
-  #botrow .box.min .paneltag{writing-mode:vertical-rl; top:28px; left:8px; white-space:nowrap;}
-  #botrow.allmin{flex:0 0 26px;}
-  #botrow.allmin .box.min{flex:1;}
-  #botrow.allmin .box.min .paneltag{writing-mode:horizontal-tb; top:5px; left:10px;}
+  .box canvas{cursor:grab; touch-action:none;}
+  .box canvas.drag{cursor:grabbing;}
+  #main .box.min{flex:0 0 30px; cursor:pointer; overflow:hidden;}   /* #main: must outrank #orrbox etc */
+  .box.min canvas, .box.min #impstatus, .box.min #badge{display:none;}
+  .box.min .paneltag{writing-mode:vertical-rl; top:28px; left:8px; white-space:nowrap;}
+  #toprow.allmin, #botrow.allmin{flex:0 0 26px;}
+  #main .row.allmin .box.min{flex:1;}
+  .row.allmin .box.min .paneltag{writing-mode:horizontal-tb; top:5px; left:10px;}
+  #main.botgone #toprow{border-bottom:0;}
   .hint{font-size:11px; color:var(--dim); margin-top:6px; line-height:1.4;}
   aside{width:308px; flex-shrink:0; overflow-y:auto; background:var(--panel2);
         border-left:1px solid var(--edge); padding:10px 12px 26px;}
@@ -183,6 +191,9 @@
   .sliderrow input[type=range]{flex:1; accent-color:var(--accent); min-width:0;}
   .sliderrow .val{font-size:12px; color:var(--accent); min-width:58px; text-align:right;
                   font-variant-numeric:tabular-nums;}
+  .sliderrow input.val{width:78px; min-width:0; background:var(--panel); border:1px solid var(--edge);
+                  border-radius:4px; padding:2px 5px; font-family:inherit;}
+  .sliderrow input.val:focus{outline:none; border-color:var(--accent);}
   .chips{display:flex; flex-wrap:wrap; gap:5px;}
   .chip{background:var(--panel); color:var(--text); border:1px solid var(--edge); border-radius:4px;
         font-size:12px; padding:3px 9px; cursor:pointer;}
@@ -240,11 +251,11 @@ header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400
 </header>
 <div id="wrap">
   <div id="main">
-    <div id="toprow">
-      <div class="box" id="orrbox"><span class="paneltag">&#9312; heliocentric orrery &mdash; ecliptic J2000</span><div id="badge"></div><canvas id="cvOrr"></canvas></div>
-      <div class="box" id="sysbox"><span class="paneltag" id="systag">&#9313; system view</span><canvas id="cvSys"></canvas></div>
+    <div id="toprow" class="row">
+      <div class="box" id="orrbox"><span class="paneltag">&#9312; heliocentric orrery &mdash; ecliptic J2000</span><div id="badge"></div><button class="pmin" id="minOrr" title="minimize panel &#9312;">&minus;</button><canvas id="cvOrr"></canvas></div>
+      <div class="box" id="sysbox"><span class="paneltag" id="systag">&#9313; system view</span><button class="pmin" id="minSys" title="minimize panel &#9313;">&minus;</button><canvas id="cvSys"></canvas></div>
     </div>
-    <div id="botrow">
+    <div id="botrow" class="row">
       <div class="box" id="impbox"><span class="paneltag" id="imptag">&#9314; improving the ephemeris</span><div id="impstatus"></div><button class="pmin" id="minImp" title="minimize panel &#9314;">&minus;</button><canvas id="cvImp"></canvas></div>
       <div class="box" id="icrsbox"><span class="paneltag">&#9315; intrinsic coordinates &mdash; log&#8321;&#8320;|Re&#8201;I| + Im nodal set</span><button class="pmin" id="minIcrs" title="minimize panel &#9315;">&minus;</button><canvas id="cvIcrs"></canvas></div>
     </div>
@@ -268,12 +279,14 @@ header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400
       </div>
       <div class="sliderrow"><label for="sSpeed">speed</label>
         <input type="range" id="sSpeed" min="-6" max="6" step="0.25" value="2">
-        <span class="val" id="vSpeed"></span></div>
+        <input class="val" id="vSpeed" spellcheck="false"
+          title="type a rate per second: 0.01 (days), 2 h, 30 min, 1 s (= real time), 5 yr; negative runs backwards"></div>
+      <div class="hint">type any rate in the box: 0.01 &middot; 2 h &middot; 30 min &middot; 1 s (real time)</div>
     </div>
     <div class="grp">
       <h3>view</h3>
       <div class="sliderrow"><label for="sTilt">tilt &#9312;</label>
-        <input type="range" id="sTilt" min="0" max="90" step="1" value="45">
+        <input type="range" id="sTilt" min="-90" max="90" step="1" value="45">
         <span class="val" id="vTilt"></span></div>
       <div class="sliderrow"><label for="sZoom">zoom &#9312;</label>
         <input type="range" id="sZoom" min="-1.4" max="2.2" step="0.05" value="0">
@@ -284,8 +297,12 @@ header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400
         <label><input type="checkbox" id="ckLisa" checked> LISA</label>
         <label><input type="checkbox" id="ckIcrs" checked> invariant map</label>
       </div>
-      <div class="hint">&#9313; drag = turn/tilt &middot; wheel = zoom &middot; double-click = reset
-        &middot; &#9314;&#9315; minimize with the corner &minus; buttons</div>
+      <div class="hint" style="margin-top:8px">&#9313; planet filter</div>
+      <div class="chips" id="filterChips" style="margin-top:4px"></div>
+      <div class="hint">&#9312;&#9313; drag = turn/tilt &middot; wheel = zoom &middot; double-click = reset
+        (&#9312; click = select body)<br>&#9314; wheel = zoom time axis &middot; drag = pan
+        &middot; &#9315; wheel = zoom map &middot; drag = rotate<br>every panel minimizes with
+        its corner &minus; button; click a strip to restore</div>
     </div>
     <div class="grp">
       <h3>body</h3>
@@ -369,9 +386,9 @@ const MOON_FRAC = GM_KM.moon/(GM_KM.earth + GM_KM.moon);
 const OBLIQ = 23.4392911*DEG;                    // J2000 mean obliquity
 const CLR = {sun:'#f5d76b', mercury:'#9aa0a6', venus:'#e8c88a', earth:'#58a6dd',
   mars:'#dd6b58', jupiter:'#d9a066', saturn:'#e8d59a', uranus:'#7fd4d4',
-  neptune:'#5875dd', pluto:'#b09ab0', moon:'#b6b6be', lisa:'#cd35c4',
-  nb:'#b8ec4c', ast:'#a8b471', dim:'#63636e', grid:'rgba(255,255,255,0.05)',
-  axis:'rgba(255,255,255,0.22)'};
+  neptune:'#5875dd', pluto:'#b09ab0', moon:'#b6b6be', lisa:'#e04bd6',
+  nb:'#b8ec4c', ast:'#bccb7a', dim:'#9aa6bd', grid:'rgba(160,190,255,0.10)',
+  axis:'rgba(200,215,255,0.35)', bg:'#0c1630'};   // navy canvas, readable labels
 
 function fmt(x,d){ return (+x).toFixed(d===undefined?2:d); }
 function fmtG(x,sig){
@@ -661,6 +678,434 @@ const V3 = {
   add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
   scale:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
 };
+
+/* ======================= planet globes (panel 2) ================= */
+/* Spin: IAU 2015 (Archinal et al. 2018) prime meridians W = W0 + Wd*d
+   [deg, d = days from J2000 TDB]. Wd < 0 means the body turns backwards
+   about its IAU north pole (Venus, Uranus), so the angular-momentum (spin)
+   axis is -pole; obliquity = angle(spin axis, orbit normal), > 90 deg =
+   retrograde. Surfaces are procedural maps keyed to real longitudes where a
+   feature is named (Earth coastlines, Mars albedo, Jupiter GRS, Pluto's
+   heart), shaded by the true Sun direction. Filters: visible; UV (violet
+   monochrome: hazes/absorbers); near-IR in JWST/NIRCam false colour
+   (methane-dark giants, bright hazes + rings, Jovian aurorae, Earth
+   vegetation red-edge); thermal IR (emitted, not reflected - the night
+   side glows; rocky airless bodies follow the local Sun angle). */
+POLES.mercury = [281.0103, 61.4155]; POLES.venus = [272.76, 67.16];
+const ROT = {mercury:[329.5988, 6.1385108], venus:[160.20, -1.4813688],
+  earth:[190.147, 360.9856235], mars:[176.630, 350.89198226],
+  jupiter:[284.95, 870.5360000], saturn:[38.90, 810.7939024],
+  uranus:[203.81, -501.1600928], neptune:[253.18, 536.3128492],
+  pluto:[302.695, 56.3625225]};
+const FILTERS = {vis:'visible', uv:'UV', nir:'near-IR (JWST)', tir:'thermal IR'};
+function bodyFrame(body, jd){
+  const p = poleEcl(body), zEq = eqToEcl([0,0,1]);
+  let Q = V3.cross(zEq, p);                         // node of body equator on ICRF equator
+  Q = V3.norm(Q) < 1e-9 ? eqToEcl([0,1,0]) : V3.unit(Q);  // Earth: node at RA alpha0+90 (IAU)
+  const [W0, Wd] = ROT[body];
+  const W = (W0 + Wd*(jd - JD0))*DEG, cw = Math.cos(W), sw = Math.sin(W);
+  const pQ = V3.cross(p, Q);
+  const M = V3.add(V3.scale(Q, cw), V3.scale(pQ, sw));   // prime meridian
+  const E = V3.cross(p, M);                              // 90 deg east
+  const spin = V3.scale(p, Math.sign(Wd));
+  const el = meanElements(body, jd), sI = Math.sin(el.I*DEG);
+  const nOrb = [sI*Math.sin(el.Omega*DEG), -sI*Math.cos(el.Omega*DEG), Math.cos(el.I*DEG)];
+  const obliq = Math.acos(Math.max(-1, Math.min(1, V3.dot(spin, nOrb))))/DEG;
+  return {p, M, E, spin, nOrb, obliq, period:360/Math.abs(Wd)};
+}
+
+/* value noise + fbm on the unit sphere (seamless, no poles pinch) */
+function hash3(i,j,k){
+  let h = Math.imul(i,374761393) ^ Math.imul(j,668265263) ^ Math.imul(k,1274126177);
+  h = Math.imul(h ^ (h>>>13), 1103515245);
+  return ((h ^ (h>>>16))>>>0)/4294967296;
+}
+function vnoise(x,y,z){
+  const i=Math.floor(x), j=Math.floor(y), k=Math.floor(z);
+  const fx=x-i, fy=y-j, fz=z-k;
+  const u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy), w=fz*fz*(3-2*fz), L=(a,b,t)=>a+(b-a)*t;
+  return L(L(L(hash3(i,j,k),hash3(i+1,j,k),u), L(hash3(i,j+1,k),hash3(i+1,j+1,k),u), v),
+           L(L(hash3(i,j,k+1),hash3(i+1,j,k+1),u), L(hash3(i,j+1,k+1),hash3(i+1,j+1,k+1),u), v), w);
+}
+function fbm(x,y,z,oct){
+  let s=0, a=0.5, f=1, n=0;
+  for (let o=0;o<oct;o++){ s+=a*vnoise(x*f+17*o,y*f,z*f); n+=a; f*=2.03; a*=0.5; }
+  return s/n;
+}
+const sstep = (e0,e1,x) => { const t = Math.max(0, Math.min(1, (x-e0)/(e1-e0))); return t*t*(3-2*t); };
+const mixC = (c1,c2,t) => [c1[0]+(c2[0]-c1[0])*t, c1[1]+(c2[1]-c1[1])*t, c1[2]+(c2[2]-c1[2])*t];
+const mulC = (c,k) => [c[0]*k, c[1]*k, c[2]*k];
+const wrap180 = x => ((x+540)%360)-180;
+function heat(v){                                   // magma-like map for emitted light
+  const S = [[0,[0,0,4]],[0.25,[80,18,123]],[0.5,[182,54,121]],[0.75,[251,136,97]],[1,[252,253,191]]];
+  v = Math.max(0, Math.min(1, v));
+  for (let i=1;i<S.length;i++) if (v <= S[i][0])
+    return mixC(S[i-1][1], S[i][1], (v-S[i-1][0])/(S[i][0]-S[i-1][0]));
+  return S[S.length-1][1];
+}
+const violet = v => [200*v, 185*v, 255*v];          // UV rendered as violet monochrome
+const blob = (lat, lon, la0, lo0, sla, slo) =>       // soft elliptical patch, 0..1
+  Math.exp(-(((lat-la0)/sla)**2 + (wrap180(lon-lo0)/slo)**2));
+
+/* Earth coastlines, coarse [lon,lat] polygons (rasterized once) */
+const EARTH_LAND = [
+  [[-168,66],[-162,70],[-140,70],[-125,70],[-95,72],[-80,73],[-65,62],[-60,55],[-53,48],[-66,44],[-70,41],[-76,35],[-81,31],[-80,25],[-82,29],[-90,30],[-97,27],[-97,21],[-90,21],[-87,21],[-88,16],[-83,15],[-83,10],[-79,8],[-86,12],[-92,15],[-98,16],[-105,20],[-110,24],[-112,30],[-117,32],[-121,36],[-124,41],[-124,48],[-130,54],[-137,58],[-146,61],[-152,59],[-158,57],[-164,55],[-158,58],[-165,62]],
+  [[-120,72],[-100,80],[-75,82],[-62,82],[-80,73],[-100,70]],
+  [[-80,9],[-75,11],[-62,10],[-52,5],[-50,0],[-44,-2],[-35,-6],[-39,-14],[-41,-22],[-48,-26],[-54,-34],[-58,-38],[-62,-40],[-65,-45],[-68,-50],[-70,-55],[-74,-52],[-74,-45],[-73,-37],[-71,-30],[-70,-18],[-76,-13],[-81,-5],[-80,1],[-78,4]],
+  [[-17,15],[-17,21],[-13,28],[-9,32],[-6,36],[3,37],[10,37],[11,33],[20,31],[30,31],[33,31],[35,28],[39,20],[43,12],[51,12],[51,10],[44,0],[40,-5],[40,-15],[35,-24],[32,-29],[27,-34],[20,-35],[18,-32],[14,-23],[12,-15],[13,-6],[9,-1],[9,4],[4,6],[-5,5],[-8,4],[-13,8],[-17,13]],
+  [[44,-25],[47,-25],[50,-15],[49,-12],[44,-17]],
+  [[-10,36],[-9,43],[-2,43],[-1,46],[-4,48],[2,51],[5,53],[8,54],[9,57],[5,58],[5,62],[14,67],[20,70],[28,71],[40,67],[44,68],[60,69],[70,73],[80,73],[100,77],[115,74],[130,71],[140,72],[160,70],[170,70],[180,66],[180,64],[176,62],[165,60],[163,56],[156,51],[156,57],[150,59],[140,58],[135,54],[141,52],[140,46],[133,43],[129,40],[129,35],[126,35],[126,38],[121,40],[122,37],[119,35],[121,32],[122,30],[120,26],[116,23],[110,21],[108,21],[106,18],[109,12],[105,9],[104,10],[100,13],[100,8],[104,1],[101,3],[98,8],[98,16],[94,17],[91,22],[87,21],[80,15],[78,8],[76,10],[73,18],[72,21],[67,24],[62,25],[57,26],[56,24],[59,22],[55,17],[52,16],[45,13],[43,13],[39,21],[35,28],[34,31],[35,33],[36,36],[30,36],[27,37],[26,40],[23,40],[24,38],[22,37],[20,40],[19,42],[13,45],[16,41],[18,40],[16,38],[12,42],[8,44],[3,43],[3,42],[0,39],[-1,37],[-5,36]],
+  [[-5,50],[1,51],[0,54],[-2,57],[-5,58],[-6,56],[-3,54],[-5,52]],
+  [[130,31],[132,34],[135,34],[140,35],[141,38],[142,42],[145,44],[141,45],[140,41],[139,38],[136,36],[132,35]],
+  [[109,1],[110,-3],[116,-4],[119,1],[117,7],[115,5]],
+  [[95,5],[98,4],[106,-6],[104,-5],[100,0]],
+  [[131,-1],[138,-2],[147,-6],[150,-10],[141,-9],[137,-5]],
+  [[114,-22],[114,-26],[115,-34],[118,-35],[124,-34],[131,-31],[138,-35],[140,-38],[146,-39],[150,-37],[153,-32],[153,-25],[146,-19],[142,-11],[141,-17],[136,-12],[130,-12],[126,-14],[122,-18]],
+  [[172,-34],[178,-38],[174,-41],[166,-46],[171,-44],[174,-39]],
+  [[-24,64],[-22,66],[-14,66],[-14,64],[-18,63]]];
+const EARTH_ICE = [
+  [[-73,78],[-60,82],[-30,83],[-20,80],[-20,72],[-22,70],[-40,65],[-43,60],[-50,62],[-54,67],[-56,72],[-65,76]],
+  [[-180,-78],[-150,-77],[-120,-73],[-90,-72],[-75,-70],[-60,-64],[-58,-63],[-60,-70],[-40,-78],[-10,-71],[20,-70],[50,-67],[70,-68],[90,-66],[120,-66],[150,-68],[170,-72],[180,-78],[180,-90],[-180,-90]]];
+const EARTH_WATER = [                                // inland seas cut back out
+  [[-95,60],[-80,63],[-77,57],[-80,51],[-90,57]],
+  [[28,41],[28,45],[33,46],[38,47],[41,42],[35,42]],
+  [[47,45],[50,47],[54,45],[54,38],[49,37],[49,41]]];
+let EARTH_MASK = null;
+function earthMask(W, H){
+  if (EARTH_MASK) return EARTH_MASK;
+  EARTH_MASK = new Uint8Array(W*H);                  // 0 sea, 1 land, 2 ice
+  if (typeof document === 'undefined') return EARTH_MASK;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  const fill = (polys, col) => { c.fillStyle = col;
+    for (const P of polys){ c.beginPath();
+      P.forEach(([lo,la],i) => { const x=(lo+180)/360*W, y=(90-la)/180*H; i?c.lineTo(x,y):c.moveTo(x,y); });
+      c.closePath(); c.fill(); } };
+  c.fillStyle = '#000'; c.fillRect(0,0,W,H);
+  fill(EARTH_LAND, '#f00'); fill(EARTH_ICE, '#0f0'); fill(EARTH_WATER, '#000');
+  const d = c.getImageData(0,0,W,H).data;
+  for (let k=0;k<W*H;k++) EARTH_MASK[k] = d[4*k+1]>127 ? 2 : (d[4*k]>127 ? 1 : 0);
+  return EARTH_MASK;
+}
+
+/* per-body surface painters -> [albedo rgb, emitted rgb] (0..255) */
+const OVALS = []; { let s = 7;                      // Jupiter's white ovals, seeded
+  const r = () => (s = (s*16807) % 2147483647)/2147483647;
+  for (let k=0;k<26;k++) OVALS.push([[-41,-33,21,-57,33,45][k%6] + 2*(r()-0.5), 360*r()-180, 0.9+1.4*r()]); }
+const PAINT = {
+  jupiter(f, lat, lon, u){
+    const streak = fbm(2*Math.cos(lon*DEG), 2*Math.sin(lon*DEG), 0.35*lat, 4);
+    const latT = lat + 5*(fbm(3*u[0],3*u[1],3*u[2],4)-0.5);
+    let b = 0;
+    for (const [lo,hi,s] of [[7,17,1],[-20,-7,1],[24,30,.7],[-33,-27,.7],[35,39,.5],[-42,-38,.5]])
+      b = Math.max(b, s*sstep(lo-1.5,lo+1.5,latT)*(1-sstep(hi-1.5,hi+1.5,latT)));
+    const pol = sstep(42, 62, Math.abs(lat));
+    const g = blob(lat, lon, -22.5, -50, 5.5, 11);   // Great Red Spot
+    const hollow = blob(lat, lon, -22.5, -50, 8, 16) - g;
+    let ov = 0; for (const [la,lo,sz] of OVALS) ov = Math.max(ov, blob(lat, lon, la, lo, sz, 1.6*sz));
+    if (f==='vis'){
+      let c = mulC(mixC([234,224,203],[165,110,76], b), 0.82+0.36*streak);
+      c = mixC(c, [205,170,135], 0.5*(1-sstep(0,6,Math.abs(lat))));
+      c = mixC(c, [158,146,136], pol);
+      c = mixC(c, [240,232,220], 0.5*Math.max(0,hollow));
+      c = mixC(c, [204,96,62], g); c = mixC(c, [248,244,236], ov);
+      return [c, null];
+    }
+    if (f==='nir'){
+      let c = mulC(mixC([226,232,240],[82,104,152], b), 0.8+0.4*streak);
+      c = mixC(c, [168,214,192], 0.45*(1-sstep(0,7,Math.abs(lat))));
+      c = mixC(c, [72,168,140], pol*(0.7+0.3*streak));
+      c = mixC(c, [252,252,252], Math.max(g, ov));
+      const au = Math.exp(-(((Math.abs(lat)-74)/3.5)**2))*(0.55+0.45*streak);
+      return [c, [255*au, 85*au, 35*au]];
+    }
+    if (f==='tir'){
+      let v = 0.18 + 0.65*b*(0.55+0.7*streak);
+      v *= (1-0.75*g)*(1-0.4*pol)*(1-0.5*ov);
+      return [null, heat(v)];
+    }
+    let v = (0.82 - 0.22*b)*(0.9+0.2*streak);
+    v *= (1-0.55*sstep(28,62,Math.abs(lat)))*(1-0.5*g);
+    return [violet(v), null];
+  },
+  saturn(f, lat, lon, u){
+    const streak = fbm(2*Math.cos(lon*DEG), 2*Math.sin(lon*DEG), 0.3*lat, 3);
+    const b = 0.5+0.5*Math.sin(lat*DEG*9 + 2*(streak-0.5));
+    const sec = ((lon%60)+60)%60 - 30;
+    const hex = (90-lat) < 14*Math.cos(30*DEG)/Math.cos(sec*DEG) ? 1 : 0;
+    const pol = sstep(60, 80, Math.abs(lat));
+    if (f==='vis'){
+      let c = mulC([228,206,152], 0.86+0.16*b);
+      c = mixC(c, [196,178,140], pol*0.6);
+      return [mixC(c, [122,146,168], hex*0.85), null];
+    }
+    if (f==='nir'){
+      let c = mulC([52,58,74], 0.8+0.35*b);
+      c = mixC(c, [100,108,128], 1-sstep(0,12,Math.abs(lat)));
+      c = mixC(c, [168,170,190], pol); c = mixC(c, [205,210,225], hex*0.7);
+      return [c, null];
+    }
+    if (f==='tir') return [null, heat(0.3 + 0.2*b + 0.35*sstep(-70,-88,lat) + 0.15*hex)];
+    return [violet((0.78 + 0.1*b)*(1-0.45*pol)), null];
+  },
+  uranus(f, lat, lon, u){
+    const n = fbm(2*Math.cos(lon*DEG), 2*Math.sin(lon*DEG), 0.25*lat, 3);
+    const cap = sstep(48, 66, lat);
+    if (f==='vis') return [mixC(mulC([170,214,222], 0.95+0.08*n), [205,232,236], 0.5*cap), null];
+    if (f==='nir'){
+      const storms = sstep(0.68, 0.78, fbm(5*u[0],5*u[1],5*u[2],4))*(1-sstep(30,50,Math.abs(lat-40)));
+      let c = mulC([104,150,206], 0.85+0.3*n);
+      return [mixC(mixC(c, [236,242,252], cap), [245,248,255], storms), null];
+    }
+    if (f==='tir') return [null, heat(0.24 + 0.06*n)];
+    return [violet(0.78 + 0.06*n), null];
+  },
+  neptune(f, lat, lon, u){
+    const n = fbm(2*Math.cos(lon*DEG), 2*Math.sin(lon*DEG), 0.3*lat, 3);
+    const cl = sstep(0.6, 0.75, fbm(2.5*Math.cos(lon*DEG), 2.5*Math.sin(lon*DEG), 0.12*lat, 4)) *
+               (1 - sstep(10, 18, Math.abs(Math.abs(lat)-30)));
+    const ds = blob(lat, lon, -20, 0, 6, 11);
+    if (f==='vis') return [mixC(mixC(mulC([62,104,204], 0.9+0.2*n), [28,48,128], ds), [232,238,252], cl), null];
+    if (f==='nir') return [mixC(mulC([92,108,140], 0.85+0.3*n), [250,250,255], Math.min(1, 1.3*cl)), null];
+    if (f==='tir') return [null, heat(0.25 + 0.05*n + 0.45*sstep(-70,-88,lat))];
+    return [violet(0.7 + 0.08*n - 0.2*ds), null];
+  },
+  mars(f, lat, lon, u){
+    const n = fbm(4*u[0],4*u[1],4*u[2],5);
+    let d = 0;
+    for (const [la,lo,sa,so,s] of [[10,70,10,8,.9],[45,-30,10,25,.7],[-25,-40,10,25,.7],[-3,0,5,15,.7],
+         [-25,145,10,30,.7],[-15,105,10,20,.6],[45,115,12,25,.5],[-26,-87,5,6,.5],[-10,-70,3,25,.6],
+         [-60,0,8,180,.35]]) d = Math.max(d, s*blob(lat, lon, la, lo, sa, so));
+    d = Math.max(0, Math.min(1, d*(0.7+0.6*n) - 0.5*blob(lat,lon,-42,70,10,12) - 0.3*blob(lat,lon,18,-134,4,4)));
+    const cap = Math.max(sstep(76, 80, lat + 4*(n-0.5)), sstep(-80, -84, lat + 4*(n-0.5)));
+    if (f==='vis') return [mixC(mixC(mulC([194,106,64], 0.9+0.2*n), [104,62,42], d), [242,242,246], cap), null];
+    if (f==='nir') return [mixC(mixC(mulC([226,146,96], 0.9+0.2*n), [120,78,56], d), [250,250,250], cap), null];
+    if (f==='tir') return [[255*(1-0.25*d),0,0], null];  // r = emissivity; Sun-driven
+    return [violet(0.32 + 0.06*n + 0.55*cap + 0.25*sstep(55,72,Math.abs(lat))), null];
+  },
+  mercury(f, lat, lon, u){
+    const n = fbm(6*u[0],6*u[1],6*u[2],5);
+    const cr = sstep(0.62, 0.7, fbm(14*u[0],14*u[1],14*u[2],3));
+    const v = (0.72 + 0.5*(n-0.5)) + 0.25*cr;
+    if (f==='vis') return [mulC([158,152,146], v), null];
+    if (f==='nir') return [mulC([182,164,148], v), null];
+    if (f==='tir') return [[255*(0.9+0.1*n),0,0], null];
+    return [violet(0.45*v), null];
+  },
+  venus(f, lat, lon, u){
+    const streak = fbm(2*Math.cos(lon*DEG), 2*Math.sin(lon*DEG), 0.2*lat, 4);
+    if (f==='vis') return [mulC([238,222,178], 0.95+0.08*streak), null];
+    const q = lon + 1.6*Math.abs(lat);
+    const dark = sstep(0.45, 0.72, 0.5 + 0.32*Math.sin(2*q*DEG) + 0.5*(fbm(3*u[0],3*u[1],3*u[2],4)-0.5))
+                 * (1 - sstep(50, 72, Math.abs(lat)));
+    if (f==='uv') return [violet(0.9 - 0.42*dark), null];
+    if (f==='nir'){                                  // 2.3 um window: deep heat leaks out at night
+      const p = sstep(0.4, 0.7, fbm(2.5*u[0],2.5*u[1],2.5*u[2],4));
+      return [mulC([214,204,182], 0.9+0.1*streak), [150*p, 52*p, 18*p]];
+    }
+    const collar = Math.exp(-(((Math.abs(lat)-65)/5)**2));
+    return [null, heat(0.5 + 0.08*streak - 0.3*collar + 0.18*sstep(75,88,Math.abs(lat)))];
+  },
+  earth(f, lat, lon, u, mask){
+    const n = fbm(5*u[0],5*u[1],5*u[2],5);
+    const al = Math.abs(lat);
+    const cl = sstep(0.55, 0.72, fbm(3.5*u[0],3.5*u[1],3.5*u[2],5)
+               + 0.12*Math.exp(-(((lat-6)/6)**2)) + 0.08*Math.exp(-(((al-55)/10)**2)) - 0.1*Math.exp(-(((al-25)/7)**2)));
+    const ice = mask===2 || al > 80 ? 1 : 0;
+    const desert = sstep(0.35, 0.65, n + 0.6*Math.exp(-(((al-24)/9)**2)) - 0.3);
+    const veg = mask===1 ? (1-desert)*(1-sstep(60,70,al)) : 0;
+    let surf;
+    if (mask===0 && !ice) surf = mulC([14,42,104], 0.85+0.3*n);
+    else if (ice) surf = [238,242,248];
+    else surf = mixC(mixC(mixC([44,92,44],[86,112,58], sstep(10,40,al)), [198,172,124], desert),
+                     [122,116,98], sstep(58,68,al));
+    if (f==='vis') return [mixC(surf, [246,248,252], 0.92*cl), null];
+    if (f==='nir'){                                  // colour-infrared: vegetation red edge
+      let c = (mask===0 && !ice) ? [6,8,22] : (ice ? [240,240,245] : mixC([212,190,172], [222,52,58], veg));
+      return [mixC(c, [250,250,252], 0.92*cl), null];
+    }
+    if (f==='tir'){
+      let v = 0.2 + 0.62*Math.pow(Math.cos(lat*DEG), 1.6) + (mask===1 ? 0.08*desert : 0);
+      v = v*(1-0.7*cl)*(1-0.7*ice);
+      return [null, heat(v)];
+    }
+    return [violet(0.62 + 0.04*(mask!==0) + 0.3*cl), null];
+  },
+  pluto(f, lat, lon, u){
+    const n = fbm(4*u[0],4*u[1],4*u[2],5);
+    const ct = sstep(0.3, 0.6, (1-sstep(8,16,lat))*sstep(-30,-20,lat)*(1-sstep(150,170,lon))*sstep(10,25,lon) + 0.35*(n-0.5));
+    const heart = Math.max(blob(lat, lon, 22, 176, 14, 12), blob(lat, lon, 5, 205, 15, 16));
+    const nor = sstep(50, 75, lat);
+    if (f==='vis') return [mixC(mixC(mixC(mulC([204,172,138], 0.9+0.2*n), [92,52,38], ct), [246,236,226], heart), [222,200,168], nor), null];
+    if (f==='nir') return [mixC(mixC(mulC([186,170,160], 0.9+0.2*n), [70,50,44], ct), [252,252,252], heart), null];
+    if (f==='tir') return [null, heat(0.12 + 0.06*ct - 0.04*heart)];
+    return [violet(0.5 + 0.1*n - 0.25*ct + 0.25*heart), null];
+  }};
+const SUN_THERMAL = {mercury:true, mars:true};       // airless/thin: emission follows the Sun
+
+const GTEX = {};
+function globeTex(body, f){
+  const key = body+'/'+f;
+  if (GTEX[key]) return GTEX[key];
+  const W = 512, H = 256, a = new Uint8ClampedArray(W*H*3), e = new Uint8ClampedArray(W*H*3);
+  const mask = body==='earth' ? earthMask(W, H) : null;
+  let anyE = false, anyA = false;
+  for (let j=0;j<H;j++){
+    const lat = 90 - (j+0.5)/H*180, cl = Math.cos(lat*DEG), sl = Math.sin(lat*DEG);
+    for (let i=0;i<W;i++){
+      const lon = (i+0.5)/W*360 - 180;
+      const u = [cl*Math.cos(lon*DEG), cl*Math.sin(lon*DEG), sl];
+      const [ca, ce] = PAINT[body](f, lat, lon, u, mask ? mask[j*W+i] : 0);
+      const k = 3*(j*W+i);
+      if (ca){ a[k]=ca[0]; a[k+1]=ca[1]; a[k+2]=ca[2]; anyA = true; }
+      if (ce){ e[k]=ce[0]; e[k+1]=ce[1]; e[k+2]=ce[2]; anyE = true; }
+    }
+  }
+  return GTEX[key] = {W, H, a: anyA ? a : null, e: anyE ? e : null};
+}
+
+/* render the lit globe into ctx at (cx,cy) radius pr; cam = {R,U,V} screen
+   right / up / toward-viewer unit vectors in ecliptic coordinates */
+let GLOBE_CV = null;
+function renderGlobe(ctx, body, F, sunDir, cx, cy, pr, cam, w, h){
+  const f = ST.filter, tex = globeTex(body, f);
+  const x0 = Math.max(0, Math.floor(cx-pr-1)), x1 = Math.min(w, Math.ceil(cx+pr+1));
+  const y0 = Math.max(0, Math.floor(cy-pr-1)), y1 = Math.min(h, Math.ceil(cy+pr+1));
+  if (x1<=x0 || y1<=y0) return;
+  const dpr = (typeof window!=='undefined' && window.devicePixelRatio) || 1;
+  const step = Math.max(1/dpr, Math.sqrt((x1-x0)*(y1-y0)/160000));
+  const nx = Math.ceil((x1-x0)/step), ny = Math.ceil((y1-y0)/step);
+  const img = new ImageData(nx, ny), D = img.data;
+  const dd = B => [V3.dot(cam.R,B), V3.dot(cam.U,B), V3.dot(cam.V,B)];
+  const cM = dd(F.M), cE = dd(F.E), cP = dd(F.p), cS = dd(sunDir);
+  const giant = body==='jupiter'||body==='saturn'||body==='uranus'||body==='neptune';
+  const sunT = f==='tir' && SUN_THERMAL[body];
+  const TW = tex.W, TH = tex.H, A = tex.a, Em = tex.e;
+  for (let j=0;j<ny;j++){
+    const b = -((y0 + (j+0.5)*step) - cy)/pr;
+    for (let i=0;i<nx;i++){
+      const a = ((x0 + (i+0.5)*step) - cx)/pr, r2 = a*a + b*b;
+      if (r2 > 1 + 2*step/pr) continue;
+      const c = Math.sqrt(Math.max(0, 1-r2));
+      const bx = a*cM[0]+b*cM[1]+c*cM[2], by = a*cE[0]+b*cE[1]+c*cE[2], bz = a*cP[0]+b*cP[1]+c*cP[2];
+      const lat = Math.asin(Math.max(-1, Math.min(1, bz))), lon = Math.atan2(by, bx);
+      const ti = Math.min(TW-1, ((lon/TAU + 0.5)*TW)|0), tj = Math.min(TH-1, ((0.5 - lat/Math.PI)*TH)|0);
+      const k = 3*(tj*TW + ti), mu = a*cS[0]+b*cS[1]+c*cS[2];
+      let R=0, G=0, B=0;
+      if (sunT){                                     // dayside hot, nightside cold
+        const hc = heat((0.06 + 0.86*Math.pow(Math.max(0, mu), 0.25))*(A ? A[k]/255 : 1));
+        R = hc[0]; G = hc[1]; B = hc[2];
+      } else {
+        if (A){
+          const sh = Math.max(0, mu)*(giant ? 0.5+0.5*Math.pow(c, 0.5) : 0.9+0.1*c) + 0.025;
+          R = A[k]*sh; G = A[k+1]*sh; B = A[k+2]*sh;
+        }
+        if (Em){ const le = f==='tir' ? 0.55+0.45*Math.pow(c,0.4) : 1;
+          R += Em[k]*le; G += Em[k+1]*le; B += Em[k+2]*le; }
+      }
+      const o = 4*(j*nx + i);
+      D[o]=R; D[o+1]=G; D[o+2]=B;
+      D[o+3] = 255*Math.max(0, Math.min(1, (1 - Math.sqrt(r2))*pr/step + 0.5));
+    }
+  }
+  if (!GLOBE_CV) GLOBE_CV = document.createElement('canvas');
+  if (GLOBE_CV.width !== nx || GLOBE_CV.height !== ny){ GLOBE_CV.width = nx; GLOBE_CV.height = ny; }
+  GLOBE_CV.getContext('2d').putImageData(img, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(GLOBE_CV, x0, y0, nx*step, ny*step);
+  if (body==='earth' && f!=='tir'){                  // thin atmospheric limb
+    ctx.strokeStyle = f==='uv' ? 'rgba(190,170,255,0.45)' : 'rgba(120,170,255,0.4)';
+    ctx.lineWidth = Math.max(1, pr*0.025);
+    ctx.beginPath(); ctx.arc(cx, cy, pr, 0, TAU); ctx.stroke();
+  }
+}
+
+/* rings: [r0, r1 km, opacity]; drawn in two passes (behind / in front of the
+   globe) split by the depth of each ring point along the view axis */
+const RINGS = {
+  saturn:[[74658,92000,.22],[92000,117580,.85],[117580,122170,.05],[122170,133400,.6],[133700,136775,.5],[140180,140400,.45]],
+  uranus:[[41837,41900,.25],[44718,44800,.25],[47176,47250,.3],[50024,50100,.3],[51149,51250,.7]],
+  neptune:[[53200,53300,.35],[62932,63050,.5]]};
+const RING_LOOK = {vis:[[214,198,168],1, .2], nir:[[236,238,246],1.2, 1], tir:[[190,90,55],.35, .15], uv:[[160,150,205],.5, .15]};
+function drawRings(ctx, body, F, px, scl, cam, front){
+  const R = RINGS[body]; if (!R) return;
+  const [col, kSat, kIce] = RING_LOOK[ST.filter];
+  const k = body==='saturn' ? kSat : kIce;
+  const e1 = V3.unit(V3.cross(F.p, [0,0,1])), e2 = V3.cross(F.p, e1);
+  for (const [r0, r1, op] of R){
+    const nsub = Math.max(1, Math.min(10, Math.ceil((r1-r0)*scl/2)));
+    const dr = (r1-r0)/nsub;
+    const lw = Math.max(dr*scl + 0.4, 0.7);
+    const alpha = Math.min(1, op*k*Math.min(1, Math.max(dr*scl, 0.5)/0.5));
+    ctx.strokeStyle = `rgba(${col[0]},${col[1]},${col[2]},${alpha})`; ctx.lineWidth = lw;
+    for (let s=0;s<nsub;s++){
+      const rr = r0 + (s+0.5)*dr;
+      ctx.beginPath(); let pen = false, prev = null;
+      for (let a=0;a<=144;a++){
+        const t = a/144*TAU;
+        const v = V3.add(V3.scale(e1, rr*Math.cos(t)), V3.scale(e2, rr*Math.sin(t)));
+        const q = px(v, scl);
+        const vis = (V3.dot(v, cam.V) >= 0) === front;
+        const mid = prev && [(prev[0]+q[0])/2, (prev[1]+q[1])/2];  // the two passes meet
+        if (vis){                                                // exactly at the split
+          if (!pen && mid) ctx.moveTo(mid[0], mid[1]);
+          pen || mid ? ctx.lineTo(q[0],q[1]) : ctx.moveTo(q[0],q[1]); pen = true;
+        } else if (pen){ ctx.lineTo(mid[0], mid[1]); pen = false; }
+        prev = q;
+      }
+      ctx.stroke();
+    }
+  }
+}
+
+/* spin axis (solid, arrow at the spin pole), orbit normal (dashed) and a
+   rotation-sense arrow circling the spin pole; split behind/in front */
+function drawSpin(ctx, F, cx, cy, pr, cam, front){
+  const L = Math.max(1.6*pr, 34);
+  const sc = v => [V3.dot(v, cam.R), -V3.dot(v, cam.U), V3.dot(v, cam.V)];
+  const s = sc(F.spin), n = sc(F.nOrb);
+  ctx.lineWidth = 1.5;
+  const tipFront = s[2] >= 0;
+  /* the half of the axis whose end points away from the viewer goes behind */
+  for (const sgn of [1, -1]){
+    if ((sgn*s[2] >= 0) !== front) continue;
+    ctx.strokeStyle = sgn>0 ? '#ffd166' : '#ffd16699';
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + sgn*L*s[0], cy + sgn*L*s[1]); ctx.stroke();
+  }
+  if (tipFront === front){
+    const tx = cx + L*s[0], ty = cy + L*s[1], ang = Math.atan2(s[1], s[0]);
+    ctx.fillStyle = '#ffd166';
+    ctx.beginPath(); ctx.moveTo(tx + 7*Math.cos(ang), ty + 7*Math.sin(ang));
+    ctx.lineTo(tx + 6*Math.cos(ang+2.5), ty + 6*Math.sin(ang+2.5));
+    ctx.lineTo(tx + 6*Math.cos(ang-2.5), ty + 6*Math.sin(ang-2.5)); ctx.fill();
+    ctx.font = '10.5px sans-serif'; ctx.fillText('spin', tx + 9*Math.cos(ang) - 8, ty + 12*Math.sin(ang) + 4);
+    /* rotation arrow: circle about the spin axis near its tip, counter-
+       clockwise about the spin vector = the actual turning sense */
+    const e1 = V3.unit(V3.cross(F.spin, Math.abs(F.spin[2])<0.9 ? [0,0,1] : [1,0,0]));
+    const e2 = V3.cross(F.spin, e1), rho = 0.3*L, c0 = 0.72*L;
+    const P = t => { const v = V3.add(V3.scale(F.spin, c0),
+        V3.add(V3.scale(e1, rho*Math.cos(t)), V3.scale(e2, rho*Math.sin(t)))); const q = sc(v);
+      return [cx + q[0], cy + q[1]]; };
+    ctx.strokeStyle = '#7deeff'; ctx.lineWidth = 1.3;
+    ctx.beginPath();
+    const t1 = TAU - 0.7;
+    for (let a=0;a<=60;a++){ const q = P(a/60*t1); a?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]); }
+    ctx.stroke();
+    const qa = P(t1), qb = P(t1 - 0.05), ga = Math.atan2(qa[1]-qb[1], qa[0]-qb[0]);
+    ctx.fillStyle = '#7deeff';
+    ctx.beginPath(); ctx.moveTo(qa[0] + 6*Math.cos(ga), qa[1] + 6*Math.sin(ga));
+    ctx.lineTo(qa[0] + 5*Math.cos(ga+2.4), qa[1] + 5*Math.sin(ga+2.4));
+    ctx.lineTo(qa[0] + 5*Math.cos(ga-2.4), qa[1] + 5*Math.sin(ga-2.4)); ctx.fill();
+  }
+  if (front){
+    ctx.strokeStyle = '#c8d2e6aa'; ctx.lineWidth = 1; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + 0.9*L*n[0], cy + 0.9*L*n[1]); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#c8d2e6'; ctx.font = '10px sans-serif';
+    ctx.fillText('orbit ⊥', cx + 0.9*L*n[0] + 6, cy + 0.9*L*n[1] + 12);
+  }
+}
+function fmtPeriod(d){ return d < 2 ? fmt(d*24, 2)+' h' : fmt(d, 2)+' d'; }
 /* per-moon orbit frame from the embedded DE441 vector: circle of radius
    |r0| in the osculating plane, catalog rate, sense from h = r x v */
 const MOONORB = {};
@@ -1221,12 +1666,28 @@ function apparentGeo(body, jd){                    // light-time iterated
 const ST = {jd:0, playing:true, speedSl:2, tilt:45, zoom:0, logR:true,
   labels:true, lisa:true, icrs:true, sel:'earth', mode:'res',
   gamma:1, beta:1, ast:true, belt:false,
-  sysTilt:45, sysYaw:0, sysZoom:1, minImp:false, minIcrs:false};
+  sysTilt:45, sysYaw:0, sysZoom:1, yaw:0,
+  minOrr:false, minSys:false, minImp:true, minIcrs:true,   // panels 3+4 start minimized
+  impU0:0, impU1:1,                 // panel-3 visible time window (fractions)
+  icrsExt:5.8, icrsRot:0,
+  filter:'vis', rateOv:null};       // panel-2 globe filter; typed speed override [d/s]          // panel-4 half-width [au], in-plane rotation [deg]
 const JDMIN = calToJd(-2999,1,1), JDMAX = calToJd(2999,12,31);
 function rateOf(v){ return v===0 ? 0 : Math.sign(v)*Math.pow(10, Math.abs(v)-1); }
+function curRate(){ return ST.rateOv !== null ? ST.rateOv : rateOf(ST.speedSl); }
+/* typed rate: number [+ unit] per second; units s, min, h, d (default), yr */
+function parseRate(txt){
+  const m = String(txt).trim().replace('−','-').match(/^([-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?)\s*(s|sec|min|m|h|hr|d|day|days|y|yr|yrs)?(?:\s*\/\s*s)?$/i);
+  if (!m) return null;
+  const k = {s:1/86400, sec:1/86400, min:1/1440, m:1/1440, h:1/24, hr:1/24,
+             d:1, day:1, days:1, y:365.25, yr:365.25, yrs:365.25}[(m[2]||'d').toLowerCase()];
+  return parseFloat(m[1])*k;
+}
 function fmtRate(r){
   const a = Math.abs(r);
   if (r===0) return 'paused';
+  if (a<1/1440) return fmtG(r*86400,3)+' s/s';
+  if (a<1/24) return fmtG(r*1440,3)+' min/s';
+  if (a<1) return fmtG(r*24,3)+' h/s';
   if (a<365.25) return fmtG(r,3)+' d/s';
   return fmtG(r/365.25,3)+' yr/s';
 }
@@ -1360,13 +1821,16 @@ function finishRes(){
 let cvs = {};
 function sizeCanvas(cv){
   const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio||1;
-  if (cv.width !== Math.round(r.width*dpr)){ cv.width = Math.round(r.width*dpr); cv.height = Math.round(r.height*dpr); }
+  const bw = Math.round(r.width*dpr), bh = Math.round(r.height*dpr);
+  if (cv.width !== bw || cv.height !== bh){ cv.width = bw; cv.height = bh; }   // both axes, or a
+                                                // height-only change CSS-stretches the bitmap
   const ctx = cv.getContext('2d');
   ctx.setTransform(dpr,0,0,dpr,0,0);
   return {ctx, w:r.width, h:r.height};
 }
 function projFactory(w, h){
   const tilt = ST.tilt*DEG, sT = Math.sin(tilt), cT = Math.cos(tilt);
+  const sY = Math.sin(ST.yaw*DEG), cY = Math.cos(ST.yaw*DEG);
   const base = Math.min(w,h)/2 - 18;
   const R0 = 0.3, RMAX = 41;
   const smax = ST.logR ? Math.log(1+RMAX/R0) : RMAX;
@@ -1378,7 +1842,8 @@ function projFactory(w, h){
         const r = Math.hypot(x,y,z);
         if (r>1e-12){ const f = Math.log(1+r/R0)/r; x*=f; y*=f; z*=f; }
       }
-      return [w/2 + scale*x, h/2 - scale*(y*sT + z*cT)];
+      const xr = cY*x + sY*y, yr = cY*y - sY*x;
+      return [w/2 + scale*xr, h/2 - scale*(yr*sT + z*cT)];
     },
     scale, sT, cT
   };
@@ -1387,7 +1852,7 @@ function projFactory(w, h){
 /* ========================== draw: orrery ========================= */
 function drawOrrery(){
   const {ctx, w, h} = sizeCanvas(cvs.orr);
-  ctx.fillStyle = '#070b18'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = CLR.bg; ctx.fillRect(0,0,w,h);
   const P = projFactory(w, h);
   ctx.strokeStyle = CLR.grid; ctx.lineWidth = 1;
   for (const rg of [1,5,10,20,40]){
@@ -1402,7 +1867,7 @@ function drawOrrery(){
     ctx.fillText(rg+' au', q[0]+2, q[1]-2);
   }
   for (const p of PLANETS){
-    ctx.strokeStyle = CLR[p]+'55'; ctx.lineWidth = 1;
+    ctx.strokeStyle = CLR[p]+'aa'; ctx.lineWidth = 1.25;
     ctx.beginPath();
     const el = meanElements(p, ST.jd);
     for (let a=0;a<=128;a++){
@@ -1433,7 +1898,7 @@ function drawOrrery(){
       ctx.strokeStyle = CLR[p]; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(q[0], q[1], rad+3.5, 0, TAU); ctx.stroke();
     }
-    if (ST.labels) { ctx.fillStyle = CLR.dim; ctx.fillText(p, q[0]+6, q[1]+3); }
+    if (ST.labels) { ctx.fillStyle = CLR[p]; ctx.fillText(p, q[0]+6, q[1]+3); }
     ST.hit.push({q, name:p});
   }
   ctx.font = '10px sans-serif';
@@ -1441,7 +1906,7 @@ function drawOrrery(){
     const q = P.px(astPos(nm, ST.jd));
     const on = ST.sel === nm;
     if (on){                                        // osculating orbit of the selected one
-      ctx.strokeStyle = CLR.ast + '66'; ctx.lineWidth = 1;
+      ctx.strokeStyle = CLR.ast + 'aa'; ctx.lineWidth = 1;
       ctx.beginPath();
       for (let a=0;a<=128;a++){
         const qq = P.px(astPosE(nm, a/128*TAU));
@@ -1449,7 +1914,7 @@ function drawOrrery(){
       }
       ctx.stroke();
     }
-    ctx.fillStyle = on ? CLR.ast : CLR.ast + '99';
+    ctx.fillStyle = on ? CLR.ast : CLR.ast + 'cc';
     ctx.beginPath(); ctx.arc(q[0], q[1], on?2.4:1.7, 0, TAU); ctx.fill();
     if (on){
       ctx.strokeStyle = CLR.ast; ctx.lineWidth = 1;
@@ -1483,7 +1948,7 @@ function drawOrrery(){
 /* ======================== draw: system view ====================== */
 function drawSystem(){
   const {ctx, w, h} = sizeCanvas(cvs.sys);
-  ctx.fillStyle = '#070b18'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = CLR.bg; ctx.fillRect(0,0,w,h);
   /* panel-2 camera: pointer-drag yaw/tilt, wheel zoom (independent of
      the orrery sliders); double-click resets */
   const tilt = ST.sysTilt*DEG, yaw = ST.sysYaw*DEG;
@@ -1537,27 +2002,30 @@ function drawSystem(){
   }
   const scl = (Math.min(w,h)/2 - 26)/ext * ST.sysZoom;
   const pr = Math.max(PLANET_R[ST.sel]*scl, 2.2);
-  if (ST.sel==='saturn'){
-    ctx.strokeStyle = CLR.saturn+'66';
-    for (const rr of [74500, 92000, 117580, 136780]){
-      const pol = poleEcl('saturn');
-      const e1 = V3.unit(V3.cross([0,0,1], pol));
-      const e2 = V3.unit(V3.cross(pol, e1));
-      ctx.beginPath();
-      for (let a=0;a<=72;a++){
-        const t = a/72*TAU;
-        const v = V3.add(V3.scale(e1, rr*Math.cos(t)), V3.scale(e2, rr*Math.sin(t)));
-        const q = px(v, scl);
-        a?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);
-      }
-      ctx.stroke();
-    }
+  /* globe: lit, spinning surface + rings + spin axis (planets with IAU spin) */
+  const cam = {R:[cY, sY, 0], U:[-sY*sT, cY*sT, cT], V:[sY*cT, -cY*cT, sT]};
+  const F = ROT[ST.sel] ? bodyFrame(ST.sel, ST.jd) : null;
+  if (F){
+    const helio = isEarth ? earthFromEMB(ST.jd) : planetPos(ST.sel, ST.jd);
+    const sunDir = V3.scale(V3.unit(helio), -1);
+    drawRings(ctx, ST.sel, F, px, scl, cam, false);
+    drawSpin(ctx, F, w/2, h/2, pr, cam, false);
+    if (pr >= 3) renderGlobe(ctx, ST.sel, F, sunDir, w/2, h/2, pr, cam, w, h);
+    else { ctx.fillStyle = CLR[ST.sel]; ctx.beginPath(); ctx.arc(w/2, h/2, pr, 0, TAU); ctx.fill(); }
+    drawRings(ctx, ST.sel, F, px, scl, cam, true);
+    drawSpin(ctx, F, w/2, h/2, pr, cam, true);
+    ctx.fillStyle = CLR.dim; ctx.font = '10.5px sans-serif';
+    ctx.fillText(`obliquity ${fmt(F.obliq,1)}°${F.obliq>90?' (retrograde)':''} · sidereal day ` +
+      `${fmtPeriod(F.period)} · ${FILTERS[ST.filter]}` + (pr < 25 ? ' · wheel-zoom in for the surface' : ''),
+      12, h-38);
+    ctx.font = '10.5px sans-serif';
+  } else {
+    ctx.fillStyle = CLR[ST.sel] || CLR.ast;
+    ctx.beginPath(); ctx.arc(w/2, h/2, pr, 0, TAU); ctx.fill();
   }
-  ctx.fillStyle = CLR[ST.sel] || CLR.ast;
-  ctx.beginPath(); ctx.arc(w/2, h/2, pr, 0, TAU); ctx.fill();
   for (const m of moons){
     const o = MOONORB[m];
-    ctx.strokeStyle = CLR.dim+'44'; ctx.lineWidth = 1;
+    ctx.strokeStyle = CLR.dim+'77'; ctx.lineWidth = 1;
     ctx.beginPath();
     for (let a=0;a<=72;a++){
       const t = a/72*TAU;
@@ -1600,9 +2068,17 @@ function drawSystem(){
 }
 
 /* ================== draw: improvement panel ====================== */
+/* panel-3 view window: ST.impU0..impU1 are fractions of the full run span */
+function impWindow(t0, t1){ return [t0 + ST.impU0*(t1-t0), t0 + ST.impU1*(t1-t0)]; }
+function impZoomTag(ctx, w, T){
+  const span = ST.impU1 - ST.impU0;
+  if (span > 0.999) return;
+  ctx.fillStyle = CLR.dim; ctx.font = '10px sans-serif';
+  ctx.fillText(`×${fmt(1/span, 1/span<10?1:0)} — double-click to reset`, w-170, T+12);
+}
 function drawImprove(){
   const {ctx, w, h} = sizeCanvas(cvs.imp);
-  ctx.fillStyle = '#070b18'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = CLR.bg; ctx.fillRect(0,0,w,h);
   const L = 46, R = 10, T = 24, B = 26;
   const tag = document.getElementById('imptag');
   ctx.font = '10px sans-serif';
@@ -1619,12 +2095,15 @@ function drawImprove(){
         '” and run', L, h/2);
       return;
     }
-    let lo = 1e30, hi = 0;
-    for (const v of ser){ if (v>0){ lo = Math.min(lo,v); hi = Math.max(hi,v); } }
-    lo = Math.max(lo*0.5, 1e-2); hi = hi*2;
-    const y0 = Math.floor(Math.log10(lo)), y1 = Math.ceil(Math.log10(hi));
     const xw = w-L-R, yh = h-T-B;
-    const X = jd => L + xw*(jd - RES.times[0])/(RES.times[RES.times.length-1]-RES.times[0]);
+    const [tA, tB] = impWindow(RES.times[0], RES.times[RES.times.length-1]);
+    const X = jd => L + xw*(jd - tA)/(tB - tA);
+    let lo = 1e30, hi = 0;                          // autoscale to the visible window
+    for (let i=0;i<ser.length;i++){ const v = ser[i];
+      if (v>0 && RES.times[i]>=tA && RES.times[i]<=tB){ lo = Math.min(lo,v); hi = Math.max(hi,v); } }
+    if (hi===0){ lo = 1; hi = 10; }
+    lo = Math.max(lo*0.5, 1e-2); hi = hi*2;
+    const y0 = Math.floor(Math.log10(lo)), y1 = Math.max(Math.ceil(Math.log10(hi)), Math.floor(Math.log10(lo))+1);
     const Y = v => T + yh*(1 - (Math.log10(Math.max(v,1e-3))-y0)/(y1-y0));
     ctx.strokeStyle = CLR.grid;
     for (let e=y0;e<=y1;e++){
@@ -1632,14 +2111,18 @@ function drawImprove(){
       ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(w-R,y); ctx.stroke();
       ctx.fillStyle = CLR.dim; ctx.fillText('1e'+e, 6, y+3);
     }
-    for (let yr=1980; yr<=2070; yr+=20){
+    const yA = jdToCal(tA)[0], yB = jdToCal(tB)[0];
+    const yStep = [1,2,5,10,20,50].find(st => (yB-yA)/st <= Math.max(2, xw/70)) || 100;
+    for (let yr=Math.ceil(yA/yStep)*yStep; yr<=yB; yr+=yStep){
       const jd = calToJd(yr,1,1);
-      if (jd<RES.times[0]||jd>RES.times[RES.times.length-1]) continue;
+      if (jd<tA||jd>tB) continue;
       const x = X(jd);
       ctx.strokeStyle = CLR.grid;
       ctx.beginPath(); ctx.moveTo(x,T); ctx.lineTo(x,h-B); ctx.stroke();
       ctx.fillStyle = CLR.dim; ctx.fillText(String(yr), x-10, h-10);
     }
+    ctx.save();
+    ctx.beginPath(); ctx.rect(L, T-2, xw, yh+4); ctx.clip();
     ctx.strokeStyle = CLR.accent; ctx.lineWidth = 1.4;
     ctx.beginPath();
     let started = false;
@@ -1651,15 +2134,21 @@ function drawImprove(){
     const x = X(Math.min(Math.max(ST.jd, RES.times[0]), RES.times[RES.times.length-1]));
     ctx.strokeStyle = CLR.warn+'88';
     ctx.beginPath(); ctx.moveTo(x,T); ctx.lineTo(x,h-B); ctx.stroke();
+    ctx.restore();
+    impZoomTag(ctx, w, T);
   } else {
     tag.innerHTML = '&#9314; Mercury osculating &varpi;(t) — EIH vs Newtonian';
     if (!PER.ready){ ctx.fillStyle = CLR.dim; ctx.fillText('computing…', L, h/2); return; }
     const xw = w-L-R, yh = h-T-B;
     const t0 = PER.t[0], t1 = PER.t[PER.t.length-1];
+    const [tA, tB] = impWindow(t0, t1);
     const det = PER.wPN.map((v,i)=>(v-PER.wPN[0])/ARCSEC);
     const detN = PER.wNW.map((v,i)=>(v-PER.wNW[0])/ARCSEC);
-    const hi = Math.max(...det, ...detN), lo = Math.min(...det, ...detN);
-    const X = t => L + xw*(t-t0)/(t1-t0);
+    let hi = -1e30, lo = 1e30;                      // autoscale to the visible window
+    for (let i=0;i<PER.t.length;i++) if (PER.t[i]>=tA && PER.t[i]<=tB){
+      hi = Math.max(hi, det[i], detN[i]); lo = Math.min(lo, det[i], detN[i]); }
+    if (hi < lo){ hi = Math.max(...det, ...detN); lo = Math.min(...det, ...detN); }
+    const X = t => L + xw*(t-tA)/(tB-tA);
     const Y = v => T + yh*(1-(v-lo)/(hi-lo+1e-9));
     ctx.strokeStyle = CLR.grid;
     for (let k=0;k<=4;k++){
@@ -1667,7 +2156,7 @@ function drawImprove(){
       ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(w-R,y); ctx.stroke();
     }
     ctx.fillStyle = CLR.dim;
-    ctx.fillText('Δϖ ["]  over '+fmt((t1-t0)/365.25,0)+' yr', 6, 14);
+    ctx.fillText('Δϖ ["]  over '+fmt((tB-tA)/365.25,0)+' yr', 6, 14);
     const draw = (arr, clr) => {
       ctx.strokeStyle = clr; ctx.lineWidth = 1.3; ctx.beginPath();
       for (let i=0;i<arr.length;i++){
@@ -1676,7 +2165,11 @@ function drawImprove(){
       }
       ctx.stroke();
     };
+    ctx.save();
+    ctx.beginPath(); ctx.rect(L, T-2, xw, yh+4); ctx.clip();
     draw(detN, CLR.dim); draw(det, CLR.nb);
+    ctx.restore();
+    impZoomTag(ctx, w, T);
     ctx.fillStyle = CLR.nb;
     ctx.fillText(`EIH  ${fmt(PER.ratePN,2)}"/cy`, L+8, T+14);
     ctx.fillStyle = CLR.dim;
@@ -1690,14 +2183,19 @@ function drawImprove(){
 /* ===================== draw: ICRS invariant map ================== */
 /* the invariant map is expensive (n^2 x 10-body curvature tensors), so it
    is computed incrementally: a few rows per frame under a ms budget, and
-   only refreshed when the planets have moved appreciably (~20 days). */
-const MAP = {img:null, jd:null, w:72, h:72, ext:5.8, state:'idle',
-             row:0, vals:null, sgn:null, src:null, jdRun:null, off:null};
+   only refreshed when the planets have moved appreciably (~20 days) or the
+   wheel zoom changed the extent. It is computed over sqrt(2) x the visible
+   half-width so the drag rotation never exposes empty corners. */
+const MAP = {img:null, jd:null, w:100, h:100, ext:5.8*Math.SQRT2, state:'idle',
+             row:0, vals:null, sgn:null, src:null, jdRun:null, extRun:null, off:null};
 function mapChunk(budgetMs){
   const n = MAP.w;
+  const want = ST.icrsExt*Math.SQRT2;
+  if (MAP.state === 'run' && Math.abs(want/MAP.extRun - 1) > 1e-9) MAP.state = 'idle';  // zoomed mid-run
   if (MAP.state === 'idle'){
-    if (MAP.img !== null && Math.abs(ST.jd - MAP.jd) <= 20) return;
-    MAP.state = 'run'; MAP.row = 0;
+    if (MAP.img !== null && Math.abs(ST.jd - MAP.jd) <= 20 &&
+        Math.abs(want/MAP.ext - 1) <= 1e-9) return;
+    MAP.state = 'run'; MAP.row = 0; MAP.extRun = want;
     MAP.vals = new Float64Array(n*n); MAP.sgn = new Float64Array(n*n);
     MAP.src = icrsSources(ST.jd); MAP.jdRun = ST.jd;
     return;
@@ -1706,7 +2204,7 @@ function mapChunk(budgetMs){
   while (MAP.row < n && performance.now() - t0 < budgetMs){
     const j = MAP.row;
     for (let i=0;i<n;i++){
-      const x = (i/(n-1)-0.5)*2*MAP.ext, y = (0.5-j/(n-1))*2*MAP.ext;
+      const x = (i/(n-1)-0.5)*2*MAP.extRun, y = (0.5-j/(n-1))*2*MAP.extRun;
       const S = icrsInvariants([x,y,0.02], MAP.src, 1, 1);
       MAP.vals[j*n+i] = Math.log10(Math.abs(S[0]) + 1e-40);
       MAP.sgn[j*n+i] = Math.sign(S[1]);
@@ -1722,9 +2220,9 @@ function mapChunk(budgetMs){
     let f = (MAP.vals[k]-vmin)/(vmax-vmin);
     f = Math.max(0, Math.min(1, f));
     const g = Math.pow(f, 1.6);
-    img.data[4*k]   = 8 + 80*g*(MAP.sgn[k]>0?1.55:1);
-    img.data[4*k+1] = 10 + 168*g;
-    img.data[4*k+2] = 14 + 205*g;
+    img.data[4*k]   = 12 + 78*g*(MAP.sgn[k]>0?1.55:1);   // navy floor = CLR.bg
+    img.data[4*k+1] = 22 + 156*g;
+    img.data[4*k+2] = 48 + 171*g;
     img.data[4*k+3] = 255;
   }
   for (let j=0;j<n-1;j++) for (let i=0;i<n-1;i++){
@@ -1733,11 +2231,11 @@ function mapChunk(budgetMs){
       img.data[4*k] = 205; img.data[4*k+1] = 53; img.data[4*k+2] = 196;
     }
   }
-  MAP.img = img; MAP.jd = MAP.jdRun; MAP.state = 'idle';
+  MAP.img = img; MAP.jd = MAP.jdRun; MAP.ext = MAP.extRun; MAP.state = 'idle';
 }
 function drawICRS(){
   const {ctx, w, h} = sizeCanvas(cvs.icrs);
-  ctx.fillStyle = '#070b18'; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = CLR.bg; ctx.fillRect(0,0,w,h);
   if (!ST.icrs){ ctx.fillStyle = CLR.dim; ctx.font='10.5px sans-serif';
     ctx.fillText('invariant map off', 12, 24); return; }
   mapChunk(5);
@@ -1748,9 +2246,19 @@ function drawICRS(){
   if (!MAP.off){ MAP.off = document.createElement('canvas');
     MAP.off.width = MAP.w; MAP.off.height = MAP.h; }
   MAP.off.getContext('2d').putImageData(MAP.img, 0, 0);
+  /* the visible square spans +-ST.icrsExt; the cached image spans +-MAP.ext
+     (it is rescaled live while a re-zoomed map is still computing) */
+  const rot = ST.icrsRot*DEG, cR = Math.cos(rot), sR = Math.sin(rot);
+  const si = s*MAP.ext/ST.icrsExt;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(ox, oy, s, s); ctx.clip();
+  ctx.translate(w/2, h/2); ctx.rotate(-rot);
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(MAP.off, ox, oy, s, s);
-  const px = p => [ox + s*(p[0]/(2*MAP.ext)+0.5), oy + s*(0.5-p[1]/(2*MAP.ext))];
+  ctx.drawImage(MAP.off, -si/2, -si/2, si, si);
+  ctx.restore();
+  ctx.strokeStyle = CLR.grid; ctx.lineWidth = 1; ctx.strokeRect(ox+0.5, oy+0.5, s-1, s-1);
+  const px = p => { const x = cR*p[0] - sR*p[1], y = sR*p[0] + cR*p[1];
+    return [ox + s*(x/(2*ST.icrsExt)+0.5), oy + s*(0.5-y/(2*ST.icrsExt))]; };
   ctx.font = '9.5px sans-serif';
   for (const p of PLANETS){
     const q = px(planetPos(p, ST.jd));
@@ -1765,6 +2273,10 @@ function drawICRS(){
   ctx.moveTo(c[0], c[1]-4); ctx.lineTo(c[0], c[1]+4); ctx.stroke();
   ctx.fillStyle = CLR.dim;
   ctx.fillText('probe', c[0]+5, c[1]-4);
+  ctx.font = '10px sans-serif';
+  ctx.fillText(`±${fmt(ST.icrsExt, ST.icrsExt<2?2:1)} au` +
+    (Math.abs(ST.icrsRot) > 0.5 ? ` · rot ${fmt(ST.icrsRot,0)}°` : '') +
+    (MAP.state==='run' ? ' · refining…' : ''), ox+6, oy+s-8);
 }
 
 /* ========================= panel readouts ======================== */
@@ -1875,7 +2387,28 @@ function boot(){
     s.oninput = () => { ST[key] = parseFloat(s.value); show(); };
     ST[key] = parseFloat(s.value); show();
   };
-  bindSlider('sSpeed','vSpeed','speedSl', v=>fmtRate(rateOf(v)));
+  /* speed: slider (log steps) or a typed rate, which overrides it */
+  const showRate = () => { $('vSpeed').value = fmtRate(curRate()); };
+  $('sSpeed').oninput = () => { ST.speedSl = parseFloat($('sSpeed').value); ST.rateOv = null; showRate(); };
+  ST.speedSl = parseFloat($('sSpeed').value); showRate();
+  $('vSpeed').onchange = () => {
+    const r = parseRate($('vSpeed').value);
+    if (r === null || !isFinite(r)){ showRate(); return; }
+    ST.rateOv = r;
+    $('sSpeed').value = r===0 ? 0 : Math.sign(r)*Math.max(0.25, Math.min(6, Math.log10(Math.abs(r))+1));
+    showRate(); $('vSpeed').blur();
+  };
+  $('vSpeed').onfocus = () => $('vSpeed').select();
+  $('vSpeed').onkeydown = ev => { if (ev.key === 'Enter') $('vSpeed').onchange();
+                                  if (ev.key === 'Escape'){ showRate(); $('vSpeed').blur(); } };
+  /* panel-2 globe filter chips */
+  for (const k in FILTERS){
+    const b = document.createElement('button');
+    b.className = 'chip' + (k===ST.filter ? ' on' : ''); b.id = 'flt_'+k; b.textContent = FILTERS[k];
+    b.onclick = () => { ST.filter = k;
+      for (const c of $('filterChips').children) c.classList.toggle('on', c.id==='flt_'+k); };
+    $('filterChips').appendChild(b);
+  }
   bindSlider('sTilt','vTilt','tilt', v=>fmt(v,0)+'°');
   bindSlider('sZoom','vZoom','zoom', v=>'×'+fmt(Math.pow(10,v),2));
   bindSlider('sGamma','vGamma','gamma', v=>fmt(v,2));
@@ -1889,41 +2422,97 @@ function boot(){
     if (ST.belt && !ST.ast){ ST.ast = true; $('ckAst').checked = true; } });
   $('ckAst').addEventListener('change', () => {
     if (!ST.ast && ST.belt){ ST.belt = false; $('ckBelt').checked = false; } });
-  /* panel 3/4 minimize: one -> side strip, both -> the row collapses */
+  /* minimize, any panel: one in a row -> side strip (its neighbor takes the
+     width); both in a row -> the row collapses to a bar (the other row takes
+     the height). Click a strip to restore. */
+  const PANES = [['orrbox','minOrr','toprow'], ['sysbox','minSys','toprow'],
+                 ['impbox','minImp','botrow'], ['icrsbox','minIcrs','botrow']];
   const applyMin = () => {
-    $('impbox').classList.toggle('min', ST.minImp);
-    $('icrsbox').classList.toggle('min', ST.minIcrs);
-    $('botrow').classList.toggle('allmin', ST.minImp && ST.minIcrs);
-    $('minImp').textContent = ST.minImp ? '+' : '−';
-    $('minIcrs').textContent = ST.minIcrs ? '+' : '−';
+    for (const [box, key] of PANES){
+      $(box).classList.toggle('min', ST[key]);
+      $(key).textContent = ST[key] ? '+' : '−';
+      $(key).title = (ST[key] ? 'restore' : 'minimize') + ' panel';
+    }
+    for (const row of ['toprow','botrow'])
+      $(row).classList.toggle('allmin', PANES.every(([, k, r]) => r!==row || ST[k]));
+    $('main').classList.toggle('botgone', ST.minImp && ST.minIcrs);
   };
-  $('minImp').onclick = ev => { ev.stopPropagation(); ST.minImp = !ST.minImp; applyMin(); };
-  $('minIcrs').onclick = ev => { ev.stopPropagation(); ST.minIcrs = !ST.minIcrs; applyMin(); };
-  $('impbox').addEventListener('click', () => {
-    if (ST.minImp){ ST.minImp = false; applyMin(); } });
-  $('icrsbox').addEventListener('click', () => {
-    if (ST.minIcrs){ ST.minIcrs = false; applyMin(); } });
+  for (const [box, key] of PANES){
+    $(key).onclick = ev => { ev.stopPropagation(); ST[key] = !ST[key]; applyMin(); };
+    $(box).addEventListener('click', () => { if (ST[key]){ ST[key] = false; applyMin(); } });
+  }
+  applyMin();
+  /* shared pointer camera: drag reports pixel deltas, wheel a zoom factor,
+     double-click resets; `moved` lets a click handler ignore drag-releases */
+  const camera = (cv, onDrag, onWheel, onReset) => {
+    let d = null;
+    const st = {moved:false};
+    cv.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0) return;
+      d = {x:ev.clientX, y:ev.clientY, x0:ev.clientX, y0:ev.clientY}; st.moved = false;
+      cv.classList.add('drag');
+      if (cv.setPointerCapture && ev.pointerId!==undefined) cv.setPointerCapture(ev.pointerId);
+    });
+    cv.addEventListener('pointermove', ev => {
+      if (!d) return;
+      if (Math.hypot(ev.clientX-d.x0, ev.clientY-d.y0) > 4) st.moved = true;
+      onDrag(ev.clientX - d.x, ev.clientY - d.y, ev);
+      d.x = ev.clientX; d.y = ev.clientY;
+    });
+    for (const t of ['pointerup','pointercancel','lostpointercapture'])
+      cv.addEventListener(t, () => { d = null; cv.classList.remove('drag'); });
+    cv.addEventListener('wheel', ev => {
+      ev.preventDefault();
+      const dy = ev.deltaMode===1 ? ev.deltaY*16 : ev.deltaY;   // line-mode wheels (Firefox)
+      onWheel(Math.exp(-Math.max(-300, Math.min(300, dy))*0.0015), ev);
+    }, {passive:false});
+    cv.addEventListener('dblclick', onReset);
+    return st;
+  };
+  /* panel-1 camera: drives the same ST.tilt/ST.zoom as the sidebar sliders */
+  /* keep ST continuous and only mirror it onto the slider: routing it through
+     the slider would snap each small wheel/drag step back to the old value */
+  const setView = (key, v) => {
+    const [sid, vid, f] = key==='tilt' ? ['sTilt','vTilt', x=>fmt(x,0)+'°']
+                                       : ['sZoom','vZoom', x=>'×'+fmt(Math.pow(10,x),2)];
+    ST[key] = v; $(sid).value = v; $(vid).textContent = f(v);
+  };
+  const orrCam = camera(cvs.orr,
+    (dx, dy) => { ST.yaw = (ST.yaw + dx*0.4) % 360;
+      setView('tilt', Math.max(-90, Math.min(90, ST.tilt + dy*0.4))); },
+    f => setView('zoom', Math.max(-1.4, Math.min(2.2, ST.zoom + Math.log10(f)))),
+    () => { ST.yaw = 0; setView('tilt', 45); setView('zoom', 0); });
   /* panel-2 camera: drag = yaw/tilt, wheel = zoom, double-click = reset */
-  let sysDrag = null;
-  cvs.sys.addEventListener('pointerdown', ev => {
-    sysDrag = {x:ev.clientX, y:ev.clientY};
-    if (cvs.sys.setPointerCapture && ev.pointerId!==undefined)
-      cvs.sys.setPointerCapture(ev.pointerId);
-  });
-  cvs.sys.addEventListener('pointermove', ev => {
-    if (!sysDrag) return;
-    ST.sysYaw = (ST.sysYaw + (ev.clientX - sysDrag.x)*0.4) % 360;
-    ST.sysTilt = Math.max(-90, Math.min(90, ST.sysTilt + (ev.clientY - sysDrag.y)*0.4));
-    sysDrag = {x:ev.clientX, y:ev.clientY};
-  });
-  for (const t of ['pointerup','pointercancel','pointerleave'])
-    cvs.sys.addEventListener(t, () => { sysDrag = null; });
-  cvs.sys.addEventListener('wheel', ev => {
-    ev.preventDefault();
-    ST.sysZoom = Math.max(0.2, Math.min(5000, ST.sysZoom*Math.exp(-ev.deltaY*0.0015)));
-  }, {passive:false});
-  cvs.sys.addEventListener('dblclick', () => {
-    ST.sysTilt = 45; ST.sysYaw = 0; ST.sysZoom = 1; });
+  camera(cvs.sys,
+    (dx, dy) => { ST.sysYaw = (ST.sysYaw + dx*0.4) % 360;
+      ST.sysTilt = Math.max(-90, Math.min(90, ST.sysTilt + dy*0.4)); },
+    f => { ST.sysZoom = Math.max(0.2, Math.min(5000, ST.sysZoom*f)); },
+    () => { ST.sysTilt = 45; ST.sysYaw = 0; ST.sysZoom = 1; });
+  /* panel-3: wheel zooms the time axis about the cursor, drag pans */
+  const impL = 46, impR = 10;
+  camera(cvs.imp,
+    dx => { const span = ST.impU1 - ST.impU0, xw = cvs.imp.clientWidth - impL - impR;
+      const du = Math.max(-ST.impU0, Math.min(1 - ST.impU1, -dx/xw*span));
+      ST.impU0 += du; ST.impU1 += du; },
+    (f, ev) => {
+      const r = cvs.imp.getBoundingClientRect(), xw = r.width - impL - impR;
+      const a = Math.max(0, Math.min(1, (ev.clientX - r.left - impL)/xw));
+      const span = ST.impU1 - ST.impU0, uc = ST.impU0 + a*span;
+      const ns = Math.max(0.01, Math.min(1, span/f));
+      let u0 = uc - a*ns;
+      u0 = Math.max(0, Math.min(1 - ns, u0));
+      ST.impU0 = u0; ST.impU1 = u0 + ns; },
+    () => { ST.impU0 = 0; ST.impU1 = 1; });
+  /* panel-4: wheel zooms the map extent (recomputes), drag rotates in-plane */
+  camera(cvs.icrs,
+    (dx, dy, ev) => {
+      const r = cvs.icrs.getBoundingClientRect();
+      const cx = r.left + r.width/2, cy = r.top + r.height/2;
+      const x1 = ev.clientX - cx, y1 = ev.clientY - cy, x0 = x1 - dx, y0 = y1 - dy;
+      if (Math.hypot(x1, y1) < 8 || Math.hypot(x0, y0) < 8) return;
+      ST.icrsRot = (ST.icrsRot - (Math.atan2(y1, x1) - Math.atan2(y0, x0))/DEG) % 360; },
+    f => { ST.icrsExt = Math.max(0.6, Math.min(45, ST.icrsExt/f)); },
+    () => { ST.icrsExt = 5.8; ST.icrsRot = 0; });
   $('bPlay').onclick = () => { ST.playing = !ST.playing;
     $('bPlay').innerHTML = ST.playing ? '&#10074;&#10074;' : '&#9654;&#65038;'; };
   $('bPlay').innerHTML = '&#10074;&#10074;';
@@ -1955,6 +2544,7 @@ function boot(){
     ICRO.jd = null; updateICRS();
   };
   cvs.orr.addEventListener('click', ev => {
+    if (orrCam.moved) return;                      // the end of a drag, not a pick
     const r = cvs.orr.getBoundingClientRect();
     const mx = ev.clientX - r.left, my = ev.clientY - r.top;
     let best = null, bd = 16;
@@ -1969,7 +2559,7 @@ function boot(){
   const frame = now => {
     const dtf = Math.min((now-last)/1000, 0.1); last = now;
     if (ST.playing){
-      ST.jd += rateOf(ST.speedSl)*dtf;
+      ST.jd += curRate()*dtf;
       ST.clamped = false;
       if (ST.jd < JDMIN){ ST.jd = JDMIN; ST.clamped = true; }
       if (ST.jd > JDMAX){ ST.jd = JDMAX; ST.clamped = true; }
@@ -1977,9 +2567,10 @@ function boot(){
     $('dateBig').textContent = fmtDate(ST.jd)+' TDB';
     $('dateJD').textContent = 'JD '+fmt(ST.jd,2);
     runChunk();
-    drawOrrery(); drawSystem();
-    if (!ST.minImp) drawImprove();                 // minimized panels skip
-    if (!ST.minIcrs) drawICRS();                   //   their draw + map work
+    if (!ST.minOrr) drawOrrery();                  // minimized panels skip
+    if (!ST.minSys) drawSystem();                  //   their draw work
+    if (!ST.minImp) drawImprove();                 //   (and panel 4 its
+    if (!ST.minIcrs) drawICRS();                   //   invariant-map work)
     updateReadouts(); updateCons(); updateICRS();
     requestAnimationFrame(frame);
   };
@@ -2384,6 +2975,38 @@ function selfTest(){
   { const ap = apparentGeo('juno', JD1);
     ok(ap.tau*24*60 > 8 && ap.tau*24*60 < 45,
        'I11 juno apparent light-time sane ('+fmt(ap.tau*24*60,1)+' min)'); }
+
+  /* --- J. planet globes: spin frames, obliquities, rate parser --- */
+  { /* published obliquities (deg, spin axis vs orbit normal) - checks the
+       pole -> ecliptic chain, retrograde sign handling and the orbit normal */
+    const OB = {mercury:[0.03,0.5], venus:[177.36,0.6], earth:[23.44,0.1], mars:[25.19,0.3],
+      jupiter:[3.13,0.3], saturn:[26.73,0.3], uranus:[97.77,0.6], neptune:[28.32,0.5], pluto:[119.6,2.5]};
+    let worst = '', good = true;
+    for (const b in OB){ const o = bodyFrame(b, JD0).obliq;
+      if (Math.abs(o - OB[b][0]) > OB[b][1]){ good = false; worst += ` ${b} ${fmt(o,2)}`; } }
+    ok(good, 'J1 obliquities match published values'+(worst?' — off:'+worst:''));
+    const PH = {earth:23.9345, jupiter:9.9250, saturn:10.656, mars:24.6229, uranus:17.24, neptune:16.11};
+    let gp = true; for (const b in PH) if (Math.abs(bodyFrame(b,JD0).period*24/PH[b]-1) > 2e-3) gp = false;
+    ok(gp, 'J2 sidereal rotation periods from IAU Wdot');
+    const F = bodyFrame('mars', JD0);
+    ok(approx(V3.dot(F.M,F.p),0,1e-12) && approx(V3.dot(F.E,F.p),0,1e-12) &&
+       approx(V3.dot(F.M,F.E),0,1e-12) && approx(V3.norm(F.E),1,1e-12), 'J3 body frame orthonormal');
+    const F0 = bodyFrame('earth', JD0), F1 = bodyFrame('earth', JD0 + 1/360.9856235);
+    ok(approx(Math.acos(Math.min(1,V3.dot(F0.M,F1.M)))/DEG, 1, 1e-6), 'J4 Earth turns 1 deg in 1/360.986 d');
+    { /* Greenwich faces the Sun at ~noon UT: J2000.0 (12h TT, EoT -3.3 min) */
+      const Sd = V3.scale(V3.unit(earthFromEMB(JD0)), -1);
+      const sl = Math.atan2(V3.dot(Sd,F0.E), V3.dot(Sd,F0.M))/DEG, sb = Math.asin(V3.dot(Sd,F0.p))/DEG;
+      ok(Math.abs(sl) < 2.5 && approx(sb, -23.0, 0.3),
+         'J4b Earth subsolar point at J2000.0: lon '+fmt(sl,2)+'°, lat '+fmt(sb,2)+'°'); }
+    ok(approx(parseRate('0.01'),0.01) && approx(parseRate('2 h'),2/24) && approx(parseRate('30 min/s'),30/1440) &&
+       approx(parseRate('1 s'),1/86400) && approx(parseRate('-5 yr'),-5*365.25) && parseRate('fast')===null,
+       'J5 typed-rate parser (d, h, min/s, s, yr, junk)');
+    ok(fmtRate(0.01).indexOf('min/s')>0 && fmtRate(0.5).indexOf('h/s')>0 && fmtRate(1/86400).indexOf('s/s')>0,
+       'J6 sub-day rates format in h/min/s');
+    let tx = true;
+    for (const b of ['jupiter','venus','mars']) for (const f of Object.keys(FILTERS)){
+      const T = globeTex(b, f); if (!(T.a || T.e)) tx = false; }
+    ok(tx, 'J7 procedural textures build for every filter'); }
 
   console.log(pass+' passed, '+fail+' failed');
   if (fail>0) throw new Error(fail+' self-test failure(s)');

@@ -1,0 +1,2821 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buoyancy: Basics &mdash; PhET&rsquo;s two screens, with the upthrust taken from the pressure on the faces</title>
+<!--
+  ===================================================================
+  buoyancy-basics.html — blocks of every material in six fluids, on
+  two scales and on the pool floor: PhET's Explore and Compare
+  screens, with the buoyant force, the apparent weight and the
+  contact force solved from Archimedes' principle and checked
+  against the hydrostatic pressure integrated over the faces
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Buoyancy: Basics (University of
+  Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or
+  assets. The model, its constants and its controls follow PhET's build 1.2.11
+  (docs/phets/buoyancy-basics_en.html) and the shared doc/model.md of
+  density-buoyancy-common; every number taken from that build is marked
+  "PhET's value" in the code and in the panel.
+
+  This is the companion of density.html and runs the SAME engine: the same
+  pool, the same free-surface solve, the same Archimedes, the same material
+  table. What it adds is what PhET's Buoyancy adds — six fluids instead of
+  water alone, a scale on the ground and a scale in the pool, and the three
+  forces drawn as arrows.
+
+  Five views.  EXPLORE is PhET's Explore screen: one or two cubes of a chosen
+  material in a pool of a chosen fluid, with gravity, buoyancy and contact
+  drawn to scale and the block movable onto either scale.  THE SETS is the
+  Compare screen: two blocks, a brick and a piece of wood, matched in mass, in
+  volume or in density, with the matched quantity on a slider.  THE FACES
+  takes the upthrust apart: the hydrostatic pressure on each of the cube's six
+  faces, the exact cancellation of the four sides, and the bottom-minus-top
+  difference that IS rho_f g V_sub.  THE SCALE lowers a block through the
+  surface and draws what a spring scale reads all the way down — the straight
+  fall while it is entering, the plateau once it is under, and the contact
+  force the moment it lands.  FLOAT OR SINK is every material against every
+  fluid at once: the submerged fraction as a grid, with the neutral line
+  rho_b = rho_f running through it.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The same solve as density.html, and the same pins.  The free surface solves
+  G(y) = A_pool (y + H) - (every solid below y) = V_fluid by bisection on a
+  function proved non-decreasing, with the SMALLEST root taken so that a body
+  spanning the pool puts the surplus fluid above itself.  A floating cube's
+  submerged fraction is rho_b/rho_f exactly (checked against scipy.brentq on
+  the force balance, 1.4e-17); a floating body raises the level by its own
+  MASS/(rho_f A_pool) and a sunk one by its own VOLUME/A_pool; the apparent
+  weight is W - rho_f g V_sub and the contact force W - rho_f g V_sub, never
+  negative (a property of the solve, asserted over 84 configurations, not a
+  clamp).  The upthrust is computed twice — Archimedes, and the hydrostatic
+  pressure integrated over the six faces and round the polygon cross-section
+  edge by edge — and the two agree to 3e-16 relative with the side faces
+  cancelling to zero.  The three awkward cases are asserted: denser than the
+  fluid, exactly neutral (submerged fraction exactly 1, N = 0, and the net
+  force unchanged at every depth), and wider than the pool's free surface.
+  Every number is pinned in selfTest to build/buoyancy-basics/refvals.txt, the
+  printed output of build/density/derive.py.
+
+  WHAT IS MEASURED, AND WHOSE NUMBER IT IS
+  ----------------------------------------
+  PhET's six fluids are gasoline 680, oil 920, water 1000, seawater 1029,
+  honey 1440 and mercury 13593 kg/m^3, read out of its build; the solid
+  densities are PhET's too (styrofoam 150, wood 400, ice 919, PVC 1440, brick
+  2000, aluminium 2700, and the rest of the table).  Beside every one is the
+  handbook value from Wikipedia's "Densities of various materials" table
+  (fetched 2026-09-21), with "no row" said plainly where that table has none.
+  Gravity is PhET's 9.8 m/s^2, not the standard 9.80665.  The pool is PhET's
+  0.9 x 0.4 x 0.4167 m holding 100 L; its scales are PhET's 0.15 x 0.06 x 0.2 m,
+  which displace 1.8 L.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  The fluid is incompressible, at rest and always flat, and responds to a moved
+  block instantly (PhET's own statement).  Air buoyancy is ignored — PhET's
+  "vacuum assumption" — so a block weighed on the ground scale reads its full
+  weight; in real air a 5 L block reads 0.06 N light.  Blocks are cubes, never
+  tilt and never rotate ("no rotation or torque is considered in these
+  simulations" — PhET's model.md).  A released block goes straight to its
+  equilibrium: this file solves the static problem, where PhET integrates
+  p2.js with damping.  A block is put on a scale by a control rather than by
+  being dragged onto it, and only one block at a time can stand on each scale.
+  The pool never overflows, which is true of every configuration its controls
+  can reach (two 10 L blocks and the 1.8 L scale in a 150 L pool).
+
+  WHAT IS NOT MODELLED
+  --------------------
+  Surface tension, viscosity, waves, the meniscus, temperature, the fluids'
+  own compressibility, and the boat, bottle, duck, cone and ellipsoid shapes
+  and the adjustable gravity of PhET's full Buoyancy sim (Buoyancy: Basics has
+  neither; its gravity is Earth's and its shapes are cubes).
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed quantity (the buoyant force, the
+       submerged fraction), orange = the reference/analytic value (the weight,
+       the handbook density) or a warning, magenta = the live marker (the block
+       being adjusted, the contact force), cyan = structure (the fluid, the
+       waterline, the scales, the frames). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Buoyancy: Basics</h1>
+  <span class="sub" id="sub">PhET&rsquo;s two screens &mdash; blocks of every material in six fluids, on the scales and on the pool floor &mdash; with the upthrust taken from the pressure on the faces</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html, via                 *
+ *  build_lagr/p1_utils.js, verbatim)                                  *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+/* ================================================================== *
+ *  the physics — the pool, Archimedes on a cube, the pressure on the  *
+ *  faces, and PhET's measured data.  Nothing here touches a canvas.   *
+ *  y is UP in every world coordinate; the views flip.                 *
+ *  This file is byte-identical to build/density/p2_physics.js apart from  *
+ *  this banner: the two sims run ONE engine.                          *
+ *  build/density/derive.py is the Python twin of every function here. *
+ * ================================================================== */
+const DEG=PI/180;                 /* multiply DEGREES by this to get radians (asserted: 90 DEG = pi/2) */
+const G=9.8;                      /* PhET's gEarth, m/s^2 (standard gravity is 9.80665) */
+const G_STD=9.80665;
+const LITERS=1000;                /* litres in a cubic metre — PhET's LITERS_IN_CUBIC_METER */
+
+/* PhET's pool: Bounds3(-0.45, -0.15/0.9/0.4, -0.2, 0.45, 0, 0.2), read out of
+   density_en.html.  y = 0 is ground level and the floor is at -POOL_H; the
+   expressions are PhET's own, so the arithmetic rounds identically. */
+const POOL_W=0.9, POOL_D=0.4, POOL_H=0.15/0.9/0.4;
+const A_POOL=POOL_W*POOL_D;                 /* 0.36 m^2 of free surface */
+const V_POOL=A_POOL*POOL_H;                 /* 0.15 m^3 = 150 L */
+const VF0=0.1;                              /* PhET's DESIRED_STARTING_POOL_VOLUME, m^3 */
+/* PhET's scale: SCALE_WIDTH 0.15, SCALE_HEIGHT 0.06, 0.2 deep -> 1.8 L displaced */
+const SCALE_W=0.15, SCALE_H=0.06, SCALE_D=0.2, SCALE_V=SCALE_W*SCALE_H*SCALE_D;
+/* PhET's cube limits: MIN_VOLUME 0.001, MAX_VOLUME 0.01 m^3; mass 0.1-27 kg */
+const VMIN_L=1, VMAX_L=10, MMIN=0.1, MMAX=27, MMIN_CUSTOM=0.5;
+
+/* --------------------------------------------------------------------------
+   PhET's material densities, kg/m^3, read out of density_en.html (Material.js)
+   — "phet" — beside the handbook value from Wikipedia's "Densities of various
+   materials" table, fetched 2026-09-21 — "ref".  ref:null means that table
+   carries no row for the material at all, which is said rather than guessed.
+   note: where PhET's number is a teaching choice rather than a measurement.
+   -------------------------------------------------------------------------- */
+const MATERIALS=[
+  {id:'styrofoam',name:'styrofoam', phet:150,   ref:75,     col:'#e4e7ee', note:'real expanded polystyrene is nearer 75'},
+  {id:'wood',     name:'wood',      phet:400,   ref:700,    col:'#a97c4a', note:'400 is pine (373); seasoned wood is 700'},
+  {id:'apple',    name:'apple',     phet:832,   ref:null,   col:'#c0452f', note:null},
+  {id:'ice',      name:'ice',       phet:919,   ref:916.7,  col:'#bfe3ff', note:null},
+  {id:'human',    name:'human',     phet:950,   ref:null,   col:'#d8a184', note:null},
+  {id:'water',    name:'water',     phet:1000,  ref:1000,   col:'#4d8fb8', note:null},
+  {id:'seawater', name:'seawater',  phet:1029,  ref:1030,   col:'#2f7f96', note:null},
+  {id:'pvc',      name:'PVC',       phet:1440,  ref:1175,   col:'#d3d6dc', note:'1175 is Wikipedia’s generic plastic'},
+  {id:'honey',    name:'honey',     phet:1440,  ref:null,   col:'#c98b1d', note:null},
+  {id:'sand',     name:'sand',      phet:1442,  ref:1600,   col:'#c7b083', note:null},
+  {id:'brick',    name:'brick',     phet:2000,  ref:null,   col:'#9c4b34', note:null},
+  {id:'aluminum', name:'aluminium', phet:2700,  ref:2700,   col:'#b9bec9', note:null},
+  {id:'glass',    name:'glass',     phet:2700,  ref:2500,   col:'#9fd2d8', note:'PhET reuses aluminium’s 2700'},
+  {id:'concrete', name:'concrete',  phet:3150,  ref:2400,   col:'#8d8f93', note:'ordinary concrete is 2400'},
+  {id:'diamond',  name:'diamond',   phet:3510,  ref:3500,   col:'#dff3ff', note:null},
+  {id:'titanium', name:'titanium',  phet:4500,  ref:4540,   col:'#8d949e', note:null},
+  {id:'pyrite',   name:'pyrite',    phet:5010,  ref:null,   col:'#c5a94e', note:null},
+  {id:'steel',    name:'steel',     phet:7800,  ref:7850,   col:'#8e939c', note:null},
+  {id:'copper',   name:'copper',    phet:8960,  ref:8940,   col:'#c47a45', note:null},
+  {id:'silver',   name:'silver',    phet:10490, ref:10500,  col:'#c8ccd6', note:null},
+  {id:'lead',     name:'lead',      phet:11342, ref:11340,  col:'#6f7683', note:null},
+  {id:'mercury',  name:'mercury',   phet:13593, ref:13546,  col:'#b0b6c2', note:null},
+  {id:'tantalum', name:'tantalum',  phet:16650, ref:16600,  col:'#7e8590', note:null},
+  {id:'gold',     name:'gold',      phet:19320, ref:19320,  col:'#d9b44a', note:null},
+  {id:'platinum', name:'platinum',  phet:21450, ref:21450,  col:'#cfd4de', note:null},
+  {id:'gasoline', name:'gasoline',  phet:680,   ref:null,   col:'#d8c65a', note:null},
+  {id:'oil',      name:'oil',       phet:920,   ref:920,    col:'#a08a3a', note:null},
+  {id:'air',      name:'air',       phet:1.2,   ref:1.2,    col:'#2a3346', note:null},
+];
+const MAT={}; MATERIALS.forEach(m=>{ MAT[m.id]=m; });
+function matRho(id,custom){ if(id==='custom') return custom; const m=MAT[id]; if(!m) throw new Error('unknown material '+id); return m.phet; }
+function matName(id){ return id==='custom'?'custom':MAT[id].name; }
+function matColor(id,custom){
+  if(id!=='custom') return MAT[id].col;
+  /* PhET shades its custom material from black to white by density; keep the
+     same idea on a cyan-to-white ramp so it never collides with a real one */
+  const t=clamp((Math.log(custom/100)/Math.log(200)),0,1);
+  return mix('#3d5d75','#e8eef5',t);
+}
+/* PhET's Intro/Explore material list (SIMPLE_MASS_MATERIALS + custom) */
+const SIMPLE_MATS=['styrofoam','wood','ice','pvc','brick','aluminum'];
+/* PhET's Density Mystery density table (DENSITY_MYSTERY_SCREEN_MATERIALS) */
+const DENSITY_TABLE=['wood','gasoline','apple','ice','human','water','glass',
+                     'diamond','titanium','steel','copper','lead','gold'];
+/* PhET's Buoyancy fluid list (BUOYANCY_FLUID_MATERIALS) */
+const BUOY_FLUIDS=['gasoline','oil','water','seawater','honey','mercury'];
+
+/* ------------------------------------------------------------------ the cube */
+function cubeSide(V){ return Math.pow(V,1/3); }        /* PhET's Cube.boundsFromVolume */
+/* the volume of a cube of volume V, bottom at yb, lying below yw.  Saturates at
+   V EXACTLY, not at s^3: s = V^(1/3) is inexact in binary, and s*s*s misses V
+   by an ulp, which shows up as a submerged fraction of 1.0000000000000004. */
+function cubeBelow(V,yb,yw){
+  const s=cubeSide(V);
+  if(yw>=yb+s) return V;
+  if(yw<=yb) return 0;
+  return s*s*(yw-yb);
+}
+
+/* ------------------------------------------------------------- the free surface
+   A block is in one of four states at a trial surface yw:
+     held   the user holds it, its bottom pinned (never below its support)
+     float  rho_b < rho_f AND the floating draft clears its support
+     rest   sitting on its support (the pool floor, or the pool scale)
+     out    not in the pool at all
+   The switch between float and rest is continuous: at the moment the floating
+   draft just reaches the support, s^2 d = V rho_b/rho_f, the two agree. */
+function blockState(b,yw,rhoF){
+  const s=cubeSide(b.V);
+  if(b.inPool===false) return {Vsub:0,yb:(b.yb===undefined?0:b.yb),mode:'out',s:s};
+  const sup=(b.support===undefined?-POOL_H:b.support);
+  if(b.held!==undefined&&b.held!==null){
+    const yb=Math.max(b.held,sup);
+    return {Vsub:cubeBelow(b.V,yb,yw),yb:yb,mode:'held',s:s};
+  }
+  if(b.rho<rhoF){
+    const d=s*b.rho/rhoF, yb=yw-d;
+    if(yb>=sup) return {Vsub:b.V*b.rho/rhoF,yb:yb,mode:'float',s:s};
+  }
+  return {Vsub:cubeBelow(b.V,sup,yw),yb:sup,mode:'rest',s:s};
+}
+function obstacleVolume(obs,yw){
+  let t=0;
+  for(const o of obs) t+=o.a*clamp(yw-o.y0,0,o.h);
+  return t;
+}
+/* G(yw) = (pool volume below yw) - (every solid below yw).  Non-decreasing
+   wherever the blocked plan area stays below A_POOL; selfTest sweeps it. */
+function netFluid(yw,blocks,obs,rhoF){
+  let t=A_POOL*Math.max(0,yw+POOL_H);
+  for(const b of blocks) t-=blockState(b,yw,rhoF).Vsub;
+  return t-obstacleVolume(obs,yw);
+}
+/* the SMALLEST yw with G(yw) >= Vf.  The infimum is the physics: a body that
+   spans the pool's cross-section makes G flat, and the surface then sits at the
+   bottom of the flat stretch with the surplus fluid above the body, not inside
+   it.  Bisection keeps the invariant G(lo) < Vf <= G(hi). */
+function poolLevel(blocks,obs,rhoF,Vf,nit){
+  let sumV=0; for(const b of blocks) sumV+=b.V;
+  let lo=-POOL_H, hi=-POOL_H+(Vf+sumV+obstacleVolume(obs,1e9))/A_POOL+1;
+  const n=nit||80;
+  for(let i=0;i<n;i++){
+    const mid=0.5*(lo+hi);
+    if(netFluid(mid,blocks,obs,rhoF)<Vf) lo=mid; else hi=mid;
+  }
+  return 0.5*(lo+hi);
+}
+/* the whole configuration: the level, then every block's state and forces */
+function solvePool(blocks,rhoF,obs,Vf){
+  obs=obs||[]; Vf=(Vf===undefined?VF0:Vf);
+  const yw=poolLevel(blocks,obs,rhoF,Vf);
+  const out={yw:yw,rhoF:rhoF,blocks:[]};
+  for(const b of blocks){
+    const st=blockState(b,yw,rhoF), m=b.rho*b.V, W=m*G, Fb=rhoF*G*st.Vsub;
+    /* no clamp: a block only ever rests when the upthrust cannot lift it, so
+       W - Fb >= 0 is a property of the solve rather than something to enforce.
+       A Math.max(0, .) here was provably unreachable — dead code that mutation
+       testing correctly reported as an equivalent mutant — and selfTest now
+       sweeps the property instead. */
+    const N=(st.mode==='rest')?(W-Fb):0;
+    const hand=(st.mode==='held')?(W-Fb):0;
+    out.blocks.push({V:b.V,rho:b.rho,s:st.s,m:m,Vsub:st.Vsub,yb:st.yb,mode:st.mode,
+                     W:W,Fb:Fb,N:N,hand:hand,frac:st.Vsub/b.V,
+                     x:(b.x===undefined?0:b.x),tag:b.tag,mat:b.mat,col:b.col});
+  }
+  return out;
+}
+
+/* --------------------------------------------------- Archimedes, closed form */
+function floatDraft(V,rho,rhoF){ return cubeSide(V)*rho/rhoF; }    /* d = s rho_b/rho_f */
+function submergedFraction(rho,rhoF){ return Math.min(1,rho/rhoF); }
+function apparentWeight(V,rho,rhoF,Vsub){ return rho*V*G-rhoF*G*(Vsub===undefined?V:Vsub); }
+function riseFloating(m,rhoF){ return m/(rhoF*A_POOL); }           /* its own MASS / (rho_f A) */
+function riseSunk(V){ return V/A_POOL; }                           /* its own VOLUME / A */
+
+/* ------------------------------------- the force, from the pressure on the faces
+   p = rho g (yw - y), gauge (PhET ignores air buoyancy: the "vacuum
+   assumption" of its model.md).  The bottom face pushes up, the top face down,
+   and the four side faces cancel in pairs.  Returned per face so a view can
+   draw them. */
+function cubeFaceForces(V,yb,yw,rhoF){
+  const s=cubeSide(V), yt=yb+s, A=s*s;
+  const pBot=yb<yw?rhoF*G*(yw-yb):0, pTop=yt<yw?rhoF*G*(yw-yt):0;
+  /* one side face: p integrated over the submerged strip, exact (p is linear) */
+  const yl=Math.min(yw,yt), dsub=Math.max(0,yl-yb);
+  const side=rhoF*G*(yw-0.5*(yb+yl))*s*dsub;
+  return {pBot:pBot,pTop:pTop,A:A,Fbot:pBot*A,Ftop:pTop*A,net:(pBot-pTop)*A,
+          side:side,sideSum:side-side,dBot:Math.max(0,yw-yb),dTop:Math.max(0,yw-yt)};
+}
+/* --- the 2-D route: the same force taken edge by edge round the polygon ------
+   (the closed forms are build_buoy/p2_physics.js's, reused here) */
+function clipBelow(poly,w){
+  const out=[], n=poly.length;
+  for(let i=0;i<n;i++){
+    const a=poly[i], b=poly[(i+1)%n], ain=a[1]<=w, bin=b[1]<=w;
+    if(ain) out.push([a[0],a[1]]);
+    if(ain!==bin){ const t=(w-a[1])/(b[1]-a[1]); out.push([a[0]+(b[0]-a[0])*t,w]); }
+  }
+  return out;
+}
+function polyArea(poly){ let s=0; const n=poly.length;
+  for(let i=0;i<n;i++){ const a=poly[i], b=poly[(i+1)%n]; s+=a[0]*b[1]-b[0]*a[1]; } return 0.5*s; }
+function polyCentroid(poly){
+  const A=polyArea(poly); if(Math.abs(A)<1e-300) return [0,0];
+  let cx=0, cy=0; const n=poly.length;
+  for(let i=0;i<n;i++){ const a=poly[i], b=poly[(i+1)%n], cr=a[0]*b[1]-b[0]*a[1]; cx+=(a[0]+b[0])*cr; cy+=(a[1]+b[1])*cr; }
+  return [cx/(6*A),cy/(6*A)];
+}
+/* p is linear along a straight edge, so the edge force is p(mid) L exactly; the
+   outward normal of a CCW edge (dx, dy) is (dy, -dx)/L and the fluid pushes
+   inward, F = -p n L.  Per unit depth. */
+function edgeForces(sub,w,rhoF){
+  const n=sub.length, F=[], tot=[0,0];
+  for(let i=0;i<n;i++){
+    const a=sub[i], b=sub[(i+1)%n], dx=b[0]-a[0], dy=b[1]-a[1];
+    const mid=[(a[0]+b[0])/2,(a[1]+b[1])/2], p=rhoF*G*(w-mid[1]);
+    const fx=-p*dy, fy=p*dx;
+    F.push({fx:fx,fy:fy,a:a,b:b,p:p}); tot[0]+=fx; tot[1]+=fy;
+  }
+  return {F:F,tot:tot};
+}
+/* the independent route the tests use: subdivide every edge and sum p n ds */
+function finePerimeter(poly,w,rhoF,nsub){
+  nsub=nsub||2000; const tot=[0,0], n=poly.length;
+  for(let i=0;i<n;i++){ const a=poly[i], b=poly[(i+1)%n], dx=b[0]-a[0], dy=b[1]-a[1];
+    for(let k=0;k<nsub;k++){ const t=(k+0.5)/nsub, y=a[1]+dy*t, p=rhoF*G*Math.max(0,w-y);
+      tot[0]+=-p*dy/nsub; tot[1]+=p*dx/nsub; } }
+  return tot;
+}
+function cubePoly(V,yb,xc){
+  const s=cubeSide(V), x=(xc===undefined?0:xc);
+  return [[x-s/2,yb],[x+s/2,yb],[x+s/2,yb+s],[x-s/2,yb+s]];
+}
+
+/* ------------------------------------------------------------ PhET's screens */
+/* Density, Compare screen (DensityCompareModel): four cubes, and the matched
+   quantity on a slider.  Volumes and masses are PhET's own cubesData. */
+const DENS_CUBES=[
+  {tag:'B',tagV:'A',tagD:'B',mv:0.01,   vm:8,dv:0.006,col:'#d8c14a'},
+  {tag:'A',tagV:'C',tagD:'A',mv:0.005,  vm:6,dv:0.004,col:'#4f8fd0'},
+  {tag:'C',tagV:'D',tagD:'C',mv:0.0025, vm:4,dv:0.002,col:'#6fbf5a'},
+  {tag:'D',tagV:'B',tagD:'D',mv:0.00125,vm:2,dv:0.001,col:'#d05a4f'},
+];
+const DENS_SAME_MASS=5, DENS_SAME_VOL=0.005, DENS_SAME_RHO=500;
+const DENS_MASS_RANGE=[1,10], DENS_VOL_RANGE=[0.001,0.01], DENS_RHO_RANGE=[100,2000];
+/* Buoyancy: Basics, Compare screen (BuoyancyCompareModel): two cubes, brick and
+   wood, same mass 4 kg, same density 400 = PhET's WOOD */
+const BB_CUBES=[
+  {tag:'A',tagV:'A',tagD:'A',mv:0.002,vm:10,dv:0.005,col:'#c08a3c'},
+  {tag:'B',tagV:'B',tagD:'B',mv:0.01, vm:2, dv:0.01, col:'#4f8fd0'},
+];
+const BB_SAME_MASS=4, BB_SAME_VOL=0.005, BB_SAME_RHO=400;
+const BB_RHO_RANGE=[100,3000];
+
+/* one set of compare blocks at the current slider values */
+function compareBlocks(cubes,mode,mass,volM3,rho){
+  return cubes.map((c,i)=>{
+    if(mode==='mass')   return {tag:c.tag, V:c.mv,  rho:mass/c.mv,        col:c.col,idx:i};
+    if(mode==='volume') return {tag:c.tagV,V:volM3, rho:c.vm/volM3,       col:c.col,idx:i};
+    return                     {tag:c.tagD,V:c.dv,  rho:rho,              col:c.col,idx:i};
+  });
+}
+
+/* Density, Mystery screen: PhET's three fixed sets.  'V' rows are built from a
+   volume, 'M' rows from a mass; the density is the other factor. */
+const MYSTERY_SETS={
+  'set 1':[['D','V',0.005, 1000],['B','V',0.001,400],['E','V',0.007,400],
+           ['C','V',0.001,19320],['A','V',0.0055,3510]],
+  'set 2':[['D','M',18,4500],['A','M',18,11340],['E','V',0.005,8960],
+           ['C','M',2.7,2700],['B','M',10.8,2700]],
+  'set 3':[['E','M',6,950],['B','M',6,1000],['D','M',2,400],
+           ['C','M',23.4,7800],['A','M',2.85,950]],
+};
+const MYSTERY_COLS={'set 1':['#d05a4f','#4f8fd0','#6fbf5a','#d8c14a','#9b6bd0'],
+                    'set 2':['#d489a8','#d88b3c','#a58ed0','#8fc97a','#9a7550'],
+                    'set 3':['#e2e6ec','#9aa2b1','#d0b44a','#e0b394','#8d4a4a']};
+const MYSTERY_LIST=['set 1','set 2','set 3','shuffled'];
+function mysterySet(name,seed){
+  if(name==='shuffled') return shuffledMystery(seed);
+  const cols=MYSTERY_COLS[name];
+  return MYSTERY_SETS[name].map((r,i)=>{
+    const V=(r[1]==='V')?r[2]:r[2]/r[3];
+    return {tag:r[0],V:V,rho:r[3],m:r[3]*V,col:cols[i],idx:i};
+  });
+}
+/* PhET's RANDOM set draws five of the thirteen table materials and five
+   volumes (three from 1-6 L, two from 7-10 L, sorted).  Here the draw comes
+   from a seeded generator so that a capture, a test and the browser all see the
+   same set for a given seed, and the refresh button simply advances it. */
+function lcg(seed){ let s=(seed>>>0)||1; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+function shuffleWith(rnd,arr){ const a=arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+function shuffledMystery(seed){
+  const rnd=lcg(seed), mats=shuffleWith(rnd,DENSITY_TABLE).slice(0,5);
+  const lo=shuffleWith(rnd,[1,2,3,4,5,6]).slice(0,3), hi=shuffleWith(rnd,[7,8,9,10]).slice(0,2);
+  const vols=lo.concat(hi).sort((a,b)=>a-b);
+  const tags=['A','B','C','D','E'], cols=MYSTERY_COLS['set 1'].concat(MYSTERY_COLS['set 2']);
+  return mats.map((mid,i)=>({tag:tags[i],V:vols[i]/LITERS,rho:MAT[mid].phet,
+                             m:MAT[mid].phet*vols[i]/LITERS,col:cols[i],idx:i,truth:mid}));
+}
+/* two decimals, rounded half away from zero, which is what the sim prints */
+function disp2(x){ return Math.floor(Math.abs(x)*100+0.5)/100*(x<0?-1:1); }
+/* the identification a student can make from the printed numbers alone */
+function identify(mDisp,VdispL){
+  const rho=mDisp/VdispL*LITERS;
+  const d=DENSITY_TABLE.map(k=>({id:k,e:Math.abs(MAT[k].phet-rho)/MAT[k].phet}))
+                       .sort((a,b)=>a.e-b.e);
+  return {rho:rho,id:d[0].id,err:d[0].e,gap:d[1].e};
+}
+
+/* -------------------------------------------- PhET's mass / volume coupling
+   Non-custom: the density is fixed, so V = m/rho and the mass slider's enabled
+   range is the volume range mapped through rho and clipped to 0.1-27 kg.
+   Custom: the two are free and moving either one sets rho = m/V. */
+function massRangeFor(rho,custom){
+  if(custom) return [MMIN_CUSTOM,MMAX];
+  return [clamp(rho*VMIN_L/LITERS,MMIN,MMAX),clamp(rho*VMAX_L/LITERS,MMIN,MMAX)];
+}
+/* ================================================================== *
+ *  state, the per-view model, the readout, the equation bar, the tag  *
+ * ================================================================== */
+const TABS=[['explore','the pool'],['sets','the sets'],['faces','the faces'],
+            ['scale','the scale'],['fluids','float or sink']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0',
+           dim:'#8b93a6', off:'#161c2c', edge:'#242a3a', gold:'#d9b44a',
+           fluid:'#163a55', fluid2:'#1e4f73', body:'#4a5060', body2:'#6b7285', air:'#0d1626'};
+const RO_W=300;
+const HINT_H=18;   /* the house #hint (HTML, bottom:11px) owns the bottom-left corner */
+
+const MAT_LIST=SIMPLE_MATS.map(id=>({id:id,name:MAT[id].name})).concat([{id:'custom',name:'custom'}]);
+const FLUID_LIST=BUOY_FLUIDS.map(id=>({id:id,name:MAT[id].name}));
+const SET_LIST=[{id:'mass',name:'same mass'},{id:'volume',name:'same volume'},{id:'density',name:'same density'}];
+const WHERE_LIST=[{id:'floor',name:'the pool floor'},{id:'poolscale',name:'the pool scale'},
+                  {id:'ground',name:'the ground scale'}];
+const GRID_LIST=MATERIALS.filter(m=>m.id!=='air').map(m=>({id:m.id,name:m.name}));
+
+/* where things stand.  The pool scale is PhET's: 0.15 x 0.06 x 0.2 m, its
+   height a fraction of the way up the pool (PhET's heightProperty, 0.5). */
+const SCALE_X=0.27, GROUND_SCALE_X=-POOL_W/2-0.13;
+const BLOCK_A_X=-0.22, BLOCK_B_X=0.02;
+
+const DEFAULTS={
+  view:'explore',
+  /* the blocks (PhET's Explore controls) */
+  two:false, matA:'wood', massA:2, volAL:5, matB:'aluminum', massB:13.5, volBL:5,
+  holdA:null, holdB:null,
+  /* the fluid and the furniture */
+  fluid:'water', where:'floor', scaleH:0.5,
+  /* the sets (Compare) */
+  setMode:'mass', sameMass:BB_SAME_MASS, sameVolL:BB_SAME_VOL*LITERS, sameRho:BB_SAME_RHO,
+  /* the faces */
+  facesDepth:0.45,
+  /* the scale view */
+  lowered:0.55,
+  /* float or sink */
+  gridMat:'wood',
+  /* overlays */
+  forces:true, labels:true,
+};
+const ST=Object.assign({},DEFAULTS);
+
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+function clearAll(){ MEMO.explore=MEMO.sets=MEMO.faces=MEMO.scale=MEMO.fluids=null; }
+
+/* -------------------------------------------------- the two adjustable blocks
+   PhET's coupling exactly: a real material fixes the density, so mass and
+   volume move together; custom leaves them free and the density follows. */
+function rhoOf(st,w){
+  const mat=w==='A'?st.matA:st.matB;
+  if(mat!=='custom') return MAT[mat].phet;
+  const m=w==='A'?st.massA:st.massB, V=(w==='A'?st.volAL:st.volBL)/LITERS;
+  return m/V;
+}
+function setMass(st,w,m){
+  const mat=w==='A'?st.matA:st.matB, custom=(mat==='custom');
+  const rng=massRangeFor(custom?0:MAT[mat].phet,custom);
+  m=clamp(m,rng[0],rng[1]);
+  if(w==='A') st.massA=m; else st.massB=m;
+  if(!custom){
+    const V=clamp(m/MAT[mat].phet*LITERS,VMIN_L,VMAX_L);
+    if(w==='A') st.volAL=V; else st.volBL=V;
+    const mm=MAT[mat].phet*V/LITERS;
+    if(Math.abs(mm-m)>1e-12){ if(w==='A') st.massA=mm; else st.massB=mm; }
+  }
+}
+function setVol(st,w,V){
+  const mat=w==='A'?st.matA:st.matB, custom=(mat==='custom');
+  V=clamp(V,VMIN_L,VMAX_L);
+  if(w==='A') st.volAL=V; else st.volBL=V;
+  if(!custom) setMass(st,w,MAT[mat].phet*V/LITERS);
+  else { const m=w==='A'?st.massA:st.massB, mm=clamp(m,MMIN_CUSTOM,MMAX);
+    if(w==='A') st.massA=mm; else st.massB=mm; }
+}
+function setMat(st,w,id){
+  if(w==='A') st.matA=id; else st.matB=id;
+  const V=w==='A'?st.volAL:st.volBL;
+  if(id==='custom'){ const m=clamp((w==='A'?st.massA:st.massB),MMIN_CUSTOM,MMAX);
+    if(w==='A') st.massA=m; else st.massB=m; return; }
+  setMass(st,w,MAT[id].phet*V/LITERS);
+}
+/* the pool scale's top, from PhET's height fraction */
+function poolScaleY0(st){ return -POOL_H+st.scaleH*(POOL_H-SCALE_H); }
+function poolScaleTop(st){ return poolScaleY0(st)+SCALE_H; }
+function poolObstacles(st){ return [{a:SCALE_W*SCALE_D,y0:poolScaleY0(st),h:SCALE_H}]; }
+
+function blockOf(st,w){
+  const rho=rhoOf(st,w), V=(w==='A'?st.volAL:st.volBL)/LITERS, held=w==='A'?st.holdA:st.holdB;
+  const onScale=(w==='A'&&st.where==='poolscale'), onGround=(w==='A'&&st.where==='ground');
+  return {tag:w,V:V,rho:rho,
+          x:onScale?SCALE_X:(onGround?GROUND_SCALE_X:(w==='A'?BLOCK_A_X:BLOCK_B_X)),
+          mat:w==='A'?st.matA:st.matB,col:matColor(w==='A'?st.matA:st.matB,rho),
+          support:onScale?poolScaleTop(st):(onGround?SCALE_H:-POOL_H),
+          inPool:!onGround, yb:onGround?SCALE_H:undefined,
+          held:(held===null||held===undefined)?undefined:held};
+}
+
+/* ------------------------------------------------------------ the pool view */
+function exploreModel(st){
+  const key=[st.two,st.matA,st.massA,st.volAL,st.matB,st.massB,st.volBL,st.holdA,st.holdB,
+             st.fluid,st.where,st.scaleH].join('|');
+  return memo('explore',key,()=>{
+    const rhoF=MAT[st.fluid].phet, obs=poolObstacles(st);
+    const blocks=[blockOf(st,'A')];
+    if(st.two) blocks.push(blockOf(st,'B'));
+    const sol=solvePool(blocks,rhoF,obs);
+    const bare=poolLevel([],obs,rhoF,VF0);
+    for(const b of sol.blocks){
+      b.faces=cubeFaceForces(b.V,b.yb,sol.yw,rhoF);
+      b.floats=b.rho<rhoF;
+      b.pct=100*b.frac;
+    }
+    const A=sol.blocks[0];
+    /* the two scales, in newtons, as PhET shows them */
+    const poolReads=(st.where==='poolscale')?A.N:0;
+    const groundReads=(st.where==='ground')?A.W:0;
+    return {rhoF:rhoF,fluid:st.fluid,yw:sol.yw,bare:bare,blocks:sol.blocks,obs:obs,
+            scaleTop:poolScaleTop(st),scaleY0:poolScaleY0(st),
+            poolReads:poolReads,groundReads:groundReads,
+            rise:sol.yw-bare,VfDisp:(sol.yw-bare)*A_POOL};
+  });
+}
+
+/* ------------------------------------------------------------- the sets view */
+function setsModel(st){
+  const key=[st.setMode,st.sameMass,st.sameVolL,st.sameRho,st.fluid,st.scaleH].join('|');
+  return memo('sets',key,()=>{
+    const rhoF=MAT[st.fluid].phet, obs=poolObstacles(st);
+    const raw=compareBlocks(BB_CUBES,st.setMode,st.sameMass,st.sameVolL/LITERS,st.sameRho);
+    const xs=[-0.26,0.02];
+    raw.forEach((b,i)=>{ b.x=xs[i]; });
+    const sol=solvePool(raw,rhoF,obs);
+    sol.blocks.forEach((b,i)=>{ b.tag=raw[i].tag; b.col=raw[i].col; b.floats=b.rho<rhoF; b.pct=100*b.frac; });
+    const matched=st.setMode==='mass'?'mass':(st.setMode==='volume'?'volume':'density');
+    /* PhET builds this screen out of a brick and a piece of wood */
+    const names=sol.blocks.map(b=>{
+      const hit=MATERIALS.find(m=>Math.abs(m.phet-b.rho)<1e-9);
+      return hit?hit.name:'custom';
+    });
+    return {rhoF:rhoF,yw:sol.yw,blocks:sol.blocks,matched:matched,names:names,
+            scaleTop:poolScaleTop(st),scaleY0:poolScaleY0(st),obs:obs,
+            nFloat:sol.blocks.filter(b=>b.mode==='float').length};
+  });
+}
+
+/* ------------------------------------------------------------ the faces view */
+function facesModel(st){
+  const key=[st.matA,st.massA,st.volAL,st.fluid,st.facesDepth].join('|');
+  return memo('faces',key,()=>{
+    const rhoF=MAT[st.fluid].phet, rho=rhoOf(st,'A'), V=st.volAL/LITERS, s=cubeSide(V);
+    /* the cube's bottom, as a depth below a flat free surface at y = 0 */
+    const yb=-st.facesDepth, yw=0;
+    const F=cubeFaceForces(V,yb,yw,rhoF);
+    const poly=cubePoly(V,yb,0), sub=clipBelow(poly,yw);
+    const E=edgeForces(sub,yw,rhoF), fine=finePerimeter(sub,yw,rhoF,2000);
+    const Asub=polyArea(sub), C=Asub>1e-12?polyCentroid(sub):[0,0];
+    const Vsub=cubeBelow(V,yb,yw);
+    return {rhoF:rhoF,rho:rho,V:V,s:s,yb:yb,yw:yw,F:F,E:E,fine:fine,Asub:Asub,C:C,
+            Vsub:Vsub,arch:rhoF*G*Vsub,W:rho*V*G,
+            resid:Math.abs(F.net-rhoF*G*Vsub)/Math.max(1e-12,rhoF*G*Vsub),
+            resid2d:Math.abs(E.tot[1]-rhoF*G*Asub)/Math.max(1e-12,rhoF*G*Asub),
+            fineResid:Math.abs(fine[1]-E.tot[1])/Math.max(1e-12,Math.abs(E.tot[1])),
+            fullyUnder:yb+s<=yw};
+  });
+}
+
+/* ------------------------------------------------------------ the scale view */
+/* lowering a block on a spring scale: `lowered` runs 0 (clear of the surface)
+   to 1 (resting on the floor).  The free surface is solved at every step, so
+   the curve carries the rise of the fluid as the block goes in. */
+function loweredY(st,s){
+  const top=poolLevel([],[],MAT[st.fluid].phet,VF0)+0.02;
+  const bot=-POOL_H;
+  return top+(bot-top)*clamp(st.lowered,0,1);
+}
+function scaleModel(st){
+  const key=[st.matA,st.massA,st.volAL,st.fluid,st.lowered].join('|');
+  return memo('scale',key,()=>{
+    const rhoF=MAT[st.fluid].phet, rho=rhoOf(st,'A'), V=st.volAL/LITERS, s=cubeSide(V);
+    const curve=[], N=241;
+    for(let i=0;i<N;i++){
+      const t=i/(N-1), st2={fluid:st.fluid,lowered:t};
+      const yb=loweredY(st2,s);
+      const r=solvePool([{V:V,rho:rho,held:yb}],rhoF)['blocks'][0];
+      const rest=(yb<=-POOL_H+1e-12);
+      const hang=rest?Math.max(0,r.W-r.Fb-0):r.hand;      /* the string can only pull */
+      curve.push([t,r.W-r.Fb,r.Vsub,yb]);
+    }
+    const yb=loweredY(st,s);
+    const sol=solvePool([{V:V,rho:rho,held:yb}],rhoF);
+    const b=sol.blocks[0];
+    const resting=(yb<=-POOL_H+1e-12);
+    /* once the block reaches the floor the string goes slack if it floats or
+       the floor takes the rest; the spring reads what it still carries */
+    const read=Math.max(0,b.W-b.Fb);
+    return {rhoF:rhoF,rho:rho,V:V,s:s,yb:yb,yw:sol.yw,blk:b,curve:curve,
+            read:read,slack:(b.W-b.Fb)<=0,resting:resting,
+            W:b.W,Fb:b.Fb,Vsub:b.Vsub,frac:b.frac,
+            tEnter:1-(loweredY({fluid:st.fluid,lowered:0},s)-sol.yw)/(loweredY({fluid:st.fluid,lowered:0},s)+POOL_H),
+            full:apparentWeight(V,rho,rhoF)};
+  });
+}
+
+/* ----------------------------------------------------- the float-or-sink view */
+function fluidsModel(st){
+  const key=[st.gridMat,st.matA,st.massA,st.volAL].join('|');
+  return memo('fluids',key,()=>{
+    const rows=MATERIALS.filter(m=>m.id!=='air').slice().sort((a,b)=>a.phet-b.phet);
+    const cols=BUOY_FLUIDS.map(id=>({id:id,name:MAT[id].name,rho:MAT[id].phet}));
+    const grid=rows.map(m=>cols.map(f=>({frac:submergedFraction(m.phet,f.rho),
+                                         floats:m.phet<f.rho,
+                                         neutral:Math.abs(m.phet-f.rho)<1e-9})));
+    const pick=MAT[st.gridMat], pi=rows.findIndex(m=>m.id===st.gridMat);
+    return {rows:rows,cols:cols,grid:grid,pick:pick,pi:pi,
+            nFloat:grid.reduce((t,r)=>t+r.filter(c=>c.floats).length,0),
+            nCells:rows.length*cols.length,
+            mercuryFloats:rows.filter(m=>m.phet<MAT.mercury.phet).length,
+            gasolineFloats:rows.filter(m=>m.phet<MAT.gasoline.phet).length};
+  });
+}
+
+function buildModel(st){
+  st=st||ST;
+  if(st.view==='explore') return exploreModel(st);
+  if(st.view==='sets') return setsModel(st);
+  if(st.view==='faces') return facesModel(st);
+  if(st.view==='scale') return scaleModel(st);
+  return fluidsModel(st);
+}
+
+/* ================================================================== *
+ *  readout / equation bar / stage tag                                 *
+ * ================================================================== */
+function row(l,v,cls){ return '<tr><td>'+l+'</td><td class="v'+(cls?' '+cls:'')+'">'+v+'</td></tr>'; }
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function kgm3(x){ return sigf(x,x>=1000?5:4)+' kg/m<sup>3</sup>'; }
+function pct(x){ return x<1e-9?'exact':(sigf(100*x,2)+' %'); }
+
+function readoutHTML(M,st){
+  st=st||ST;
+  const v=st.view;
+  let name='', sub='', body='', note='';
+  if(v==='explore'){
+    const A=M.blocks[0], B=M.blocks[1];
+    name='the pool'; sub=MAT[st.fluid].name+(st.two?', two blocks':', one block');
+    body=hd('block A — '+matName(st.matA))
+      +row('mass',fmt(A.m,2)+' kg')
+      +row('volume',fmt(A.V*LITERS,2)+' L')
+      +row('density',kgm3(A.rho),'good')
+      +row('fluid density',kgm3(M.rhoF),'ref')
+      +row('state',A.mode==='float'?'floats':(A.mode==='held'?'held':(A.mode==='out'?'in air':
+           (Math.abs(A.rho-M.rhoF)<1e-9?'neutral':'sinks'))),A.mode==='float'?'good':'bad')
+      +row('% submerged',fmt(A.pct,1)+' %','good')
+      +row('gravity W',fmt(A.W,2)+' N','bad')
+      +row('buoyancy F<sub>b</sub>',fmt(A.Fb,2)+' N','good')
+      +row('contact N',fmt(A.N,2)+' N','live');
+    if(B) body+=hd('block B — '+matName(st.matB))
+      +row('mass',fmt(B.m,2)+' kg')
+      +row('density',kgm3(B.rho),'good')
+      +row('% submerged',fmt(B.pct,1)+' %')
+      +row('buoyancy',fmt(B.Fb,2)+' N','good');
+    body+=hd('the scales, in newtons')
+      +row('pool scale',st.where==='poolscale'?fmt(M.poolReads,2)+' N':'nothing on it',st.where==='poolscale'?'good':'')
+      +row('ground scale',st.where==='ground'?fmt(M.groundReads,2)+' N':'nothing on it',st.where==='ground'?'good':'')
+      +hd('the pool')
+      +row('fluid',fmt(VF0*LITERS,0)+' L of '+MAT[st.fluid].name)
+      +row('level',fmt(100*(M.yw+POOL_H),2)+' cm')
+      +row('risen by',fmt(1000*M.rise,2)+' mm','good');
+    note='<b>The two scales say the same thing twice.</b> In air the block weighs &rho;<sub>b</sub>gV; under the fluid it '
+      +'presses down by &rho;<sub>b</sub>gV &minus; &rho;<sub>f</sub>gV<sub>sub</sub>, and the difference is the weight of '
+      +'the fluid it pushed aside. PhET ignores air buoyancy (a &ldquo;vacuum assumption&rdquo;); in real air this block '
+      +'would read '+sigf(100*1.2*A.V/A.m,2)+' % light.';
+  } else if(v==='sets'){
+    name='the sets'; sub='matched in '+M.matched+', in '+MAT[st.fluid].name;
+    body=hd('the two blocks');
+    M.blocks.forEach((b,i)=>{
+      body+=row(b.tag+' &nbsp; '+M.names[i],sigf(b.rho,4)+(b.mode==='float'?' &uarr;':' &darr;'),b.mode==='float'?'good':'bad')
+        +row('&nbsp; mass / volume',fmt(b.m,2)+' kg, '+fmt(b.V*LITERS,2)+' L')
+        +row('&nbsp; % submerged',fmt(b.pct,1)+' %');
+    });
+    body+=hd('the matched quantity')
+      +row(M.matched,st.setMode==='mass'?fmt(st.sameMass,2)+' kg':(st.setMode==='volume'?fmt(st.sameVolL,2)+' L':kgm3(st.sameRho)),'good')
+      +row('floating',M.nFloat+' of 2')
+      +row('level',fmt(100*(M.yw+POOL_H),2)+' cm');
+    note=st.setMode==='mass'?'PhET&rsquo;s Compare screen starts with a brick and a piece of wood of the same mass, 4 kg: '
+        +'2 L of brick and 10 L of wood. Same weight, and one floats.'
+      :st.setMode==='volume'?'Same size, 5 L each: 10 kg of brick and 2 kg of wood. The heavy one is the dense one, and it sinks.'
+      :'Same density, so the same stuff in two sizes &mdash; and they float to exactly the same fraction of themselves, '
+        +fmt(100*Math.min(1,st.sameRho/M.rhoF),1)+' %, whatever the size.';
+  } else if(v==='faces'){
+    name='the faces'; sub=M.fullyUnder?'fully submerged':'partly submerged';
+    body=hd('the pressure on the block')
+      +row('depth of the bottom',fmt(100*M.F.dBot,2)+' cm')
+      +row('depth of the top',fmt(100*M.F.dTop,2)+' cm')
+      +row('p at the bottom',sigf(M.F.pBot,5)+' Pa','good')
+      +row('p at the top',sigf(M.F.pTop,5)+' Pa','ref')
+      +row('face area',fmt(M.F.A*1e4,2)+' cm<sup>2</sup>')
+      +hd('the forces on the faces')
+      +row('bottom pushes up',fmt(M.F.Fbot,2)+' N','good')
+      +row('top pushes down',fmt(M.F.Ftop,2)+' N','bad')
+      +row('net, up',fmt(M.F.net,2)+' N','good')
+      +row('one side face',fmt(M.F.side,2)+' N','live')
+      +row('the four sides',fmt(M.F.sideSum,2)+' N')
+      +hd('Archimedes says')
+      +row('&rho;<sub>f</sub> g V<sub>sub</sub>',fmt(M.arch,2)+' N','good')
+      +row('they differ by',pct(M.resid))
+      +hd('the same, round the polygon')
+      +row('per-edge closed form',fmt(M.E.tot[1],2)+' N/m','good')
+      +row('vs &rho;g&times;area',pct(M.resid2d))
+      +row('vs a 2000-point sum',pct(M.fineResid))
+      +row('horizontal',fmt(M.E.tot[0],2)+' N/m');
+    note='<b>This is where the upthrust comes from.</b> Nothing pushes up on a submerged body except the fluid, and all the '
+      +'fluid does is press on every face at &rho;<sub>f</sub>g times the depth. The four sides cancel in pairs exactly. The '
+      +'bottom is deeper than the top by the block&rsquo;s own height, so it is pressed harder by &rho;<sub>f</sub>g&times;height, '
+      +'and times the face area that is &rho;<sub>f</sub>gV. No approximation anywhere.';
+  } else if(v==='scale'){
+    name='the scale'; sub=M.resting?'resting on the floor':(M.Vsub>0?'in the fluid':'in air');
+    body=hd('the block')
+      +row('mass',fmt(M.blk.m,2)+' kg')
+      +row('weight in air',fmt(M.W,2)+' N','bad')
+      +row('volume',fmt(M.V*LITERS,2)+' L')
+      +hd('now')
+      +row('submerged',fmt(M.Vsub*LITERS,2)+' L of '+fmt(M.V*LITERS,2))
+      +row('buoyancy',fmt(M.Fb,2)+' N','good')
+      +row('the scale reads',fmt(M.read,2)+' N','live')
+      +row('lost',fmt(M.W-M.read,2)+' N');
+    body+=hd('once it is fully under')
+      +row('it reads',fmt(Math.max(0,M.full),2)+' N','good')
+      +row('and stops changing','however deep')
+      +row('unless it floats',M.full<0?'this one floats — the string goes slack':'this one sinks');
+    note='<b>The apparent weight falls only while the block is entering.</b> Once it is under, V<sub>sub</sub> is the whole '
+      +'volume and the reading is stuck at (&rho;<sub>b</sub> &minus; &rho;<sub>f</sub>)gV, whatever the depth &mdash; '
+      +'pressure grows with depth on the bottom face and on the top face by exactly the same amount. The kink in the curve '
+      +'is the moment the top face goes under.';
+  } else {
+    name='float or sink'; sub=M.pick.name;
+    body=hd(M.pick.name+' in each fluid');
+    M.cols.forEach((f,j)=>{
+      const c=M.grid[M.pi][j];
+      body+=row(f.name+' ('+sigf(f.rho,5)+')',c.floats?fmt(100*c.frac,1)+' % under':'sinks',c.floats?'good':'bad');
+    });
+    body+=hd('the whole grid')
+      +row('cells',M.nCells+' = '+M.rows.length+' &times; '+M.cols.length)
+      +row('floating',M.nFloat,'good')
+      +row('float in mercury',M.mercuryFloats+' of '+M.rows.length,'good')
+      +row('float in gasoline',M.gasolineFloats+' of '+M.rows.length,'bad');
+    note='<b>Floating is a comparison, not a property.</b> Lead floats in mercury and aluminium floats in mercury; nothing '
+      +'PhET carries floats in gasoline except styrofoam and wood. The only thing that decides is '
+      +'&rho;<sub>b</sub> &lt; &rho;<sub>f</sub>, and how far under is exactly the ratio.';
+  }
+  return '<div class="rname">'+name+'<small>'+sub+'</small></div><table>'+body+'</table><div class="note">'+note+'</div>';
+}
+
+function eqbarHTML(M,st){
+  st=st||ST;
+  const v=st.view;
+  if(v==='explore') return '<span class="lhs">F<sub>b</sub></span> = <span class="hl">&rho;<sub>f</sub> g V<sub>sub</sub></span>'
+    +' &nbsp;&nbsp; W &minus; F<sub>b</sub> &minus; N = 0 &nbsp;&rarr;&nbsp; N = <span class="hl2">'+fmt(M.blocks[0].N,2)+' N</span>'
+    +'<span class="sm">the three forces PhET draws: gravity down, buoyancy up, and whatever the floor or the scale still has to take</span>';
+  if(v==='sets') return '<span class="lhs">&rho;</span> = <span class="hl">m / V</span>'
+    +' &nbsp;&nbsp; matched '+M.matched+' &nbsp;&rarr;&nbsp; <span class="hl2">'+M.nFloat+' of 2 float</span>'
+    +'<span class="sm">a brick and a piece of wood, held equal in one quantity at a time</span>';
+  if(v==='faces') return '<span class="lhs">(p<sub>bot</sub> &minus; p<sub>top</sub>) A</span> = '
+    +'<span class="hl">&rho;<sub>f</sub> g (y<sub>t</sub> &minus; y<sub>b</sub>) A</span> = '
+    +'<span class="hl2">&rho;<sub>f</sub> g V<sub>sub</sub></span> = '+fmt(M.F.net,2)+' N'
+    +'<span class="sm">the upthrust is not a new force &mdash; it is the pressure difference between the bottom face and the top</span>';
+  if(v==='scale') return '<span class="lhs">scale</span> = <span class="hl">W &minus; &rho;<sub>f</sub> g V<sub>sub</sub></span>'
+    +' = <span class="hl2">'+fmt(M.read,2)+' N</span>'
+    +'<span class="sm">the apparent weight falls while the block enters and then stops, because V<sub>sub</sub> stops growing</span>';
+  return '<span class="lhs">V<sub>sub</sub>/V</span> = <span class="hl">min(1, &rho;<sub>b</sub>/&rho;<sub>f</sub>)</span>'
+    +' &nbsp;&nbsp; floats &hArr; <span class="hl2">&rho;<sub>b</sub> &lt; &rho;<sub>f</sub></span>'
+    +'<span class="sm">every material against every fluid PhET carries, at once</span>';
+}
+
+function tagHTML(M,st){
+  st=st||ST;
+  const v=st.view;
+  if(v==='explore') return '<b>the pool</b> &mdash; PhET&rsquo;s Explore screen';
+  if(v==='sets') return '<b>the sets</b> &mdash; PhET&rsquo;s Compare screen';
+  if(v==='faces') return '<b>the faces</b> &mdash; where the upthrust comes from';
+  if(v==='scale') return '<b>the scale</b> &mdash; the apparent weight, all the way down';
+  return '<b>float or sink</b> &mdash; every material in every fluid';
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — from build_cycloid via build_buoy/p4_views.js, unchanged              *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+/* the fluid: a translucent slab from ybot up to the surface yw across [x0, x1] */
+function fluidRect(ctx,map,x0,x1,ybot,yw,col){
+  const X0=map.X(x0), X1=map.X(x1), Y0=map.Y(yw), Y1=map.Y(ybot);
+  ctx.fillStyle=col||rgba(COL.struct,0.16); ctx.fillRect(X0,Y0,X1-X0,Y1-Y0);
+  ctx.strokeStyle=rgba(COL.struct,0.8); ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y0); ctx.stroke();
+  POLY_SEGS.push(X0,Y0,X1,Y0);
+}
+/* a force arrow whose world length is len x (F / Fref), with its label */
+function forceArrow(ctx,W,H,map,at,F,Fref,dir,len,col,txt,labDx){
+  const v=[0,dir*len*Math.min(Math.abs(F)/Math.max(Fref,1e-12),1.6)];
+  arrowW(ctx,map,at,v,col,2);
+  const tip=[at[0]+v[0],at[1]+v[1]];
+  if(txt) lab(ctx,W,H,map.X(tip[0])+(labDx===undefined?8:labDx),map.Y(tip[1]),txt,col,LAB_FONT,labDx!==undefined&&labDx<0?'right':'left');
+}
+/* ================================================================== *
+ *  the pool stage (shared with density.html), then view A and view B  *
+ * ================================================================== */
+/* every layout reserves HINT_H at the bottom: the house #hint is HTML at
+   bottom:11px and the canvas capture cannot see it, so a caption anchored at
+   H - 12 would sit underneath it (Known-bad, wave-on-a-string).  The caption's
+   own band is registered here too, so a stage label near the bottom dodges it
+   instead of landing on the prose. */
+function layout(ctx,W,H,full,short,nB,frac,nBn){
+  const L=stageLayout(ctx,W,H-HINT_H,full,short,nB,frac,nBn);
+  LABELS.push([L.left-2,L.capY-5,L.left+L.capW+2,H-HINT_H-6]);
+  return L;
+}
+/* a label that must be drawn where it is (a tag inside its own block): painted
+   unconditionally AND registered, so every dodging lab() after it moves aside */
+function labFixed(ctx,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col; ctx.font=font;
+  ctx.textAlign=align||'center'; ctx.textBaseline=base||'middle';
+  const t=plain(txt), fs=parseFloat(font.match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  const lx=align==='right'?x-w:(align==='left'?x:x-w/2);
+  const ly=base==='top'?y:(base==='bottom'?y-hh:y-hh/2);
+  LABELS.push([lx,ly,lx+w,ly+hh]);
+  ctx.fillText(t,x,y);
+}
+/* axes(), with the TICK LABELS, the axis names and the title registered */
+function axesReg(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  axes(ctx,b,xlo,xhi,ylo,yhi,o);
+  const fw=(s,px)=>plain(''+s).length*px*0.52;
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  for(const t of xt){ const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    const w=fw(o.xfmt?o.xfmt(t):fmt(t,2),10.5);
+    LABELS.push([X-w/2,b.y1+5,X+w/2,b.y1+5+10.5*1.15]); }
+  for(const t of yt){ const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    const w=fw(o.yfmt?o.yfmt(t):fmt(t,2),10.5);
+    LABELS.push([b.x-6-w,Y-6.04,b.x-6,Y+6.04]); }
+  if(o.xlab){ const w=fw(o.xlab,11); LABELS.push([b.x+b.w/2-w/2,b.y1+21,b.x+b.w/2+w/2,b.y1+33.65]); }
+  if(o.ylab){ const w=fw(o.ylab,11); LABELS.push([b.x-52.65,b.y+b.h/2-w/2,b.x-40,b.y+b.h/2+w/2]); }
+  if(o.title){ const w=fw(o.title,13); LABELS.push([b.x,b.y-23.95,b.x+w,b.y-9]); }
+}
+/* the world the pool stage draws — wide enough for a scale standing on the
+   ground to the left of the pool, and no higher than a lifted block reaches */
+const POOL_YTOP=0.30;
+function poolExtent(){ return {xmin:-0.76,xmax:0.60,ymin:-(POOL_H+0.05),ymax:POOL_YTOP}; }
+function holdCeiling(s){ return POOL_YTOP-s-0.012; }
+const GROUND='#20242e', GROUND2='#171b23';
+/* a wide stage drawing a nearly square picture at equal aspect wastes two
+   thirds of its width, so the pool takes the left and the panels stack right */
+function splitMain(L,W,fracLeft,nRight){
+  const b=L.main;
+  if(isNarrow(W)||nRight<1) return {pool:b,rows:[]};
+  const gut=70, wl=Math.round(b.w*fracLeft);
+  const pool=box(b.x,b.y,Math.max(120,wl-gut/2),b.h);
+  const rx=b.x+wl+gut/2, rw=Math.max(150,b.x1-rx);
+  const rows=[], slot=b.h/nRight;
+  for(let i=0;i<nRight;i++) rows.push(box(rx,b.y+i*slot+26,rw,Math.max(60,slot-70)));
+  return {pool:pool,rows:rows};
+}
+/* a scale standing on a surface: PhET's 0.15 x 0.06 m box with its reading */
+function drawScale(ctx,W,H,map,x,ybase,text,col,onPost){
+  const w=SCALE_W, hgt=SCALE_H;
+  if(onPost){
+    worldPoly(ctx,map,[[x-0.012,-POOL_H],[x+0.012,-POOL_H],[x+0.012,ybase],[x-0.012,ybase]],'#1b2028','#2e3644',1);
+  }
+  worldPoly(ctx,map,[[x-w/2,ybase],[x+w/2,ybase],[x+w/2,ybase+hgt],[x-w/2,ybase+hgt]],'#232936','#3d4658',1.4);
+  labFixed(ctx,map.X(x),map.Y(ybase+hgt/2),text,col||COL.pos,'bold 12px -apple-system, sans-serif','center','middle');
+  return ybase+hgt;
+}
+/* the pool seen from the front, in true proportion (a pool is a SHAPE) */
+function drawPoolStage(ctx,W,H,b,yw,blocks,opt){
+  opt=opt||{};
+  const E=poolExtent(), map=worldFitUp(b,E,0.01), gy=E.ymin;
+  worldPoly(ctx,map,[[E.xmin,gy],[-POOL_W/2,gy],[-POOL_W/2,0],[E.xmin,0]],GROUND,GROUND2,1);
+  worldPoly(ctx,map,[[POOL_W/2,gy],[E.xmax,gy],[E.xmax,0],[POOL_W/2,0]],GROUND,GROUND2,1);
+  worldPoly(ctx,map,[[-POOL_W/2,gy],[POOL_W/2,gy],[POOL_W/2,-POOL_H],[-POOL_W/2,-POOL_H]],GROUND,GROUND2,1);
+  fluidRect(ctx,map,-POOL_W/2,POOL_W/2,-POOL_H,yw,rgba(fluidColor(opt.fluid),0.22));
+  if(opt.bare!==undefined&&Math.abs(opt.bare-yw)>1e-6)
+    seg(ctx,map,[-POOL_W/2,opt.bare],[POOL_W/2,opt.bare],rgba(COL.ref,0.75),1.2,[4,3]);
+  for(const bk of blocks){
+    const s=bk.s, x=bk.x, y0=bk.yb;
+    worldPoly(ctx,map,[[x-s/2,y0],[x+s/2,y0],[x+s/2,y0+s],[x-s/2,y0+s]],bk.col,'#0b0f18',1.4);
+    if(bk.Vsub>0){
+      const ytop=Math.min(y0+s,yw);
+      worldPoly(ctx,map,[[x-s/2,y0],[x+s/2,y0],[x+s/2,ytop],[x-s/2,ytop]],rgba(COL.pos,0.16),null);
+    }
+    if(bk.tag) labFixed(ctx,map.X(x),map.Y(y0+s/2),bk.tag,'#0b0f18','bold 13px -apple-system, sans-serif','center','middle');
+    /* the block's own rectangle goes into the label registry: a force label
+       painted over the block it belongs to is unreadable, and with two blocks
+       26 px apart there is no room for one between them */
+    LABELS.push([map.X(x-s/2),map.Y(y0+s),map.X(x+s/2),map.Y(y0)]);
+  }
+  return map;
+}
+/* each fluid gets its own tint, so a fluid chip visibly changes the pool */
+function fluidColor(id){
+  if(id==='mercury') return '#9aa3b4';
+  if(id==='honey') return '#c9962a';
+  if(id==='gasoline') return '#c9c04a';
+  if(id==='oil') return '#9c8a34';
+  if(id==='seawater') return '#3aa0b0';
+  return COL.struct;
+}
+/* ONE arrow-length scale for the whole picture, with the reference force
+   computed here so a draw call cannot make the arrows incomparable */
+function forceScale(blocks){
+  const ceil=POOL_YTOP-0.012, floor=-POOL_H-0.018;
+  let room=1, Fref=1;
+  for(const b of blocks){
+    const cy=b.yb+b.s/2; room=Math.min(room,cy-floor,ceil-cy);
+    Fref=Math.max(Fref,b.W,b.Fb,Math.abs(b.mode==='held'?b.hand:b.N));
+  }
+  return {len:Math.max(0.035,Math.min(0.13,room)),Fref:Fref};
+}
+/* the drawn length of each arrow, lifted OUT of the draw call so the one scale
+   can be asserted (a quantity only the picture can check is in the wrong layer) */
+function forceLengths(bk,FS){
+  const Fref=FS.Fref, len=FS.len;
+  const fr=f=>Math.min(Math.abs(f)/Math.max(Fref,1e-12),1);
+  const extra=bk.mode==='held'?bk.hand:bk.N;
+  return {W:len*fr(bk.W),Fb:len*fr(bk.Fb),extra:len*fr(extra),sign:extra>0?1:-1,raw:extra};
+}
+/* PhET's three arrows: gravity down, buoyancy up, contact up */
+function drawForces(ctx,W,H,map,bk,FS,opt){
+  opt=opt||{};
+  const cx=bk.x, s=bk.s, cy=bk.yb+s/2, A=forceLengths(bk,FS);
+  arrowW(ctx,map,[cx-0.22*s,cy],[0,-A.W],COL.ref,2);
+  arrowW(ctx,map,[cx+0.22*s,cy],[0,A.Fb],COL.pos,2);
+  if(Math.abs(A.raw)>1e-9)
+    arrowW(ctx,map,[cx+0.55*s+0.012,cy],[0,A.sign*A.extra],COL.live,2);
+  if(!opt.labels) return;
+  lab(ctx,W,H,map.X(cx-s/2)-8,map.Y(cy)-11,'gravity '+fmt(bk.W,1)+' N',COL.ref,SM_FONT,'right');
+  lab(ctx,W,H,map.X(cx+s/2)+10,map.Y(cy)-11,'buoyancy '+fmt(bk.Fb,1)+' N',COL.pos,SM_FONT,'left');
+  if(Math.abs(A.raw)>1e-9)
+    lab(ctx,W,H,map.X(cx+s/2)+10,map.Y(cy)+11,(bk.mode==='held'?'hand ':'contact ')+fmt(Math.abs(A.raw),1)+' N',
+        COL.live,SM_FONT,'left');
+}
+
+/* ================================================================== *
+ *  view: the pool  (PhET's Explore screen)                            *
+ * ================================================================== */
+const EXP_CAP_FULL='PhET&rsquo;s Explore screen. One or two cubes in a '+fmt(POOL_W*100,0)+' × '+fmt(POOL_D*100,0)
+  +' × '+fmt(POOL_H*100,1)+' cm pool holding '+fmt(VF0*LITERS,0)+' L of a fluid you choose, with the three forces '
+  +'PhET draws: gravity down in orange, buoyancy up in green, and whatever the floor or the scale still has to take in '
+  +'magenta. All three arrows are on ONE length scale, printed on the stage. Block A can stand on the pool floor, on the '
+  +'scale in the pool, or on the scale on the ground &mdash; in air it weighs &rho;<sub>b</sub>gV, under the fluid it '
+  +'presses down by exactly that less the weight of the fluid it pushed aside. Drag a block to hold it under or lift it clear.';
+const EXP_CAP_SHORT='PhET&rsquo;s Explore screen: cubes in a chosen fluid, the three forces to one scale, and two '
+  +'scales in newtons. Drag a block.';
+
+function exploreGeo(ctx,W,H,M){
+  const L=layout(ctx,W,H,EXP_CAP_FULL,EXP_CAP_SHORT,0,0,0);
+  const SP=splitMain(L,W,0.62,2);
+  return {L:L,SP:SP,map:worldFitUp(SP.pool,poolExtent(),0.01)};
+}
+function drawForceBars(ctx,W,H,b,blocks,Fref){
+  const n=blocks.length, gh=Fref*1.15;
+  axesReg(ctx,b,0,n*3+1,0,gh,{title:titleFor(b,'gravity, buoyancy and contact','the forces'),
+    ylab:'newtons',nx:1,ny:5,xticks:[],yfmt:t=>fmt(t,0)});
+  blocks.forEach((bk,i)=>{
+    const base=i*3+1;
+    const bars=[[base,bk.W,COL.ref,'g'],[base+0.75,bk.Fb,COL.pos,'b'],
+                [base+1.5,bk.mode==='held'?Math.abs(bk.hand):bk.N,COL.live,bk.mode==='held'?'hand':'c']];
+    for(const bar of bars){
+      const X=b.x+b.w*bar[0]/(n*3+1), Wd=b.w*0.6/(n*3+1);
+      const Yv=b.y1-b.h*clamp(bar[1],0,gh)/gh;
+      ctx.fillStyle=rgba(bar[2],0.55); ctx.fillRect(X,Yv,Wd,b.y1-Yv);
+      ctx.strokeStyle=bar[2]; ctx.lineWidth=1.2; ctx.strokeRect(X,Yv,Wd,b.y1-Yv);
+      lab(ctx,W,H,X+Wd/2,Yv-8,bar[3],bar[2],SM_FONT,'center');
+    }
+    lab(ctx,W,H,b.x+b.w*(base+0.75)/(n*3+1),b.y1+13,bk.tag,'#aeb6c6',LAB_FONT,'center');
+  });
+}
+/* the submerged fraction of block A against the fluid density, across PhET's
+   six fluids — the same law the float-or-sink view draws, for one block */
+function drawFluidStrip(ctx,W,H,b,M,st){
+  const rho=M.blocks[0].rho, lo=300, hi=14500, lx=v=>Math.log10(v);
+  axesReg(ctx,b,lx(lo),lx(hi),0,1.08,{title:titleFor(b,'how much of block A is under, in each fluid','in each fluid'),
+    xlab:'fluid density, kg/m3 (log)',ylab:'fraction under',nx:1,ny:5,
+    xticks:b.w<300?[lx(680),lx(13593)]:[lx(680),lx(1000),lx(1440),lx(13593)],
+    xfmt:t=>fmt(Math.pow(10,t),0),yfmt:t=>fmt(t,2)});
+  const xs=[], ys=[];
+  for(let i=0;i<=200;i++){ const v=Math.pow(10,lx(lo)+(lx(hi)-lx(lo))*i/200); xs.push(lx(v)); ys.push(submergedFraction(rho,v)); }
+  polyline(ctx,b,xs,ys,lx(lo),lx(hi),0,1.08,COL.pos,1.8);
+  for(const f of BUOY_FLUIDS){
+    const rf=MAT[f].phet, X=b.x+b.w*(lx(rf)-lx(lo))/(lx(hi)-lx(lo)), Y=b.y1-b.h*submergedFraction(rho,rf)/1.08;
+    const here=(f===st.fluid);
+    dot(ctx,X,Y,here?5:3,here?COL.live:COL.pos,'#0b0f18',1);
+    if(here) lab(ctx,W,H,X,Y-10,MAT[f].name,COL.live,SM_FONT,'center','bottom');
+  }
+  /* the block's own density, where the curve reaches 1 */
+  const Xr=b.x+b.w*(lx(clamp(rho,lo,hi))-lx(lo))/(lx(hi)-lx(lo));
+  ctx.strokeStyle=rgba(COL.ref,0.7); ctx.lineWidth=1.1; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(Xr,b.y); ctx.lineTo(Xr,b.y1); ctx.stroke(); ctx.setLineDash([]);
+  /* a block lighter than the axis floor is drawn ON the floor, and the label
+     says so rather than letting the dashed line be read as the axis */
+  lab(ctx,W,H,Xr+6,b.y+12,'rho_b = '+sigf(rho,4)+(rho<lo?' (off the axis)':''),COL.ref,SM_FONT,'left');
+}
+function drawExploreView(ctx,W,H,M,st){
+  st=st||ST;
+  const G2=exploreGeo(ctx,W,H,M), L=G2.L, SP=G2.SP;
+  if(SP.rows.length>1){
+    drawFluidStrip(ctx,W,H,SP.rows[0],M,st);
+    drawForceBars(ctx,W,H,SP.rows[1],M.blocks,forceScale(M.blocks).Fref);
+  }
+  const inPool=M.blocks.filter(b=>b.mode!=='out');
+  const map=drawPoolStage(ctx,W,H,SP.pool,M.yw,inPool,{bare:M.bare,fluid:st.fluid});
+  /* PhET's two scales */
+  drawScale(ctx,W,H,map,SCALE_X,M.scaleY0,st.where==='poolscale'?fmt(M.poolReads,1)+' N':'0.0 N',
+            st.where==='poolscale'?COL.pos:COL.dim,true);
+  drawScale(ctx,W,H,map,GROUND_SCALE_X,0,st.where==='ground'?fmt(M.groundReads,1)+' N':'0.0 N',
+            st.where==='ground'?COL.pos:COL.dim,false);
+  lab(ctx,W,H,map.X(SCALE_X),map.Y(M.scaleY0)+13,'pool scale',COL.dim,SM_FONT,'center');
+  /* a block standing on the ground scale is drawn on it */
+  const out=M.blocks.find(b=>b.mode==='out');
+  /* with a block on it the name goes UNDER the scale, where the block is not */
+  lab(ctx,W,H,map.X(GROUND_SCALE_X),out?map.Y(0)+13:map.Y(SCALE_H)-12,'ground scale',COL.dim,SM_FONT,'center');
+  if(out){
+    worldPoly(ctx,map,[[out.x-out.s/2,SCALE_H],[out.x+out.s/2,SCALE_H],
+                       [out.x+out.s/2,SCALE_H+out.s],[out.x-out.s/2,SCALE_H+out.s]],out.col,'#0b0f18',1.4);
+    labFixed(ctx,map.X(out.x),map.Y(SCALE_H+out.s/2),out.tag,'#0b0f18','bold 13px -apple-system, sans-serif','center','middle');
+  }
+  if(st.forces){
+    const FS=forceScale(inPool.length?inPool:M.blocks);
+    for(const b of inPool) drawForces(ctx,W,H,map,b,FS,{labels:st.labels});
+    lab(ctx,W,H,map.X(POOL_W/2)-6,map.Y(0.045),'arrows to one scale: the longest is '+fmt(FS.Fref,1)+' N',
+        COL.dim,SM_FONT,'right');
+  }
+  lab(ctx,W,H,map.X(-POOL_W/2)+7,map.Y(-POOL_H+0.022),
+      fmt((M.yw+POOL_H)*A_POOL*LITERS-SCALE_V*LITERS*(M.yw>M.scaleTop?1:0),1)+' L of '+MAT[st.fluid].name,
+      fluidColor(st.fluid),LAB_FONT,'left');
+  const x0=POOL_W/2-0.1;
+  seg(ctx,map,[x0,-POOL_H-0.028],[x0+0.1,-POOL_H-0.028],COL.dim,1.4);
+  lab(ctx,W,H,map.X(x0+0.05),map.Y(-POOL_H-0.028)+11,'10 cm',COL.dim,SM_FONT,'center');
+  if(M.blocks.some(b=>b.mode==='held'))
+    lab(ctx,W,H,map.X(0),map.Y(POOL_YTOP-0.015),'held — let go and it returns to equilibrium',COL.live,LAB_FONT,'center');
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: the sets  (PhET's Compare screen)                            *
+ * ================================================================== */
+const SETS_CAP_FULL='PhET&rsquo;s Compare screen: a brick and a piece of wood, held equal in one quantity at a time. '
+  +'Equal MASS (PhET&rsquo;s 4 kg) means 2 L of brick against 10 L of wood &mdash; the same weight, and one of them floats. '
+  +'Equal VOLUME (5 L) means 10 kg against 2 kg. Equal DENSITY means the same stuff in two sizes, and then they float to '
+  +'exactly the same fraction of themselves, because the size cancels out of the floating law completely. The panel beside '
+  +'the pool is the mass-volume plane, where a matched pair is a straight line: horizontal, vertical, or through the origin.';
+const SETS_CAP_SHORT='PhET&rsquo;s Compare screen: a brick and a piece of wood matched in mass, volume or density.';
+
+function setsGeo(ctx,W,H,M){
+  const L=layout(ctx,W,H,SETS_CAP_FULL,SETS_CAP_SHORT,0,0,0);
+  const SP=splitMain(L,W,0.62,1);
+  return {L:L,SP:SP,map:worldFitUp(SP.pool,poolExtent(),0.01)};
+}
+function drawSetsView(ctx,W,H,M,st){
+  st=st||ST;
+  const G2=setsGeo(ctx,W,H,M), L=G2.L, SP=G2.SP;
+  if(SP.rows[0]){
+    const b1=SP.rows[0], xmax=VMAX_L*1.1, ymax=Math.max(12,Math.max.apply(null,M.blocks.map(b=>b.m))*1.3);
+    axesReg(ctx,b1,0,xmax,0,ymax,{title:titleFor(b1,'the two blocks in the mass-volume plane','mass and volume'),
+      xlab:'volume, litres',ylab:'mass, kg',nx:6,ny:5,xfmt:t=>fmt(t,0),yfmt:t=>fmt(t,0)});
+    polyline(ctx,b1,[0,xmax],[0,xmax*M.rhoF/LITERS],0,xmax,0,ymax,COL.ref,1.4,[5,4]);
+    lab(ctx,W,H,b1.x1-8,b1.y1-b1.h*Math.min(ymax,xmax*M.rhoF/LITERS)/ymax-10,MAT[st.fluid].name,COL.ref,SM_FONT,'right');
+    if(st.setMode==='mass') polyline(ctx,b1,[0,xmax],[st.sameMass,st.sameMass],0,xmax,0,ymax,COL.pos,1.6);
+    else if(st.setMode==='volume') polyline(ctx,b1,[st.sameVolL,st.sameVolL],[0,ymax],0,xmax,0,ymax,COL.pos,1.6);
+    else polyline(ctx,b1,[0,xmax],[0,xmax*st.sameRho/LITERS],0,xmax,0,ymax,COL.pos,1.6);
+    M.blocks.forEach((bk,i)=>{
+      marker(ctx,b1,0,xmax,0,ymax,bk.V*LITERS,bk.m,bk.col);
+      lab(ctx,W,H,b1.x+b1.w*(bk.V*LITERS)/xmax+8,b1.y1-b1.h*bk.m/ymax-2,bk.tag+' '+M.names[i],bk.col,SM_FONT,'left');
+    });
+  }
+  const map=drawPoolStage(ctx,W,H,SP.pool,M.yw,M.blocks,{fluid:st.fluid});
+  drawScale(ctx,W,H,map,SCALE_X,M.scaleY0,'0.0 N',COL.dim,true);
+  M.blocks.forEach((bk,i)=>{
+    lab(ctx,W,H,map.X(bk.x),map.Y(bk.yb+bk.s)-11,fmt(bk.pct,0)+' % under',bk.mode==='float'?COL.pos:COL.ref,SM_FONT,'center');
+  });
+  if(st.forces){
+    const FS=forceScale(M.blocks);
+    for(const b of M.blocks) drawForces(ctx,W,H,map,b,FS,{labels:st.labels});
+  }
+  lab(ctx,W,H,map.X(-POOL_W/2)+7,map.Y(-POOL_H+0.022),MAT[st.fluid].name,fluidColor(st.fluid),LAB_FONT,'left');
+  drawCaption(ctx,L);
+}
+/* ================================================================== *
+ *  view: the faces — where the upthrust comes from                    *
+ * ================================================================== */
+const FACES_CAP_FULL='Nothing pushes up on a submerged block except the fluid, and all the fluid does is press on every '
+  +'face at p = ρ_f g d, d the depth. The cyan arrows are that pressure, drawn to scale. The four side faces cancel in '
+  +'pairs exactly — whatever is pushed in on the left is pushed in on the right. The bottom face is lower than the top '
+  +'by the block’s own height, so it is pressed harder by ρ_f g h, and times the face area that is ρ_f g V. That is '
+  +'Archimedes, derived rather than asserted, and the readout prints how far the two routes differ. The panel beside it is '
+  +'p against depth: a straight line, which is why the edge integral is exact.';
+const FACES_CAP_SHORT='The hydrostatic pressure on the six faces: the sides cancel, and bottom minus top IS the upthrust.';
+
+function drawFacesView(ctx,W,H,M,st){
+  st=st||ST;
+  const L=layout(ctx,W,H,FACES_CAP_FULL,FACES_CAP_SHORT,0,0,0);
+  const SP=splitMain(L,W,0.55,2);
+  /* the right column first, so its axes are registered before any stage label */
+  if(SP.rows.length>1){
+    /* the depth axis fits the depth the block is AT (Known-bad: fit each axis
+       to the structure that axis contains) rather than a fixed 60 cm */
+    const b1=SP.rows[0], dmax=Math.max(0.12,M.F.dBot*1.28);
+    const pmax=M.rhoF*G*dmax;
+    axesReg(ctx,b1,0,pmax/1000,-dmax*100,0,{title:titleFor(b1,'pressure against depth: a straight line','p against depth'),
+      xlab:'pressure, kPa',ylab:'height below the surface, cm',nx:4,ny:5,
+      xfmt:t=>fmt(t,1),yfmt:t=>fmt(t,0)});
+    polyline(ctx,b1,[0,pmax/1000],[0,-dmax*100],0,pmax/1000,-dmax*100,0,COL.struct,1.8);
+    marker(ctx,b1,0,pmax/1000,-dmax*100,0,M.F.pBot/1000,-M.F.dBot*100,COL.pos);
+    marker(ctx,b1,0,pmax/1000,-dmax*100,0,M.F.pTop/1000,-M.F.dTop*100,COL.ref);
+    lab(ctx,W,H,b1.x+b1.w*(M.F.pBot/1000)/(pmax/1000)+8,b1.y1-b1.h*(dmax*100-M.F.dBot*100)/(dmax*100),
+        'bottom '+sigf(M.F.pBot/1000,4)+' kPa',COL.pos,SM_FONT,'left');
+    lab(ctx,W,H,b1.x+b1.w*(M.F.pTop/1000)/(pmax/1000)+8,b1.y1-b1.h*(dmax*100-M.F.dTop*100)/(dmax*100),
+        'top '+sigf(M.F.pTop/1000,4)+' kPa',COL.ref,SM_FONT,'left');
+    /* the two routes to the same force */
+    const b2=SP.rows[1], gh=Math.max(M.F.Fbot,M.arch)*1.2;
+    axesReg(ctx,b2,0,4,0,gh,{title:titleFor(b2,'the same force, two ways','two ways'),
+      ylab:'newtons',nx:1,ny:5,xticks:[],yfmt:t=>fmt(t,0)});
+    const bars=[[0.5,M.F.Fbot,COL.struct,'bottom'],[1.4,M.F.Ftop,COL.ref,'top'],
+                [2.3,M.F.net,COL.pos,'net'],[3.2,M.arch,COL.live,'rho g V']];
+    for(const bar of bars){
+      const X=b2.x+b2.w*bar[0]/4, Wd=b2.w*0.6/4, Yv=b2.y1-b2.h*clamp(bar[1],0,gh)/gh;
+      ctx.fillStyle=rgba(bar[2],0.55); ctx.fillRect(X,Yv,Wd,b2.y1-Yv);
+      ctx.strokeStyle=bar[2]; ctx.lineWidth=1.2; ctx.strokeRect(X,Yv,Wd,b2.y1-Yv);
+      lab(ctx,W,H,X+Wd/2,Yv-8,bar[3],bar[2],SM_FONT,'center');
+    }
+    lab(ctx,W,H,b2.x+b2.w/2,b2.y1+30,'net and rho g V differ by '+pct(M.resid),COL.pos,SM_FONT,'center');
+  }
+  /* the block, with the pressure on every face */
+  const b=SP.pool, s=M.s;
+  const ext={xmin:-1.5*s,xmax:1.5*s,ymin:M.yb-0.35*s,ymax:0.42*s};
+  const map=worldFitUp(b,ext,0.01);
+  frame(ctx,b,'#242a3a');
+  lab(ctx,W,H,b.x,b.y-9,plain(titleFor(b,'the pressure on every face','the faces')),'#aeb6c6','italic 13px Georgia, serif','left','bottom');
+  /* the fluid, filling the panel down from the free surface */
+  ctx.fillStyle=rgba(fluidColor(st.fluid),0.20);
+  ctx.fillRect(b.x+1,map.Y(0),b.w-2,b.y1-map.Y(0)-1);
+  ctx.strokeStyle=rgba(fluidColor(st.fluid),0.9); ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(b.x+1,map.Y(0)); ctx.lineTo(b.x1-1,map.Y(0)); ctx.stroke();
+  POLY_SEGS.push(b.x+1,map.Y(0),b.x1-1,map.Y(0));
+  lab(ctx,W,H,b.x+8,map.Y(0)-11,'the free surface',fluidColor(st.fluid),SM_FONT,'left');
+  const yt=M.yb+s;
+  worldPoly(ctx,map,[[-s/2,M.yb],[s/2,M.yb],[s/2,yt],[-s/2,yt]],matColor(st.matA,M.rho),'#0b0f18',1.4);
+  const ysub=Math.min(yt,0);
+  worldPoly(ctx,map,[[-s/2,M.yb],[s/2,M.yb],[s/2,ysub],[-s/2,ysub]],rgba(COL.pos,0.16),null);
+  /* pressure arrows: length proportional to p, one scale for the picture */
+  const pRef=Math.max(M.F.pBot,1), aLen=0.30*s;
+  const nS=7;
+  for(let k=0;k<nS;k++){
+    const t=(k+0.5)/nS, x=-s/2+s*t;
+    if(M.yb<0) arrowW(ctx,map,[x,M.yb-aLen*M.F.pBot/pRef],[0,aLen*M.F.pBot/pRef],COL.struct,1.6);
+    if(yt<0) arrowW(ctx,map,[x,yt+aLen*M.F.pTop/pRef],[0,-aLen*M.F.pTop/pRef],COL.struct,1.6);
+  }
+  for(let k=0;k<nS;k++){
+    const t=(k+0.5)/nS, y=M.yb+Math.min(s,Math.max(0,ysub-M.yb))*t;
+    if(y>=0) continue;
+    const p=M.rhoF*G*(0-y), Lp=aLen*p/pRef;
+    arrowW(ctx,map,[-s/2-Lp,y],[Lp,0],COL.struct,1.4);
+    arrowW(ctx,map,[s/2+Lp,y],[-Lp,0],COL.struct,1.4);
+  }
+  /* every one of these sits OUTSIDE the block: the arrows are drawn from the
+     faces outward, so the space beyond the arrow tips is the only clear room */
+  const aPix=map.s*aLen;
+  lab(ctx,W,H,map.X(0),map.Y(M.yb-aLen*M.F.pBot/pRef)+13,
+      'the bottom is pressed hardest',COL.struct,SM_FONT,'center','top');
+  lab(ctx,W,H,map.X(-s/2)-aPix-12,map.Y(M.yb+s*0.5),'the sides cancel',COL.struct,SM_FONT,'right');
+  lab(ctx,W,H,map.X(0),map.Y(yt+(yt<0?aLen*M.F.pTop/pRef:0))-13,
+      M.fullyUnder?'fully submerged':'the top is out of the fluid',
+      M.fullyUnder?COL.pos:COL.ref,SM_FONT,'center','bottom');
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: the scale — the apparent weight, all the way down            *
+ * ================================================================== */
+const SCALE_CAP_FULL='A block hangs from a spring scale and is lowered into the pool. While it is entering, the submerged '
+  +'volume grows and the reading falls in a straight line. The moment the top face goes under, V_sub stops growing and the '
+  +'reading stops changing — flat for the rest of the descent, however deep, because the extra pressure on the bottom '
+  +'face is matched exactly by the extra pressure on the top. The slight tilt of the entering leg is real: the fluid rises '
+  +'as the block goes in, so the block meets the surface a little sooner than it would in a bottomless sea. If the block '
+  +'floats the reading reaches zero and the string goes slack, which is marked.';
+const SCALE_CAP_SHORT='Lowering a block on a spring scale: a straight fall while it enters, then flat once it is under.';
+
+function scaleGeo(ctx,W,H,M){
+  const L=layout(ctx,W,H,SCALE_CAP_FULL,SCALE_CAP_SHORT,0,0,0);
+  const SP=splitMain(L,W,0.52,1);
+  return {L:L,SP:SP,map:worldFitUp(SP.pool,poolExtent(),0.01)};
+}
+function drawScaleView(ctx,W,H,M,st){
+  st=st||ST;
+  const G2=scaleGeo(ctx,W,H,M), L=G2.L, SP=G2.SP;
+  if(SP.rows[0]){
+    const b1=SP.rows[0], ymax=Math.max(1,M.W*1.15);
+    axesReg(ctx,b1,0,1,0,ymax,{title:titleFor(b1,'what the spring scale reads, all the way down','the reading'),
+      xlab:'how far it has been lowered',ylab:'newtons',nx:5,ny:5,
+      xfmt:t=>fmt(t,2),yfmt:t=>fmt(t,0)});
+    polyline(ctx,b1,M.curve.map(c=>c[0]),M.curve.map(c=>Math.max(0,c[1])),0,1,0,ymax,COL.pos,2);
+    /* the weight in air, as the reference the curve starts from */
+    polyline(ctx,b1,[0,1],[M.W,M.W],0,1,0,ymax,COL.ref,1.3,[5,4]);
+    lab(ctx,W,H,b1.x+8,b1.y1-b1.h*M.W/ymax-10,'its weight in air, '+fmt(M.W,1)+' N',COL.ref,SM_FONT,'left');
+    if(M.full>0){
+      polyline(ctx,b1,[0,1],[M.full,M.full],0,1,0,ymax,COL.struct,1.3,[4,3]);
+      lab(ctx,W,H,b1.x1-8,b1.y1-b1.h*M.full/ymax-10,'fully under: '+fmt(M.full,1)+' N',COL.struct,SM_FONT,'right');
+    } else {
+      lab(ctx,W,H,b1.x1-8,b1.y+12,'it floats: the string goes slack',COL.live,SM_FONT,'right');
+    }
+    marker(ctx,b1,0,1,0,ymax,clamp(st.lowered,0,1),Math.max(0,M.read),COL.live);
+  }
+  /* the tank, the hanging block and the scale */
+  const b=SP.pool;
+  const map=drawPoolStage(ctx,W,H,b,M.yw,[{x:0,yb:M.yb,s:M.s,Vsub:M.Vsub,col:matColor(st.matA,M.rho),tag:'A'}],
+                          {fluid:st.fluid});
+  /* the string and a spring scale above the pool */
+  const topY=POOL_YTOP-0.03;
+  ctx.strokeStyle=COL.dim; ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(map.X(0),map.Y(topY)); ctx.lineTo(map.X(0),map.Y(M.yb+M.s)); ctx.stroke();
+  POLY_SEGS.push(map.X(0),map.Y(topY),map.X(0),map.Y(M.yb+M.s));
+  worldPoly(ctx,map,[[-0.10,topY],[0.10,topY],[0.10,topY+0.055],[-0.10,topY+0.055]],'#232936','#3d4658',1.4);
+  labFixed(ctx,map.X(0),map.Y(topY+0.0275),fmt(M.read,2)+' N',M.slack?COL.live:COL.pos,
+           'bold 12px -apple-system, sans-serif','center','middle');
+  lab(ctx,W,H,map.X(0.11),map.Y(topY+0.0275),M.slack?'slack — it floats':'spring scale',
+      M.slack?COL.live:COL.dim,SM_FONT,'left');
+  lab(ctx,W,H,map.X(-POOL_W/2)+7,map.Y(-POOL_H+0.022),MAT[st.fluid].name,fluidColor(st.fluid),LAB_FONT,'left');
+  lab(ctx,W,H,map.X(POOL_W/2)-7,map.Y(M.yw)+12,fmt(100*M.frac,1)+' % under',COL.pos,SM_FONT,'right');
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: float or sink — every material against every fluid           *
+ * ================================================================== */
+const FLU_CAP_FULL='Floating is a comparison, not a property of a material. Every material PhET carries is a row, ordered '
+  +'by density; every fluid it carries is a column. A green cell floats and the number is the fraction of it that is under, '
+  +'which is exactly ρ_b/ρ_f; an orange cell sinks. Lead floats in mercury, and so does everything on the list except '
+  +'gold, tantalum and platinum; in gasoline only styrofoam and wood do. The step from green to orange in each column is the neutral '
+  +'line ρ_b = ρ_f, and there is nothing gradual about it — the fraction reaches 1 and stops.';
+const FLU_CAP_SHORT='Every material against every fluid: green floats, orange sinks, and the number is ρ_b/ρ_f.';
+
+function drawFluidsView(ctx,W,H,M,st){
+  st=st||ST;
+  const L=layout(ctx,W,H,FLU_CAP_FULL,FLU_CAP_SHORT,0,0,0);
+  const b=L.main;
+  const nR=M.rows.length, nC=M.cols.length;
+  const leftPad=Math.min(120,b.w*0.16), topPad=26;
+  const gx=b.x+leftPad, gy=b.y+topPad, gw=b.w-leftPad-8, gh=b.h-topPad-8;
+  const cw=gw/nC, ch=gh/nR;
+  lab(ctx,W,H,b.x,b.y-9,plain(titleFor(b,'every material against every fluid PhET carries','float or sink')),
+      '#aeb6c6','italic 13px Georgia, serif','left','bottom');
+  M.cols.forEach((f,j)=>{
+    labFixed(ctx,gx+cw*(j+0.5),gy-9,f.name,COL.struct,SM_FONT,'center','bottom');
+  });
+  /* the row names are thinned by MEASURED spacing, the picked one first, so
+     that at 27 rows in 250 px they never stack on one another */
+  const pickY=(M.pi>=0)?gy+ch*M.pi+ch/2:-1e9;
+  if(M.pi>=0) labFixed(ctx,gx-8,pickY,M.rows[M.pi].name,COL.live,SM_FONT,'right','middle');
+  let lastY=-1e9, nNamed=(M.pi>=0)?1:0;
+  M.rows.forEach((m,i)=>{
+    const Y=gy+ch*i, isPick=(m.id===st.gridMat);
+    if(!isPick&&Math.abs(Y+ch/2-lastY)>=12&&Math.abs(Y+ch/2-pickY)>=12){
+      labFixed(ctx,gx-8,Y+ch/2,m.name,COL.dim,SM_FONT,'right','middle');
+      lastY=Y+ch/2; nNamed++;
+    }
+    M.cols.forEach((f,j)=>{
+      const c=M.grid[i][j], X=gx+cw*j;
+      const col=c.neutral?COL.live:(c.floats?COL.pos:COL.ref);
+      ctx.fillStyle=rgba(col,c.floats?0.15+0.45*(1-c.frac):0.30);
+      ctx.fillRect(X+0.5,Y+0.5,cw-1,ch-1);
+      if(isPick){ ctx.strokeStyle=COL.live; ctx.lineWidth=1.4; ctx.strokeRect(X+0.5,Y+0.5,cw-1,ch-1); }
+      if(ch>=13&&cw>=44)
+        labFixed(ctx,X+cw/2,Y+ch/2,c.floats?(c.frac>0.995?fmt(100*c.frac,1):fmt(100*c.frac,0))+'%':'sinks',
+                 c.floats?'#0b0f18':'#1b1108','10px -apple-system, sans-serif','center','middle');
+    });
+  });
+  frame(ctx,box(gx,gy,gw,gh),'#242a3a');
+  lab(ctx,W,H,b.x1-4,b.y1+16,M.nFloat+' of '+M.nCells+' combinations float; '+nNamed+' of '+nR+' rows named',
+      COL.pos,SM_FONT,'right');
+  lab(ctx,W,H,gx,b.y1+16,'rows ordered by density, '+sigf(M.rows[0].phet,3)+' to '+sigf(M.rows[nR-1].phet,5)+' kg/m3',
+      COL.dim,SM_FONT,'left');
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  dispatch, and the scene object                                     *
+ * ================================================================== */
+function drawView(ctx,W,H,M,st){
+  st=st||ST;
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(st.view==='explore') drawExploreView(ctx,W,H,M,st);
+  else if(st.view==='sets') drawSetsView(ctx,W,H,M,st);
+  else if(st.view==='faces') drawFacesView(ctx,W,H,M,st);
+  else if(st.view==='scale') drawScaleView(ctx,W,H,M,st);
+  else drawFluidsView(ctx,W,H,M,st);
+}
+
+function makeScene(canvas){
+  const S={st:ST,W:1180,H:740};
+  S.model=()=>buildModel(ST);
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel(ST),ST); };
+  /* nothing animates: this sim solves the static problem exactly */
+  S.step=function(){ return false; };
+  /* the pointer: grab a block in the pool view and hold it where you like */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null;
+      if(DRAG.what==='A') ST.holdA=null; else if(DRAG.what==='B') ST.holdB=null;
+      DRAG.what=null; return had; }
+    if(ST.view!=='explore') return false;
+    const ctx=canvas.getContext('2d'), M=buildModel(ST), G2=exploreGeo(ctx,S.W,S.H,M), map=G2.map;
+    if(type==='down'){
+      for(let i=M.blocks.length-1;i>=0;i--){
+        const bk=M.blocks[i];
+        if(bk.mode==='out') continue;
+        const X0=map.X(bk.x-bk.s/2)-6, X1=map.X(bk.x+bk.s/2)+6;
+        const Y0=map.Y(bk.yb+bk.s)-6, Y1=map.Y(bk.yb)+6;
+        if(x>=X0&&x<=X1&&y>=Y0&&y<=Y1){ DRAG.what=bk.tag; DRAG.off=bk.yb-map.wy(y); return true; }
+      }
+      return false;
+    }
+    if(type==='move'&&(DRAG.what==='A'||DRAG.what==='B')){
+      const sB=cubeSide((DRAG.what==='A'?ST.volAL:ST.volBL)/LITERS);
+      const yb=clamp(map.wy(y)+DRAG.off,-POOL_H,holdCeiling(sB));
+      if(DRAG.what==='A') ST.holdA=yb; else ST.holdB=yb;
+      return true;
+    }
+    return false;
+  };
+  return S;
+}
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    st.view=k;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lb])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lb)); });
+
+  const rows={};
+  function slider(key,lb,lo,hi,step,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lb),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ const v=parseFloat(inp.value);
+      if(onchg) onchg(v); else st[key]=v;
+      clearAll(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync,input:inp}; sync(); return rowEl;
+  }
+  function checkbox(key,lb,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lb);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked; if(onchg) onchg();
+      clearAll(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  const CHIPROWS=[];
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      wrapEl.appendChild(h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        const was=st[key]; st[key]=o.id; if(onPick) onPick(o,was);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        clearAll(); syncPanel(); dirty=true; refresh(); }},o.name));
+    });
+    CHIPROWS.push([wrapEl,list,key]);
+    return wrapEl;
+  }
+  function btn(label,fn){ return h('button',{onclick:()=>{ fn(); clearAll(); syncPanel(); dirty=true; refresh(); }},label); }
+
+  /* ---- group 1: the block ---- */
+  const gBlock=h('div',{class:'grp'},h('h3',null,'the block'));
+  const matChipsA=chipRow(MAT_LIST,'matA',()=>{ setMat(st,'A',st.matA); }); gBlock.appendChild(matChipsA);
+  gBlock.appendChild(slider('massA','mass, kg',MMIN,MMAX,0.1,v=>fmt(v,2)+' kg',v=>setMass(st,'A',v)));
+  gBlock.appendChild(slider('volAL','volume, L',VMIN_L,VMAX_L,0.5,v=>fmt(v,2)+' L',v=>setVol(st,'A',v)));
+  gBlock.appendChild(h('div',{class:'checks'},checkbox('two','two blocks')));
+  const matChipsB=chipRow(MAT_LIST,'matB',()=>{ setMat(st,'B',st.matB); }); gBlock.appendChild(matChipsB);
+  gBlock.appendChild(slider('massB','B mass, kg',MMIN,MMAX,0.1,v=>fmt(v,2)+' kg',v=>setMass(st,'B',v)));
+  gBlock.appendChild(slider('volBL','B volume, L',VMIN_L,VMAX_L,0.5,v=>fmt(v,2)+' L',v=>setVol(st,'B',v)));
+  const blockTag=h('div',{class:'tag'}); gBlock.appendChild(blockTag);
+
+  /* ---- group 2: the fluid ---- */
+  const gFluid=h('div',{class:'grp'},h('h3',null,'the fluid'));
+  gFluid.appendChild(chipRow(FLUID_LIST,'fluid'));
+  const fluidTag=h('div',{class:'tag'}); gFluid.appendChild(fluidTag);
+
+  /* ---- group 3: the scales ---- */
+  const gScales=h('div',{class:'grp'},h('h3',null,'the scales'));
+  gScales.appendChild(chipRow(WHERE_LIST,'where'));
+  gScales.appendChild(slider('scaleH','pool scale height',0,1,0.01,v=>fmt(v,2)));
+  const scalesTag=h('div',{class:'tag'}); gScales.appendChild(scalesTag);
+
+  /* ---- group 4: the set ---- */
+  const gSet=h('div',{class:'grp'},h('h3',null,'the set'));
+  gSet.appendChild(chipRow(SET_LIST,'setMode'));
+  gSet.appendChild(slider('sameMass','same mass, kg',1,10,0.1,v=>fmt(v,2)+' kg'));
+  gSet.appendChild(slider('sameVolL','same volume, L',1,10,0.5,v=>fmt(v,2)+' L'));
+  gSet.appendChild(slider('sameRho','same density',BB_RHO_RANGE[0],BB_RHO_RANGE[1],10,v=>fmt(v,0)+' kg/m³'));
+  const setTag=h('div',{class:'tag'}); gSet.appendChild(setTag);
+
+  /* ---- group 5: the depth ---- */
+  const gDepth=h('div',{class:'grp'},h('h3',null,'the depth'));
+  gDepth.appendChild(slider('facesDepth','the bottom face, m',0.05,0.9,0.01,v=>fmt(100*v,0)+' cm down'));
+  gDepth.appendChild(slider('lowered','lowered',0,1,0.005,v=>fmt(v,3)));
+  const depthTag=h('div',{class:'tag'}); gDepth.appendChild(depthTag);
+
+  /* ---- group 6: the grid ---- */
+  const gGrid=h('div',{class:'grp'},h('h3',null,'the grid'));
+  gGrid.appendChild(chipRow(GRID_LIST,'gridMat'));
+  const gridTag=h('div',{class:'tag'}); gGrid.appendChild(gridTag);
+
+  /* ---- group 7: the drawing ---- */
+  const gDraw=h('div',{class:'grp'},h('h3',null,'the drawing'));
+  gDraw.appendChild(h('div',{class:'checks'},checkbox('forces','force arrows'),checkbox('labels','label the arrows')));
+  gDraw.appendChild(h('div',{class:'btnrow'},btn('reset all',()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; syncChips(); })));
+  const drawTag=h('div',{class:'tag'}); gDraw.appendChild(drawTag);
+
+  /* ---- group 8: what you are looking at ---- */
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Buoyancy: Basics (University of Colorado Boulder, '
+      +'phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets. PhET&rsquo;s values &mdash; the pool 0.9 &times; 0.4 &times; '
+      +'0.4167 m holding 100 L, the scales 0.15 &times; 0.06 &times; 0.2 m (1.8 L), g = 9.8 m/s&sup2;, cubes of 1&ndash;10 L and '
+      +'0.1&ndash;27 kg, the six fluids and every material density &mdash; are read from its build 1.2.11 and the shared '
+      +'doc/model.md. Handbook densities: Wikipedia, &ldquo;Densities of various materials&rdquo;, fetched 2026-09-21; six '
+      +'materials have no row there and the file says so. The engine is the same file as density.html&rsquo;s, and every number is '
+      +'pinned in selfTest to build/density/derive.py (scipy.brentq, a 4000-strip face integral, a 2000-point perimeter sum).'}));
+  /* ---- group 9: the physics ---- */
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the physics'),h('div',{id:'phys'}));
+  [gBlock,gFluid,gScales,gSet,gDepth,gGrid,gDraw,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [wrapEl,list,key] of CHIPROWS)
+      [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+  }
+  /* a row this view ignores is hidden, never left live and inert */
+  function syncPanel(){
+    const v=st.view;
+    gBlock.hidden=!(v==='explore'||v==='faces'||v==='scale');
+    matChipsB.hidden=!(v==='explore'&&st.two);
+    rows.massB.row.hidden=!(v==='explore'&&st.two);
+    rows.volBL.row.hidden=!(v==='explore'&&st.two);
+    rows.cb_two.row.hidden=(v!=='explore');
+    gFluid.hidden=(v==='fluids');
+    gScales.hidden=!(v==='explore'||v==='sets');
+    gSet.hidden=(v!=='sets');
+    rows.sameMass.row.hidden=(st.setMode!=='mass');
+    rows.sameVolL.row.hidden=(st.setMode!=='volume');
+    rows.sameRho.row.hidden=(st.setMode!=='density');
+    gDepth.hidden=!(v==='faces'||v==='scale');
+    rows.facesDepth.row.hidden=(v!=='faces');
+    rows.lowered.row.hidden=(v!=='scale');
+    gGrid.hidden=(v!=='fluids');
+    gDraw.hidden=!(v==='explore'||v==='sets');
+    for(const k in rows) if(rows[k].sync) rows[k].sync();
+    const rhoA=rhoOf(st,'A');
+    blockTag.innerHTML=(st.matA==='custom'
+      ? 'custom: mass and volume are free and the density follows, &rho; = m/V = <b>'+sigf(rhoA,4)+'</b> kg/m&sup3;'
+      : 'PhET&rsquo;s coupling: the material fixes &rho; = <b>'+sigf(MAT[st.matA].phet,4)+'</b> kg/m&sup3;, so mass and volume move '
+        +'together. Its mass slider reaches '+fmt(massRangeFor(MAT[st.matA].phet,false)[0],2)+'&ndash;'
+        +fmt(massRangeFor(MAT[st.matA].phet,false)[1],2)+' kg')
+      +(MAT[st.matA]&&MAT[st.matA].note?' &nbsp; <span class="r">'+MAT[st.matA].note+'</span>':'');
+    fluidTag.innerHTML='PhET&rsquo;s six Buoyancy fluids, '+sigf(MAT.gasoline.phet,3)+' to '+sigf(MAT.mercury.phet,5)
+      +' kg/m&sup3;. The block floats when its density is below the fluid&rsquo;s, and sinks to exactly &rho;<sub>b</sub>/&rho;<sub>f</sub> of itself.';
+    scalesTag.innerHTML='both scales read newtons, as PhET&rsquo;s do. The pool scale displaces '+fmt(SCALE_V*LITERS,1)
+      +' L of fluid itself, which is in the level.';
+    setTag.innerHTML=st.setMode==='mass'?'PhET&rsquo;s two volumes are 2 L (brick) and 10 L (wood)'
+      :st.setMode==='volume'?'PhET&rsquo;s two masses are 10 kg (brick) and 2 kg (wood)'
+      :'PhET&rsquo;s two volumes are 5 L and 10 L, both at the wood&rsquo;s 400 kg/m&sup3;';
+    depthTag.innerHTML=(st.view==='faces'
+      ? 'the block is held at this depth with a flat free surface above it; below '
+        +fmt(100*cubeSide(st.volAL/LITERS),1)+' cm its top is out of the fluid'
+      : 'lowered 0 is clear of the surface, 1 is resting on the pool floor');
+    gridTag.innerHTML='27 materials &times; 6 fluids. The highlighted row is the one the readout prints.';
+    drawTag.innerHTML='drag a block in the pool view to hold it under or lift it clear &nbsp; 1&ndash;5 switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M,st);
+      eqEl.innerHTML=eqbarHTML(M,st);
+      tagEl.innerHTML=tagHTML(M,st);
+      hintEl.textContent=(st.view==='explore'?'drag a block to hold it under · ':'')+'1–5 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ MEMO.explore=null; dirty=true; roEl.innerHTML=readoutHTML(S.model(),st); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ MEMO.explore=null; dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+    else if(e.key==='r'){ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; clearAll(); syncChips(); syncPanel(); dirty=true; refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  function frameLoop(tm){
+    if(dirty){ dirty=false; try{ S.draw(); }catch(e){ fail(e); } }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  explore:'This is PhET&rsquo;s Explore screen. A cube of a chosen material goes into a pool of a chosen fluid, and the '
+    +'three forces on it are drawn: gravity pulling down, buoyancy pushing up, and the contact force from whatever it is '
+    +'resting on. At rest those three add to nothing, which is what the arrows show. Change the fluid and the picture moves '
+    +'under your feet: the same aluminium block that sits flat on the floor of a water pool floats in mercury, a fifth of it '
+    +'under. Put the block on the pool scale and read what it presses with; put it on the ground scale and read what it '
+    +'weighs in air. The difference between the two readings is the weight of the fluid the block pushed aside &mdash; which '
+    +'is the whole of Archimedes&rsquo; principle, in two numbers you can compare on screen.',
+  sets:'PhET&rsquo;s Compare screen is one question asked three ways. Take a brick and a piece of wood and give them the same '
+    +'MASS: the wood has to be five times the size, and it floats while the brick does not, so weight alone decides nothing. '
+    +'Give them the same VOLUME: now the brick weighs five times as much, and it is still the brick that sinks. Give them the '
+    +'same DENSITY and they become the same stuff in two sizes &mdash; and they float to exactly the same fraction of '
+    +'themselves, because size cancels out of &rho;<sub>b</sub>/&rho;<sub>f</sub> completely. Only the third comparison '
+    +'changes what happens, which is the point of the screen.',
+  faces:'Buoyancy is not an extra force that fluids have. It is what is left when you add up the pressure on every face. '
+    +'Hydrostatic pressure is &rho;<sub>f</sub>g times the depth, and it pushes inward everywhere, perpendicular to the '
+    +'surface. On the four vertical faces the pressure at any given depth is the same on the left as on the right, so those '
+    +'cancel in pairs exactly &mdash; they squeeze the block but do not lift it. The bottom face and the top face do not '
+    +'cancel, because the bottom is deeper by the height of the block: the difference in pressure is &rho;<sub>f</sub>g '
+    +'times that height, and multiplied by the face area it is &rho;<sub>f</sub>gV. This view computes the force both ways, '
+    +'face by face and round the polygon edge by edge, and prints how far apart the two answers are.',
+  scale:'Hang a block on a spring scale and lower it into a fluid. Nothing happens while it is in the air. The moment the '
+    +'bottom face touches the surface the reading starts to fall, and it falls in a straight line, because the submerged '
+    +'volume grows in proportion to how far in the block has gone. Then the top face goes under, and the reading stops '
+    +'changing altogether. That is the part worth watching: the pressure on the bottom face keeps growing with depth, but so '
+    +'does the pressure on the top, by exactly the same amount, and what the scale reads is the difference. A block that '
+    +'floats reaches zero before it is fully under and the string goes slack; a block that sinks reaches '
+    +'(&rho;<sub>b</sub> &minus; &rho;<sub>f</sub>)gV and stays there until it lands.',
+  fluids:'Whether something floats is not a fact about the thing; it is a comparison between two densities. This grid puts '
+    +'every material PhET carries against every fluid it carries, ordered by density, and the pattern is a staircase: for '
+    +'each fluid there is a line above which everything sinks and below which everything floats, and that line is at the '
+    +'fluid&rsquo;s own density. In mercury, at 13593 kg/m&sup3;, everything on the list floats except tantalum and platinum '
+    +'&mdash; lead floats, gold very nearly does. In gasoline, at 680, almost nothing does. Where a cell is green the number '
+    +'in it is the fraction of the block that ends up under, and that fraction is exactly &rho;<sub>b</sub>/&rho;<sub>f</sub>: '
+    +'the same law, read off a table.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  explore:'<h4>the three forces</h4>'
+    +EQ(1,'W = &rho;<sub>b</sub> g V, &nbsp; F<sub>b</sub> = &rho;<sub>f</sub> g V<sub>sub</sub>, &nbsp; N &ge; 0')
+    +EQ(2,'<span class="rm">at rest:</span> N = W &minus; F<sub>b</sub> &nbsp; <span class="rm">(resting)</span>, &nbsp; N = 0 <span class="rm">(floating or held)</span>')
+    +EQ(3,'<span class="rm">the free surface:</span> A<sub>pool</sub>(y + H) &minus; &Sigma;V<sub>i</sub>(y) &minus; V<sub>scale</sub>(y) = V<sub>fluid</sub>')
+    +EQ(4,'&Delta;y = '+FR('m','&rho;<sub>f</sub> A')+' <span class="rm">(floating)</span>, &nbsp; &Delta;y = '+FR('V','A')+' <span class="rm">(submerged)</span>')
+    +'<p>N &ge; 0 is a property of the solve, not a clamp: a block only rests when the upthrust cannot lift it. selfTest '
+    +'sweeps 84 configurations to check it, and a clamp that was there to enforce it has been deleted as dead code.</p>'
+    +'<div class="cite">pins: the level with and without the pool scale; the scale&rsquo;s own 1.8 L; 118.44 N on the pool scale '
+    +'against 132.30 N in air for PhET&rsquo;s aluminium block; the per-cent submerged of wood and aluminium in all six fluids &mdash; derive.py</div>',
+  sets:'<h4>&rho; = m/V, three ways</h4>'
+    +EQ(1,'<span class="rm">same m:</span> &rho;<sub>i</sub> = m/V<sub>i</sub> &nbsp;&rarr;&nbsp; 2 L &rarr; 2000, 10 L &rarr; 400')
+    +EQ(2,'<span class="rm">same V:</span> &rho;<sub>i</sub> = m<sub>i</sub>/V &nbsp;&rarr;&nbsp; 10 kg &rarr; 2000, 2 kg &rarr; 400')
+    +EQ(3,'<span class="rm">same &rho;:</span> '+FR('V<sub>sub</sub>','V')+' = '+FR('&rho;','&rho;<sub>f</sub>')+' <span class="rm">for both, whatever the size</span>')
+    +'<p>PhET&rsquo;s numbers are the brick&rsquo;s 2000 and the wood&rsquo;s 400 kg/m&sup3;, reached from 4 kg at 2 and 10 L, or '
+    +'from 5 L at 10 and 2 kg.</p>'
+    +'<div class="cite">pins: both blocks in each of the three modes, and which of them floats &mdash; derive.py</div>',
+  faces:'<h4>the pressure integral</h4>'
+    +EQ(1,'p(y) = &rho;<sub>f</sub> g (y<sub>w</sub> &minus; y) &nbsp; <span class="rm">gauge, linear in y</span>')
+    +EQ(2,'<span class="rm">sides:</span> &nbsp; F<sub>+x</sub> + F<sub>&minus;x</sub> = 0 <span class="rm">exactly, at every depth</span>')
+    +EQ(3,'<span class="rm">net up:</span> (p<sub>bot</sub> &minus; p<sub>top</sub>) A = &rho;<sub>f</sub> g (y<sub>t</sub> &minus; y<sub>b</sub>) A = &rho;<sub>f</sub> g V')
+    +EQ(4,'<span class="rm">per edge (2-D):</span> F = &minus;p(mid) n L <span class="rm">is exact, because p is linear along a straight edge</span>')
+    +'<p>The 2-D route clips the cross-section at the waterline and integrates round it; its vertical sum is &rho;g&times;the '
+    +'submerged area per unit depth, and the resultant passes through the centroid of that area.</p>'
+    +'<div class="cite">pins: 49.000 N from the faces against 49 N from &rho;gV (3e-16 relative); one side face 59.0782 N and the '
+    +'pair summing to exactly 0; 114.6215 N/m per edge against a 2000-point perimeter sum &mdash; derive.py</div>',
+  scale:'<h4>the apparent weight</h4>'
+    +EQ(1,'<span class="rm">reading</span> = W &minus; &rho;<sub>f</sub> g V<sub>sub</sub>(d)')
+    +EQ(2,'<span class="rm">entering:</span> V<sub>sub</sub> = s&sup2; d &nbsp;&rArr;&nbsp; <span class="rm">the reading falls linearly</span>')
+    +EQ(3,'<span class="rm">under:</span> V<sub>sub</sub> = V &nbsp;&rArr;&nbsp; <span class="rm">reading</span> = (&rho;<sub>b</sub> &minus; &rho;<sub>f</sub>) g V, <span class="rm">constant</span>')
+    +EQ(4,'&rho;<sub>b</sub> &lt; &rho;<sub>f</sub> &rArr; <span class="rm">the reading reaches 0 at</span> d = s &rho;<sub>b</sub>/&rho;<sub>f</sub>')
+    +'<p>The entering leg is not quite a straight line in the lowering coordinate, because the fluid rises as the block goes '
+    +'in: the surface comes up to meet it. The curve here is solved at every one of its 241 points rather than drawn from '
+    +'[2].</p>'
+    +'<div class="cite">pins: the reading at seven depths for a 5 L brick, 98 N in air falling to 49 N under &mdash; derive.py</div>',
+  fluids:'<h4>the staircase</h4>'
+    +EQ(1,FR('V<sub>sub</sub>','V')+' = min(1, '+FR('&rho;<sub>b</sub>','&rho;<sub>f</sub>')+') &nbsp; <span class="rm">floats iff</span> &rho;<sub>b</sub> &lt; &rho;<sub>f</sub>')
+    +EQ(2,'<span class="rm">mercury 13593: everything but tantalum (16650) and platinum (21450)</span>')
+    +EQ(3,'<span class="rm">gasoline 680: styrofoam (150) and wood (400) only</span>')
+    +'<p>The fraction has no size and no gravity in it, which is why this is a table of two numbers rather than a simulation.</p>'
+    +'<div class="cite">pins: the per-cent submerged of wood and aluminium in all six fluids, and the float counts in the '
+    +'extreme columns &mdash; derive.py</div>',
+};
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) are lines of build/buoyancy-basics/refvals.txt, which is  *
+ *  build/density/derive.py's printed output: the two sims run ONE     *
+ *  engine, so they are pinned against one independent Python solve    *
+ *  (scipy.brentq on the force balance, a 4000-strip face integral, a  *
+ *  2000-point perimeter sum), read in full.                           *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  const WATER=MAT.water.phet;
+  function withState(over,fn){
+    const keep=Object.assign({},ST);
+    Object.assign(ST,DEFAULTS,over); clearAll();
+    try{ fn(); } finally { Object.assign(ST,keep); clearAll(); }
+  }
+
+  /* ---------- A. the scaffold ---------- */
+  close(90*DEG,PI/2,1e-15,'DEG converts degrees INTO radians (90 DEG = pi/2)');
+  ok((()=>{ try{ toRgb('not a colour'); return false; }catch(e){ return true; } })(),'toRgb throws rather than returning black');
+  eq(toRgb(mix('#000000','#ffffff',0.5)).join(','),'128,128,128','mix() output is a legal mix() input');
+  eq(plain('&#955;'),'λ','plain decodes a NUMERIC entity (Known-bad: wave_fronts)');
+  eq(plain('<b>x</b>'),'x','plain strips tags');
+  for(const id of BUOY_FLUIDS) ok(/^#[0-9a-f]{6}$/i.test(fluidColor(id)),'fluidColor('+id+') is a hex colour');
+
+  /* ---------- B. the pool and the scales, PhET's bounds (derive) ---------- */
+  close(POOL_H,0.41666666666666663,1e-17,'POOL_H = 0.15/0.9/0.4 (derive)');
+  close(A_POOL,0.36000000000000004,1e-17,'A_POOL (derive)');
+  eq(VF0,0.1,'PhET starts the pool with 100 L');
+  close(SCALE_V,0.0018,1e-18,'PhET’s scale is 0.15 x 0.06 x 0.2 m = 1.8 L');
+  close(poolLevel([],[],WATER,VF0),-0.1388888888888889,1e-15,'the bare level, bisected (derive)');
+  eq(G,9.8,'PhET runs at g = 9.8, not 9.80665');
+  eq(BUOY_FLUIDS.length,6,'PhET’s six Buoyancy fluids');
+  eq(BUOY_FLUIDS.map(f=>MAT[f].phet).join(','),'680,920,1000,1029,1440,13593','and their densities (PhET)');
+  eq(MAT.gasoline.phet<MAT.oil.phet&&MAT.honey.phet<MAT.mercury.phet,true,'ordered lightest to heaviest');
+  /* the pool scale, at PhET's initial half height */
+  {
+    const st={scaleH:0.5};
+    close(poolScaleTop(st),-0.17833333333333332,1e-15,'the pool scale’s top at half height (derive)');
+    close(poolScaleY0({scaleH:0}),-POOL_H,1e-15,'at 0 it stands on the floor');
+    close(poolScaleTop({scaleH:1}),0,1e-15,'at 1 its top is level with the ground');
+    const obs=poolObstacles(st);
+    close(obstacleVolume(obs,poolScaleTop(st)),SCALE_V,1e-18,'covered, it displaces exactly 1.8 L');
+    close(obstacleVolume(obs,poolScaleTop(st)+1),SCALE_V,1e-18,'and no more, however deep');
+    eq(obstacleVolume(obs,poolScaleY0(st)-0.01),0,'below it, nothing');
+    const bare=poolLevel([],[],WATER,VF0), withSc=poolLevel([],obs,WATER,VF0);
+    close(withSc-bare,SCALE_V/A_POOL,1e-14,'the scale alone raises the level by its own volume / A');
+  }
+
+  /* ---------- C. Archimedes, closed form vs scipy (derive) ---------- */
+  close(cubeSide(0.005),0.17099759466766973,1e-17,'a 5 L cube is 17.0998 cm on a side (derive)');
+  close(floatDraft(0.005,400,1000),0.068399037867067886,1e-17,'the wood draft, closed form (derive)');
+  close(floatDraft(0.005,400,1000),0.068399037867067872,2e-17,'and scipy.brentq on the force balance (scipy)');
+  eq(cubeBelow(0.005,-0.4,0.4),0.005,'cubeBelow saturates at V EXACTLY, not at s^3');
+  close(riseFloating(2,1000),0.0055555555555555549,1e-17,'a floating 2 kg block raises the level 5.56 mm (derive)');
+  close(riseSunk(0.005),0.013888888888888888,1e-17,'a sunk 5 L block raises it 13.9 mm (derive)');
+  {
+    const w=solvePool([{V:2/400,rho:400}],WATER);
+    close(w.yw,-0.13333333333333336,1e-15,'wood alone: the level (derive)');
+    close(w.blocks[0].Fb,19.6,1e-13,'upthrust 19.6 N = its weight (derive)');
+    const a=solvePool([{V:13.5/2700,rho:2700}],WATER);
+    close(a.blocks[0].N,83.3,1e-12,'aluminium alone: the floor takes 83.3 N (derive)');
+    const b=solvePool([{V:2/400,rho:400},{V:13.5/2700,rho:2700}],WATER);
+    close(b.yw,-0.11944444444444444,1e-15,'both blocks: the level (derive)');
+  }
+
+  /* ---------- D. the awkward cases ---------- */
+  {
+    const r=solvePool([{V:0.005,rho:2700}],WATER).blocks[0];
+    eq(r.frac,1,'denser than the fluid: the submerged fraction is EXACTLY 1');
+    close(r.N,83.300000000000011,1e-12,'and N = 83.3 N (derive)');
+    const n=solvePool([{V:0.005,rho:1000}],WATER).blocks[0];
+    eq(n.frac,1,'exactly neutral: completely submerged');
+    close(n.N,0,1e-12,'the floor takes nothing (derive)');
+    close(apparentWeight(0.005,1000,1000),0,1e-13,'and a spring scale reads zero (derive)');
+    const h1=solvePool([{V:0.005,rho:1000,held:-0.30}],WATER).blocks[0];
+    const h2=solvePool([{V:0.005,rho:1000,held:-0.34}],WATER).blocks[0];
+    close(h1.hand,0,1e-12,'a neutral block needs no hand at -0.30 m (derive)');
+    close(h2.hand,h1.hand,1e-12,'nor at -0.34 m: no depth is preferred');
+    const hb=solvePool([{V:0.005,rho:400,held:-0.25}],WATER).blocks[0];
+    eq(hb.N,0,'a HELD block is not touching the floor: N = 0');
+    ok(Math.abs(hb.hand)>1,'while the hand carries '+fmt(hb.hand,2)+' N');
+    const ob=solvePool([{V:0.005,rho:2700,inPool:false}],WATER).blocks[0];
+    eq(ob.mode,'out','a block out of the pool is out');
+    eq(ob.Vsub,0,'displaces nothing'); eq(ob.N,0,'and gets no contact force');
+    /* wider than the pool's free surface */
+    const wideV=0.216, sw=cubeSide(wideV);
+    ok(sw*sw>=A_POOL-1e-12,'the test block spans the pool ('+fmt(sw*sw,3)+' m2 vs '+fmt(A_POOL,3)+')');
+    const wr=solvePool([{V:wideV,rho:3000}],WATER);
+    close(wr.yw,0.46111111111111103,1e-14,'the fluid stands ABOVE a body that spans the pool (derive)');
+    close(wr.yw,-POOL_H+sw+VF0/A_POOL,1e-14,'= -H + s + Vf/A');
+    const wf=solvePool([{V:wideV,rho:400}],WATER);
+    close(wf.blocks[0].yb,-POOL_H+VF0/A_POOL,1e-14,'and a spanning floater rides on all of it (derive)');
+    /* N >= 0 is physics, not a clamp */
+    let minN=1e9, nRest=0, nZero=0;
+    for(const rho of [100,400,919,1000,1000.0001,2700,19320])
+      for(const VL of [1,3,5.5,10])
+        for(const Vf of [0.004,0.02,0.1,0.14]){
+          const r2=solvePool([{V:VL/LITERS,rho:rho}],WATER,[],Vf).blocks[0];
+          if(r2.mode==='rest'){ nRest++; minN=Math.min(minN,r2.N); if(r2.N===0) nZero++; }
+        }
+    ok(nRest>=40,'the sweep reaches '+nRest+' resting configurations');
+    ok(minN>=0,'a resting block is never pulled DOWN by the floor (min N = '+minN.toExponential(2)+')');
+    ok(nZero>=4,'and exactly-neutral blocks reach N = 0 exactly ('+nZero+')');
+    /* G is non-decreasing, WITH the pool scale in the way */
+    const obs=poolObstacles({scaleH:0.5}), bl=[{V:0.005,rho:400},{V:0.005,rho:2700}];
+    let worst=0, prev=-1e18;
+    for(let k=0;k<=4000;k++){
+      const y=-POOL_H+k*(POOL_H+0.8)/4000, g=netFluid(y,bl,obs,WATER);
+      worst=Math.min(worst,g-prev); prev=g;
+    }
+    ok(worst>=-1e-15,'G is non-decreasing over 4001 levels with the scale in the pool (worst step '+worst.toExponential(2)+')');
+  }
+
+  /* ---------- E. the faces: the upthrust taken the long way ---------- */
+  {
+    const st=solvePool([{V:0.005,rho:2700}],WATER), yw=st.yw, yb=st.blocks[0].yb;
+    const F=cubeFaceForces(0.005,yb,yw,WATER);
+    close(F.net,49.000000000000014,1e-12,'submerged: bottom minus top face = 49 N (derive)');
+    rel(F.net,WATER*G*0.005,1e-15,'and that IS rho_f g V, to 1e-15 relative');
+    eq(F.sideSum,0,'the two opposite side faces cancel exactly (derive: 0)');
+    close(F.side,59.078173683917754,1e-9,'one side face carries 59.0782 N (derive, 4000 strips)');
+    ok(F.side>F.net,'bigger than the upthrust — it cancels only because there are two of it');
+    close(F.side,WATER*G*(yw-yb-cubeSide(0.005)/2)*cubeSide(0.005)*cubeSide(0.005),1e-12,
+          '= rho g (depth of the face centre) x face area');
+    const stf=solvePool([{V:0.005,rho:400}],WATER);
+    const F2=cubeFaceForces(0.005,stf.blocks[0].yb,stf.yw,WATER);
+    close(F2.net,19.600000000000009,1e-12,'floating: only the bottom face is wet, 19.6 N (derive)');
+    eq(F2.pTop,0,'the top face is dry');
+    /* a PARTLY submerged side face is wetted only over the strip below the
+       surface, and the pressure there averages half the bottom's */
+    {
+      const sq=cubeSide(0.005), dsub=stf.yw-stf.blocks[0].yb;
+      close(F2.side,WATER*G*(dsub/2)*sq*dsub,1e-12,'part submerged: the side force is rho g (d/2) s d');
+      ok(F2.side<WATER*G*dsub*sq*sq*0.999,'far less than the whole face wetted to the waterline');
+    }
+    const poly=cubePoly(0.005,stf.blocks[0].yb,0), sub=clipBelow(poly,stf.yw);
+    const E=edgeForces(sub,stf.yw,WATER), fine=finePerimeter(sub,stf.yw,WATER,2000);
+    close(E.tot[0],0,1e-12,'the polygon integral: the horizontal parts cancel (derive: 0)');
+    close(E.tot[1],114.62149533794438,1e-11,'and the vertical parts sum to 114.62 N/m (derive)');
+    rel(fine[1],E.tot[1],1e-6,'a 2000-point perimeter sum agrees with the closed form');
+    close(polyCentroid(sub)[0],0,1e-15,'the centre of buoyancy is on the axis of a symmetric block');
+    /* the faces MODEL, as the view builds it */
+    withState({view:'faces',facesDepth:0.45,matA:'brick',volAL:5},()=>{
+      const M=buildModel(ST);
+      ok(M.fullyUnder,'at 45 cm a 5 L cube is fully under');
+      rel(M.F.net,M.arch,1e-14,'the face integral equals rho_f g V_sub');
+      ok(M.resid<1e-14,'they differ by '+M.resid.toExponential(2));
+      ok(M.resid2d<1e-14,'and the 2-D route by '+M.resid2d.toExponential(2));
+      ok(M.fineResid<1e-6,'and the brute-force perimeter sum by '+M.fineResid.toExponential(2));
+      close(M.F.pBot,WATER*G*0.45,1e-10,'p at the bottom is rho g x 45 cm');
+      close(M.F.pTop,WATER*G*(0.45-cubeSide(0.005)),1e-10,'and at the top rho g x (45 cm - the side)');
+      close(M.F.pBot-M.F.pTop,WATER*G*cubeSide(0.005),1e-10,'their difference is rho g x the side, whatever the depth');
+    });
+    withState({view:'faces',facesDepth:0.9,matA:'brick',volAL:5},()=>{
+      const M=buildModel(ST);
+      rel(M.F.net,M.arch,1e-14,'twice as deep, the net force is unchanged');
+      close(M.F.net,49.000000000000014,1e-10,'still 49.0 N');
+    });
+    withState({view:'faces',facesDepth:0.10,matA:'brick',volAL:5},()=>{
+      const M=buildModel(ST);
+      ok(!M.fullyUnder,'at 10 cm the top of a 17.1 cm cube is out');
+      eq(M.F.pTop,0,'so the top face is dry');
+      rel(M.F.net,WATER*G*cubeBelow(0.005,-0.10,0),1e-14,'and the net force is rho g V_sub of the wetted part');
+    });
+  }
+
+  /* ---------- F. the six fluids (derive) ---------- */
+  {
+    const PCT={gasoline:58.8235,oil:43.4783,water:40,seawater:38.8727,honey:27.7778,mercury:2.94269};
+    for(const f of BUOY_FLUIDS){
+      const rhoF=MAT[f].phet;
+      const w=solvePool([{V:2/400,rho:400}],rhoF).blocks[0];
+      rel(100*w.frac,PCT[f],1e-4,'wood is '+PCT[f]+' % under in '+f+' (derive)');
+      eq(w.mode,'float','and it floats in '+f);
+    }
+    const alMerc=solvePool([{V:13.5/2700,rho:2700}],MAT.mercury.phet).blocks[0];
+    rel(100*alMerc.frac,19.8632,1e-4,'aluminium is 19.86 % under in mercury (derive)');
+    eq(alMerc.mode,'float','so aluminium FLOATS in mercury');
+    const alWater=solvePool([{V:13.5/2700,rho:2700}],WATER).blocks[0];
+    eq(alWater.mode,'rest','and rests on the floor in water');
+    /* the pool scale reading (derive) */
+    const obs=poolObstacles({scaleH:0.5}), top=poolScaleTop({scaleH:0.5});
+    const so=solvePool([{V:13.5/2700,rho:2700,support:top}],WATER,obs);
+    close(so.yw,-0.12995986441149004,1e-12,'a block on the pool scale: the level (derive)');
+    close(so.blocks[0].N,118.43840164373687,1e-10,'the pool scale reads 118.44 N (derive)');
+    close(13.5*G,132.30000000000001,1e-12,'the ground scale would read 132.30 N (derive)');
+    close(13.5*G-so.blocks[0].N,WATER*G*so.blocks[0].Vsub,1e-12,
+          'and the difference is exactly the weight of the fluid pushed aside');
+  }
+
+  /* ---------- F2. the two scales, off the explore model ---------- */
+  withState({view:'explore',where:'poolscale',matA:'aluminum',massA:13.5,volAL:5},()=>{
+    const M=buildModel(ST);
+    eq(M.blocks[0].mode,'rest','on the pool scale the block rests on IT');
+    close(M.blocks[0].yb,poolScaleTop(ST),1e-15,'its bottom is the scale\u2019s top, not the pool floor');
+    ok(M.blocks[0].yb>-POOL_H+1e-6,'which is '+fmt(100*(M.blocks[0].yb+POOL_H),1)+' cm above the floor');
+    close(M.poolReads,M.blocks[0].N,1e-15,'the pool scale reads the CONTACT force');
+    ok(M.poolReads<M.blocks[0].W-1e-6,'less than the weight ('+fmt(M.poolReads,2)+' vs '+fmt(M.blocks[0].W,2)+' N)');
+    close(M.blocks[0].W-M.poolReads,MAT.water.phet*G*M.blocks[0].Vsub,1e-12,'by exactly the upthrust');
+    close(M.poolReads,118.43840164373687,1e-9,'118.44 N (derive)');
+    eq(M.groundReads,0,'and the ground scale reads nothing');
+  });
+  withState({view:'explore',where:'ground',matA:'aluminum',massA:13.5,volAL:5},()=>{
+    const M=buildModel(ST);
+    eq(M.blocks[0].mode,'out','on the ground scale the block is out of the pool');
+    eq(M.blocks[0].Fb,0,'so it has no buoyancy at all (PhET ignores air)');
+    close(M.groundReads,132.30000000000001,1e-9,'the ground scale reads its full 132.30 N (derive)');
+    close(M.groundReads,M.blocks[0].W,1e-15,'= its weight');
+    eq(M.poolReads,0,'and the pool scale reads nothing');
+    close(M.blocks[0].yb,SCALE_H,1e-15,'it stands on the scale\u2019s 6 cm platform');
+  });
+  withState({view:'explore',where:'floor',matA:'aluminum',massA:13.5,volAL:5},()=>{
+    const M=buildModel(ST);
+    close(M.blocks[0].yb,-POOL_H,1e-15,'on the pool floor its bottom IS the pool floor');
+    eq(M.poolReads,0,'and neither scale reads anything');
+    eq(M.groundReads,0,'at all');
+  });
+
+  /* ---------- G. the Compare screen, PhET's two blocks (derive) ---------- */
+  {
+    const m=compareBlocks(BB_CUBES,'mass',4,0.005,400);
+    eq(m.map(b=>Math.round(b.rho)).join(','),'2000,400','same mass 4 kg -> brick 2000, wood 400 (derive)');
+    eq(m.map(b=>fmt(b.V*LITERS,0)).join(','),'2,10','from 2 L and 10 L (PhET)');
+    const v=compareBlocks(BB_CUBES,'volume',4,0.005,400);
+    eq(v.map(b=>Math.round(b.rho)).join(','),'2000,400','same volume 5 L -> the same two densities (derive)');
+    eq(v.map(b=>fmt(b.rho*b.V,0)).join(','),'10,2','from 10 kg and 2 kg (PhET)');
+    const d=compareBlocks(BB_CUBES,'density',4,0.005,400);
+    eq(d.map(b=>fmt(b.rho*b.V,0)).join(','),'2,4','same density 400 -> 2 kg and 4 kg (derive)');
+    eq(DEFAULTS.sameMass,4,'the screen opens at PhET’s 4 kg');
+    eq(DEFAULTS.sameVolL,5,'5 L'); eq(DEFAULTS.sameRho,400,'and the wood’s 400 kg/m3');
+    const sm=solvePool(m,WATER);
+    eq(sm.blocks.map(b=>b.mode).join(','),'rest,float','same mass: the brick sinks, the wood floats (derive)');
+    const sv=solvePool(v,WATER);
+    eq(sv.blocks.map(b=>b.mode).join(','),'rest,float','same volume: the same answer (derive)');
+    const sd=solvePool(d,WATER);
+    eq(sd.blocks.map(b=>fmt(b.frac,4)).join(','),'0.4000,0.4000','same density: both 40 % under, whatever the size (derive)');
+  }
+
+  /* ---------- H. PhET's mass/volume coupling, in the model ---------- */
+  {
+    const s2=Object.assign({},DEFAULTS);
+    setMat(s2,'A','aluminum'); setVol(s2,'A',5);
+    close(s2.massA,13.5,1e-12,'5 L of aluminium is 13.5 kg');
+    setMass(s2,'A',27); close(s2.volAL,10,1e-12,'27 kg of aluminium is exactly 10 L (PhET’s ceiling)');
+    setMass(s2,'A',2);  close(s2.massA,2.7,1e-12,'asking for 2 kg is refused: 1 L is 2.7 kg');
+    setVol(s2,'A',4);   close(s2.massA,10.8,1e-12,'4 L of aluminium is 10.8 kg');
+    setMat(s2,'A','wood'); close(s2.volAL,4,1e-12,'switching material keeps the VOLUME');
+    close(s2.massA,1.6,1e-12,'and rebuilds the mass');
+    setMat(s2,'A','custom'); setVol(s2,'A',8);
+    close(s2.massA,1.6,1e-12,'custom: the volume moves alone');
+    close(rhoOf(s2,'A'),200,1e-12,'and the density follows, rho = m/V');
+    setMass(s2,'A',4); close(rhoOf(s2,'A'),500,1e-12,'4 kg in 8 L is 500 kg/m3');
+    ok(rhoOf(s2,'A')!==8/4*LITERS,'the density is m/V, not V/m');
+    close(massRangeFor(400,false)[1],4,1e-15,'wood’s mass slider stops at 4 kg (derive)');
+    close(massRangeFor(2700,false)[1],27,1e-15,'aluminium reaches PhET’s 27 kg ceiling (derive)');
+    eq(massRangeFor(19320,false)[1],27,'gold is CLIPPED at 27 kg, which is what makes 27 a ceiling');
+    eq(massRangeFor(19320,false)[0],19.32,'while 1 L of gold, 19.32 kg, is still under it');
+    let bad=0;
+    for(const id of SIMPLE_MATS.concat(['custom'])) for(const V of [1,2.5,5,7.5,10]) for(const mm of [0.1,1,5,13.5,27]){
+      const s5=Object.assign({},DEFAULTS); setMat(s5,'A',id); setVol(s5,'A',V); setMass(s5,'A',mm);
+      const rng=massRangeFor(id==='custom'?0:MAT[id].phet,id==='custom');
+      if(s5.volAL<VMIN_L-1e-12||s5.volAL>VMAX_L+1e-12) bad++;
+      if(s5.massA<rng[0]-1e-12||s5.massA>rng[1]+1e-12) bad++;
+      if(id!=='custom'&&Math.abs(s5.massA-MAT[id].phet*s5.volAL/LITERS)>1e-12) bad++;
+    }
+    eq(bad,0,'175 material x volume x mass settings stay inside PhET’s ranges and keep m = rho V');
+  }
+
+  /* ---------- I. the scale view: the reading, all the way down (derive) ---------- */
+  withState({view:'scale',matA:'custom',massA:10,volAL:5,fluid:'water'},()=>{
+    const M=buildModel(ST);
+    close(M.rho,2000,1e-12,'a 5 L block of 10 kg is 2000 kg/m3');
+    close(M.W,98,1e-12,'it weighs 98 N in air (derive)');
+    close(M.full,49,1e-12,'and reads 49 N once fully under (derive)');
+    /* out of the water, the reading is the whole weight */
+    const c=M.curve;
+    close(c[0][1],98,1e-10,'lowered 0, the scale reads its full weight');
+    close(c[c.length-1][1],49,1e-10,'lowered 1, it reads the apparent weight');
+    ok(c.every(p=>p[1]<=98+1e-9&&p[1]>=49-1e-9),'and never leaves that band');
+    close(c[c.length-1][3],-POOL_H,1e-15,'lowered 1 really is the pool FLOOR, not somewhere above it');
+    close(c[0][3],poolLevel([],[],MAT.water.phet,VF0)+0.02,1e-15,'and lowered 0 is 2 cm above the surface');
+    close(loweredY({fluid:'water',lowered:1.5},M.s),loweredY({fluid:'water',lowered:1},M.s),1e-15,
+          'a lowering past 1 is clamped to 1');
+    close(loweredY({fluid:'water',lowered:-0.5},M.s),loweredY({fluid:'water',lowered:0},M.s),1e-15,
+          'and below 0 to 0');
+    /* monotone: the reading only ever falls */
+    let mono=true;
+    for(let i=1;i<c.length;i++) if(c[i][1]>c[i-1][1]+1e-9) mono=false;
+    ok(mono,'the reading falls monotonically as the block goes in');
+    /* the plateau: once V_sub is the whole volume the reading stops changing */
+    const under=c.filter(p=>p[2]>=M.V-1e-12);
+    ok(under.length>20,under.length+' of the 241 points are fully submerged');
+    let flat=0;
+    for(const p of under) if(Math.abs(p[1]-49)>1e-9) flat++;
+    eq(flat,0,'and at every one of them the reading is 49 N exactly — depth does not matter');
+    /* a floating block reaches zero and the string goes slack */
+    withState({view:'scale',matA:'wood',volAL:5,fluid:'water',lowered:1},()=>{
+      const F=buildModel(ST);
+      ok(F.full<0,'a wood block’s apparent weight is negative: it would float');
+      close(F.read,0,1e-12,'so the spring reads zero');
+      ok(F.slack,'and the model says the string is slack');
+    });
+    withState({view:'scale',matA:'aluminum',volAL:5,fluid:'mercury',lowered:1},()=>{
+      const F=buildModel(ST);
+      ok(F.slack,'aluminium in mercury: slack too');
+      /* the block is being HELD on the floor here, so its own free-floating
+         fraction is the thing to pin, not the held one */
+      rel(100*submergedFraction(F.rho,F.rhoF),19.8632,1e-4,'left alone it would float 19.86 % under (derive)');
+      eq(F.frac,1,'held on the floor it is of course completely under');
+    });
+  });
+
+  /* ---------- J. float or sink ---------- */
+  withState({view:'fluids'},()=>{
+    const M=buildModel(ST);
+    eq(M.rows.length,27,'27 materials (every one PhET carries except air)');
+    eq(M.cols.length,6,'6 fluids');
+    eq(M.nCells,162,'162 combinations');
+    let mono=true;
+    for(let i=1;i<M.rows.length;i++) if(M.rows[i].phet<M.rows[i-1].phet) mono=false;
+    ok(mono,'the rows are ordered by density');
+    /* every cell agrees with the law, computed a second way */
+    let bad=0;
+    M.rows.forEach((m,i)=>M.cols.forEach((f,j)=>{
+      const c=M.grid[i][j];
+      if(c.floats!==(m.phet<f.rho)) bad++;
+      if(Math.abs(c.frac-Math.min(1,m.phet/f.rho))>1e-15) bad++;
+      if(c.floats&&Math.abs(c.frac-m.phet/f.rho)>1e-15) bad++;
+    }));
+    eq(bad,0,'all 162 cells agree with min(1, rho_b/rho_f)');
+    eq(M.mercuryFloats,23,'23 of the 27 float in mercury');
+    eq(M.rows.filter(m=>m.phet>=MAT.mercury.phet).map(m=>m.id).join(','),'mercury,tantalum,gold,platinum',
+       'the four that do not are mercury itself, tantalum, gold and platinum');
+    ok(MAT.lead.phet<MAT.mercury.phet,'lead (11342) DOES float in mercury (13593)');
+    ok(MAT.gold.phet>MAT.mercury.phet,'gold (19320) does not');
+    eq(M.gasolineFloats,2,'only 2 float in gasoline');
+    ok(M.rows.filter(m=>m.phet<MAT.gasoline.phet).map(m=>m.id).join(',')==='styrofoam,wood',
+       'styrofoam and wood');
+    ok(M.nFloat>0&&M.nFloat<M.nCells,M.nFloat+' of 162 combinations float');
+    /* the CAPTION makes a claim about which materials do not float in mercury,
+       and prose is invisible to every other assertion here: it said "except
+       tantalum and platinum" for a build, which is wrong by two entries */
+    const sinkers=M.rows.filter(m=>m.phet>=MAT.mercury.phet&&m.id!=='mercury').map(m=>m.id);
+    eq(sinkers.join(','),'tantalum,gold,platinum','three solids do not float in mercury');
+    for(const id of sinkers)
+      ok(FLU_CAP_FULL.indexOf(MAT[id].name)>=0,'the caption names '+MAT[id].name+' as one of them');
+    for(const id of ['silver','lead','copper'])
+      ok(FLU_CAP_FULL.indexOf('except')<0||FLU_CAP_FULL.split('except')[1].split(';')[0].indexOf(MAT[id].name)<0,
+         'and does not name '+MAT[id].name+', which floats');
+    const gasFloat=M.rows.filter(m=>m.phet<MAT.gasoline.phet).map(m=>m.id);
+    eq(gasFloat.join(','),'styrofoam,wood','two materials float in gasoline');
+    for(const id of gasFloat) ok(FLU_CAP_FULL.indexOf(MAT[id].name)>=0,'the caption names '+MAT[id].name+' too');
+  });
+
+  /* ---------- K. the models: every view, every preset, finite and clean ---------- */
+  const PRESETS=[
+    ['default',{}],
+    ['two blocks',{view:'explore',two:true}],
+    ['mercury',{view:'explore',fluid:'mercury'}],
+    ['gasoline two',{view:'explore',fluid:'gasoline',two:true}],
+    ['on the pool scale',{view:'explore',where:'poolscale'}],
+    ['on the ground scale',{view:'explore',where:'ground'}],
+    ['pool scale low',{view:'explore',where:'poolscale',scaleH:0}],
+    ['pool scale high',{view:'explore',where:'poolscale',scaleH:1}],
+    ['held under',{view:'explore',holdA:-POOL_H}],
+    ['custom heavy',{view:'explore',matA:'custom',massA:27,volAL:1}],
+    ['sets mass',{view:'sets',setMode:'mass'}],
+    ['sets volume',{view:'sets',setMode:'volume',sameVolL:10}],
+    ['sets density',{view:'sets',setMode:'density',sameRho:3000}],
+    ['sets honey',{view:'sets',fluid:'honey'}],
+    ['faces shallow',{view:'faces',facesDepth:0.05}],
+    ['faces deep',{view:'faces',facesDepth:0.9,matA:'brick'}],
+    ['faces mercury',{view:'faces',fluid:'mercury'}],
+    ['scale start',{view:'scale',lowered:0}],
+    ['scale end',{view:'scale',lowered:1,matA:'brick'}],
+    ['scale mercury',{view:'scale',fluid:'mercury',matA:'aluminum'}],
+    ['fluids gold',{view:'fluids',gridMat:'gold'}],
+    ['fluids styrofoam',{view:'fluids',gridMat:'styrofoam'}],
+  ];
+  const badRe=/NaN|undefined|Infinity/;
+  for(const [nm,over] of PRESETS) withState(over,()=>{
+    let err=null, M=null;
+    try{ M=buildModel(ST); }catch(e){ err=e; }
+    ok(!err,nm+': the model builds'+(err?': '+(err.stack||err):''));
+    if(err) return;
+    const ro=readoutHTML(M,ST), eqb=eqbarHTML(M,ST), tg=tagHTML(M,ST);
+    ok(!badRe.test(ro),nm+': the readout has no NaN/undefined');
+    ok(!badRe.test(eqb),nm+': the equation bar is clean');
+    ok(!badRe.test(tg),nm+': the tag is clean');
+    ok(ro.length>200,nm+': the readout has substance');
+    /* pin a number only this configuration can supply (Known-bad: a
+       non-finite-safe formatter makes a "no NaN" check vacuous) */
+    if(ST.view==='explore') ok(ro.indexOf(fmt(M.blocks[0].pct,1)+' %')>=0,nm+': the readout prints the model’s own % submerged');
+    if(ST.view==='faces') ok(ro.indexOf(fmt(M.F.net,2)+' N')>=0,nm+': the readout prints the model’s own net face force');
+    if(ST.view==='scale') ok(ro.indexOf(fmt(M.read,2)+' N')>=0,nm+': the readout prints the model’s own reading');
+  });
+  /* no slider combination gives a non-finite or illegal state */
+  {
+    let nf=0, n=0;
+    for(const mat of MAT_LIST.map(o=>o.id)) for(const mL of [1,5.5,10]) for(const kg of [0.1,5,27])
+      for(const f of ['gasoline','water','mercury']){
+        const s2=Object.assign({},DEFAULTS,{view:'explore',matA:mat,fluid:f});
+        setVol(s2,'A',mL); setMass(s2,'A',kg);
+        clearAll();
+        const M=exploreModel(s2); n++;
+        for(const b of M.blocks) if(!isFinite(b.m)||!isFinite(b.Vsub)||!isFinite(b.Fb)||!isFinite(M.yw)
+                                    ||b.Vsub<-1e-15||b.Vsub>b.V+1e-15||b.N<-1e-12) nf++;
+      }
+    eq(nf,0,'no combination of material, mass, volume and fluid gives an illegal state ('+n+' swept)');
+    clearAll();
+  }
+
+  /* ---------- L. the drag, and the arrow scale ---------- */
+  {
+    const canvas={getContext:()=>makeShot(1180,740),getBoundingClientRect:()=>({left:0,top:0,width:1180,height:740}),
+                  classList:{add(){},remove(){},contains(){return true;}},setPointerCapture(){}};
+    const S=makeScene(canvas);
+    withState({view:'explore'},()=>{
+      const ctx=makeShot(S.W,S.H), M=buildModel(ST), G2=exploreGeo(ctx,S.W,S.H,M), map=G2.map, bk=M.blocks[0];
+      ok(!S.pointer('down',10,10),'a pointer-down away from every block grabs nothing');
+      ok(S.pointer('down',map.X(bk.x),map.Y(bk.yb+bk.s/2)),'pointer-down on block A grabs it');
+      eq(DRAG.what,'A','and it is block A that is held');
+      const y0=bk.yb;
+      ok(S.pointer('move',map.X(bk.x),map.Y(bk.yb+bk.s/2)+40),'the move is accepted');
+      close(ST.holdA,y0-40/map.s,1e-9,'the block follows the pointer, keeping the grab offset');
+      MEMO.explore=null;
+      const M2=buildModel(ST);
+      eq(M2.blocks[0].mode,'held','the model says it is held');
+      ok(M2.blocks[0].Vsub>bk.Vsub,'pushed down, it displaces more');
+      ok(M2.yw>M.yw,'so the level rises');
+      ok(M2.blocks[0].hand<0,'and the hand has to PUSH DOWN on a floater');
+      S.pointer('move',map.X(bk.x),map.Y(bk.yb)+4000);
+      close(ST.holdA,-POOL_H,1e-12,'dragged through the floor, the hold stops AT the floor');
+      S.pointer('move',map.X(bk.x),map.Y(bk.yb)-4000);
+      close(ST.holdA,0.30-cubeSide(0.005)-0.012,1e-15,'lifted, it stops where its top reaches the top of the world');
+      close(holdCeiling(cubeSide(0.005))+cubeSide(0.005)+0.012,POOL_YTOP,1e-15,'which is what the ceiling is for');
+      ok(S.pointer('up',0,0),'pointer-up releases');
+      eq(ST.holdA,null,'and the block is let go');
+      MEMO.explore=null;
+      close(buildModel(ST).yw,M.yw,1e-12,'released, everything returns to where it was');
+    });
+    withState({view:'explore',where:'ground'},()=>{
+      const ctx=makeShot(S.W,S.H), M=buildModel(ST), G2=exploreGeo(ctx,S.W,S.H,M), map=G2.map, bk=M.blocks[0];
+      eq(bk.mode,'out','on the ground scale the block is out of the pool');
+      ok(!S.pointer('down',map.X(bk.x),map.Y(bk.yb+bk.s/2)),'and cannot be grabbed out there');
+      close(M.groundReads,bk.W,1e-12,'the ground scale reads its full weight');
+      eq(M.poolReads,0,'and the pool scale reads nothing');
+    });
+    for(const v of ['sets','faces','scale','fluids'])
+      withState({view:v},()=>ok(!S.pointer('down',400,300),'the '+v+' view ignores the pointer'));
+    eq(S.step(),false,'nothing in this sim animates: step() never advances anything');
+    /* ONE arrow scale, asserted off the model rather than off the picture */
+    withState({view:'explore',two:true,matA:'aluminum',massA:13.5,volAL:5,matB:'wood',massB:2,volBL:5},()=>{
+      const M=buildModel(ST), FS=forceScale(M.blocks);
+      rel(M.blocks[0].W,132.3,1e-12,'block A is the heavy one');
+      close(FS.Fref,132.3,1e-12,'the reference force is the LARGEST, 132.3 N');
+      const A=forceLengths(M.blocks[0],FS), B=forceLengths(M.blocks[1],FS);
+      rel(A.W,FS.len,1e-12,'so the heavy block gets the full-length arrow');
+      rel(A.W/B.W,M.blocks[0].W/M.blocks[1].W,1e-12,'and the two are in the ratio of the weights');
+      rel(A.Fb/A.W,M.blocks[0].Fb/M.blocks[0].W,1e-12,'within one block too');
+      close(FS.len,0.10349879733383488,1e-15,'the arrow length IS the room the tightest block leaves (0.1035 m)');
+      ok(FS.len<0.13-1e-6,'which is below the 0.13 m ceiling, so the room is doing the work');
+      close(FS.len,M.blocks[0].yb+M.blocks[0].s/2-(-POOL_H-0.018),1e-15,
+            '= the sunk block\u2019s centre above the floor');
+      ok(holdCeiling(cubeSide(0.01))<holdCeiling(cubeSide(0.001)),'a bigger block cannot be lifted as high');
+    });
+  }
+
+  /* ---------- M. layout sweep: every view drawn at four sizes ---------- */
+  const SIZES=[[1400,820],[1180,740],[900,600],[620,420]];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  const SWEEP=[
+    ['explore default',{view:'explore'},6],
+    ['explore two',{view:'explore',two:true},8],
+    ['explore mercury',{view:'explore',fluid:'mercury',two:true},8],
+    ['explore poolscale',{view:'explore',where:'poolscale'},7],
+    ['explore ground',{view:'explore',where:'ground'},7],
+    ['explore held',{view:'explore',holdA:-POOL_H},6],
+    ['explore no forces',{view:'explore',forces:false},6],
+    ['sets mass',{view:'sets',setMode:'mass'},7],
+    ['sets volume',{view:'sets',setMode:'volume'},7],
+    ['sets density',{view:'sets',setMode:'density',sameRho:2500},7],
+    ['faces deep',{view:'faces',facesDepth:0.6},4],
+    ['faces shallow',{view:'faces',facesDepth:0.08},4],
+    ['faces mercury',{view:'faces',fluid:'mercury',facesDepth:0.5},4],
+    ['scale start',{view:'scale',lowered:0},5],
+    ['scale mid',{view:'scale',lowered:0.6},5],
+    ['scale end',{view:'scale',lowered:1,matA:'brick'},5],
+    ['fluids wood',{view:'fluids'},20],
+    ['fluids gold',{view:'fluids',gridMat:'gold'},20],
+  ];
+  for(const [nm,over,minFills] of SWEEP) for(const [W,H] of SIZES) withState(over,()=>{
+    const c=makeShot(W,H); let err=null;
+    try{ drawView(c,W,H,buildModel(ST),ST); }catch(e){ err=e; }
+    ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+    if(err) return;
+    const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+    ok(fills.length>=minFills&&texts.length>=3,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+    let bad=null;
+    for(const t of texts){
+      if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+      if(badRe.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+      if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'"'; break; } }
+    ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+    const inHint=texts.filter(t=>t.bb[0]<340&&t.bb[3]>H-27);
+    ok(!inHint.length,nm+' '+W+'x'+H+' nothing under the #hint line'+(inHint.length?' ("'+inHint[0].t.slice(0,30)+'")':''));
+    let hit=null;
+    for(let i=0;i<texts.length&&!hit;i++) for(let j=i+1;j<texts.length;j++){
+      const a=texts[i].bb,b=texts[j].bb;
+      const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+      if(ox>3&&oy>3){ hit='"'+texts[i].t.slice(0,22)+'" vs "'+texts[j].t.slice(0,22)+'"'; break; } }
+    ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+  });
+
+  /* the canvas carries no letter subscripts (there is no Unicode subscript f,
+     and the rasteriser's font does not have all of the ones that exist) */
+  {
+    const c=makeShot(1180,740);
+    let bads=[];
+    for(const v of TABS.map(t=>t[0])) withState({view:v},()=>{ drawView(c,1180,740,buildModel(ST),ST); });
+    for(const o of c.ops) if(o.op==='text'&&/[ₐ-ₜᵢ-ᵪ]/.test(o.t)) bads.push(o.t);
+    eq(bads.length,0,'no letter subscripts reach the canvas (greenhouse-effect Known-bad)'+(bads.length?': '+bads[0]:''));
+  }
+
+  Object.assign(ST,stSave); clearAll();
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

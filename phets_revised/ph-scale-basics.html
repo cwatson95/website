@@ -1,0 +1,2775 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pH Scale: Basics &mdash; one beaker, twelve liquids, and the exact dilution law</title>
+<!--
+  ===================================================================
+  ph-scale-basics.html — a remake of PhET's pH Scale: Basics: PhET's
+  Macro screen as its own sim, with the dilution law done exactly
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' pH Scale: Basics (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets.  Built against PhET's ph-scale-basics 1.7.5, whose
+  ONE screen is the Macro screen of pH Scale: pick one of twelve
+  everyday liquids, pour it from the dropper, dip the pH meter, run the
+  tap to dilute it, open the drain.  PhET's Basics sim shows a pH and a
+  volume and nothing else — no concentrations, no moles, no particle
+  counts — and this remake keeps that in the beaker view.
+
+  THE SAME ENGINE AS ph-scale.html.  The chemistry, the beaker's state
+  and clock, the readout and three of the four views are the very same
+  part files, taken by path and pinned by SHA-256 in
+  build/ph-scale-basics/assemble.py: build/ph-scale/p2_chem.js,
+  p3_state.js, p4_views.js and p7_refs.js.  What differs is this head,
+  the sim's identity (four tabs, and no concentrations in the beaker
+  readout), one extra view, the control panel and the test suite.  The
+  full sim's other three screens — the particle picture, the
+  concentration graph and My Solution — are simply absent, which is
+  PhET's own difference between the two sims.
+
+  Four views.  THE BEAKER is PhET's Macro screen.  THE LIQUIDS is this
+  file's own: PhET's twelve as a table, with the measured range where
+  one could be sourced and what a full beaker of water does to each.
+  DILUTION and THE SCALE are the two analysis views ph-scale carries,
+  unchanged.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The chemistry, as exact arithmetic, with Kw = 1.000e-14 mol^2/L^2
+  (pKw = 14.000) — the conventional value at 25 C, and the one PhET's
+  hard-coded 14 encodes.  Neutral is therefore pH 7.000 exactly.
+
+      [H3O+] = 10^-pH,   [OH-] = Kw/[H3O+],   n = cV,   N = n N_A
+
+  with N_A the exact SI 2019 value 6.02214076e23.  Every concentration
+  is asserted against 50-digit `decimal` evaluation in
+  build/ph-scale/derive.py over the whole scale INCLUDING its ends.
+  [OH-] is written as a division on purpose: PhET's spelling
+  10^-(14-pH) is out by up to 2.1e-15 because pH - 14 is inexact in a
+  double whenever pH < 7, while the division is out by 2.1e-16 and
+  keeps [H3O+][OH-] = Kw to a rounding.
+
+  DILUTION is where a sloppy model shows, so it is done properly.  What
+  dilutes is not the pH and not either ion but the NET STRONG ACID
+
+      C = [H3O+] - [OH-] = -2 sqrt(Kw) sinh( ln10 (pH - 7) ),
+
+  a difference of ANALYTICAL concentrations — the spectator ions cancel
+  out of the charge balance — whose moles are therefore conserved on
+  mixing.  Water carries C = 0 exactly.  So mixing V1 of pH1 with V2 of
+  pH2 is
+
+      C = (C1 V1 + C2 V2)/(V1 + V2),  then re-solve [H3O+] - Kw/[H3O+] = C,
+      pH = 7 - asinh( C / (2 sqrt(Kw)) ) / ln10.
+
+  That re-solve is the water autoionisation PhET's rule leaves out.  It
+  is implemented twice (the asinh closed form and the stable branch of
+  the quadratic root) and asserted against a Decimal mole ledger plus a
+  scipy brentq root of the charge balance.  The stable branch is
+  load-bearing: the textbook root (C + sqrt(C^2 + 4Kw))/2 is out by
+  3.6e-5 at pH 13, 8.0e-4 at pH 14 and 11 % at pH 15, all of which
+  PhET's range reaches, and derive.py asserts it is STILL that bad so
+  the branch cannot be deleted.  Two structural facts fall out and are
+  asserted: diluting f-fold divides C by exactly f, and C is an ODD
+  function about pH 7, so pH 2 and pH 12 are exactly as strong as each
+  other and equal volumes of them are exactly neutral.
+
+  WHAT IS PhET'S RULE, AND WHERE IT DIFFERS
+  -----------------------------------------
+  PhET mixes the MAJORITY ion linearly and takes a log (doc/model.md
+  and PHModel.computePH), never re-solving, so water's own
+  autoionisation is counted on the majority side and ignored on the
+  minority side.  Both laws are implemented and a chip switches between
+  them.  Over everything this beaker can reach (pH -1..15,
+  0.015..1.2 L of liquid in 1.2 L) the two never differ by more than
+  0.0948 pH, at pH 4.91 with 0.015 L in the beaker; at PhET's own
+  liquids the worst is 0.0815 pH (chicken soup, 0.1 L in 1.2 L).  It is
+  a small error and a real one, it vanishes undiluted and at infinite
+  dilution, and it is an odd function about pH 7.  Volume-averaging the
+  pH — the mistake the dilution view exists to rule out — is wrong by
+  up to 4.42 pH.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  Every liquid is treated as a STRONG acid or base of the stated pH:
+  fully dissociated, with a spectator counter-ion and no buffering.
+  That is PhET's model too, and for blood it is a fiction — blood is a
+  bicarbonate buffer and diluting it does not move its pH the way this
+  shows.  The sim says so on the canvas.  Temperature is fixed: pKw is
+  14.000 and does not move.  Activity coefficients are ignored, which
+  is why battery acid can be called pH 1 at all.  The solute colour is
+  PhET's own law (water colour to the colour-stop colour over the first
+  quarter of the mixture, then to the stock colour), reimplemented from
+  its arithmetic.  The clock runs at a fixed 1/60 s per frame so the
+  headless suites are deterministic, and the dropper and faucets run at
+  PhET's rates (0.05 and 0.25 L/s).
+
+  NOT MODELLED
+  ------------
+  Weak acids and bases, buffers, ionic strength and activity, carbonate
+  equilibria, temperature, mixing kinetics, and any solute chemistry at
+  all: two liquids mixed here interact only through H3O+ and OH-.  Also
+  absent, being PhET's interface rather than its physics: the sounds,
+  the voicing and alt-text layers, the artwork and the combo box.  Two
+  things differ from PhET's: the dropper starts loaded with orange juice
+  rather than water, so the beaker shows something the moment it opens,
+  and the beaker starts autofilled with PhET's 0.5 L.
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's values, read from docs/phets/ph-scale-basics_en.html (1.7.5)
+  and its shared PH_SCALE code: the twelve liquids' names, pH values and
+  colours (battery acid 1, blood 7.4, chicken soup 5.8, coffee 5, drain
+  cleaner 13, hand soap 10, milk 6.5, orange juice 3.5, soda pop 2.5,
+  spit 7.4, vomit 2, water 7); the beaker's 1.2 L and its 0.015 L
+  minimum; the pH range -1 to 15 and its two decimal places; the
+  dropper's 0.05 L/s, the faucets' 0.25 L/s and the autofill's 0.5 L at
+  0.45 L/s; water at 55 mol/L; the colour law's 0.25 stop.  Chemistry:
+  Kw = 1e-14 at 25 C by convention, N_A = 6.02214076e23 (SI 2019,
+  exact).  Measured pH ranges, four of the twelve, quoted to their
+  sources' own precision: BLOOD 7.37-7.43 (Merck Manual Professional,
+  "Acid-Base Regulation", J. L. Lewis III: "a pH of 7.43 to 7.37");
+  ORANGE JUICE 3.30-4.19 and MILK 6.40-6.80 and CHICKEN BROTH 5.80
+  (FDA, "Approximate pH of Foods and Food Products").  PhET's value
+  lies inside every one of those four.  No measured range could be
+  sourced here for the other eight, and the canvas says which is which
+  rather than inventing one.  Every reference value the suite asserts
+  is a line of build/ph-scale/refvals.txt, the output of derive.py.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the exact pH and the hydronium it
+       comes from), orange = the reference (PhET's own rule, the measured ranges),
+       magenta = the live marker (where the beaker is now), cyan = structure (the
+       glass, the axes, the hydroxide). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the derivation
+     for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:118px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:74px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>pH scale: basics</h1>
+  <span class="sub" id="sub">A remake of PhET&rsquo;s pH Scale: Basics &mdash; PhET&rsquo;s Macro screen on its own: pour out one of twelve everyday liquids, dip the meter, add water, and see how little the number moves &mdash; because what dilutes is C = [H<sub>3</sub>O<sup>+</sup>] &minus; [OH<sup>&minus;</sup>], not the pH</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the chemistry, PhET's constants, and PhET's two drawing rules      *
+ *  Every number marked (PhET) was read out of the minified original,  *
+ *  docs/phets/ph-scale_en.html 1.7.6.  Every number marked (SI) or    *
+ *  derived is re-derived in build/ph-scale/derive.py.                 *
+ * ================================================================== */
+
+/* Kw at 25 C by convention: pKw = 14.000 exactly, which is what PhET's hard-coded 14
+   encodes (PHModel writes 14 - pH and 14 + log10 everywhere).  Neutral is pH 7.000.
+   Temperature dependence is NOT modelled — pKw really does move with temperature, and a
+   warm beaker's neutral point is below 7; this file has one temperature and says so. */
+const KW=1e-14, PKW=14, SQRTKW=1e-7, LN10=Math.LN10;
+const NA=6.02214076e23;          /* (SI 2019, exact) */
+const NA_PHET=6.023e23;          /* (PhET) doc/model.md and computeParticleCount */
+
+const PHET={
+  BEAKER_VOLUME:1.2,             /* PHScaleConstants.BEAKER_VOLUME, L */
+  MIN_SOLUTION_VOLUME:0.015,     /* PHScaleConstants.MIN_SOLUTION_VOLUME, L */
+  PH_MIN:-1, PH_MAX:15, PH_DEFAULT:7,        /* PHScaleConstants.PH_RANGE */
+  PH_DECIMALS:2, VOL_DECIMALS:2,
+  MY_VOL_MIN:0.01, MY_VOL_DEFAULT:0.5,       /* MySolution.totalVolumeProperty */
+  DROPPER_FLOW:0.05,             /* Dropper maxFlowRate, L/s */
+  FAUCET_FLOW:0.25,              /* Faucet maxFlowRate, L/s (water and drain) */
+  AUTOFILL_VOLUME:0.5, AUTOFILL_FLOW:0.45,   /* PHModel autofill */
+  WATER_CONC:55, WATER_PH:7,                 /* Water.concentration, Water.pH */
+  LOG_EXP_MIN:-16, LOG_EXP_MAX:2,            /* LOGARITHMIC_EXPONENT_RANGE */
+  LIN_EXP_MIN:-14, LIN_EXP_MAX:1,            /* LINEAR_EXPONENT_RANGE */
+  LIN_MANTISSA_MAX:8,                        /* LINEAR_MANTISSA_RANGE */
+  DOTS_AT_PH7:50, DOTS_REF_CONC:1e-7,        /* ParticlesNode: round(50 c / 1e-7) */
+  DOTS_MIN:5, DOTS_MAX:3000, DOTS_PH_LO:6, DOTS_PH_HI:8,
+  COLOR_STOP_RATIO:0.25                      /* Solute's default colorStopRatio */
+};
+const WATER_RGB=[224,255,255];   /* (PhET) PHScaleColors.WATER, and the default dilutedColor */
+const H3O_RGB='rgb(204,0,0)';    /* (PhET) PHScaleColors.H3O_PARTICLES */
+const OH_RGB='rgb(0,0,255)';     /* (PhET) PHScaleColors.OH_PARTICLES */
+
+/* PhET's twelve liquids, verbatim from the Solute.BATTERY_ACID .. Solute.WATER block.
+   `range` is a MEASURED pH range with a source; null means none could be sourced here and
+   the canvas says so rather than inventing one. */
+const SOLUTES=[
+  {id:'batteryAcid', name:'battery acid',  pH:1,   stock:[255,255,0],   stop:[255,224,204], range:null},
+  {id:'blood',       name:'blood',         pH:7.4, stock:[211,79,68],   stop:[255,207,204],
+   range:[7.37,7.43], src:'Merck Manual Professional, “Acid-Base Regulation” (J. L. Lewis III)'},
+  {id:'chickenSoup', name:'chicken soup',  pH:5.8, stock:[255,240,104], stop:[255,250,204],
+   range:[5.80,5.80], src:'FDA, “Approximate pH of Foods and Food Products”, row “Chicken Broth, rts.”'},
+  {id:'coffee',      name:'coffee',        pH:5,   stock:[164,99,7],    stop:[255,240,204], range:null},
+  {id:'drainCleaner',name:'drain cleaner', pH:13,  stock:[255,255,0],   stop:[255,255,204], range:null},
+  {id:'handSoap',    name:'hand soap',     pH:10,  stock:[224,141,242], stop:[232,204,255], range:null},
+  {id:'milk',        name:'milk',          pH:6.5, stock:[250,250,250], stop:null,
+   range:[6.40,6.80], src:'FDA, same table, row “Milk, cow”'},
+  {id:'orangeJuice', name:'orange juice',  pH:3.5, stock:[255,180,0],   stop:[255,242,204],
+   range:[3.30,4.19], src:'FDA, same table, row “Orange Juice, California”'},
+  {id:'soda',        name:'soda pop',      pH:2.5, stock:[204,255,102], stop:[238,255,204], range:null},
+  {id:'spit',        name:'spit',          pH:7.4, stock:[202,240,239], stop:null,          range:null},
+  {id:'vomit',       name:'vomit',         pH:2,   stock:[255,171,120], stop:[255,224,204], range:null},
+  {id:'water',       name:'water',         pH:7,   stock:WATER_RGB,     stop:null,          range:null}
+];
+function soluteById(id){
+  for(let i=0;i<SOLUTES.length;i++) if(SOLUTES[i].id===id) return SOLUTES[i];
+  return SOLUTES[7];
+}
+
+/* ---- the two concentrations ------------------------------------------------------ */
+function concH3O(ph){ return Math.pow(10,-ph); }
+/* Kw/[H3O+], NOT 10^-(14-pH): pH - 14 is inexact in a double whenever pH < 7 (5.8 - 14
+   needs one bit more than a double carries), so PhET's spelling is out by up to 2.1e-15
+   while this is out by 2.1e-16 and keeps [H3O+][OH-] = Kw to a rounding (derive.py). */
+function concOH(ph){ return KW/Math.pow(10,-ph); }
+function concOHPhet(ph){ return Math.pow(10,-(PKW-ph)); }
+function phFromH3O(c){ return (c===null||c===0)?null:-Math.log10(c); }
+function phFromOH(c){ const p=phFromH3O(c); return p===null?null:PKW-p; }
+function molesOf(c,v){ return c*v; }
+function moleculesOf(c,v,na){ return c*v*(na===undefined?NA:na); }
+
+/* ---- the net strong acid: the quantity that actually dilutes ---------------------- *
+ * C = [H3O+] - [OH-] is a difference of ANALYTICAL concentrations (the spectator ions
+ * cancel out of the charge balance), so moles of C are conserved on mixing and C simply
+ * volume-averages.  Water has C = 0 exactly.  Written as a sinh it is exact everywhere;
+ * written as the difference it cancels near neutral (1.9e-11 relative at pH 6.999999,
+ * 1.7e-13 at 6.9999 — measured in derive.py, which also asserts the naive form is STILL
+ * that bad so this branch cannot be quietly deleted).                                 */
+function netAcid(ph){ return -2*SQRTKW*Math.sinh(LN10*(ph-0.5*PKW)); }
+function netAcidNaive(ph){ return concH3O(ph)-concOH(ph); }
+
+/* [H3O+] from C: the root of h - Kw/h = C.  The textbook root (C + sqrt(C^2+4Kw))/2 is
+   catastrophic cancellation for every base — 3.6e-5 relative at pH 13, 8.0e-4 at pH 14,
+   11 % at pH 15, all inside PhET's own range — so C < 0 takes the rationalised branch. */
+function h3oFromNet(c){
+  const r=Math.sqrt(c*c+4*KW);
+  return c>=0 ? 0.5*(c+r) : 2*KW/(r-c);
+}
+function h3oFromNetNaive(c){ return 0.5*(c+Math.sqrt(c*c+4*KW)); }
+function phFromNet(c){ return -Math.log10(h3oFromNet(c)); }
+/* the same number in closed form, asinh being stable for every sign and size of C.
+   Implemented twice on purpose: selfTest asserts the two agree, which catches typing. */
+function phFromNetAsinh(c){ return 0.5*PKW-Math.asinh(c/(2*SQRTKW))/LN10; }
+
+/* ---- mixing ---------------------------------------------------------------------- */
+/* moles of net acid per litre of the mixture */
+function mixNet(ph1,v1,ph2,v2){
+  const vt=v1+v2;
+  return vt<=0?null:(netAcid(ph1)*v1+netAcid(ph2)*v2)/vt;
+}
+/* THE EXACT LAW: average the net acid, then re-solve the charge balance with Kw.  The
+   two degenerate cases are exact rather than round-tripped, as PhET's are. */
+function mixExact(ph1,v1,ph2,v2){
+  const vt=v1+v2;
+  if(!(vt>0)) return null;
+  if(v2===0) return ph1;
+  if(v1===0) return ph2;
+  return phFromNet(mixNet(ph1,v1,ph2,v2));
+}
+/* PhET's own rule (doc/model.md and PHModel.computePH), reimplemented from its
+   arithmetic: mix the MAJORITY ion linearly and take a log, water contributing 1e-7 of
+   that ion, with the branch chosen by whether the solute is an acid.  It never
+   re-solves, so water's autoionisation is counted on one side and dropped on the other. */
+function mixPhet(ph1,v1,v2){
+  const vt=v1+v2;
+  if(!(vt>0)) return null;
+  if(v2===0) return ph1;
+  if(v1===0) return PHET.WATER_PH;
+  if(ph1<7) return -Math.log10((Math.pow(10,-ph1)*v1+Math.pow(10,-PHET.WATER_PH)*v2)/vt);
+  return PKW+Math.log10((Math.pow(10,ph1-PKW)*v1+Math.pow(10,PHET.WATER_PH-PKW)*v2)/vt);
+}
+/* volume-averaging the pH — the mistake the dilution view exists to rule out */
+function mixAverage(ph1,v1,ph2,v2){
+  const vt=v1+v2;
+  return vt<=0?null:(ph1*v1+ph2*v2)/vt;
+}
+
+/* ---- PhET's solute colour law ----------------------------------------------------- *
+ * Solute.computeColor, reimplemented from its arithmetic.  ratio = V_solute/V_total:
+ * with a colour stop the ramp is water -> stop over [0, 0.25] and stop -> stock over
+ * [0.25, 1]; without one it is water -> stock over the whole range.                    */
+function lerpRGB(a,b,t){
+  return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t];
+}
+function soluteRGB(sol,ratio){
+  const r=clamp(ratio,0,1), s=PHET.COLOR_STOP_RATIO;
+  if(!sol.stop) return lerpRGB(WATER_RGB,sol.stock,r);
+  return r>s ? lerpRGB(sol.stop,sol.stock,(r-s)/(1-s)) : lerpRGB(WATER_RGB,sol.stop,r/s);
+}
+function rgbCss(c){
+  return 'rgb('+Math.round(c[0])+','+Math.round(c[1])+','+Math.round(c[2])+')';
+}
+
+/* ---- PhET's particle-drawing rule -------------------------------------------------- *
+ * ParticlesNode.update: inside pH 6..8 the two counts are the true concentrations at 50
+ * dots per 1e-7 mol/L, floored at 5.  Outside that window the majority saturates and the
+ * MINORITY ramps linearly to 3000 at the ends of PH_RANGE — a drawing rule, not a count:
+ * at pH 13 the drawn ratio is 457:1 where the true one is 1e12:1, which the canvas says. */
+function rawDots(c){ return PHET.DOTS_AT_PH7*c/PHET.DOTS_REF_CONC; }
+function dotCounts(ph){
+  const lo=PHET.DOTS_PH_LO, hi=PHET.DOTS_PH_HI;
+  let h,o;
+  if(ph>=lo&&ph<=hi){
+    h=Math.max(PHET.DOTS_MIN,rawDots(concH3O(ph)));
+    o=Math.max(PHET.DOTS_MIN,rawDots(concOH(ph)));
+  } else if(ph>hi){
+    const s=ph-hi, slope=(PHET.DOTS_MAX-rawDots(concOH(hi)))/(PHET.PH_MAX-hi);
+    h=Math.max(PHET.DOTS_MIN,rawDots(concH3O(hi))-s);
+    o=rawDots(concOH(hi))+s*slope;
+  } else {
+    const s=lo-ph, slope=(PHET.DOTS_MAX-rawDots(concOH(hi)))/(PHET.PH_MAX-hi);
+    h=rawDots(concH3O(lo))+s*slope;
+    o=Math.max(PHET.DOTS_MIN,rawDots(concOH(lo))-s);
+  }
+  return {h:Math.round(h), o:Math.round(o)};
+}
+
+/* ---- a small seeded generator, so the dot scatter repeats exactly ------------------ */
+function makeRng(seed){
+  let s=seed>>>0;
+  return {seed(x){ s=x>>>0; },
+          next(){ s=(s*1664525+1013904223)>>>0; return s/4294967296; }};
+}
+
+/* ================================================================== *
+ *  which sim this file is.  ph-scale-basics carries PhET's ONE screen *
+ *  (Macro) and the analysis that belongs with it; this part and the   *
+ *  head, the boot and the suite are all that differ from ph-scale,    *
+ *  which supplies the chemistry, the state and the shared views by    *
+ *  path (SHA-pinned in assemble.py).                                  *
+ * ================================================================== */
+const SIMID='ph-scale-basics';
+const SIM_NAME='pH Scale: Basics';
+const SIM_VER='1.7.5';
+const TABS=[['beaker','the beaker'],['liquids','the liquids'],
+            ['dilution','dilution'],['scale','the scale']];
+/* PhET's Basics sim prints only a pH and a volume — no concentrations, no moles, no
+   molecule counts — so the beaker readout drops those rows.  The scale view keeps them,
+   because the two concentrations are what that view exists to explain. */
+const SHOW_CONC=false;
+
+/* ================================================================== *
+ *  state: the beaker (PhET's two volumes), the pH-meter probe, the    *
+ *  clock the dropper and faucets run on, the per-view models, and the *
+ *  readout / equation bar / tag                                       *
+ * ================================================================== */
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6',
+           edge:'#242a3a', off:'#161c2c',
+           h3o:'#e8583a', oh:'#5ac8e0', h2o:'#8fa2c4', glass:'#8fb8d4',
+           acid:'#e8843a', base:'#7b6cf0', neutral:'#b8ec4c'};
+const RO_W=300;
+/* the house #hint sits at bottom:11px on top of the last line of a caption anchored at
+   H - 12, so every caption here ends HINT_H higher (build/wave-on-a-string/, Known-bad) */
+const HINT_H=18;
+const FRAME_DT=1/60;             /* a fixed step, so the headless suites are deterministic */
+
+const LAW_LIST=[{id:'exact',name:'exact (Kw)'},{id:'phet',name:'PhET&rsquo;s rule'}];
+const UNIT_LIST=[{id:'molar',name:'mol/L'},{id:'moles',name:'moles'}];
+const SCALE_LIST=[{id:'log',name:'logarithmic'},{id:'linear',name:'linear'}];
+const SOLUTE_LIST=SOLUTES.map(s=>({id:s.id,name:s.name}));
+
+const DEFAULTS={view:TABS[0][0],
+  solute:'orangeJuice', vSolute:PHET.AUTOFILL_VOLUME, vWater:0,
+  law:'exact', ph:PHET.PH_DEFAULT, vMy:PHET.MY_VOL_DEFAULT,
+  units:'molar', scaleKind:'log', linExp:-7,
+  ratio:false, counts:false,
+  pourSolute:false, pourWater:false, drain:false, running:true};
+const ST=Object.assign({},DEFAULTS);
+
+/* the pH meter's probe, in BEAKER-LOCAL coordinates: x across the inner width (0 at the
+   left wall, 1 at the right), y up from the floor (0 at the floor, 1 at the brim).  The
+   meter reads only when the tip is inside the liquid, exactly as PhET's does. */
+const PROBE={x:0.62, y:0.16};
+const PROBE0={x:0.62, y:0.16};
+const DRAG={what:null};
+const DOT_RNG=makeRng(20260921);
+/* The tip is in the liquid when it is inside the walls and below the surface.  PhET's
+   meter shows nothing when its probe is out of the solution, and so does this one — the
+   readout prints "probe is out" rather than a pH, which is the honest thing for a meter
+   that is measuring air. */
+const PROBE_WALL=0.04;
+function probeInLiquid(){
+  return PROBE.x>=PROBE_WALL && PROBE.x<=1-PROBE_WALL
+      && PROBE.y>=0 && PROBE.y<=fillFrac() && vTotal()>0;
+}
+
+function resetBeaker(){
+  ST.vSolute=DEFAULTS.vSolute; ST.vWater=DEFAULTS.vWater;
+  ST.pourSolute=false; ST.pourWater=false; ST.drain=false;
+}
+
+/* ---- the beaker ------------------------------------------------------------------- */
+function vTotal(){ return ST.vSolute+ST.vWater; }
+function fillFrac(){ return clamp(vTotal()/PHET.BEAKER_VOLUME,0,1); }
+function soluteRatio(){ const t=vTotal(); return t>0?ST.vSolute/t:0; }
+function currentSolute(){ return soluteById(ST.solute); }
+
+/* The beaker's ions.  For a MIXTURE the net acid C is the primary quantity and both ion
+   concentrations come from it — going out to a pH and back loses eight digits at a
+   millionfold dilution, because a double holds 7 - eps to an absolute 8.9e-16 and eps is
+   all that is left (derive.py measures 4.0e-9 there against 2.2e-12 at a thousandfold).
+   The two degenerate cases are exact rather than round-tripped, as PhET's are. */
+function beakerIons(){
+  const t=vTotal();
+  if(!(t>0)) return null;
+  const sol=currentSolute();
+  if(ST.law==='phet'){
+    const p=mixPhet(sol.pH,ST.vSolute,ST.vWater);
+    return {ph:p, h:concH3O(p), o:concOH(p), c:netAcid(p), law:'phet'};
+  }
+  if(ST.vWater===0) return {ph:sol.pH, h:concH3O(sol.pH), o:concOH(sol.pH),
+                            c:netAcid(sol.pH), law:'exact'};
+  if(ST.vSolute===0) return {ph:PHET.WATER_PH, h:concH3O(PHET.WATER_PH),
+                             o:concOH(PHET.WATER_PH), c:0, law:'exact'};
+  const c=mixNet(sol.pH,ST.vSolute,PHET.WATER_PH,ST.vWater);
+  const h=h3oFromNet(c);
+  return {ph:-Math.log10(h), h:h, o:KW/h, c:c, law:'exact'};
+}
+function beakerPH(){ const i=beakerIons(); return i?i.ph:null; }
+
+/* acidic / neutral / basic, at PhET's own two decimal places: a solution reads neutral
+   when the number the meter PRINTS is 7.00, which is what PhET's isEquivalentToWater
+   does (it rounds to PH_METER_DECIMAL_PLACES first). */
+function phClass(ph){
+  if(ph===null||!isFinite(ph)) return 'empty';
+  const r=Math.round(ph*100)/100;
+  return r===PHET.WATER_PH?'neutral':(r<PHET.WATER_PH?'acidic':'basic');
+}
+
+/* ---- the clock: PhET's dropper and faucets ---------------------------------------- */
+function stepFrame(){
+  if(!ST.running) return false;
+  let moved=false;
+  const dt=FRAME_DT;
+  if(ST.pourSolute){
+    const room=PHET.BEAKER_VOLUME-vTotal();
+    const d=Math.min(PHET.DROPPER_FLOW*dt,Math.max(0,room));
+    if(d>0){ ST.vSolute+=d; moved=true; }
+  }
+  if(ST.pourWater){
+    const room=PHET.BEAKER_VOLUME-vTotal();
+    const d=Math.min(PHET.FAUCET_FLOW*dt,Math.max(0,room));
+    if(d>0){ ST.vWater+=d; moved=true; }
+  }
+  if(ST.drain){
+    const t=vTotal();
+    const d=Math.min(PHET.FAUCET_FLOW*dt,t);
+    if(d>0){
+      /* draining removes SOLUTION, so the mixture keeps its ratio and its pH */
+      const f=(t-d)/t;
+      ST.vSolute*=f; ST.vWater*=f; moved=true;
+    }
+  }
+  return moved;
+}
+/* PhET's autofill: 0.5 L of the chosen solute, straight in */
+function autofill(){ ST.vSolute=PHET.AUTOFILL_VOLUME; ST.vWater=0; }
+function emptyBeaker(){ ST.vSolute=0; ST.vWater=0; }
+/* the beaker holds 1.2 L: setting one volume past the brim pushes the other down.
+   Nothing else clamps, so selfTest sweeps the pair and asserts the total never exceeds it. */
+function setSolute(v){
+  ST.vSolute=clamp(v,0,PHET.BEAKER_VOLUME);
+  if(vTotal()>PHET.BEAKER_VOLUME) ST.vWater=PHET.BEAKER_VOLUME-ST.vSolute;
+}
+function setWater(v){
+  ST.vWater=clamp(v,0,PHET.BEAKER_VOLUME);
+  if(vTotal()>PHET.BEAKER_VOLUME) ST.vSolute=PHET.BEAKER_VOLUME-ST.vWater;
+}
+
+/* ---- the models -------------------------------------------------------------------- */
+function beakerModel(){
+  const sol=currentSolute(), ions=beakerIons(), vT=vTotal(), r=soluteRatio();
+  const M={sol, vS:ST.vSolute, vW:ST.vWater, vT, ratio:r,
+           rgb:soluteRGB(sol,r), ions,
+           ph:ions?ions.ph:null, cls:phClass(ions?ions.ph:null),
+           phExact:mixExact(sol.pH,ST.vSolute,PHET.WATER_PH,ST.vWater),
+           phPhet:mixPhet(sol.pH,ST.vSolute,ST.vWater),
+           phAvg:mixAverage(sol.pH,ST.vSolute,PHET.WATER_PH,ST.vWater),
+           full:vT>=PHET.BEAKER_VOLUME-1e-12, empty:!(vT>0),
+           probeIn:probeInLiquid()};
+  M.dilution=ST.vSolute>0?vT/ST.vSolute:null;
+  if(ions){
+    M.molesH=molesOf(ions.h,vT); M.molesO=molesOf(ions.o,vT);
+    M.molesW=molesOf(PHET.WATER_CONC,vT);
+    M.nH=M.molesH*NA; M.nO=M.molesO*NA; M.nW=M.molesW*NA;
+    M.nHphet=M.molesH*NA_PHET;
+    M.dots=dotCounts(Math.round(ions.ph*100)/100);
+    /* both ratios MAJORITY per minority, whichever ion that is: written as H3O+/OH- a
+       basic solution prints "drawn 0.00 : 1", which is arithmetically right and tells
+       the reader nothing */
+    M.basic=ions.o>ions.h;
+    M.majName=M.basic?'OH-':'H3O+'; M.minName=M.basic?'H3O+':'OH-';
+    M.majDots=M.basic?M.dots.o:M.dots.h; M.minDots=M.basic?M.dots.h:M.dots.o;
+    M.drawnRatio=M.majDots/M.minDots;
+    M.trueRatio=M.basic?ions.o/ions.h:ions.h/ions.o;
+  }
+  return M;
+}
+function myModel(){
+  const ph=ST.ph, v=ST.vMy;
+  const h=concH3O(ph), o=concOH(ph);
+  return {ph, v, h, o, cls:phClass(ph),
+          molesH:molesOf(h,v), molesO:molesOf(o,v), molesW:molesOf(PHET.WATER_CONC,v),
+          nH:moleculesOf(h,v), nO:moleculesOf(o,v), nW:moleculesOf(PHET.WATER_CONC,v),
+          dots:dotCounts(Math.round(ph*100)/100),
+          c:netAcid(ph)};
+}
+/* the graph and the particle views read whichever solution the file is showing: the
+   beaker on ph-scale's Micro screens, and My Solution's slider on its third */
+function activeSolution(){
+  if(ST.view==='my') { const m=myModel();
+    return {ph:m.ph, h:m.h, o:m.o, v:m.v, molesH:m.molesH, molesO:m.molesO,
+            molesW:m.molesW, nH:m.nH, nO:m.nO, nW:m.nW, dots:m.dots, from:'my'}; }
+  const b=beakerModel();
+  if(!b.ions) return {ph:null, h:null, o:null, v:0, from:'beaker', empty:true};
+  return {ph:b.ph, h:b.ions.h, o:b.ions.o, v:b.vT, molesH:b.molesH, molesO:b.molesO,
+          molesW:b.molesW, nH:b.nH, nO:b.nO, nW:b.nW, dots:b.dots, from:'beaker',
+          rgb:b.rgb, sol:b.sol};
+}
+
+/* the dilution curves: pH against the dilution factor f = V/V0, three laws.  f runs to a
+   millionfold even though the beaker only reaches 80x, because the interesting part —
+   where an acid stops being an acid — is past the brim, and the reachable band is shaded
+   and named on the canvas. */
+const DIL_FMAX=6;                              /* decades of dilution drawn */
+function dilutionCurves(ph0,n){
+  const ex=[], ph=[], av=[], xs=[];
+  const N=n||121;
+  for(let i=0;i<=N;i++){
+    const lx=DIL_FMAX*i/N, f=Math.pow(10,lx), v1=1, v2=f-1;
+    xs.push(lx);
+    ex.push(mixExact(ph0,v1,PHET.WATER_PH,v2));
+    ph.push(mixPhet(ph0,v1,v2));
+    av.push(mixAverage(ph0,v1,PHET.WATER_PH,v2));
+  }
+  return {xs, exact:ex, phet:ph, avg:av};
+}
+function dilutionModel(){
+  const sol=currentSolute(), b=beakerModel();
+  const cur=b.vS>0?Math.log10(b.vT/b.vS):0;
+  const C=dilutionCurves(sol.pH,121);
+  /* the difference panel: exact - PhET against the STOCK pH, at this dilution.  It is an
+     odd function about pH 7 because C(14-pH) = -C(pH) and PhET's branch rule mirrors the
+     same way — asserted in derive.py and in selfTest. */
+  const f=Math.max(1,Math.pow(10,cur));
+  /* The difference panel plots the WORST the two laws can differ over every dilution
+     this beaker can hold, against the stock pH -- not the difference at the beaker's
+     current dilution, which is identically zero at the default state and drew a flat
+     line through the middle of an empty box (Known-bad: a default that makes the view's
+     own subject invisible is a defect).  The envelope's peak IS derive.py's headline
+     0.0948 pH, and the beaker's own difference is marked on top of it. */
+  const fReach=PHET.BEAKER_VOLUME/PHET.MIN_SOLUTION_VOLUME;
+  const dx=[], dy=[];
+  for(let i=0;i<=160;i++){
+    const p=PHET.PH_MIN+(PHET.PH_MAX-PHET.PH_MIN)*i/160;
+    let best=0;
+    for(let k=0;k<=48;k++){
+      const ff=Math.pow(fReach,k/48);
+      const d=mixExact(p,1,PHET.WATER_PH,ff-1)-mixPhet(p,1,ff-1);
+      if(Math.abs(d)>Math.abs(best)) best=d;
+    }
+    dx.push(p); dy.push(best);
+  }
+  let worst=0, worstPh=7;
+  for(let i=0;i<dx.length;i++) if(Math.abs(dy[i])>worst){ worst=Math.abs(dy[i]); worstPh=dx[i]; }
+  return {sol, C, cur, f, fReach, dx, dy, worst, worstPh,
+          hereDiff:(b.phExact===null?null:b.phExact-b.phPhet),
+          envHere:(function(){ let best=0;
+            for(let k=0;k<=48;k++){ const ff=Math.pow(fReach,k/48);
+              const d=mixExact(sol.pH,1,PHET.WATER_PH,ff-1)-mixPhet(sol.pH,1,ff-1);
+              if(Math.abs(d)>Math.abs(best)) best=d; }
+            return best; })(),
+          beakerF:b.vS>0?b.vT/b.vS:null,
+          phNow:b.ph, phExact:b.phExact, phPhet:b.phPhet, phAvg:b.phAvg,
+          reach:Math.log10(PHET.BEAKER_VOLUME/PHET.MIN_SOLUTION_VOLUME),
+          b};
+}
+function scaleModel(){
+  const rows=SOLUTES.map(s=>({s, h:concH3O(s.pH), o:concOH(s.pH),
+                              nH:moleculesOf(concH3O(s.pH),PHET.BEAKER_VOLUME)}));
+  const act=activeSolution();
+  return {rows, act, sourced:SOLUTES.filter(s=>s.range).length};
+}
+function buildModel(){
+  const v=ST.view, M={view:v};
+  if(v==='beaker') M.B=beakerModel();
+  else if(v==='particles'||v==='graph') { M.A=activeSolution(); M.B=beakerModel(); }
+  else if(v==='my') { M.M=myModel(); M.A=activeSolution(); }
+  else if(v==='dilution') M.D=dilutionModel();
+  else if(v==='liquids') M.L=scaleModel();
+  else M.S=scaleModel();
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / equation bar / tag                                       *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+/* scientific notation.  HTML gets real markup; the canvas gets `1.23e-7`, because a
+   superscript minus is not in the rasteriser's font (BRIEF: letter subscripts and exotic
+   superscripts are tofu, digits are fine). */
+function sci(x,nd){
+  if(x===null||!isFinite(x)) return '&mdash;';
+  if(x===0) return '0';
+  const e=Math.floor(Math.log10(Math.abs(x)));
+  const m=x/Math.pow(10,e);
+  return fmt(m,nd===undefined?2:nd)+' &times; 10<sup>'+e+'</sup>';
+}
+function sciPlain(x,nd){
+  if(x===null||!isFinite(x)) return '—';
+  if(x===0) return '0';
+  const e=Math.floor(Math.log10(Math.abs(x)));
+  const m=x/Math.pow(10,e);
+  return fmt(m,nd===undefined?2:nd)+'e'+e;
+}
+function phStr(ph,nd){
+  return (ph===null||!isFinite(ph))?'&mdash;':fmt(ph,nd===undefined?PHET.PH_DECIMALS:nd);
+}
+function phPlain(ph,nd){
+  return (ph===null||!isFinite(ph))?'—':fmt(ph,nd===undefined?PHET.PH_DECIMALS:nd);
+}
+function volStr(v){ return fmt(v,PHET.VOL_DECIMALS)+' L'; }
+const CLS_NAME={acidic:'acidic', neutral:'neutral', basic:'basic', empty:'the beaker is empty'};
+const H3O='H<sub>3</sub>O<sup>+</sup>', OHM='OH<sup>&minus;</sup>', H2O='H<sub>2</sub>O';
+
+function ionRows(h,o,v,unitsOn){
+  let s='';
+  if(!SHOW_CONC) return s;
+  if(ST.units==='moles'&&unitsOn!==false){
+    s+=rrow(H3O+', moles',sci(molesOf(h,v),3),'good')
+      +rrow(OHM+', moles',sci(molesOf(o,v),3))
+      +rrow(H2O+', moles',sci(molesOf(PHET.WATER_CONC,v),3));
+  } else {
+    s+=rrow('['+H3O+']',sci(h,3)+' mol/L','good')
+      +rrow('['+OHM+']',sci(o,3)+' mol/L')
+      +rrow('['+H2O+']',fmt(PHET.WATER_CONC,0)+' mol/L');
+  }
+  return s;
+}
+function readoutHTML(M){
+  let s='<div class="rname">pH scale<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='beaker'||M.view==='particles'||M.view==='graph'){
+    const B=M.B;
+    s+=hd('the beaker')
+      +rrow('liquid',B.sol.name)
+      +rrow('pH',B.probeIn?phStr(B.ph):'&mdash; <span class="bad">probe is out</span>',
+            B.probeIn?'good':'')
+      +rrow('',CLS_NAME[B.cls])
+      +rrow('liquid poured',volStr(B.vS))
+      +rrow('water added',volStr(B.vW))
+      +rrow('total volume',volStr(B.vT)+(B.full?' (full)':''))
+      +rrow('diluted',B.dilution?fmt(B.dilution,2)+'&times;':'&mdash;');
+    if(B.ions){
+      s+=hd('what is in it')+ionRows(B.ions.h,B.ions.o,B.vT);
+      if(SHOW_CONC){
+        s+=rrow(H3O+' molecules',sci(B.nH,3))
+          +rrow(OHM+' molecules',sci(B.nO,3))
+          +rrow('net acid C',sci(B.ions.c,3)+' mol/L');
+      }
+    }
+    s+=hd('the two dilution laws')
+      +rrow('exact, re-solved with K<sub>w</sub>',phStr(B.phExact,4),'good')
+      +rrow('PhET&rsquo;s rule',phStr(B.phPhet,4),'')
+      +rrow('difference',B.phExact===null?'&mdash;':fmt(B.phExact-B.phPhet,4)+' pH',
+            Math.abs(B.phExact-B.phPhet)>0.005?'bad':'')
+      +rrow('averaging the pH (wrong)',phStr(B.phAvg,4),'bad');
+    if(M.view==='particles'&&B.ions){
+      s+=hd('PhET&rsquo;s particle picture')
+        +rrow(H3O+' dots',''+B.dots.h)
+        +rrow(OHM+' dots',''+B.dots.o)
+        +rrow('drawn, '+B.majName+' per '+B.minName,fmt(B.drawnRatio,2)+' : 1')
+        +rrow('true, '+B.majName+' per '+B.minName,sci(B.trueRatio,3)+' : 1','bad');
+    }
+    if(M.view==='graph'&&B.ions){
+      s+=hd('the graph')
+        +rrow('scale',ST.scaleKind==='log'?'logarithmic':'linear')
+        +rrow('units',ST.units==='moles'?'moles':'mol/L')
+        +rrow('decades drawn',ST.scaleKind==='log'
+              ?fmt(PHET.LOG_EXP_MAX-PHET.LOG_EXP_MIN,0)+' (PhET)'
+              :'top of scale '+sci(PHET.LIN_MANTISSA_MAX*Math.pow(10,ST.linExp),2));
+    }
+  } else if(M.M){
+    const m=M.M;
+    s+=hd('my solution')
+      +rrow('pH',phStr(m.ph),'good')
+      +rrow('',CLS_NAME[m.cls])
+      +rrow('volume',volStr(m.v))
+      +hd('what follows from it')+ionRows(m.h,m.o,m.v);
+    if(SHOW_CONC){
+      s+=rrow(H3O+' molecules',sci(m.nH,3))
+        +rrow(OHM+' molecules',sci(m.nO,3))
+        +rrow('with PhET&rsquo;s N<sub>A</sub>',sci(m.h*m.v*NA_PHET,3))
+        +rrow('net acid C',sci(m.c,3)+' mol/L');
+    }
+    s+=hd('the identity')
+      +rrow('['+H3O+'][' +OHM+']',sci(m.h*m.o,4),'good')
+      +rrow('K<sub>w</sub> at 25 &deg;C',sci(KW,4))
+      +rrow('pH + pOH',fmt(m.ph+(PKW-m.ph),4));
+  } else if(M.D){
+    const D=M.D;
+    s+=hd('the liquid')
+      +rrow('stock',D.sol.name+', pH '+fmt(D.sol.pH,2))
+      +rrow('net acid C',sci(netAcid(D.sol.pH),3)+' mol/L','good')
+      +rrow('in the beaker now',D.beakerF?fmt(D.beakerF,2)+'&times; diluted':'&mdash;');
+    s+=hd('the three laws, here')
+      +rrow('exact, re-solved',phStr(D.phExact,4),'good')
+      +rrow('PhET&rsquo;s rule',phStr(D.phPhet,4))
+      +rrow('averaging the pH',phStr(D.phAvg,4),'bad')
+      +rrow('exact &minus; PhET',D.phExact===null?'&mdash;':fmt(D.phExact-D.phPhet,4)+' pH')
+      +rrow('exact &minus; average',D.phExact===null?'&mdash;':fmt(D.phExact-D.phAvg,4)+' pH','bad');
+    s+=hd('the worst this beaker can do')
+      +rrow('dilution now',fmt(D.f,2)+'&times;')
+      +rrow('this beaker can reach',fmt(D.fReach,1)+'&times;')
+      +rrow('worst gap, any pH',fmt(D.worst,4)+' pH','bad')
+      +rrow('at stock pH',fmt(D.worstPh,2))
+      +rrow('worst for this liquid',fmt(Math.abs(D.envHere),4)+' pH');
+  } else {
+    const S=M.S||M.L;
+    s+=hd('PhET&rsquo;s twelve liquids');
+    for(const r of S.rows)
+      s+=rrow(r.s.name,fmt(r.s.pH,2),r.s.id===ST.solute?'good':'');
+    s+=hd('measured ranges')
+      +rrow('sourced here',S.sourced+' of '+SOLUTES.length)
+      +rrow('blood','7.37&ndash;7.43')
+      +rrow('orange juice','3.30&ndash;4.19')
+      +rrow('milk','6.40&ndash;6.80')
+      +rrow('chicken broth','5.80');
+    /* the two concentrations are this view's SUBJECT, so they are printed even in the
+       Basics build, whose beaker readout drops them as PhET's Basics does */
+    if(S.act&&S.act.ph!==null&&M.S){
+      s+=hd('where the beaker sits')
+        +rrow('pH',phStr(S.act.ph),'good')
+        +rrow('['+H3O+']',sci(S.act.h,3))
+        +rrow('['+OHM+']',sci(S.act.o,3));
+    } else if(S.act&&S.act.ph!==null){
+      s+=hd('where the beaker sits')+rrow('pH',phStr(S.act.ph),'good')
+        +rrow('the liquid',S.act.sol?S.act.sol.name:'—');
+    }
+  }
+  s+='</table><div class="note">'+roNote(M)+'</div>';
+  return s;
+}
+function roNote(M){
+  const v=M.view;
+  if(v==='beaker') return 'Every liquid here is treated as a STRONG acid or base of the stated pH &mdash; fully dissociated, no buffering. That is PhET&rsquo;s model too, and for blood it is a fiction: blood is a bicarbonate buffer and does not dilute like this.';
+  if(v==='particles') return 'The dots are PhET&rsquo;s drawing rule, not a count: 50 per 10<sup>&minus;7</sup> mol/L inside pH 6&ndash;8, and outside it the minority ramps to 3000 while the majority saturates. The readout prints the drawn ratio and the true one.';
+  if(v==='graph') return 'PhET&rsquo;s graph spans 18 decades on the logarithmic scale, which is the only way to put 10<sup>&minus;16</sup> and 55 mol/L on one axis. The linear scale can show one pair at a time, which is the point it makes.';
+  if(v==='my') return 'Nothing is being mixed here: the pH is set and the two concentrations follow from [' +H3O+'] = 10<sup>&minus;pH</sup> and ['+OHM+'] = K<sub>w</sub>/['+H3O+']. Their product is K<sub>w</sub> at every setting, which the readout checks.';
+  if(v==='dilution') return 'What dilutes is C = ['+H3O+'] &minus; ['+OHM+'], the net strong acid, because it is the quantity moles of which are conserved. Averaging the pH is wrong by whole units; PhET&rsquo;s rule is wrong by up to 0.095.';
+  return 'PhET&rsquo;s pH values are the data. Four of the twelve have a measured range that could be sourced, and PhET&rsquo;s value lies inside every one of them; the other eight carry PhET&rsquo;s number alone and are drawn without a range.';
+}
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  const v=M.view;
+  if(v==='beaker') return E('<span class="hl">['+H3O+'] = 10<sup>&minus;pH</sup></span>, &nbsp; ['+OHM+'] = K<sub>w</sub>/['+H3O+'], &nbsp; K<sub>w</sub> = 1.00 &times; 10<sup>&minus;14</sup> at 25 &deg;C',
+    'the pH is nothing but a logarithm of the hydronium concentration, and the hydroxide is whatever is left once the water&rsquo;s own equilibrium is satisfied');
+  if(v==='particles') return E('N = ['+H3O+'] V N<sub>A</sub> &nbsp;&rArr;&nbsp; <span class="hl">7.23 &times; 10<sup>16</sup></span> hydronium ions in 1.2 L of neutral water',
+    'a beaker of pure water is not inert: a hundred million billion of its molecules have swapped a proton at any instant, and that is what pH 7 means');
+  if(v==='graph') return E('['+H2O+'] = 55 mol/L &nbsp;&Gt;&nbsp; ['+H3O+']['+OHM+'] = <span class="hl">K<sub>w</sub> = 10<sup>&minus;14</sup></span>',
+    'water outnumbers both ions by fourteen to eighteen orders of magnitude, so the logarithmic scale is not a stylistic choice');
+  if(v==='my') return E('pH + pOH = <span class="hl">14</span>, &nbsp; ['+H3O+']['+OHM+'] = K<sub>w</sub>',
+    'move one and the other moves the opposite way by the same amount: the product is fixed by the water, not by what you dissolved in it');
+  if(v==='dilution') return E('<span class="hl">C = ['+H3O+'] &minus; ['+OHM+'] = C<sub>0</sub>V<sub>0</sub>/V</span>, &nbsp; then ['+H3O+'] &minus; K<sub>w</sub>/['+H3O+'] = C',
+    'the net strong acid is what dilutes &mdash; it is a difference of analytical concentrations, so its moles are conserved; the pH follows by re-solving, and never by averaging');
+  return E('C(pH) = &minus;2&radic;K<sub>w</sub> sinh[ln10 (pH &minus; 7)] &nbsp;&rArr;&nbsp; <span class="hl2">C(14 &minus; pH) = &minus;C(pH)</span>',
+    'the scale is antisymmetric about 7: pH 2 and pH 12 are exactly as strong as one another, and equal volumes of them are exactly neutral');
+}
+function tagHTML(M){
+  const v=M.view, nm=TABS.find(t=>t[0]===v)[1];
+  if(M.B&&(v==='beaker'||v==='particles'||v==='graph')){
+    const B=M.B, bits=[B.sol.name];
+    if(B.empty) bits.push('the beaker is empty');
+    else {
+      bits.push(volStr(B.vT));
+      bits.push('pH '+phPlain(B.ph));
+      if(B.vW>0) bits.push(fmt(B.dilution,2)+'× diluted');
+      if(ST.law==='phet') bits.push('PhET’s rule');
+    }
+    if(!ST.running) bits.push('paused');
+    return '<b>'+nm+'</b> &mdash; '+bits.join(', ');
+  }
+  if(M.M) return '<b>'+nm+'</b> &mdash; pH '+phPlain(M.M.ph)+', '+volStr(M.M.v)+', '+CLS_NAME[M.M.cls];
+  if(M.D) return '<b>'+nm+'</b> &mdash; '+M.D.sol.name+', stock pH '+fmt(M.D.sol.pH,2)
+    +', worst gap '+fmt(M.D.worst,4)+' pH';
+  return '<b>'+nm+'</b> &mdash; PhET&rsquo;s twelve liquids, and the two ions behind the number';
+}
+
+/* ================================================================== *
+ *  drawing helpers (y UP in world maps; layouts built bottom-up from *
+ *  a measured caption) — from projects/simulations/build_buoy/       *
+ *  p4_views.js by name, unchanged (make_helpers.py)                  *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  the beaker apparatus, and the three views every build carries:     *
+ *  THE BEAKER (PhET's Macro screen), DILUTION and THE SCALE           *
+ *  Canvas strings are ASCII for the ion formulae — a superscript plus *
+ *  and a letter subscript are tofu in the rasteriser's font (BRIEF).  *
+ * ================================================================== */
+const LBL_H3O='H3O+', LBL_OH='OH-', LBL_H2O='H2O';
+
+/* a caption under a panel, drawn only if it clears the main caption */
+function capUnder(ctx,x,y,txt,w,limitY){
+  const ls=wrapText(ctx,txt,w,SM_FONT).length;
+  if(y+ls*14>limitY) return 0;
+  return caption(ctx,x,y,txt,w,'#767e92',SM_FONT);
+}
+/* axesR registers the TITLE box only, so a label placed under a panel lands on the axis
+   title of the x axis instead — which is how "pH" ended up inside "the lines cross at
+   pH 7" at 1400 x 820.  Register the x-axis label too, and everything placed with lab()
+   dodges it. */
+function axesRX(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axesR(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.xlab){
+    const t=plain(opt.xlab), w=t.length*11*0.52, cx=b.x+b.w/2;
+    LABELS.push([cx-w/2,b.y1+21,cx+w/2,b.y1+21+11*1.15]);
+  }
+}
+
+/* ---- the stage ------------------------------------------------------------------- */
+function beakerLayout(ctx,W,H,capFull,capShort,wantStrip){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const top=stageTop()+30;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H-HINT_H,capFull,capShort,capW,top+180);
+  const availH=Math.max(160,fit.capY-18-top);
+  const span=right-left;
+  const apH=Math.min(150,Math.max(64,availH*0.26));      /* the dropper / faucet band */
+  /* the pH strip is part of the LAYOUT, not an afterthought squeezed underneath: sized
+     from what was left over it never fitted at any stage size at all, and the view
+     simply lost it */
+  const strip=(wantStrip&&availH>=300)?STRIP_H+26:0;
+  /* PhET's beaker is 450 x 300, so this one keeps that 1.5 aspect rather than filling
+     whatever box is left: taken from the leftover height alone it came out 600 x 420 at
+     1400 x 820 and read as a tank.  The block is then centred in what is left over. */
+  /* the meter's width comes OUT of the span before the beaker is sized: taken from what
+     was left over it was placed at right - 140 and sat on top of the glass at 560 x 380 */
+  const meterW=Math.max(110,Math.min(190,span*0.20));
+  const room=Math.max(160,span-meterW-26);
+  const maxW=Math.min(room,760);
+  let bh=Math.min(availH-apH-12-strip,400);
+  let bw=bh*1.5;
+  if(bw>maxW){ bw=maxW; bh=bw/1.5; }
+  bh=Math.max(90,bh);
+  const bx=left+Math.max(0,(room-bw)/2);
+  const blockH=apH+12+bh+strip;
+  const y0=top+Math.max(0,(availH-blockH)/2);
+  const bk=box(bx,y0+apH+12,bw,bh);
+  const meter=box(Math.min(bk.x1+22,right-meterW),bk.y,meterW,bh);
+  return {narrow,left,right,top,span,apH,bk,meter,
+          stripY:strip?bk.y1+20:null,
+          capY:fit.capY,capTxt:fit.txt,capW};
+}
+/* beaker-local (x across, y up from the floor) -> canvas */
+function bkX(bk,x){ return bk.x+bk.w*x; }
+function bkY(bk,y){ return bk.y1-bk.h*y; }
+function bkFromCanvas(bk,X,Y){ return {x:(X-bk.x)/bk.w, y:(bk.y1-Y)/bk.h}; }
+
+function drawBeaker(ctx,bk,M,W,H){
+  const fillH=bk.h*clamp(M.vT/PHET.BEAKER_VOLUME,0,1);
+  /* the liquid */
+  if(M.vT>0){
+    ctx.fillStyle=rgbCss(M.rgb);
+    ctx.fillRect(bk.x+2,bk.y1-fillH,bk.w-4,fillH);
+    /* a lighter meniscus line so a pale liquid still reads as liquid */
+    ctx.fillStyle='rgba(255,255,255,.22)';
+    ctx.fillRect(bk.x+2,bk.y1-fillH,bk.w-4,2);
+  }
+  /* the glass: three sides, open at the top */
+  ctx.strokeStyle=COL.glass; ctx.lineWidth=2.5; ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(bk.x+0.5,bk.y); ctx.lineTo(bk.x+0.5,bk.y1-0.5);
+  ctx.lineTo(bk.x1-0.5,bk.y1-0.5); ctx.lineTo(bk.x1-0.5,bk.y);
+  ctx.stroke();
+  /* volume ticks every 0.2 L, on the inside of the right wall */
+  ctx.strokeStyle='rgba(143,184,212,.55)'; ctx.lineWidth=1;
+  ctx.font=SM_FONT; ctx.fillStyle='#7f8ba0'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  const every=bk.h>170?0.2:0.6;
+  for(let k=1;k*0.2<=PHET.BEAKER_VOLUME+1e-9;k++){
+    const v=k*0.2, y=bk.y1-bk.h*v/PHET.BEAKER_VOLUME;
+    const big=Math.abs(v/every-Math.round(v/every))<1e-9;
+    ctx.beginPath(); ctx.moveTo(bk.x1-1,y); ctx.lineTo(bk.x1-(big?17:10),y); ctx.stroke();
+    if(big) ctx.fillText(fmt(v,1),bk.x1-21,y);
+  }
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillText('L',bk.x1-18,bk.y+10);
+  /* the tick labels and the L are raw fillText, so lab() cannot see them and has pushed
+     a note straight on top of them; register the gutter as occupied */
+  LABELS.push([bk.x1-44,bk.y,bk.x1,bk.y1]);
+  lab(ctx,W,H,bk.x+9,bk.y1-7,
+      M.vT>0?(plain(M.sol.name)+', '+fmt(M.vT,2)+' L'):'empty',
+      M.vT>0?'#0c1020':'#7f8ba0',LAB_FONT,'left','bottom');
+}
+/* the dropper above the beaker, and the water faucet beside it */
+function drawApparatus(ctx,L,M,W,H){
+  const bk=L.bk, yTop=L.top, yBot=bk.y;
+  const xd=bk.x+bk.w*0.26, xw=bk.x+bk.w*0.74;
+  /* the dropper: a bulb and a tube, filled with the stock colour */
+  const bulbR=Math.min(17,L.apH*0.22), tubeW=Math.max(9,bulbR*0.72);
+  const stock=rgbCss(M.sol.stock);
+  ctx.fillStyle=stock;
+  dot(ctx,xd,yTop+bulbR+4,bulbR,stock,'#cfd4de',1.6);
+  ctx.fillRect(xd-tubeW/2,yTop+bulbR+4,tubeW,yBot-24-(yTop+bulbR+4));
+  ctx.strokeStyle='#cfd4de'; ctx.lineWidth=1.4;
+  ctx.strokeRect(xd-tubeW/2,yTop+bulbR+4,tubeW,yBot-24-(yTop+bulbR+4));
+  if(ST.pourSolute&&!M.full){
+    ctx.fillStyle=stock;
+    ctx.fillRect(xd-tubeW*0.22,yBot-24,tubeW*0.44,24+bk.h*(1-clamp(M.vT/PHET.BEAKER_VOLUME,0,1)));
+  }
+  /* the water faucet: a pipe that reaches the spout it feeds (drawn from the beaker's
+     right wall it was a floating bar with nothing under it) and the spout itself */
+  ctx.fillStyle='#39404f';
+  ctx.fillRect(xw-9,yTop+6,Math.max(20,L.right-xw+9),12);
+  ctx.fillRect(xw-9,yTop+6,18,22);
+  ctx.strokeStyle='#5c6577'; ctx.lineWidth=1.2;
+  ctx.strokeRect(xw-9,yTop+6,18,22);
+  if(ST.pourWater&&!M.full){
+    ctx.fillStyle=rgbCss(WATER_RGB);
+    ctx.globalAlpha=0.75;
+    ctx.fillRect(xw-5,yTop+28,10,bk.y1-bk.h*clamp(M.vT/PHET.BEAKER_VOLUME,0,1)-(yTop+28));
+    ctx.globalAlpha=1;
+  }
+  lab(ctx,W,H,xd,yTop+bulbR*2+14,plain(M.sol.name),'#aeb6c6',SM_FONT,'center');
+  lab(ctx,W,H,xw,yTop+34,'water','#aeb6c6',SM_FONT,'center');
+  /* the drain, out of the bottom left */
+  ctx.fillStyle='#39404f';
+  ctx.fillRect(bk.x-26,bk.y1-12,26,10);
+  if(ST.drain&&M.vT>0){
+    ctx.fillStyle=rgbCss(M.rgb);
+    ctx.fillRect(bk.x-26,bk.y1-2,8,Math.min(46,H-bk.y1));
+  }
+  lab(ctx,W,H,bk.x-28,bk.y1-18,'drain','#7f8ba0',SM_FONT,'right');
+}
+/* PhET's pH meter: a body with the reading, a wire, and a probe you drag */
+function drawMeter(ctx,L,M,W,H){
+  const m=L.meter, bk=L.bk;
+  /* three stacked lines, laid out from the top: the name, the reading and (only when
+     there is room for it) the "probe is out" note.  Centring the reading and anchoring
+     the note to the bottom put them on top of each other at every body under 82 px. */
+  const bodyH=Math.max(50,Math.min(96,m.h*0.42));
+  const b=box(m.x,m.y,m.w,bodyH);
+  const room=bodyH>=70;
+  ctx.fillStyle='#141a2b'; ctx.fillRect(b.x,b.y,b.w,b.h);
+  ctx.strokeStyle='#4a5468'; ctx.lineWidth=1.4;
+  ctx.strokeRect(b.x+0.5,b.y+0.5,b.w-1,b.h-1);
+  ctx.font=SM_FONT; ctx.fillStyle='#7f8ba0'; ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText('pH meter',b.x+8,b.y+6);
+  ctx.font='italic '+(room?26:20)+'px Georgia, serif';
+  ctx.fillStyle=M.probeIn?COL.pos:'#5c6577';
+  ctx.fillText(M.probeIn?phPlain(M.ph):'—',b.x+8,b.y+21);
+  if(!M.probeIn&&room){
+    ctx.font=SM_FONT; ctx.fillStyle='#8b93a6';
+    ctx.fillText('probe out of the liquid',b.x+8,b.y+54);
+  }
+  /* the wire and the probe */
+  const px=bkX(bk,PROBE.x), py=bkY(bk,PROBE.y);
+  ctx.strokeStyle='#5c6577'; ctx.lineWidth=1.6;
+  ctx.beginPath();
+  ctx.moveTo(b.x+4,b.y1);
+  ctx.lineTo(b.x+4,b.y1+18); ctx.lineTo(px,b.y1+18); ctx.lineTo(px,py-16);
+  ctx.stroke();
+  ctx.fillStyle=M.probeIn?COL.live:'#5c6577';
+  ctx.fillRect(px-5,py-16,10,16);
+  ctx.beginPath(); ctx.moveTo(px-5,py-1); ctx.lineTo(px+5,py-1); ctx.lineTo(px,py+7);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#e9eef7'; ctx.lineWidth=1;
+  ctx.strokeRect(px-5.5,py-16.5,11,16);
+  return b;
+}
+/* the acidic / neutral / basic strip over PhET's whole -1..15 range.  The three WORDS
+   live in the upper band and the NUMBERS in the lower one: written on one line they
+   collided ("0" under "acidic" at every size, since pH 0 is a sixteenth of the way
+   along).  The strip's own rectangle goes into the label registry, so nothing lab()
+   places can be pushed down on top of it — which is how "spit 7.4" landed on
+   "neutral" at 820 x 560. */
+const STRIP_H=32;
+function phStrip(ctx,b,mark){
+  const lo=PHET.PH_MIN, hi=PHET.PH_MAX;
+  const X=p=>b.x+b.w*(p-lo)/(hi-lo);
+  for(let i=0;i<b.w;i++){
+    const p=lo+(hi-lo)*i/b.w;
+    ctx.fillStyle=p<7?mix(COL.acid,'#f3e9c0',clamp(p/7,0,1))
+                     :mix('#f3e9c0',COL.base,clamp((p-7)/7,0,1));
+    ctx.fillRect(b.x+i,b.y,1.4,b.h);
+  }
+  frame(ctx,b,'#2a3346');
+  const words=b.h>=STRIP_H-2;
+  if(words){
+    ctx.textBaseline='top'; ctx.font='italic 12px Georgia, serif'; ctx.fillStyle='#0c1020';
+    ctx.textAlign='left'; ctx.fillText('acidic',b.x+6,b.y+3);
+    ctx.textAlign='right'; ctx.fillText('basic',b.x1-6,b.y+3);
+    ctx.textAlign='center'; ctx.fillText('neutral',X(7),b.y+3);
+  }
+  ctx.font=SM_FONT; ctx.textAlign='center'; ctx.textBaseline='top';
+  const numY=words?b.y+b.h-14:b.y+(b.h-12)/2;
+  for(let p=0;p<=14;p+=1){
+    const x=X(p);
+    ctx.strokeStyle='rgba(12,16,32,.45)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x,b.y1-4); ctx.lineTo(x,b.y1); ctx.stroke();
+    if(p%2===0){ ctx.fillStyle='#0c1020'; ctx.fillText(''+p,x,numY); }
+  }
+  if(mark!==null&&mark!==undefined&&isFinite(mark)){
+    const x=X(clamp(mark,lo,hi));
+    ctx.strokeStyle=COL.live; ctx.lineWidth=2.4;
+    ctx.beginPath(); ctx.moveTo(x,b.y-6); ctx.lineTo(x,b.y1+6); ctx.stroke();
+  }
+  LABELS.push([b.x,b.y,b.x1,b.y1]);
+  return X;
+}
+
+/* ================================================================== *
+ *  VIEW: the beaker — PhET's Macro screen                             *
+ * ================================================================== */
+const CAP_BEAKER='Pour a liquid from the dropper, run the tap to dilute it, open the drain, and drag the meter probe in and out. The beaker holds PhET’s 1.2 L and the dropper and faucets run at PhET’s 0.05 and 0.25 L/s. The colour is PhET’s own law: water to the liquid’s colour-stop shade over the first quarter of the mixture, then to its stock colour. The pH is computed by mixing MOLES of net strong acid and re-solving the water equilibrium, never by averaging the pH — the chip switches to PhET’s own rule so you can see the difference, which is at most 0.095 pH anywhere this beaker can reach.';
+const CAP_BEAKER_S='Pour, dilute, drain, and drag the probe. The pH mixes moles of net strong acid and re-solves with Kw.';
+function viewBeaker(rc,W,H,M){
+  const B=M.B;
+  const L=beakerLayout(rc,W,H,CAP_BEAKER,CAP_BEAKER_S,true);
+  drawApparatus(rc,L,B,W,H);
+  drawBeaker(rc,L.bk,B,W,H);
+  drawMeter(rc,L,B,W,H);
+  /* the strip under the beaker, with the beaker's own pH marked */
+  if(L.stripY!==null){
+    const sb=box(L.bk.x,L.stripY,Math.max(200,L.meter.x1-L.bk.x),STRIP_H);
+    phStrip(rc,sb,B.probeIn?B.ph:null);
+    if(!B.probeIn)
+      lab(rc,W,H,sb.x+sb.w/2,sb.y-9,'dip the probe to read the scale','#767e92',SM_FONT,'center','bottom');
+  }
+  /* the honest note about the strong-acid model, on the canvas */
+  lab(rc,W,H,L.bk.x,L.bk.y-8,
+      'every liquid is modelled as a STRONG acid or base of PhET’s stated pH — no buffering',
+      '#767e92',SM_FONT,'left','bottom');
+  caption(rc,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  VIEW: dilution — the mixing law, three ways                        *
+ * ================================================================== */
+const CAP_DIL='The law on the left, its error on the right. What dilutes is not the pH and not either ion but C = [H3O+] − [OH-], the net strong acid: it is a difference of ANALYTICAL concentrations, so its moles are conserved and it volume-averages, and water carries exactly none of it. Dilute f-fold and C is divided by exactly f; the pH then follows by re-solving [H3O+] − Kw/[H3O+] = C. The dashed line is what you get by averaging the pH instead, which is wrong by up to 4.4 units. The right-hand panel is the WORST that exact minus PhET can be anywhere this beaker can reach — every dilution from 1 to 80 times, against the stock pH. It peaks at 0.0947 pH near 4.9 and 9.1 and is an ODD function about 7, because C(14−pH) = −C(pH) and PhET’s two branches mirror each other the same way.';
+const CAP_DIL_S='C = [H3O+] − [OH-] is what dilutes. The dashed line averages the pH instead, and is wrong by units.';
+function viewDilution(rc,W,H,M){
+  const D=M.D;
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const top=stageTop()+30;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(rc,W,H-HINT_H,CAP_DIL,CAP_DIL_S,capW,top+200);
+  /* 62 px below the plot box, not 30: the x-axis label sits at b.y1 + 21, and the note
+     under the difference panel at b.y1 + 38, so a shallow gutter runs both of them into
+     the first line of the caption at every size */
+  const availH=Math.max(150,fit.capY-62-top);
+  const span=right-left;
+  const gut=narrow?0:64;
+  const pw=narrow?span:(span-gut)*0.56;
+  const A=box(left,top,pw,availH);
+  const Bp=narrow?null:box(A.x1+gut,top,span-gut-pw,availH);
+
+  /* --- the main panel: pH against dilution --- */
+  const ylo=PHET.PH_MIN, yhi=PHET.PH_MAX;
+  axesRX(rc,A,0,DIL_FMAX,ylo,yhi,{title:titleFor(A,'pH against dilution, '+plain(D.sol.name),'pH vs dilution'),
+    xlab:'dilution factor V/V₀ (decades)',ylab:'pH',ny:5,
+    xfmt:t=>Math.abs(t)<1e-9?'1':('10'+String(Math.round(t)).replace(/\d/g,d=>'⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]))});
+  /* the band this beaker can actually reach */
+  { const xr=A.x+A.w*Math.min(D.reach,DIL_FMAX)/DIL_FMAX;
+    rc.fillStyle='rgba(90,200,224,.07)'; rc.fillRect(A.x,A.y,xr-A.x,A.h);
+    rc.strokeStyle='rgba(90,200,224,.35)'; rc.lineWidth=1;
+    rc.beginPath(); rc.moveTo(xr,A.y); rc.lineTo(xr,A.y1); rc.stroke(); }
+  /* neutral */
+  { const y=A.y1-A.h*(7-ylo)/(yhi-ylo);
+    rc.strokeStyle='rgba(184,236,76,.30)'; rc.lineWidth=1;
+    rc.setLineDash([4,4]); rc.beginPath(); rc.moveTo(A.x,y); rc.lineTo(A.x1,y); rc.stroke();
+    rc.setLineDash([]); }
+  polyline(rc,A,D.C.xs,D.C.avg,0,DIL_FMAX,ylo,yhi,'#8b6b4a',1.4,[5,4]);
+  polyline(rc,A,D.C.xs,D.C.phet,0,DIL_FMAX,ylo,yhi,COL.ref,1.8);
+  polyline(rc,A,D.C.xs,D.C.exact,0,DIL_FMAX,ylo,yhi,COL.pos,2.2);
+  if(isFinite(D.cur)&&D.cur>=0)
+    marker(rc,A,0,DIL_FMAX,ylo,yhi,clamp(D.cur,0,DIL_FMAX),
+           clamp(D.phNow===null?7:D.phNow,ylo,yhi),COL.live);
+  { const lb=legendAuto(rc,A,[[COL.pos,'exact: mix C, re-solve with Kw'],
+                              [COL.ref,'PhET’s rule'],
+                              ['#8b6b4a','averaging the pH (wrong)'],
+                              [COL.live,'the beaker now']]);
+    if(lb) LABELS.push([lb.x,lb.y,lb.x1,lb.y1]); }
+  lab(rc,W,H,A.x+A.w*Math.min(D.reach,DIL_FMAX)/DIL_FMAX-6,A.y+14,
+      'this beaker stops here ('+fmt(Math.pow(10,D.reach),0)+'×)',COL.struct,SM_FONT,'right');
+
+  /* --- the difference panel --- */
+  if(Bp){
+    const ext=Math.max(0.02,D.worst*1.25);
+    axesRX(rc,Bp,PHET.PH_MIN,PHET.PH_MAX,-ext,ext,
+      {title:titleFor(Bp,'the worst exact − PhET this beaker can reach',
+                      'worst exact − PhET'),
+       xlab:'stock pH',ylab:'pH difference',ny:5,nx:5,
+       yfmt:t=>fmt(t,3)});
+    { const y=Bp.y1-Bp.h*(0-(-ext))/(2*ext);
+      rc.strokeStyle='rgba(143,162,196,.30)'; rc.lineWidth=1;
+      rc.beginPath(); rc.moveTo(Bp.x,y); rc.lineTo(Bp.x1,y); rc.stroke(); }
+    { const x=Bp.x+Bp.w*(7-PHET.PH_MIN)/(PHET.PH_MAX-PHET.PH_MIN);
+      rc.strokeStyle='rgba(184,236,76,.30)'; rc.lineWidth=1;
+      rc.setLineDash([4,4]); rc.beginPath(); rc.moveTo(x,Bp.y); rc.lineTo(x,Bp.y1); rc.stroke();
+      rc.setLineDash([]); }
+    polyline(rc,Bp,D.dx,D.dy,PHET.PH_MIN,PHET.PH_MAX,-ext,ext,COL.ref,1.9);
+    /* green: the worst this liquid can reach.  magenta: what the beaker is doing now,
+       which is exactly zero when nothing has been diluted -- and saying so is the point */
+    marker(rc,Bp,PHET.PH_MIN,PHET.PH_MAX,-ext,ext,D.sol.pH,clamp(D.envHere,-ext,ext),COL.pos);
+    if(D.hereDiff!==null)
+      marker(rc,Bp,PHET.PH_MIN,PHET.PH_MAX,-ext,ext,D.sol.pH,clamp(D.hereDiff,-ext,ext),COL.live);
+    { const lb=legendAuto(rc,Bp,[[COL.ref,'worst over every dilution'],
+                                 [COL.pos,'worst for '+plain(D.sol.name)],
+                                 [COL.live,'the beaker now']]);
+      if(lb) LABELS.push([lb.x,lb.y,lb.x1,lb.y1]); }
+    lab(rc,W,H,Bp.x+Bp.w*0.5,Bp.y1+38,
+        'odd about pH 7 — worst '+fmt(D.worst,4)+' pH at stock pH '+fmt(D.worstPh,2),
+        '#767e92',SM_FONT,'center','top');
+  }
+  caption(rc,left,fit.capY,fit.txt,capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  VIEW: the scale — the twelve liquids, and the two ions             *
+ * ================================================================== */
+const CAP_SCALE='PhET’s twelve liquids on the scale they belong to, and underneath, the two concentrations that scale IS. One pH unit is a factor of ten in [H3O+] and a factor of ten the other way in [OH-], which is why the lower panel is two straight lines crossing at pH 7 — their product is fixed at Kw everywhere. The bars are MEASURED pH ranges: only four of the twelve could be sourced here (blood, orange juice, milk, chicken broth), and PhET’s value lies inside every one of them. The other eight carry PhET’s number alone and are drawn without a bar rather than given an invented range.';
+const CAP_SCALE_S='The twelve liquids on the scale, and the two straight lines the scale is made of. Bars are sourced ranges; four of twelve.';
+function viewScale(rc,W,H,M){
+  const S=M.S||M.L;
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const top=stageTop()+30;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(rc,W,H-HINT_H,CAP_SCALE,CAP_SCALE_S,capW,top+200);
+  /* 62 px below the lower plot: its x-axis label, and the sentence under that */
+  const availH=Math.max(180,fit.capY-62-top);
+  const span=right-left;
+  /* three label lanes plus the strip plus the sourcing note: sized from what it HOLDS,
+     not as a fraction of the stage — a fraction left a third of the picture empty */
+  const stripH=3*16+14+STRIP_H+18;
+  const A=box(left,top,span,stripH);
+  const bh=availH-stripH-58;
+  const Bp=bh>=90?box(left,A.y1+52,span,bh):null;
+
+  /* --- the liquids on the strip --- */
+  const sb=box(A.x,A.y+A.h-STRIP_H-2,A.w,STRIP_H);
+  const X=phStrip(rc,sb,S.act&&S.act.ph!==null?S.act.ph:null);
+  /* markers and labels above, alternating height so twelve fit */
+  const order=S.rows.slice().sort((a,b)=>a.s.pH-b.s.pH);
+  order.forEach((r,i)=>{
+    const x=X(r.s.pH);
+    const lane=i%3;
+    const y=sb.y-14-lane*16;
+    const on=r.s.id===ST.solute;
+    if(r.s.range){
+      const x0=X(r.s.range[0]), x1=X(r.s.range[1]);
+      rc.strokeStyle=COL.ref; rc.lineWidth=3;
+      rc.beginPath(); rc.moveTo(Math.min(x0,x-2),sb.y-4); rc.lineTo(Math.max(x1,x+2),sb.y-4);
+      rc.stroke();
+    }
+    rc.strokeStyle=on?COL.pos:'#9aa2b4'; rc.lineWidth=on?1.8:1;
+    rc.beginPath(); rc.moveTo(x,sb.y); rc.lineTo(x,y+4); rc.stroke();
+    dot(rc,x,sb.y,on?4.5:3,rgbCss(r.s.stock),on?COL.pos:'#0c1020',1.4);
+    lab(rc,W,H,x,y,plain(r.s.name)+' '+fmt(r.s.pH,r.s.pH===Math.round(r.s.pH)?0:1),
+        on?COL.pos:'#aeb6c6',SM_FONT,'center','bottom');
+  });
+  lab(rc,W,H,A.x,sb.y-14-3*16-4,'orange bars: MEASURED ranges, '+S.sourced+' of '
+      +SOLUTES.length+' sourced — the rest carry PhET’s value alone',
+      COL.ref,SM_FONT,'left','bottom');
+
+  /* --- the two straight lines.  At a stage too short for a second panel the view drops
+     it and says so, rather than drawing an unreadable sliver (Known-bad: a sparse view
+     is not a broken one, but it must say why). --- */
+  if(!Bp){
+    lab(rc,W,H,left,A.y1+26,'too short for the concentration panel \u2014 widen the window',
+        '#767e92',SM_FONT,'left','top');
+    caption(rc,left,fit.capY,fit.txt,capW,'#767e92',CAP_FONT);
+    return;
+  }
+  const ylo=PHET.LOG_EXP_MIN, yhi=PHET.LOG_EXP_MAX;
+  axesRX(rc,Bp,PHET.PH_MIN,PHET.PH_MAX,ylo,yhi,
+    {title:titleFor(Bp,'the two concentrations, log scale (mol/L)','the two concentrations'),
+     xlab:'pH',ylab:'log10 of the concentration',ny:5,nx:8,yfmt:t=>fmt(t,0)});
+  const xs=[], yh=[], yo=[];
+  for(let i=0;i<=80;i++){
+    const p=PHET.PH_MIN+(PHET.PH_MAX-PHET.PH_MIN)*i/80;
+    xs.push(p); yh.push(-p); yo.push(p-PKW);
+  }
+  polyline(rc,Bp,xs,yh,PHET.PH_MIN,PHET.PH_MAX,ylo,yhi,COL.h3o,2.0);
+  polyline(rc,Bp,xs,yo,PHET.PH_MIN,PHET.PH_MAX,ylo,yhi,COL.oh,2.0);
+  { const yw=Math.log10(PHET.WATER_CONC), pts=[PHET.PH_MIN,PHET.PH_MAX];
+    polyline(rc,Bp,pts,[yw,yw],PHET.PH_MIN,PHET.PH_MAX,ylo,yhi,COL.h2o,1.4,[6,4]); }
+  if(S.act&&S.act.ph!==null){
+    marker(rc,Bp,PHET.PH_MIN,PHET.PH_MAX,ylo,yhi,clamp(S.act.ph,PHET.PH_MIN,PHET.PH_MAX),
+           clamp(-S.act.ph,ylo,yhi),COL.live);
+  }
+  { const lb=legendAuto(rc,Bp,[[COL.h3o,LBL_H3O],[COL.oh,LBL_OH],
+                               [COL.h2o,LBL_H2O+', 55 mol/L']]);
+    if(lb) LABELS.push([lb.x,lb.y,lb.x1,lb.y1]); }
+  lab(rc,W,H,Bp.x+Bp.w*0.5,Bp.y1+38,
+      'the lines cross at pH 7, where both are 1e-7 mol/L — one unit of pH is one decade',
+      '#767e92',SM_FONT,'center','top');
+  caption(rc,left,fit.capY,fit.txt,capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  the one view ph-scale-basics carries and ph-scale does not:        *
+ *  THE LIQUIDS — PhET's twelve as a table, with what dilution does    *
+ *  to each of them and which of them carry a measured range           *
+ * ================================================================== */
+const CAP_LIQ='PhET’s twelve liquids, their pH values, and what a full beaker of water does to each of them. The last two columns are the same pour — 0.1 L of the liquid, topped up to the beaker’s 1.2 L — worked out two ways: by mixing moles of net strong acid and re-solving the water equilibrium, and by PhET’s own rule. They agree to a hundredth of a unit for most of the list and part company by 0.08 for chicken soup, which sits near the pH where the gap is largest. Notice how little twelve-fold dilution moves anything: pH is a logarithm, so a twelvefold cut in the acid is 1.08 units and no more. The measured column is a real range with a source where one could be found, and empty where one could not.';
+const CAP_LIQ_S='PhET’s twelve, and what a full beaker of water does to each. Twelvefold dilution is only 1.08 pH.';
+function viewLiquids(rc,W,H,M){
+  const L=M.L;
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const top=stageTop()+30;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(rc,W,H-HINT_H,CAP_LIQ,CAP_LIQ_S,capW,top+200);
+  const availH=Math.max(160,fit.capY-24-top);
+  const T=box(left,top+24,right-left,availH-24);
+
+  /* the two right-hand headers are short on purpose: "0.1 L in 1.2 L" and "by PhET's
+     rule" are 76 px each in an 84 px column at 1100 x 700 and collided */
+  const cols=narrow
+    ? ['liquid','PhET pH','measured','diluted 12x']
+    : ['liquid','PhET pH','acid or base','measured range','source','diluted 12x','PhET’s rule'];
+  const n=cols.length;
+  /* the name column is wide, the rest share what is left: a source line is a sentence and
+     an equal split ran it into the column beside it */
+  const wFrac=narrow?[0.30,0.18,0.24,0.28]:[0.15,0.08,0.11,0.12,0.28,0.13,0.13];
+  const colX=[], colW=[];
+  { let x=T.x+6;
+    for(let i=0;i<n;i++){ colW.push((T.w-12)*wFrac[i]); colX.push(x); x+=colW[i]; } }
+  const xOf=i=>i===0?colX[i]:colX[i]+colW[i]-8;
+
+  rc.font='italic 13px Georgia, serif'; rc.fillStyle='#aeb6c6';
+  rc.textAlign='left'; rc.textBaseline='bottom';
+  /* the long title is 649 px and ran off a 560 px stage */
+  rc.fillText(plain(narrow?'PhET’s twelve liquids'
+    :'PhET’s twelve liquids — the left columns are PhET’s, the right two are this file’s solve of them'),
+              T.x,T.y-8);
+  rc.font=SM_FONT; rc.textBaseline='top';
+  for(let i=0;i<n;i++){
+    rc.textAlign=i?'right':'left'; rc.fillStyle='#6f7789';
+    rc.fillText(plain(cols[i]),xOf(i),T.y+2);
+  }
+  rc.beginPath(); rc.moveTo(T.x,T.y+19); rc.lineTo(T.x1,T.y+19);
+  rc.strokeStyle='#242a3a'; rc.lineWidth=1; rc.stroke();
+  /* let the twelve rows fill the panel: capped at 26 the table used a third of the stage
+     and left the rest of a 1400 x 820 picture empty */
+  const rowH=Math.max(15,Math.min(40,(T.h-56)/SOLUTES.length));
+  const rows=L.rows.slice().sort((a,b)=>a.s.pH-b.s.pH);
+  rows.forEach((r,k)=>{
+    const y=T.y+24+k*rowH;
+    const on=r.s.id===ST.solute;
+    const ex=mixExact(r.s.pH,0.1,PHET.WATER_PH,1.1), ph=mixPhet(r.s.pH,0.1,1.1);
+    const meas=r.s.range
+      ? (r.s.range[0]===r.s.range[1]?fmt(r.s.range[0],2)
+         :fmt(r.s.range[0],2)+'–'+fmt(r.s.range[1],2))
+      : 'not sourced';
+    const src=r.s.src?plain(r.s.src).replace(/,.*$/,''):'—';
+    const vals=narrow
+      ? [plain(r.s.name),fmt(r.s.pH,2),meas,phPlain(ex)]
+      : [plain(r.s.name),fmt(r.s.pH,2),CLS_NAME[phClass(r.s.pH)],meas,src,
+         phPlain(ex),phPlain(ph)];
+    /* the selected row gets a band, not just a colour: the chip changed nothing the
+       display-list capture could see, so "picking another liquid redraws the table" was
+       failing on a view that really did only change ink */
+    if(on){
+      rc.fillStyle='rgba(184,236,76,.10)';
+      rc.fillRect(T.x-1,y-3,T.w+2,Math.max(10,rowH));
+    }
+    /* a swatch of the liquid's own colour, so the table and the beaker agree */
+    rc.fillStyle=rgbCss(r.s.stock);
+    rc.fillRect(T.x-1,y+2,4,Math.max(6,rowH-6));
+    /* the columns are coloured by ROLE, named explicitly: green is the exact solve,
+       orange the measured range and PhET's own rule, dim the ones with no source.  A
+       "last two are green" shortcut painted the narrow layout's measured column green,
+       which said the opposite of what it meant. */
+    const iMeas=narrow?2:3, iExact=narrow?3:5, iPhet=narrow?-1:6;
+    for(let i=0;i<n;i++){
+      rc.textAlign=i?'right':'left';
+      if(i===0) rc.fillStyle=on?COL.pos:'#aeb6c6';
+      else if(i===iExact) rc.fillStyle=COL.pos;
+      else if(i===iPhet) rc.fillStyle=COL.ref;
+      else if(i===iMeas) rc.fillStyle=r.s.range?COL.ref:'#5c6577';
+      else rc.fillStyle=on?'#cfd4de':'#8b93a6';
+      rc.fillText(plain(vals[i]),xOf(i),y);
+    }
+  });
+  /* the one line worth taking away */
+  const foot=T.y+24+SOLUTES.length*rowH+10;
+  if(foot+16<fit.capY)
+    lab(rc,W,H,T.x,foot,narrow
+        ?'green: moles of net strong acid, re-solved with Kw'
+        :'the green column mixes MOLES of net strong acid and re-solves with Kw; '
+         +'the orange one is PhET’s rule, and the two differ by at most 0.08 pH here',
+        '#767e92',SM_FONT,'left','top');
+  caption(rc,left,fit.capY,fit.txt,capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  dispatch, the scene, boot — the control panel, the tabs, the keys  *
+ *  and the frame loop, trimmed to PhET's one screen                   *
+ * ================================================================== */
+const CREDIT='Remake of PhET Interactive Simulations&rsquo; pH Scale: Basics (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets.';
+const BEAKER_VIEWS={beaker:1};
+
+function layoutFor(rc,W,H){
+  return beakerLayout(rc,W,H,CAP_BEAKER,CAP_BEAKER_S,true);
+}
+function drawView(rc,W,H,M){
+  POLY_SEGS=[]; LEGEND_RECTS=[]; LABELS=[];
+  /* The floating readout covers the top-right of the stage — about 336 px wide and up to
+     548 tall — and it is HTML, so nothing on the canvas can see it.  Register it as an
+     occupied label box so lab() dodges it (Known-bad: text placed at the top right of a
+     plot box is text placed underneath the readout). */
+  if(W>=900) LABELS.push([W-336,0,W,Math.min(548,H)]);
+  rc.fillStyle='#070b18'; rc.fillRect(0,0,W,H);
+  const m=M||buildModel();
+  if(m.view==='beaker') viewBeaker(rc,W,H,m);
+  else if(m.view==='liquids') viewLiquids(rc,W,H,m);
+  else if(m.view==='dilution') viewDilution(rc,W,H,m);
+  else viewScale(rc,W,H,m);
+}
+function makeScene(canvas){
+  const S={W:0,H:0,
+    model(){ return buildModel(); },
+    draw(){
+      /* fetch the context INSIDE the draw: one cached at boot writes into a recorder the
+         DOM-stub harness has already thrown away (Known-bad, polyhedra.html) */
+      const rc=canvas.getContext('2d');
+      drawView(rc,S.W,S.H,S.model());
+    },
+    step(){ return stepFrame(); },
+    pointer(kind,x,y){
+      if(!BEAKER_VIEWS[ST.view]) return false;
+      const rc=canvas.getContext('2d');
+      const L=layoutFor(rc,S.W,S.H), bk=L.bk;
+      if(kind==='down'){
+        const px=bkX(bk,PROBE.x), py=bkY(bk,PROBE.y);
+        /* the probe body is 10 x 23 px; the grab box is a little larger than it */
+        if(Math.abs(x-px)<=11&&y>=py-24&&y<=py+12){ DRAG.what='probe'; return true; }
+        return false;
+      }
+      if(kind==='move'&&DRAG.what==='probe'){
+        const p=bkFromCanvas(bk,x,y);
+        PROBE.x=clamp(p.x,-0.25,1.25);
+        PROBE.y=clamp(p.y,-0.20,1.30);
+        return true;
+      }
+      if(kind==='up'&&DRAG.what){ DRAG.what=null; return true; }
+      return false;
+    }};
+  return S;
+}
+
+/* the shared eqbarHTML has no case for this build's own view, and redeclaring it here
+   would shadow it by load order — the `makeRecorder` trap on the Known-bad list.  Wrap it
+   instead, so the shared file stays the one definition. */
+const EQ_LIQUIDS='<span class="lhs">pH = &minus;log<sub>10</sub>[H<sub>3</sub>O<sup>+</sup>] &nbsp;&rArr;&nbsp; <span class="hl">one unit of pH is a factor of ten</span></span><span class="sm">which is why a twelvefold dilution of orange juice moves it only 1.08 units, and why the twelve liquids below span a million million million in concentration</span>';
+function eqbarFor(M){ return M.view==='liquids'?EQ_LIQUIDS:eqbarHTML(M); }
+
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas);
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    ST.view=k;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===ST.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>{ tabsEl.appendChild(h('button',{class:ST.view===k?'active':'',
+    onclick:()=>setView(k)},lab2)); });
+
+  const rows={};
+  function slider(key,lab2,lo,hi,step2,fmtf,setf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:ST[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=ST[key]; val.textContent=plain(fmtf(ST[key])); };
+    inp.addEventListener('input',()=>{
+      const v=parseFloat(inp.value);
+      if(setf) setf(v); else ST[key]=v;
+      syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab2,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=ST[key];
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ ST[key]=inp.checked; if(onchg) onchg();
+      syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=ST[key]; }};
+    return el;
+  }
+  const CHIPROWS=[];
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      wrapEl.appendChild(h('button',{class:'chip'+(ST[key]===o.id?' on':''),html:o.name,
+        onclick:()=>{ ST[key]=o.id; if(onPick) onPick(o); syncChips(); syncPanel();
+                      dirty=true; refresh(); }}));
+    });
+    CHIPROWS.push([wrapEl,list,key]);
+    return wrapEl;
+  }
+  function button(lab2,fn){ return h('button',{onclick:()=>{ fn(); syncChips(); syncPanel();
+    dirty=true; refresh(); }},lab2); }
+
+  /* the liquid */
+  const gLiq=h('div',{class:'grp'},h('h3',null,'the liquid in the dropper'));
+  gLiq.appendChild(chipRow(SOLUTE_LIST,'solute'));
+  const liqTag=h('div',{class:'tag'}); gLiq.appendChild(liqTag);
+
+  /* the beaker */
+  const gBk=h('div',{class:'grp'},h('h3',null,'the beaker'));
+  gBk.appendChild(slider('vSolute','liquid poured, L',0,PHET.BEAKER_VOLUME,0.005,
+    v=>fmt(v,2)+' L',setSolute));
+  gBk.appendChild(slider('vWater','water added, L',0,PHET.BEAKER_VOLUME,0.005,
+    v=>fmt(v,2)+' L',setWater));
+  gBk.appendChild(h('div',{class:'checks'},
+    checkbox('pourSolute','the dropper pours (0.05 L/s)'),
+    checkbox('pourWater','the water faucet runs (0.25 L/s)'),
+    checkbox('drain','the drain is open (0.25 L/s)'),
+    checkbox('running','time runs')));
+  gBk.appendChild(h('div',{class:'btnrow'},
+    button('autofill 0.5 L',()=>autofill()),
+    button('empty',()=>emptyBeaker()),
+    button('one step',()=>{ const w=ST.running; ST.running=true; stepFrame(); ST.running=w; })));
+  const bkTag=h('div',{class:'tag'}); gBk.appendChild(bkTag);
+
+  /* the dilution law */
+  const gLaw=h('div',{class:'grp'},h('h3',null,'the dilution law'));
+  gLaw.appendChild(chipRow(LAW_LIST,'law'));
+  const lawTag=h('div',{class:'tag'}); gLaw.appendChild(lawTag);
+
+  const gRun=h('div',{class:'grp'},h('div',{class:'btnrow'},
+    button('reset all',()=>{ const v=ST.view; Object.assign(ST,DEFAULTS); ST.view=v;
+      PROBE.x=PROBE0.x; PROBE.y=PROBE0.y; DRAG.what=null; })));
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}),
+    h('div',{class:'src',html:CREDIT+' PhET&rsquo;s constants (the twelve liquids and their pH values and colours, the beaker&rsquo;s 1.2 L, the flow rates, the colour law&rsquo;s 0.25 stop) were read from the minified original, docs/phets/ph-scale-basics_en.html 1.7.5, and are cited as PhET&rsquo;s. Chemistry: K<sub>w</sub> = 1.00&times;10<sup>&minus;14</sup> at 25 &deg;C by convention, N<sub>A</sub> = 6.02214076&times;10<sup>23</sup> (SI 2019, exact). Measured pH ranges, four of the twelve: blood 7.37&ndash;7.43 (Merck Manual Professional, &ldquo;Acid-Base Regulation&rdquo;, J. L. Lewis III); orange juice 3.30&ndash;4.19, milk 6.40&ndash;6.80, chicken broth 5.80 (FDA, &ldquo;Approximate pH of Foods and Food Products&rdquo;). No range could be sourced for the other eight and none was invented. Every reference value is a line of build/ph-scale/refvals.txt, the output of derive.py; the chemistry, the state and three of the four views are the same part files as ph-scale.html, pinned by SHA-256.'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the chemistry'),h('div',{id:'phys'}));
+  const GROUPS=[gLiq,gBk,gLaw,gRun,gInfo,gPhys];
+  GROUPS.forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [w,list,key] of CHIPROWS)
+      [].forEach.call(w.children,(b,i)=>b.className='chip'+(list[i].id===ST[key]?' on':''));
+  }
+  function syncPanel(){
+    const v=ST.view;
+    gBk.hidden=(v!=='beaker');
+    gLaw.hidden=!(v==='beaker'||v==='dilution'||v==='liquids');
+    for(const k in rows) rows[k].sync();
+    liqTag.innerHTML=v==='dilution'
+      ? 'the chip picks which stock solution the curves are drawn for'
+      : 'PhET&rsquo;s twelve, with PhET&rsquo;s pH values. Four of them carry a measured range with a source; the other eight do not, and the liquids table draws that difference.';
+    bkTag.innerHTML='the beaker holds '+fmt(PHET.BEAKER_VOLUME,1)+' L, so pushing one volume past the brim pushes the other down. <b>space</b> runs/pauses &nbsp; <b>a</b> autofills &nbsp; <b>e</b> empties &nbsp; 1&ndash;'+TABS.length+' switch views';
+    lawTag.innerHTML=ST.law==='phet'
+      ? 'PhET&rsquo;s rule: mix the MAJORITY ion linearly and take a log. It never re-solves, so water&rsquo;s own autoionisation is counted on one side and dropped on the other.'
+      : 'exact: average the net strong acid C = [H<sub>3</sub>O<sup>+</sup>] &minus; [OH<sup>&minus;</sup>], whose moles are conserved, then re-solve [H<sub>3</sub>O<sup>+</sup>] &minus; K<sub>w</sub>/[H<sub>3</sub>O<sup>+</sup>] = C.';
+  }
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M); eqEl.innerHTML=eqbarFor(M); tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=BEAKER_VIEWS[ST.view]
+        ? 'drag the meter probe in and out of the liquid · space pauses · a autofills · 1–'+TABS.length+' switch views'
+        : '1–'+TABS.length+' switch views';
+      infoEl.innerHTML=INFO[ST.view]||''; physEl.innerHTML=DERIV[ST.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); ST.running=!ST.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='a'){ autofill(); syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='e'){ emptyBeaker(); syncPanel(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    let advanced=false;
+    try{ advanced=S.step(); }catch(e){ fail(e); }
+    if(advanced||dirty){
+      dirty=false;
+      try{
+        S.draw();
+        if(advanced&&frameN%10===0){ const M=S.model();
+          roEl.innerHTML=readoutHTML(M); tagEl.innerHTML=tagHTML(M); }
+      }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  beaker:'PhET\'s Macro screen, which is the whole of the Basics sim. Pick a liquid, squeeze the dropper, and the beaker fills with it; open the tap and it dilutes; open the drain and it empties without changing its pH at all, because draining removes solution and not solute. The meter reads only when its probe is in the liquid — drag it out and it says so rather than inventing a number, which is what a real meter measuring air would tell you. The one thing worth watching is how little the pH moves as you dilute: orange juice at pH 3.5 poured to 0.1 L and then filled to the brim ends at 4.58, because twelve times less acid is only 1.08 units of pH, and pH is a logarithm. Every liquid here is modelled as a strong acid or base of PhET\'s stated pH — fully dissociated, unbuffered. That is PhET\'s model too, and it is a fiction for blood, which is a bicarbonate buffer and hardly moves.',
+  liquids:'The twelve liquids as a table, which is the quickest way to see what the scale is doing. They span pH 1 to 13, which is twelve decades of hydronium — a million million to one between battery acid and drain cleaner — and yet the whole list is the sort of thing you might have in a kitchen. The last two columns are the same pour worked two ways: 0.1 L of the liquid topped up to the beaker\'s 1.2 L, by mixing moles of net strong acid and re-solving the water equilibrium, and by PhET\'s own rule. They agree to a hundredth of a unit for most of the list. The measured column is a real range with a source where one could be found and is left empty where one could not, which for eight of the twelve is the honest answer. Where a range does exist, PhET\'s value sits inside it.',
+  dilution:'This is the view that decides whether a pH simulation is honest. Diluting is mixing, mixing conserves MOLES, and the thing whose moles are conserved is the net strong acid C = [H3O+] − [OH−] — a difference of analytical concentrations, in which the spectator ions cancel. Water carries exactly none of it. So dilute f-fold and C is divided by exactly f; then the pH comes from re-solving the water equilibrium, [H3O+] − Kw/[H3O+] = C, which is what stops a diluted acid from ever crossing neutrality. The dashed line is the tempting shortcut of averaging the pH, and it is wrong by up to 4.4 units. PhET does something much better but not exact: it mixes the majority ion linearly, which counts water\'s autoionisation on one side and drops it on the other. Its error peaks at about 0.095 pH near pH 5 and 9, and vanishes both undiluted and at infinite dilution.',
+  scale:'The twelve liquids on the scale they belong to, and underneath, what that scale actually is. Each step of one pH unit is a factor of ten in the hydronium concentration and a factor of ten the other way in the hydroxide, so on a logarithmic axis the two are straight lines of slope ∓1 crossing at pH 7. Everything else on the picture follows from that crossing. The orange bars are measured ranges — real ones, from the sources named at the foot of the panel — and there are only four of them, because those are the four that could be sourced cleanly here. PhET\'s value falls inside all four, which is a small but genuine check on its data. The other eight liquids are drawn with no bar at all rather than given a range that nobody measured.'
+};
+function FR2(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV_CORE={
+  ions:'<h4>the two ions</h4>'
+    +EQ(1,'['+H3O+'] = 10<sup>&minus;pH</sup>, &nbsp; ['+H3O+']['+OHM+'] = K<sub>w</sub> = 1.00&times;10<sup>&minus;14</sup> <span class="rm">at 25 &deg;C</span>')
+    +EQ(2,'&rArr; &nbsp; ['+OHM+'] = K<sub>w</sub>/['+H3O+'], &nbsp; pH + pOH = 14')
+    +EQ(3,'n = cV <span class="rm">mol</span>, &nbsp; N = n N<sub>A</sub>, &nbsp; N<sub>A</sub> = 6.02214076&times;10<sup>23</sup> <span class="rm">(exact, SI)</span>')
+    +'<p>[2] is written as a division on purpose. PhET spells it 10<sup>&minus;(14&minus;pH)</sup>, and pH &minus; 14 is inexact in a double whenever pH &lt; 7 &mdash; 5.8 &minus; 14 needs one bit more than a double carries &mdash; so that spelling is out by up to 2.1&times;10<sup>&minus;15</sup> while the division is out by 2.1&times;10<sup>&minus;16</sup> and keeps the product at K<sub>w</sub> to a rounding. PhET&rsquo;s Basics sim never prints a concentration; this one keeps them out of the beaker readout too, and puts them where they are the subject.</p>'
+    +'<div class="cite">pins: both concentrations against 50-digit decimal over the whole scale and at its ends; the product; PhET&rsquo;s spelling measured against this one &mdash; build/ph-scale/derive.py</div>',
+  dilution:'<h4>what actually dilutes</h4>'
+    +EQ(1,'C &equiv; ['+H3O+'] &minus; ['+OHM+'] = &minus;2&radic;K<sub>w</sub> sinh[ln10 (pH &minus; 7)]')
+    +EQ(2,'C = (C<sub>1</sub>V<sub>1</sub> + C<sub>2</sub>V<sub>2</sub>)/(V<sub>1</sub>+V<sub>2</sub>) &nbsp;&rarr;&nbsp; <span class="rm">with water,</span> C = C<sub>0</sub>V<sub>0</sub>/V')
+    +EQ(3,'['+H3O+'] &minus; K<sub>w</sub>/['+H3O+'] = C &nbsp;&rArr;&nbsp; pH = 7 &minus; asinh[C/(2&radic;K<sub>w</sub>)]/ln10')
+    +'<p>C is a difference of ANALYTICAL concentrations &mdash; the spectator ions cancel out of the charge balance &mdash; so its moles are conserved and it volume-averages, which neither the pH nor either ion does. [3] is the water autoionisation PhET&rsquo;s rule leaves out. It is solved twice here: the asinh above, and the stable branch of the quadratic root. The textbook root (C + &radic;(C&sup2;+4K<sub>w</sub>))/2 cancels for every base &mdash; 3.6&times;10<sup>&minus;5</sup> at pH 13, 8.0&times;10<sup>&minus;4</sup> at 14, <span class="warn">11 %</span> at 15 &mdash; so C &lt; 0 takes 2K<sub>w</sub>/(&radic;(C&sup2;+4K<sub>w</sub>) &minus; C) instead.</p>'
+    +'<div class="cite">pins: the mixing law against a Decimal mole ledger and a scipy brentq root; C scaled by exactly f under f-fold dilution; both roots against each other; the naive root asserted STILL bad so the branch cannot be deleted &mdash; derive.py</div>',
+  phet:'<h4>PhET&rsquo;s rule, and the size of the gap</h4>'
+    +EQ(1,'<span class="rm">acid:</span> pH = &minus;log<sub>10</sub>'+FR2('10<sup>&minus;pH<sub>1</sub></sup>V<sub>1</sub> + 10<sup>&minus;7</sup>V<sub>2</sub>','V<sub>1</sub>+V<sub>2</sub>')+' &nbsp; <span class="rm">base:</span> 14 + log<sub>10</sub>'+FR2('10<sup>pH<sub>1</sub>&minus;14</sup>V<sub>1</sub> + 10<sup>&minus;7</sup>V<sub>2</sub>','V<sub>1</sub>+V<sub>2</sub>'))
+    +EQ(2,'max |exact &minus; PhET| = <span class="hl">0.0948</span> pH <span class="rm">at pH 4.91, 0.015 L in 1.2 L</span>')
+    +EQ(3,'max |exact &minus; averaged pH| = <span class="warn">4.42</span> pH')
+    +'<p>PhET mixes the majority ion and never re-solves, so water&rsquo;s own autoionisation is counted on one side and dropped on the other. The error vanishes undiluted and at infinite dilution and peaks in between, and it is an ODD function about pH 7 because C(14&minus;pH) = &minus;C(pH) and the two branches mirror each other. Averaging the pH is a different order of wrong.</p>'
+    +'<div class="cite">pins: the worst gap swept over pH &minus;1..15 &times; 0.015..1.2 L; the odd symmetry to 1e-12; both degenerate limits exact &mdash; derive.py</div>',
+  liquids:'<h4>the twelve, and what a logarithm does to them</h4>'
+    +EQ(1,'<span class="rm">battery acid</span> 10<sup>&minus;1</sup> <span class="rm">mol/L</span> &nbsp;&rarr;&nbsp; <span class="rm">drain cleaner</span> 10<sup>&minus;13</sup> <span class="rm">mol/L: a factor of</span> 10<sup>12</sup>')
+    +EQ(2,'0.1 L <span class="rm">in</span> 1.2 L &nbsp;&rArr;&nbsp; C/12 &nbsp;&rArr;&nbsp; &Delta;pH = log<sub>10</sub>12 = <span class="hl">1.079</span> <span class="rm">(well away from neutral)</span>')
+    +EQ(3,'<span class="rm">measured ranges sourced:</span> 4 <span class="rm">of</span> 12; <span class="rm">PhET&rsquo;s value inside all four</span>')
+    +'<p>[2] is the whole reason the pH scale exists: a twelvefold change in the acid is a shift of one unit, so the table’s last two columns sit barely a unit from the first. It stops being true near neutral, where the water’s own ions take over &mdash; which is exactly where the two dilution laws part company.</p>'
+    +'<div class="cite">pins: every liquid&rsquo;s two concentrations and its molecule count in a full beaker; the four sourced ranges, and PhET&rsquo;s value inside each &mdash; derive.py</div>'
+};
+const DERIV={
+  beaker:DERIV_CORE.ions+DERIV_CORE.dilution,
+  liquids:DERIV_CORE.liquids+DERIV_CORE.ions,
+  dilution:DERIV_CORE.dilution+DERIV_CORE.phet,
+  scale:DERIV_CORE.ions+DERIV_CORE.phet
+};
+
+/* ================================================================== *
+ *  reference values — every line of build/ph-scale/refvals.txt,
+ *  which derive.py wrote.  Labels are verbatim; the suite looks them up by
+ *  name and fails loudly on a missing one (a typo must not pass silently). *
+ * ================================================================== */
+const REF={
+  "KW pKw sqrtKw ln10":[1e-14,14,9.9999999999999995e-08,2.3025850929940459],
+  "NA si phet rel":[6.0221407599999999e+23,6.0229999999999998e+23,0.00014268015880782711],
+  "PHET AUTOFILL_FLOW":[0.45000000000000001],
+  "PHET AUTOFILL_VOLUME":[0.5],
+  "PHET BEAKER_VOLUME":[1.2],
+  "PHET COLOR_STOP_RATIO":[0.25],
+  "PHET DOTS_AT_PH7":[50],
+  "PHET DOTS_MAX":[3000],
+  "PHET DOTS_MIN":[5],
+  "PHET DOTS_PH_HI":[8],
+  "PHET DOTS_PH_LO":[6],
+  "PHET DOTS_REF_CONC":[9.9999999999999995e-08],
+  "PHET DROPPER_FLOW":[0.050000000000000003],
+  "PHET FAUCET_FLOW":[0.25],
+  "PHET LIN_EXP_MAX":[1],
+  "PHET LIN_EXP_MIN":[-14],
+  "PHET LIN_MANTISSA_MAX":[8],
+  "PHET LOG_EXP_MAX":[2],
+  "PHET LOG_EXP_MIN":[-16],
+  "PHET MIN_SOLUTION_VOLUME":[0.014999999999999999],
+  "PHET MY_VOL_DEFAULT":[0.5],
+  "PHET MY_VOL_MIN":[0.01],
+  "PHET PH_DECIMALS":[2],
+  "PHET PH_DEFAULT":[7],
+  "PHET PH_MAX":[15],
+  "PHET PH_MIN":[-1],
+  "PHET VOL_DECIMALS":[2],
+  "PHET WATER_CONC":[55],
+  "PHET WATER_PH":[7],
+  "SOLUTE pH values":[1,7.4000000000000004,5.7999999999999998,5,13,10,6.5,3.5,2.5,7.4000000000000004,2,7],
+  "CONC worst rel err h3o oh, identity h*o=Kw, PhET spelling of OH":[0,2.0679515313825689e-16,1.5777218104420236e-16,2.0975886748337729e-15],
+  "CONC at pH -1":[10,1.0000000000000001e-15],
+  "CONC at pH 0":[1,1e-14],
+  "CONC at pH 1":[0.10000000000000001,9.999999999999999e-14],
+  "CONC at pH 7":[9.9999999999999995e-08,1.0000000000000001e-07],
+  "CONC at pH 13":[1e-13,0.099999999999999992],
+  "CONC at pH 14":[1e-14,1],
+  "CONC at pH 15":[1.0000000000000001e-15,10],
+  "CONC at pH 5.8 7.4 2.5":[1.5848931924611141e-06,6.3095734448019305e-09,3.981071705534969e-08,2.5118864315095823e-07,0.0031622776601683794,3.1622776601683794e-12],
+  "COUNT pH7 1.2L moles molecules si phet":[1.1999999999999999e-07,72265689119999984,72275999999999984],
+  "COUNT water 55 molar in 1.2L":[66,3.9746129016e+25],
+  "COUNT drain cleaner pH13 0.5L OH molecules":[3.0110703799999998e+22],
+  "NET worst rel err stable naive":[2.9491001136044318e-15,1.8611235572506297e-11],
+  "NET naive rel err at pH 6.999999":[1.8611235572506297e-11],
+  "NET naive rel err at pH 6.999900":[1.7204226803005445e-13],
+  "NET naive rel err at pH 6.999000":[1.4481848718241333e-14],
+  "NET naive rel err at pH 6.990000":[1.6164370498655521e-15],
+  "NET naive rel err at pH 6.900000":[1.4243403160903914e-16],
+  "NET roundtrip worst, brute agreement, naive root worst":[1.7763568394002505e-15,2.5243548967072412e-16,0.11182158029987484],
+  "NET naive root rel err at pH 13":[3.5999507929348868e-05],
+  "NET naive root rel err at pH 14":[0.00079927783735911243],
+  "NET naive root rel err at pH 15":[0.11182158029987484],
+  "NET C at pH 1 7 13 14":[0.099999999999900127,-0,-0.099999999999900127,-0.99999999999999067],
+  "MIX exact vs brute worst":[1.7763568394002505e-15],
+  "MIX worst |exact - PhET| over the beaker, and where":[0.081479877829609748,5.7999999999999998,0.10000000000000001,1.0999999999999999,6.7317341101349149,6.6502542323053051],
+  "MIX worst |exact - averaged pH|, and where":[4.4208187540144799,13,0.10000000000000001,1.0999999999999999,11.92081875401448,7.5],
+  "MIX pH 1, 0.1 L + 1.1 L water: exact phet avg":[2.0791812459855201,2.0791764688345986,6.5],
+  "MIX pH 5, 0.1 L + 1.1 L water: exact phet avg":[6.0731005549549533,6.0338582672609675,6.833333333333333],
+  "MIX pH 6.5, 0.1 L + 1.1 L water: exact phet avg":[6.9486189577626192,6.9280481413029111,6.9583333333333339],
+  "MIX pH 7.4, 0.1 L + 1.1 L water: exact phet avg":[7.0382008316745814,7.0515347402506752,7.0333333333333332],
+  "MIX pH 10, 0.1 L + 1.1 L water: exact phet avg":[8.9208808446841186,8.9255699095433769,7.25],
+  "MIX pH 13, 0.1 L + 1.1 L water: exact phet avg":[11.92081875401448,11.920823531165402,7.5],
+  "MIX pH 5.8, 0.6 L + 0.6 L water: exact phet avg":[6.0959532838082771,6.0744576200678786,6.4000000000000004],
+  "MIX pH 2.5, 0.3 L + 0.9 L water: exact phet avg":[3.1020599848135446,3.1020187924900222,5.875],
+  "MIX net acid scales as V0/V, worst rel err":[0],
+  "MIX pH round-trip loss at 1e6-fold and 1e3-fold dilution":[3.993987706589891e-09,2.1705889289639215e-12],
+  "MIX infinite dilution exact phet at pH 1 and 13":[6.9999997828527594,6.9999995657061698,7.0000002171472406,7.0000004342938302],
+  "MIX worst difference anywhere in the beaker, pH, V_solute":[0.094763698780221617,4.9100000000000001,0.014999999999999999],
+  "SWEEP 0.1L in 1.2L: worst pH and difference":[8.3000000000000007,-0.083466552186701293],
+  "SWEEP 0.1L in 1.2L at pH 5 6 6.5 8 9":[0.039242287693985745,0.068618386197470294,0.020570816459708041,-0.068618386197470294,-0.039242287693985745],
+  "SYMMETRY C odd about pH 7, PhET-vs-exact difference odd too":[0,1.3322676295501878e-15],
+  "MIX acid+base 0.5L pH2+pH12, pH2+pH11, pH1+pH13":[7,2.3467874855758946,7],
+  "COLOR coffee at 0 0.25 1":[224,255,255,255,240,204,164,99,7],
+  "COLOR milk (no stop) at 0.25 0.5 0.75":[230.5,253.75,253.75,237,252.5,252.5,243.5,251.25,251.25],
+  "DOTS at pH 7 6 8 1 13 15 -1":[50,50,500,5,5,500,2286,5,5,2286,5,3000,3000,5],
+  "DOTS drawn vs true ratio at pH 13":[457.19999999999999,999999999999.99988],
+  "LIQUID h3o":[0.10000000000000001,3.981071705534969e-08,1.5848931924611141e-06,1.0000000000000001e-05,1e-13,1e-10,3.1622776601683792e-07,0.00031622776601683794,0.0031622776601683794,3.981071705534969e-08,0.01,9.9999999999999995e-08],
+  "LIQUID oh":[9.999999999999999e-14,2.5118864315095823e-07,6.3095734448019305e-09,9.9999999999999986e-10,0.099999999999999992,9.9999999999999991e-05,3.1622776601683792e-08,3.1622776601683794e-11,3.1622776601683794e-12,2.5118864315095823e-07,9.9999999999999998e-13,1.0000000000000001e-07],
+  "LIQUID molecules h3o in 1.2 L":[7.2265689119999998e+22,28769489023661824,1.1453339873479919e+18,7.226568912e+18,72265689120,72265689120000,2.2852417430084909e+17,2.2852417430084911e+20,2.2852417430084911e+21,28769489023661824,7.2265689120000002e+21,72265689119999984],
+  "MEASURED blood oj milk soup lo hi":[7.3700000000000001,7.4299999999999997,3.2999999999999998,4.1900000000000004,6.4000000000000004,6.7999999999999998,5.7999999999999998,5.7999999999999998],
+  "FLOW autofill seconds, dropper seconds to fill, faucet seconds to fill":[1.1111111111111112,23.999999999999996,4.7999999999999998],
+  "GRAPH log decades, linear top":[18,80]
+};
+
+/* ================================================================== *
+ *  makeShot — the selfTest recording context (text boxes through     *
+ *  the transform, fill counts), from build_buoy/p7_test.js by name,  *
+ *  unchanged (make_helpers.py)                                       *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Every reference is a line of     *
+ *  build/ph-scale/refvals.txt (derive.py's output, read in full):      *
+ *  (python) = 50-digit decimal or exact arithmetic in the twin,        *
+ *  (scipy)  = a brentq root of the charge balance,                     *
+ *  (PhET)   = a constant read out of the minified original 1.7.5.      *
+ *  The chemistry is the same engine as ph-scale.html, so it is         *
+ *  asserted here too: this file has to stand on its own.               *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),
+    name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  function ref(label,i){
+    const v=REF[label];
+    if(!v) throw new Error('no reference line "'+label+'"');
+    return v[i||0];
+  }
+  const stSave=Object.assign({},ST), pxSave=PROBE.x, pySave=PROBE.y;
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+
+  /* ---------- A. this build IS the Basics sim ---------- */
+  eq(SIMID,'ph-scale-basics','the file knows which sim it is');
+  eq(SIM_VER,'1.7.5','and which version of the original it was built against (PhET)');
+  eq(TABS.length,4,'four views: PhET"s one screen and three analyses');
+  eq(TABS.map(t=>t[0]).join(),'beaker,liquids,dilution,scale','in that order');
+  eq(SHOW_CONC,false,'PhET"s Basics prints no concentrations, and neither does this readout');
+  { Object.assign(ST,DEFAULTS);
+    const ro=readoutHTML(buildModel());
+    ok(ro.indexOf('mol/L')<0,'the beaker readout carries no concentration');
+    ok(ro.indexOf('molecules')<0,'no molecule count');
+    ok(ro.indexOf('moles')<0,'and no moles');
+    ok(ro.indexOf('pH')>=0&&ro.indexOf('total volume')>=0,'a pH and a volume, as PhET does');
+    ok(ro.indexOf('exact, re-solved')>=0&&ro.indexOf('PhET&rsquo;s rule')>=0,
+       'and both dilution laws, which is this remake"s own addition');
+    ST.view='scale';
+    const rs=readoutHTML(buildModel());
+    ok(rs.indexOf('mol/L')>=0||rs.indexOf('&times; 10<sup>')>=0,
+       'while the scale view DOES print them, because they are its subject');
+    Object.assign(ST,stSave); }
+
+  /* ---------- B. PhET's constants, read from the minified original ---------- */
+  eq(PHET.BEAKER_VOLUME,1.2,'the beaker holds 1.2 L (PhET BEAKER_VOLUME)');
+  eq(PHET.MIN_SOLUTION_VOLUME,0.015,'and at least 0.015 L (PhET)');
+  eq(PHET.PH_MIN,-1,'the pH range starts at -1 (PhET PH_RANGE)');
+  eq(PHET.PH_MAX,15,'and ends at 15 (PhET)');
+  eq(PHET.PH_DECIMALS,2,'the meter prints two decimals (PhET)');
+  eq(PHET.DROPPER_FLOW,0.05,'the dropper runs at 0.05 L/s (PhET)');
+  eq(PHET.FAUCET_FLOW,0.25,'the faucets at 0.25 L/s (PhET)');
+  eq(PHET.AUTOFILL_VOLUME,0.5,'autofill puts in 0.5 L (PhET)');
+  eq(PHET.AUTOFILL_FLOW,0.45,'at 0.45 L/s (PhET)');
+  eq(PHET.WATER_CONC,55,'water is 55 mol/L (PhET Water.concentration)');
+  eq(PHET.WATER_PH,7,'and pH 7 (PhET Water.pH)');
+  eq(PHET.COLOR_STOP_RATIO,0.25,'the colour stop sits at a quarter (PhET)');
+  eq(NA_PHET,6.023e23,'PhET"s Avogadro number is 6.023e23 (PhET)');
+  eq(SOLUTES.length,12,'twelve liquids (PhET)');
+  eq(SOLUTES.map(s=>s.pH).join(),REF['SOLUTE pH values'].join(),
+     'and their pH values are PhET"s (python)');
+  eq(soluteById('drainCleaner').pH,13,'drain cleaner is pH 13 (PhET)');
+  eq(soluteById('batteryAcid').pH,1,'battery acid pH 1 (PhET)');
+  eq(soluteById('chickenSoup').pH,5.8,'chicken soup pH 5.8 (PhET)');
+  eq(soluteById('water').stock.join(),WATER_RGB.join(),'and water is PhET"s own colour (PhET)');
+  { const got=[], want=REF['MEASURED blood oj milk soup lo hi'];
+    for(const id of ['blood','orangeJuice','milk','chickenSoup']){
+      const s=soluteById(id); got.push(s.range[0],s.range[1]);
+      ok(s.pH>=s.range[0]-1e-12&&s.pH<=s.range[1]+1e-12,
+         'PhET"s '+s.name+' lies inside its sourced measured range'); }
+    eq(got.join(),want.join(),'the four sourced ranges match derive.py (python)');
+    eq(SOLUTES.filter(s=>s.range).length,4,'and only four of the twelve carry one');
+    for(const s of SOLUTES) ok(!s.range||!!s.src,'a range without a source would be an invention: '+s.name); }
+  close(PHET.AUTOFILL_VOLUME/PHET.AUTOFILL_FLOW,
+        ref('FLOW autofill seconds, dropper seconds to fill, faucet seconds to fill'),1e-15,
+        'autofill takes 1.111 s (python)');
+
+  /* ---------- C. the two concentrations ---------- */
+  eq(KW,1e-14,'Kw is 1e-14 at 25 C by convention');
+  eq(PKW,14,'so pKw is 14.000 exactly, and neutral is pH 7.000');
+  eq(NA,6.02214076e23,'N_A is the exact SI 2019 value');
+  for(const [lbl,ph] of [['CONC at pH -1',-1],['CONC at pH 0',0],['CONC at pH 1',1],
+                         ['CONC at pH 7',7],['CONC at pH 13',13],['CONC at pH 14',14],
+                         ['CONC at pH 15',15]]){
+    rel(concH3O(ph),ref(lbl),1e-15,'[H3O+] at pH '+ph+' (python)');
+    rel(concOH(ph),ref(lbl,1),1e-15,'[OH-] at pH '+ph+' (python)');
+  }
+  rel(concH3O(5.8),ref('CONC at pH 5.8 7.4 2.5'),1e-15,'[H3O+] at pH 5.8, not a round exponent (python)');
+  rel(concOH(5.8),ref('CONC at pH 5.8 7.4 2.5',1),1e-15,'[OH-] at pH 5.8 (python)');
+  { let worst=0, worstPhet=0;
+    for(let i=0;i<=320;i++){ const ph=PHET.PH_MIN+(PHET.PH_MAX-PHET.PH_MIN)*i/320;
+      worst=Math.max(worst,Math.abs(concH3O(ph)*concOH(ph)-KW)/KW);
+      worstPhet=Math.max(worstPhet,Math.abs(concOHPhet(ph)-concOH(ph))/concOH(ph)); }
+    ok(worst<3e-16,'[H3O+][OH-] = Kw to 3e-16 over the whole scale ['+worst.toExponential(2)+']');
+    ok(worstPhet>5*3e-16,'and PhET"s 10^-(14-pH) spelling is measurably worse ['
+       +worstPhet.toExponential(2)+'] — the reason concOH divides');
+    rel(worstPhet,ref('CONC worst rel err h3o oh, identity h*o=Kw, PhET spelling of OH',3),
+        0.35,'the size of that gap (python)'); }
+  for(let i=0;i<SOLUTES.length;i++){
+    rel(concH3O(SOLUTES[i].pH),REF['LIQUID h3o'][i],1e-15,SOLUTES[i].name+' [H3O+] (python)');
+    rel(concOH(SOLUTES[i].pH),REF['LIQUID oh'][i],1e-15,SOLUTES[i].name+' [OH-] (python)');
+    rel(moleculesOf(concH3O(SOLUTES[i].pH),PHET.BEAKER_VOLUME),
+        REF['LIQUID molecules h3o in 1.2 L'][i],1e-14,SOLUTES[i].name+' H3O+ per beaker (python)');
+  }
+  rel(moleculesOf(concH3O(7),1.2),ref('COUNT pH7 1.2L moles molecules si phet',1),1e-14,
+      'a neutral beaker holds 7.23e16 hydronium ions (python)');
+
+  /* ---------- C2. what this build carries but never draws ----------
+     The chemistry file is the SAME one ph-scale uses, so this build contains PhET's
+     particle rule, its graph ranges and the other two inverses whether or not a view of
+     its own shows them.  Code that ships is code that gets asserted: without this block a
+     mutation sweep finds seventeen live mutants inside a file that calls itself verified,
+     and every one of them is real — the constants are in the bundle a reader downloads. */
+  { const d=REF['DOTS at pH 7 6 8 1 13 15 -1'], phs=[7,6,8,1,13,15,-1];
+    for(let i=0;i<phs.length;i++){
+      const c=dotCounts(phs[i]);
+      eq(c.h,d[2*i],'dots of H3O+ at pH '+phs[i]+' (PhET rule, python)');
+      eq(c.o,d[2*i+1],'dots of OH- at pH '+phs[i]+' (PhET rule, python)'); }
+    eq(dotCounts(7).h,50,'fifty dots each at neutral (PhET)');
+    eq(dotCounts(6).o,5,'and the minority is floored at five (PhET)');
+    eq(dotCounts(15).o,3000,'the ramp reaches PhET"s 3000 at pH 15 (PhET)');
+    const c13=dotCounts(13);
+    rel(c13.o/c13.h,ref('DOTS drawn vs true ratio at pH 13'),1e-12,
+        'and the drawn ratio at pH 13 is 457.2 : 1 (python)');
+    rel(concOH(13)/concH3O(13),ref('DOTS drawn vs true ratio at pH 13',1),1e-12,
+        'against a true 1e12 : 1 (python)'); }
+  eq(PHET.LOG_EXP_MIN,-16,'the log graph would start at 1e-16 (PhET)');
+  eq(PHET.LOG_EXP_MAX,2,'and end at 1e2 (PhET)');
+  close(PHET.LOG_EXP_MAX-PHET.LOG_EXP_MIN,ref('GRAPH log decades, linear top'),1e-12,
+        'eighteen decades (python)');
+  eq(PHET.LIN_MANTISSA_MAX,8,'with a mantissa to 8 (PhET)');
+  eq(PHET.LIN_EXP_MIN,-14,'and an exponent from -14 (PhET)');
+  eq(PHET.MY_VOL_MIN,0.01,'My Solution would go down to 0.01 L (PhET)');
+  eq(PHET.MY_VOL_DEFAULT,0.5,'and start at 0.5 L (PhET)');
+  eq(soluteById('nonsense').id,'orangeJuice','an unknown id falls back rather than throwing');
+  { let worst=0;
+    for(let i=0;i<=160;i++){ const ph=PHET.PH_MIN+(PHET.PH_MAX-PHET.PH_MIN)*i/160;
+      worst=Math.max(worst,Math.abs(phFromH3O(concH3O(ph))-ph),
+                           Math.abs(phFromOH(concOH(ph))-ph)); }
+    ok(worst<1e-12,'pH -> concentration -> pH round-trips both ways ['+worst.toExponential(2)+']'); }
+  eq(phFromH3O(0),null,'a zero concentration has no pH, and says so rather than -Infinity');
+  eq(phFromH3O(null),null,'and neither does a missing one');
+  rel(molesOf(concH3O(7),1.2),ref('COUNT pH7 1.2L moles molecules si phet'),1e-15,
+      'moles of H3O+ in 1.2 L of neutral water (python)');
+  rel(molesOf(PHET.WATER_CONC,1.2),ref('COUNT water 55 molar in 1.2L'),1e-15,
+      'and 66 moles of water around them (python)');
+  rel(moleculesOf(concH3O(7),1.2,NA_PHET),ref('COUNT pH7 1.2L moles molecules si phet',2),1e-14,
+      'PhET"s N_A gives a different last four digits (python)');
+
+  /* ---------- D. the net strong acid, and the two stable branches ---------- */
+  { const c=REF['NET C at pH 1 7 13 14'];
+    rel(netAcid(1),c[0],1e-15,'C at pH 1 (python)');
+    eq(netAcid(7),0,'C is exactly zero at pH 7');
+    rel(netAcid(13),c[2],1e-15,'C at pH 13 (python)');
+    ok(netAcid(3)>0&&netAcid(11)<0,'positive for an acid, negative for a base'); }
+  { const bad=Math.abs(netAcidNaive(6.999999)-netAcid(6.999999))/Math.abs(netAcid(6.999999));
+    rel(bad,ref('NET naive rel err at pH 6.999999'),0.5,
+        'the plain difference loses 11 digits at pH 6.999999 (python)');
+    ok(bad>1e-12,'which is a thousand times the sinh form"s own error');
+    ok(Math.abs(netAcidNaive(6.99)-netAcid(6.99))/Math.abs(netAcid(6.99))<1e-14,
+       'at 0.01 from neutral it is still fine'); }
+  { let worst=0;
+    for(let i=0;i<=140;i++){ const ph=i*0.1;
+      worst=Math.max(worst,Math.abs(netAcid(PKW-ph)+netAcid(ph))/Math.max(1e-300,Math.abs(netAcid(ph)))); }
+    ok(worst<1e-14,'C(14-pH) = -C(pH) exactly ['+worst.toExponential(2)+']'); }
+  { let worst=0, worstRt=0;
+    for(let i=0;i<=160;i++){ const ph=PHET.PH_MIN+(PHET.PH_MAX-PHET.PH_MIN)*i/160;
+      const c=netAcid(ph);
+      worst=Math.max(worst,Math.abs(phFromNet(c)-phFromNetAsinh(c)));
+      worstRt=Math.max(worstRt,Math.abs(phFromNet(c)-ph)); }
+    ok(worst<1e-11,'the quadratic root and the asinh closed form agree ['+worst.toExponential(2)+']');
+    ok(worstRt<1e-12,'and pH -> C -> pH round-trips ['+worstRt.toExponential(2)+']'); }
+  for(const [ph,lbl] of [[13,'NET naive root rel err at pH 13'],
+                         [14,'NET naive root rel err at pH 14'],
+                         [15,'NET naive root rel err at pH 15']]){
+    const c=netAcid(ph), bad=Math.abs(h3oFromNetNaive(c)-concH3O(ph))/concH3O(ph);
+    rel(bad,ref(lbl),0.02,'the textbook quadratic root is out by '+ref(lbl).toExponential(1)
+        +' at pH '+ph+' (python)');
+    rel(h3oFromNet(c),concH3O(ph),1e-12,'while the rationalised branch is exact at pH '+ph);
+  }
+  ok(Math.abs(h3oFromNetNaive(netAcid(15))-concH3O(15))/concH3O(15)>0.1,
+     'the naive root is STILL 11 % wrong at pH 15, so this branch cannot be deleted');
+  { let worst=0;
+    for(let i=0;i<=160;i++){ const ph=PHET.PH_MIN+(PHET.PH_MAX-PHET.PH_MIN)*i/160;
+      const c=netAcid(ph), h=h3oFromNet(c);
+      worst=Math.max(worst,Math.abs(h-KW/h-c)/Math.max(Math.abs(c),SQRTKW)); }
+    ok(worst<1e-11,'and every root satisfies h - Kw/h = C ['+worst.toExponential(2)+']'); }
+
+  /* ---------- E. the mixing laws ---------- */
+  for(const [ph,lbl] of [[1,'MIX pH 1, 0.1 L + 1.1 L water: exact phet avg'],
+                         [5,'MIX pH 5, 0.1 L + 1.1 L water: exact phet avg'],
+                         [6.5,'MIX pH 6.5, 0.1 L + 1.1 L water: exact phet avg'],
+                         [7.4,'MIX pH 7.4, 0.1 L + 1.1 L water: exact phet avg'],
+                         [10,'MIX pH 10, 0.1 L + 1.1 L water: exact phet avg'],
+                         [13,'MIX pH 13, 0.1 L + 1.1 L water: exact phet avg']]){
+    rel(mixExact(ph,0.1,PHET.WATER_PH,1.1),ref(lbl),1e-12,
+        'pH '+ph+' diluted twelvefold, exact (python + scipy)');
+    rel(mixPhet(ph,0.1,1.1),ref(lbl,1),1e-12,'the same by PhET"s rule (python)');
+    rel(mixAverage(ph,0.1,PHET.WATER_PH,1.1),ref(lbl,2),1e-12,'and by averaging the pH (python)');
+  }
+  for(const ph of [1,5,7,10,13]){
+    eq(mixExact(ph,0.5,PHET.WATER_PH,0),ph,'no water added leaves pH '+ph+' exactly');
+    eq(mixPhet(ph,0.5,0),ph,'and so does PhET"s rule');
+  }
+  eq(mixExact(3,0,PHET.WATER_PH,1),7,'no solute is pH 7 exactly');
+  eq(mixExact(3,0,PHET.WATER_PH,0),null,'an empty beaker has no pH at all');
+  { let worst=0;
+    for(const ph of [1,3.5,6.9,7.1,10,13]) for(const f of [2,10,1000,1e6]){
+      const got=mixNet(ph,1,PHET.WATER_PH,f-1), want=netAcid(ph)/f;
+      worst=Math.max(worst,Math.abs(got-want)/Math.abs(want)); }
+    ok(worst<1e-14,'diluting f-fold divides C by exactly f ['+worst.toExponential(2)+']'); }
+  { let worst=0, argPh=0, argV=0;
+    for(let i=0;i<=320;i++){ const ph=PHET.PH_MIN+(PHET.PH_MAX-PHET.PH_MIN)*i/320;
+      for(let j=1;j<=80;j++){ const v1=0.015*j; if(v1>PHET.BEAKER_VOLUME) break;
+        const d=Math.abs(mixExact(ph,v1,PHET.WATER_PH,PHET.BEAKER_VOLUME-v1)
+                        -mixPhet(ph,v1,PHET.BEAKER_VOLUME-v1));
+        if(d>worst){ worst=d; argPh=ph; argV=v1; } } }
+    rel(worst,ref('MIX worst difference anywhere in the beaker, pH, V_solute'),0.02,
+        'the two laws never differ by more than 0.0948 pH in this beaker (python)');
+    ok(worst>0.05&&worst<0.12,'which is small, real, and worth drawing ['+fmt(worst,5)+' pH]');
+    close(argV,0.015,1e-9,'and it happens at the thinnest solution the beaker allows'); }
+  { let worst=0;
+    for(const ph of [1,2.5,5,5.8,6.5,7,7.4,10,13]) for(const v1 of [0.1,0.3,0.6,1.0,1.2])
+      worst=Math.max(worst,Math.abs(mixExact(ph,v1,PHET.WATER_PH,1.2-v1)
+                                   -mixAverage(ph,v1,PHET.WATER_PH,1.2-v1)));
+    rel(worst,REF['MIX worst |exact - averaged pH|, and where'][0],1e-12,
+        'averaging the pH is wrong by 4.42 units at worst (python)');
+    ok(worst>1.0,'a different order of wrong from PhET"s rule'); }
+  { let worst=0;
+    for(let i=1;i<140;i++){ const ph=i*0.1;
+      const a=mixExact(ph,0.1,PHET.WATER_PH,1.1)-mixPhet(ph,0.1,1.1);
+      const b=mixExact(PKW-ph,0.1,PHET.WATER_PH,1.1)-mixPhet(PKW-ph,0.1,1.1);
+      worst=Math.max(worst,Math.abs(a+b)); }
+    ok(worst<1e-12,'exact minus PhET is odd about pH 7 ['+worst.toExponential(2)+']'); }
+  { close(mixExact(2,0.5,12,0.5),7,1e-12,'equal volumes of pH 2 and pH 12 are exactly neutral (python)');
+    rel(mixExact(2,0.5,11,0.5),REF['MIX acid+base 0.5L pH2+pH12, pH2+pH11, pH1+pH13'][1],1e-12,
+        'pH 2 with pH 11 stays acidic at 2.3468 (python)'); }
+  /* the one number the liquids table is built on */
+  close(Math.log10(12),1.0791812460476249,1e-12,'a twelvefold dilution is 1.079 pH, well away from neutral');
+  /* NOT a 17-digit constant typed from the head — that one was wrong in its fourth digit
+     and the suite caught it (Known-bad: a reference value you computed in your head is
+     not a reference value).  What the prose claims is what the sim PRINTS, so that is
+     what is asserted, alongside the two independent implementations agreeing. */
+  { const v=mixExact(3.5,0.1,PHET.WATER_PH,1.1);
+    eq(phPlain(v),'4.58','orange juice poured to 0.1 L and filled to the brim reads 4.58');
+    rel(v,phFromNetAsinh(mixNet(3.5,0.1,PHET.WATER_PH,1.1)),1e-12,
+        'by the asinh closed form as well as by the quadratic root');
+    close(v-3.5,Math.log10(12),0.001,
+          'and it is log10(12) above the stock pH, because 3.5 is far from neutral'); }
+
+  /* ---------- F. PhET's colour law ---------- */
+  { const c=REF['COLOR coffee at 0 0.25 1'], cf=soluteById('coffee');
+    for(const [r,i] of [[0,0],[0.25,3],[1,6]]){
+      const g=soluteRGB(cf,r);
+      for(let k=0;k<3;k++) close(g[k],c[i+k],1e-9,'coffee colour at r = '+r+', channel '+k+' (python)'); }
+    /* at r = 0.5 lerp(water, stock, r) and lerp(stock, water, r) AGREE, so a no-stop
+       colour tested only there is tested by nothing (the ph-scale sweep proved it) */
+    const mr=REF['COLOR milk (no stop) at 0.25 0.5 0.75'];
+    [0.25,0.5,0.75].forEach((r,i)=>{
+      const mk=soluteRGB(soluteById('milk'),r);
+      for(let k=0;k<3;k++) close(mk[k],mr[3*i+k],1e-9,
+        'milk has no colour stop, r = '+r+', channel '+k+' (python)'); });
+    eq(rgbCss(soluteRGB(cf,1)),'rgb(164,99,7)','an undiluted solute is its stock colour');
+    eq(rgbCss(soluteRGB(cf,0)),rgbCss(WATER_RGB),'and a vanishing one is water'); }
+
+  /* ---------- G. the beaker, as a machine ---------- */
+  { Object.assign(ST,DEFAULTS);
+    eq(vTotal(),PHET.AUTOFILL_VOLUME,'the beaker starts with PhET"s autofill volume');
+    eq(soluteRatio(),1,'all of it the liquid');
+    let worst=0;
+    for(let i=0;i<=24;i++) for(let j=0;j<=24;j++){
+      setSolute(i*0.05); setWater(j*0.05);
+      worst=Math.max(worst,vTotal()-PHET.BEAKER_VOLUME);
+      ok(ST.vSolute>=-1e-12&&ST.vWater>=-1e-12,'no negative volume at ('+i+','+j+')'); }
+    ok(worst<=1e-12,'no slider pair puts more than 1.2 L in the beaker ['+worst.toExponential(2)+']');
+    setSolute(1.2); eq(ST.vWater,0,'filling with liquid empties the water');
+    setWater(1.2); eq(ST.vSolute,0,'and the other way round');
+    Object.assign(ST,DEFAULTS); ST.vSolute=0.3; ST.vWater=0.6; ST.drain=true; ST.running=true;
+    const before=beakerPH(), rBefore=soluteRatio();
+    for(let k=0;k<30;k++) stepFrame();
+    close(beakerPH(),before,1e-12,'draining does not change the pH: it removes solution, not solute');
+    close(soluteRatio(),rBefore,1e-12,'and leaves the mixture"s ratio alone');
+    ok(vTotal()<0.9,'while emptying it ['+fmt(vTotal(),3)+' L]');
+    Object.assign(ST,DEFAULTS); emptyBeaker(); ST.pourSolute=true; ST.running=true;
+    for(let k=0;k<60;k++) stepFrame();
+    close(ST.vSolute,PHET.DROPPER_FLOW,1e-12,'one second of the dropper is 0.05 L (PhET)');
+    ST.pourWater=true;
+    for(let k=0;k<60;k++) stepFrame();
+    close(ST.vWater,PHET.FAUCET_FLOW,1e-12,'one second of the faucet is 0.25 L (PhET)');
+    for(let k=0;k<6000;k++) stepFrame();
+    close(vTotal(),PHET.BEAKER_VOLUME,1e-12,'and both stop at the brim');
+    ok(stepFrame()===false,'after which the frame reports that nothing moved');
+    ST.running=false; const held=vTotal();
+    ST.pourWater=true; for(let k=0;k<60;k++) stepFrame();
+    eq(vTotal(),held,'and a paused clock pours nothing');
+    Object.assign(ST,DEFAULTS); emptyBeaker(); ST.running=true; ST.drain=true;
+    for(let k=0;k<6000;k++) stepFrame();
+    eq(vTotal(),0,'an empty beaker drains to exactly nothing, never below');
+    eq(beakerPH(),null,'and an empty beaker has no pH');
+    autofill(); eq(vTotal(),PHET.AUTOFILL_VOLUME,'autofill puts PhET"s 0.5 L back');
+    eq(ST.vWater,0,'of the LIQUID alone, not of water'); }
+  { Object.assign(ST,DEFAULTS); PROBE.x=0.62; PROBE.y=0.16;
+    ok(probeInLiquid(),'the probe starts in the liquid');
+    PROBE.y=0.9; ok(!probeInLiquid(),'lifted above the surface it reads nothing');
+    PROBE.y=0.16; PROBE.x=-0.1; ok(!probeInLiquid(),'and outside the wall it reads nothing');
+    PROBE.x=0.10; ok(probeInLiquid(),'a tenth of the way in is still in the liquid');
+    PROBE.x=PROBE_WALL*0.5; ok(!probeInLiquid(),'half the wall margin in is not');
+    PROBE.x=0.62; emptyBeaker(); ok(!probeInLiquid(),'nor in an empty beaker');
+    autofill(); ok(probeInLiquid(),'and it reads again when the beaker is refilled'); }
+  { Object.assign(ST,DEFAULTS); ST.solute='chickenSoup'; ST.vSolute=0.1; ST.vWater=1.1;
+    ST.law='exact';
+    const e=beakerIons();
+    rel(e.ph,mixExact(5.8,0.1,PHET.WATER_PH,1.1),1e-15,'the model uses the exact law when asked');
+    rel(e.h*e.o,KW,3e-16,'and its two ions still multiply to Kw');
+    rel(e.h,h3oFromNet(e.c),1e-15,'because both come from C, not from the printed pH');
+    { let bad=0, n=0;
+      const sv=Object.assign({},ST);
+      for(const sol of SOLUTES) for(let i=1;i<=80;i++){
+        const v1=0.015*i; if(v1>PHET.BEAKER_VOLUME) break;
+        for(const v2 of [0,0.05,0.2,0.6,PHET.BEAKER_VOLUME-v1]){
+          if(v2<0||v1+v2>PHET.BEAKER_VOLUME+1e-12) continue;
+          ST.solute=sol.id; ST.vSolute=v1; ST.vWater=v2; ST.law='exact';
+          const io2=beakerIons(); if(!io2) continue;
+          n++; if(io2.o!==KW/io2.h) bad++;
+        } }
+      Object.assign(ST,sv);
+      ok(bad===0&&n>4000,'the hydroxide is Kw over the solved hydronium, bit for bit, at all '
+         +n+' reachable states ('+bad+' bad)'); }
+    ST.law='phet';
+    const p=beakerIons();
+    rel(p.ph,mixPhet(5.8,0.1,1.1),1e-15,'and PhET"s rule when asked for that');
+    ok(Math.abs(e.ph-p.ph)>0.05,'the two differ by more than a twentieth of a unit here');
+    ST.law='exact'; }
+  { eq(phClass(7),'neutral','pH 7 is neutral');
+    eq(phClass(7.004),'neutral','and so is anything the meter prints as 7.00 (PhET rounding)');
+    eq(phClass(7.006),'basic','while 7.01 is basic');
+    eq(phClass(6.994),'acidic','and 6.99 acidic');
+    eq(phClass(null),'empty','an empty beaker is neither'); }
+  { /* the dilution view's envelope IS derive.py's headline number */
+    Object.assign(ST,DEFAULTS); ST.view='dilution';
+    const D=buildModel().D;
+    close(D.fReach,80,1e-12,'the envelope sweeps every dilution the beaker can hold, 80-fold');
+    rel(D.worst,ref('MIX worst difference anywhere in the beaker, pH, V_solute'),0.02,
+        'and its peak is the 0.0948 pH derive.py measured (python)');
+    close(D.worstPh,ref('MIX worst difference anywhere in the beaker, pH, V_solute',1),0.12,
+          'at the stock pH derive.py found, 4.91 (python)');
+    close(D.hereDiff,0,1e-15,'and the undiluted beaker sits at exactly zero');
+    Object.assign(ST,stSave); }
+
+  /* ---------- H. every view builds clean, at four sizes ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,560],[560,380]];
+  const CONFIGS=[
+    {view:'beaker'},
+    {view:'beaker',solute:'drainCleaner',vSolute:0.1,vWater:1.1},
+    {view:'beaker',solute:'batteryAcid',vSolute:1.2,vWater:0},
+    {view:'beaker',solute:'water',vSolute:0.02,vWater:0},
+    {view:'beaker',vSolute:0,vWater:0},
+    {view:'beaker',vSolute:0,vWater:0.6},
+    {view:'beaker',law:'phet',solute:'coffee',vSolute:0.05,vWater:1.15},
+    {view:'beaker',pourSolute:true,pourWater:true,drain:true},
+    {view:'liquids'},
+    {view:'liquids',solute:'drainCleaner'},
+    {view:'liquids',solute:'blood'},
+    {view:'dilution'},
+    {view:'dilution',solute:'drainCleaner'},
+    {view:'dilution',solute:'milk',vSolute:0.015,vWater:1.185},
+    {view:'dilution',solute:'water'},
+    {view:'dilution',vSolute:0,vWater:0},
+    {view:'scale'},
+    {view:'scale',solute:'blood'}
+  ];
+  for(const base of CONFIGS){
+    Object.assign(ST,DEFAULTS,base);
+    PROBE.x=PROBE0.x; PROBE.y=PROBE0.y;
+    const nm=JSON.stringify(base);
+    for(const [W,H] of SIZES){
+      const c=makeShot(W,H);
+      let err=null, M=null;
+      try{ M=buildModel(); drawView(c,W,H,M); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) continue;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      const rects=fills.reduce((a,o)=>a+(o.n||1),0), strokes=c.ops.filter(o=>o.op==='stroke').length;
+      /* a floor on what the ops CARRY, not on how many there are (Known-bad: an op-count
+         floor punishes a view for batching) */
+      ok(rects+strokes>=12&&texts.length>=5,
+         nm+' '+W+'x'+H+' draws substance ('+rects+' rects, '+strokes+' strokes, '+texts.length+' texts)');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN|Infinity/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){
+          bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const A2=texts[i2].bb,B2=texts[j2].bb;
+        const ox=Math.min(A2[2],B2[2])-Math.max(A2[0],B2[0]);
+        const oy=Math.min(A2[3],B2[3])-Math.max(A2[1],B2[1]);
+        if(ox>0.5&&oy>0.5){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      /* the house #hint is HTML at bottom:11px and the canvas capture cannot see it
+         (build/wave-on-a-string/, Known-bad): keep the corner clear */
+      const inHint=texts.filter(t=>t.bb[0]<340&&t.bb[3]>H-27);
+      ok(!inHint.length,nm+' '+W+'x'+H+' nothing under the #hint line'+
+         (inHint.length?' ("'+inHint[0].t.slice(0,30)+'" to y '+fmt(inHint[0].bb[3],0)+')':''));
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||
+           Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+      const ro=readoutHTML(M), eb=eqbarFor(M), tg=tagHTML(M);
+      ok(ro.indexOf('NaN')<0&&ro.indexOf('undefined')<0&&ro.indexOf('Infinity')<0,nm+' readout clean');
+      ok(eb.indexOf('NaN')<0&&tg.indexOf('NaN')<0&&tg.indexOf('undefined')<0,
+         nm+' equation bar and tag clean');
+      ok(ro.length>300,nm+' readout has substance ('+ro.length+' chars)');
+    }
+  }
+  Object.assign(ST,stSave); PROBE.x=pxSave; PROBE.y=pySave;
+
+  /* ---------- I. the liquids table prints what it computed ---------- */
+  { Object.assign(ST,DEFAULTS); ST.view='liquids';
+    const c=makeShot(1400,820);
+    drawView(c,1400,820,buildModel());
+    const tx=c.ops.filter(o=>o.op==='text').map(o=>o.t);
+    for(const s of SOLUTES) ok(tx.indexOf(s.name)>=0,'the table lists '+s.name);
+    ok(tx.indexOf('4.58')>=0,'and prints orange juice"s diluted pH, 4.58');
+    /* CHICKEN SOUP, not orange juice, pins the two columns: it is the liquid at which the
+       two laws part company (6.73 against 6.65), so an orange-juice-only check passes on a
+       table whose PhET column has been replaced by the exact one, and on one whose
+       dilution has been changed under the exact column alone.  Both survived a spot check
+       until this line. */
+    ok(tx.indexOf('6.73')>=0,'chicken soup diluted twelvefold, exactly: 6.73');
+    ok(tx.indexOf('6.65')>=0,'and by PhET"s rule: 6.65 — the two columns really differ');
+    ok(tx.indexOf('7.37–7.43')>=0,'and blood"s sourced range');
+    ok(tx.filter(t=>t==='not sourced').length===8,
+       'and says "not sourced" for exactly the eight that are not');
+    /* the rows are emitted in order, so their order in the display list IS the sort */
+    ok(tx.indexOf('battery acid')<tx.indexOf('water')
+       &&tx.indexOf('water')<tx.indexOf('drain cleaner'),
+       'and the twelve are sorted by pH, acid first');
+    Object.assign(ST,stSave); }
+
+  /* ---------- J. the canvas prose and the shared helpers ---------- */
+  { const CANVAS_PROSE=[['CAP_BEAKER',CAP_BEAKER],['CAP_BEAKER_S',CAP_BEAKER_S],
+      ['CAP_LIQ',CAP_LIQ],['CAP_LIQ_S',CAP_LIQ_S],
+      ['CAP_DIL',CAP_DIL],['CAP_DIL_S',CAP_DIL_S],
+      ['CAP_SCALE',CAP_SCALE],['CAP_SCALE_S',CAP_SCALE_S]];
+    for(const [nm,t] of CANVAS_PROSE){
+      ok(!/<su[bp]>/.test(t),nm+' carries no <sub>/<sup>: plain() strips them silently');
+      ok(plain(t).indexOf('&')<0,nm+' decodes to literal glyphs');
+      ok(plain(t).indexOf('<')<0,nm+' has no tags left after plain()'); } }
+  { for(const [k] of TABS){ ok((INFO[k]||'').length>300,'INFO['+k+'] is a paragraph');
+      ok((DERIV[k]||'').length>200,'DERIV['+k+'] carries its derivation'); } }
+  { eq(plain('&radic;K<sub>w</sub> &minus; x'),'√Kw − x','plain() decodes and strips');
+    eq(plain('&#955;'),'λ','and numeric entities');
+    eq(fmt(4.58236,2),'4.58','fmt to two places');
+    eq(sciPlain(1.5848931924611141e-6,3),'1.585e-6','sciPlain for the canvas');
+    eq(phPlain(null),'—','phPlain on an empty beaker');
+    eq(volStr(0.5),'0.50 L','volumes carry PhET"s two places');
+    ok(/^rgb\(\d+,\d+,\d+\)$/.test(mix(COL.h3o,COL.oh,0.5)),'mix is well formed');
+    eq(toRgb(shade(COL.pos,0)).join(),toRgb('#070b18').join(),'shade(col,0) is the page background');
+    ok(ticksFor(0,14,6).length>=5,'ticksFor gives a full set on a sane range');
+    eq(logTicks(0,10).length,0,'logTicks refuses a non-positive bound rather than looping'); }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

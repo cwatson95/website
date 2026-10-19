@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Charges and Fields &mdash; point charges, their field and potential</title>
+<!--
+  ===================================================================
+  charges-and-fields.html — Charges and Fields: point charges on a
+  plane, their exact electric field and potential, the equipotentials
+  and field lines they make, the potential as a landscape, the field
+  as a vector sum, and the multipole far field
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Charges and Fields (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets. The original is docs/phets/charges-and-fields_en.html
+  (version 1.0.67); its single screen is the first view here.
+
+  Five views.  THE PLANE — PhET's screen: drag +1 nC and -1 nC charges
+  and E-field sensors out of the bin onto an 8 m x 5 m plane, drop them
+  back in the bin to remove them.  The field is drawn on a 0.5 m grid of
+  fixed-length arrows whose brightness follows |E| up to 5 V/m ("direction
+  only" makes them all bright), the voltage on 0.1 m cells that saturate
+  at +-40 V.  The voltage sensor reads V at its crosshair and its "plot"
+  button traces the equipotential through it; the E-field sensors read
+  |E| and its direction; there is a tape measure, a grid and value
+  labels.  FIELD LINES — the same charges, lines traced along E from the
+  charges of the majority sign, an evenly spaced family of equipotentials
+  crossing them at right angles, and the null points where E = 0 found and
+  classified.  THE LANDSCAPE — V(x, y) as a height surface (clipped, and
+  the clip printed): peaks at the positive charges, wells at the negative
+  ones, the field everywhere pointing straight downhill, and the plotted
+  equipotentials drawn as the level cuts they are.  SUPERPOSITION — at a
+  probe, each charge's field drawn head to tail and the chain closing on
+  the total; the potential as a signed sum of the charges' terms.  THE FAR
+  FIELD — the potential along a ray against distance on log axes, the
+  exact sum against its leading multipole term, and r^(l+1) V(r) taken to
+  its limit numerically.
+
+  WHAT IS EXACT
+  -------------
+  V(r) = k sum q_i / |r - r_i| and E = k sum q_i (r - r_i) / |r - r_i|^3:
+  the 3-D Coulomb field of point charges held in the plane z = 0 (PhET's
+  model: "the three dimensional Maxwell's equations are used, the charges
+  are confined to move along a two dimensional surface"), in closed form
+  at every point drawn.  The equipotentials are traced along z x E by RK4
+  and projected back onto V = V0 by Newton after every step, so every
+  vertex sits on the level set to 1e-12; they close on themselves or end
+  at the edge of the traced region.  Field lines are RK4 on E/|E| with the
+  step set by the local length scale min(distance to a charge, |E|/|grad E|).
+  Null points are Newton roots of E = 0 with the analytic Jacobian.  The
+  multipole coefficients along a ray come from the Legendre expansion of
+  1/|r - d|, exact to all orders beyond the farthest charge and checked
+  against the tensor contraction for the monopole, dipole and quadrupole.
+  The tape reads V(A) - V(B), which the suite checks against the line
+  integral of E along it.  Everything is pinned in selfTest to
+  build/charges-and-fields/derive.py (scipy brentq on rays for the
+  equipotential loops, solve_ivp for the field lines, fsolve for the
+  nulls, quad for the tape).
+
+  WHAT IS MEASURED
+  ----------------
+  One constant: eps0 = 8.8541878188e-12 F/m (CODATA 2022, from the NIST
+  constants page, stored verbatim), so k = 1/(4 pi eps0) = 8.98755 V m/nC.
+  The charges are +-1 nC exactly, as in PhET.
+
+  WHAT IS CHOSEN (PhET's values, read from the 1.0.67 build)
+  ----------------------------------------------------------
+  The 8 m x 5 m plane and the bin at x in [-1.25, 1.25] m, y in [-2.3,
+  -1.7] m; the arrow grid at 0.5 m cell centres, 40 px arrows at 128 px/m
+  (0.3125 m); the voltage cells of 0.1 m; the colour saturations at +-40 V
+  and 5 V/m; the sensor arrow at 15 px per V/m at 128 px/m (0.1172 m per
+  V/m); the charge radius of 12 px (0.094 m); no equipotential seeded
+  within 3 cm of a charge; plotted equipotentials cleared whenever a charge
+  moves.  PhET's own Coulomb constant is K_CONSTANT = 9 V m/nC, a rounding
+  of k, so PhET reads 0.14 % higher than this page (9.00 V at 1 m from
+  +1 nC against 8.99 V here).
+
+  WHAT IS NOT MODELLED
+  --------------------
+  The charges feel no forces and do not move by themselves (this is
+  electrostatics, not dynamics); there are no conductors or dielectrics;
+  the charges are points (nothing is drawn inside a charge's disc, where
+  the field grows without bound).  PhET's projector colour profile and its
+  touch and keyboard accessibility layer are not reproduced.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = a positive charge, V > 0 and the computed field
+       lines; magenta = a negative charge and V < 0 (the house charge pair, as
+       in dipole_radiation.html); orange = the reference/analytic curve, the
+       null points, a warning; cyan = structure (equipotentials, the tape, the
+       grid, the axes); the live probes and sensors are white. */
+    --pos:#b8ec4c; --neg:#cd35c4; --ref:#e8843a; --live:#f2f4f8; --struct:#5ac8e0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match the site stylesheet (links absolute: this page lives outside the site tree) */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Charges and Fields</h1>
+  <span class="sub" id="sub">point charges on a plane and their exact field and potential &mdash; the voltage map, equipotentials, field lines, the potential as a landscape, superposition and the multipole far field</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';

@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""gen_mutants.py -- write mutants.json for my-solar-system.html and check that every
+`old` pattern occurs EXACTLY ONCE in the built script.
+
+    python3 gen_mutants.py
+
+Suites: "p" = the physics selfTest alone, "u" = selfTest + the UI drive.
+"""
+import io
+import json
+import os
+
+here = os.path.dirname(os.path.abspath(__file__))
+html = io.open(os.path.normpath(os.path.join(here, '..', '..', 'my-solar-system.html')), encoding='utf-8').read()
+js = html.split('<script>', 1)[1].rsplit('</script>', 1)[0]
+
+M = [
+    # ---- the force and the integrator (p2_engine.js)
+    ['the inverse square (r^3 in the vector form)', 'const r2 = dx * dx + dy * dy, r = Math.sqrt(r2), f = G / (r2 * r);',
+     'const r2 = dx * dx + dy * dy, r = Math.sqrt(r2), f = G / r2;', 'p'],
+    ["Newton's third law (the back-reaction sign)", 'ax[j] -= f * S.m[i] * dx; ay[j] -= f * S.m[i] * dy;',
+     'ax[j] += f * S.m[i] * dx; ay[j] += f * S.m[i] * dy;', 'p'],
+    ['the mass in the pull on body i', 'ax[i] += f * S.m[j] * dx; ay[i] += f * S.m[j] * dy;',
+     'ax[i] += f * S.m[i] * dx; ay[i] += f * S.m[i] * dy;', 'p'],
+    ['G in the force', 'const r2 = dx * dx + dy * dy, r = Math.sqrt(r2), f = G / (r2 * r);\n    ax[i] +=',
+     'const r2 = dx * dx + dy * dy, r = Math.sqrt(r2), f = 1 / (r2 * r);\n    ax[i] +=', 'p'],
+    ["PEFRL's xi", 'const PEFRL_XI = 0.1786178958448091', 'const PEFRL_XI = 0.18', 'p'],
+    ["PEFRL's lambda", 'PEFRL_LAM = -0.2123418310626054', 'PEFRL_LAM = -0.21', 'p'],
+    ["PEFRL's chi", 'PEFRL_CHI = -0.06626458266981849', 'PEFRL_CHI = -0.0663', 'p'],
+    ['the middle drift of PEFRL', 'nbodyDrift(S, (1 - 2 * (PEFRL_CHI + PEFRL_XI)) * h);\n  nbodyKick(S, G, PEFRL_LAM * h);',
+     'nbodyDrift(S, (1 - (PEFRL_CHI + PEFRL_XI)) * h);\n  nbodyKick(S, G, PEFRL_LAM * h);', 'p'],
+    ['the first kick of PEFRL', 'nbodyKick(S, G, (1 - 2 * PEFRL_LAM) * h / 2);\n  nbodyDrift(S, PEFRL_CHI * h);\n  nbodyKick(S, G, PEFRL_LAM * h);',
+     'nbodyKick(S, G, (1 - 2 * PEFRL_LAM) * h);\n  nbodyDrift(S, PEFRL_CHI * h);\n  nbodyKick(S, G, PEFRL_LAM * h);', 'p'],
+    ["PhET's step, given the force back (then it is not first order any more)",
+     'function phetStep(S, G, h){\n  nbodyAccel(S, G);\n  const n = S.n, ax = S.ax.slice(0, n), ay = S.ay.slice(0, n);\n  const kick = c => { for(let i = 0; i < n; i++){ S.vx[i] += c * ax[i]; S.vy[i] += c * ay[i]; } };',
+     'function phetStep(S, G, h){\n  const n = S.n;\n  const kick = c => { nbodyAccel(S, G); const ax = S.ax, ay = S.ay; for(let i = 0; i < n; i++){ S.vx[i] += c * ax[i]; S.vy[i] += c * ay[i]; } };', 'p'],
+    ['the step limit factor eta', 'return isFinite(tau) ? eta * tau : Infinity;', 'return isFinite(tau) ? tau : Infinity;', 'p'],
+    ['the free-fall time in the step limit', 'const tff = Math.sqrt(r * r * r / (G * (S.m[i] + S.m[j])));',
+     'const tff = Math.sqrt(r * r / (G * (S.m[i] + S.m[j])));', 'p'],
+    ['the crossing time in the step limit', 'if(dv > 0) tau = Math.min(tau, r / dv);', 'if(dv > 0) tau = Math.min(tau, dv / r);', 'p'],
+    ['the substep count rounds up', 'const n = Math.max(1, Math.ceil(Math.abs(dt) / lim));',
+     'const n = Math.max(1, Math.floor(Math.abs(dt) / lim));', 'p'],
+    ['the kinetic energy 1/2 m v^2', 'for(let i = 0; i < S.n; i++) K += 0.5 * S.m[i] * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i]);\n  for(let i = 0;',
+     'for(let i = 0; i < S.n; i++) K += S.m[i] * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i]);\n  for(let i = 0;', 'p'],
+    ['the sign of the potential energy', 'U -= G * S.m[i] * S.m[j] / Math.hypot(S.x[j] - S.x[i], S.y[j] - S.y[i]);',
+     'U += G * S.m[i] * S.m[j] / Math.hypot(S.x[j] - S.x[i], S.y[j] - S.y[i]);', 'p'],
+    ['the angular momentum cross product', 'L += S.m[i] * (S.x[i] * S.vy[i] - S.y[i] * S.vx[i]);',
+     'L += S.m[i] * (S.x[i] * S.vy[i] + S.y[i] * S.vx[i]);', 'p'],
+    ['the centre of mass is mass-weighted', 'x += S.m[i] * S.x[i]; y += S.m[i] * S.y[i];', 'x += S.x[i]; y += S.y[i];', 'p'],
+    ['a merge lands at the centre of mass', 'S.x[big] = (S.m[i] * S.x[i] + S.m[j] * S.x[j]) / M;',
+     'S.x[big] = S.x[i];', 'p'],
+    ["a merge keeps the mass (PhET's rule loses it)", 'S.m[big] = M;', 'S.m[big] = S.m[big];', 'p'],
+    ['the merged velocity is the momentum over the mass', 'S.vy[big] = (S.m[i] * S.vy[i] + S.m[j] * S.vy[j]) / M;',
+     'S.vy[big] = (S.m[i] * S.vy[i] + S.m[j] * S.vy[j]) / S.m[big];', 'p'],
+    ["the body radius rule's coefficient", 'return Math.max(0.03, 0.023 * Math.cbrt(m));',
+     'return Math.max(0.03, 0.03 * Math.cbrt(m));', 'p'],
+    ['the two-body mu = G(m1+m2)', 'const mu = G * (S.m[0] + S.m[1]);', 'const mu = G * S.m[0];', 'p'],
+    ['the two-body mass fractions', 'f1: S.m[1] / (S.m[0] + S.m[1]), f2: S.m[0] / (S.m[0] + S.m[1])',
+     'f1: S.m[0] / (S.m[0] + S.m[1]), f2: S.m[1] / (S.m[0] + S.m[1])', 'p'],
+    ['the centre of mass drifts in a straight line', 'const cx = red.com.x + red.com.vx * t, cy = red.com.y + red.com.vy * t;',
+     'const cx = red.com.x, cy = red.com.y;', 'p'],
+    # ---- PhET's units and systems (p2_mss.js, p3_state.js)
+    ["PhET's G", 'const G_MSS = 4.4567;', 'const G_MSS = 4.46;', 'p'],
+    ['the time multiplier exponent', 'const TIME_MULT = Math.pow(0.01, 1.5) * Math.sqrt(G_MSS)',
+     'const TIME_MULT = Math.pow(0.01, 1.0) * Math.sqrt(G_MSS)', 'p'],
+    ['the model time unit in years', 'const T_U_YR = 1000 * TIME_MULT;', 'const T_U_YR = 100 * TIME_MULT;', 'p'],
+    ['CODATA G in these units', 'const G_SI_UNITS = G_SI * MASS_UNIT / (AU_M * 1e6);',
+     'const G_SI_UNITS = G_SI * MASS_UNIT / (AU_M * 1e3);', 'p'],
+    ["PhET's frame length", 'FRAME: 0.05 / 60,', 'FRAME: 0.05 / 30,', 'p'],
+    ["PhET's 4000/N substeps", 'const n = Math.max(1, Math.round(PHET.SUBSTEPS / S.n));',
+     'const n = Math.max(1, Math.round(PHET.SUBSTEPS));', 'p'],
+    ['the centre-of-mass velocity subtraction on load', 'for(let i = 0; i < S.n; i++){ S.vx[i] -= c.vx; S.vy[i] -= c.vy; }',
+     'for(let i = 0; i < S.n; i++){ S.vx[i] -= 0; S.vy[i] -= 0; }', 'p'],
+    ['the Sun-planet system’s planet speed', '[25, 2, 0, 0, 23.4457]', '[25, 2, 0, 0, 23.5]', 'p'],
+    ['the trojan asteroids’ angle', '[1e-6, 0.75, -1.3, 21.7559, 12.6733]', '[1e-6, 0.8, -1.3, 21.7559, 12.6733]', 'p'],
+    ['the four star ballet’s speed', '[120, -1, 1, -10.5611, -10.5611]', '[120, -1, 1, -10.6, -10.6]', 'p'],
+    ["the zoom ladder's top", 'ZOOM_LO: 25, ZOOM_HI: 125,', 'ZOOM_LO: 25, ZOOM_HI: 100,', 'p'],
+    ['the speed chips (fast 7/4)', "{id: 'fast', name: 'fast', f: 1.75}", "{id: 'fast', name: 'fast', f: 2}", 'p'],
+    ['the frame step ignores the speed chip', 'function frameDt(){ return PHET.FRAME * speedFactor(); }',
+     'function frameDt(){ return PHET.FRAME; }', 'p'],
+    ['the 20-AU path cap', 'PATH_AU: 20, PATH_PTS: 5800,', 'PATH_AU: 2000, PATH_PTS: 5800,', 'u'],
+    ['the exact solution is anchored at the START state',
+     'SIM.exact = (sys && sys.S.n === 2)\n    ? twoBodyReduce({n: 2, m: sys.start.map(b => b[0]), x: sys.start.map(b => b[1]), y: sys.start.map(b => b[2]),\n                     vx: sys.start.map(b => b[3]), vy: sys.start.map(b => b[4])}, G_MSS)',
+     'SIM.exact = (sys && sys.S.n === 2)\n    ? twoBodyReduce(sys.S, G_MSS)', 'u'],
+    # ---- the UI (p5_views.js drags, p6_boot.js handlers)
+    ['the drag sets no dirty flag', "if(S.pointer('move', e.clientX - r.left, e.clientY - r.top)){ dirty = true; syncPanel();",
+     "if(S.pointer('move', e.clientX - r.left, e.clientY - r.top)){ syncPanel();", 'u'],
+    ['a body drag restarts the clock', 'sys.S.x[DRAGM.i] = clamp(wx, -R, R); sys.S.y[DRAGM.i] = clamp(wy, -R, R);\n        sys.t = 0;',
+     'sys.S.x[DRAGM.i] = clamp(wx, -R, R); sys.S.y[DRAGM.i] = clamp(wy, -R, R);\n        sys.t = sys.t;', 'u'],
+    ['the velocity drag scale', 'sys.S.vx[DRAGM.i] = (x - X) / VSCALE; sys.S.vy[DRAGM.i] = -(y - Y) / VSCALE;',
+     'sys.S.vx[DRAGM.i] = (x - X) * VSCALE; sys.S.vy[DRAGM.i] = -(y - Y) / VSCALE;', 'u'],
+    ['the velocity drag y sign', 'sys.S.vx[DRAGM.i] = (x - X) / VSCALE; sys.S.vy[DRAGM.i] = -(y - Y) / VSCALE;',
+     'sys.S.vx[DRAGM.i] = (x - X) / VSCALE; sys.S.vy[DRAGM.i] = (y - Y) / VSCALE;', 'u'],
+    ['letting go saves the new start', 'if(had){ const sys = curSys(); sysSaveStart(sys);',
+     'if(had){ const sys = curSys();', 'u'],
+    ['a preset sets the body count', 'st.nb = SIM.lab.S.n; st.running = false;', 'st.running = false;', 'u'],
+    ['the centre-of-mass frame moves the bodies too',
+     'sys.S.x[i] -= c.x; sys.S.y[i] -= c.y; sys.S.vx[i] -= c.vx; sys.S.vy[i] -= c.vy;',
+     'sys.S.vx[i] -= c.vx; sys.S.vy[i] -= c.vy;', 'u'],
+    ['the mass slider saves the start', 'sys.t = 0; sysClearPaths(sys);\n  sysSaveStart(sys);',
+     'sys.t = 0; sysClearPaths(sys);', 'u'],
+    ['the path eraser', "h('button', {onclick: () => { sysClearPaths(curSys()); dirty = true; refresh(); }}, 'clear the paths')",
+     "h('button', {onclick: () => { dirty = true; refresh(); }}, 'clear the paths')", 'u'],
+    ['the gravity power slider is gated', "enable('fpow', st.gravity);", "enable('fpow', true);", 'u'],
+]
+
+bad = []
+for label, old, new, suite in M:
+    n = js.count(old)
+    if n != 1:
+        bad.append((label, n))
+io.open(os.path.join(here, 'mutants.json'), 'w', encoding='utf-8').write(json.dumps(M, indent=1))
+print('%d mutants (%d physics, %d ui)' % (len(M), sum(1 for m in M if m[3] == 'p'), sum(1 for m in M if m[3] == 'u')))
+for label, n in bad:
+    print('  BAD PATTERN (%d matches): %s' % (n, label))
+if bad:
+    raise SystemExit(1)

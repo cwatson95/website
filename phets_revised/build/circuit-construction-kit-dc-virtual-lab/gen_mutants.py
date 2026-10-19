@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Write mutants.json: [label, old, new, suite] for tools/mutate.py.  Every
+`old` is checked to occur EXACTLY ONCE in the sim's extracted script.
+suite "p" = selfTest only, "u" = with the UI drive appended.
+
+Run the sweep on a COPY inside _out/ (BRIEF.md: mutate.py writes _mutant.js
+next to the html it tests, and parallel agents share docs/phets_revised/):
+    cp ../../circuit-construction-kit-dc-virtual-lab.html _out/sweep.html
+    python3 <sims>/tools/mutate.py _out/sweep.html mutants.json ui_drive_<stem>.js
+"""
+import io
+import json
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+M = [
+    # ---- PhET's constants: every leading coefficient and unit conversion
+    ['wire resistivity floor 1e-10 -> 1e-9', 'const RHO_MIN=1e-10, RHO_MAX=0.0168;', 'const RHO_MIN=1e-9, RHO_MAX=0.0168;', 'p'],
+    ['wire resistivity ceiling 0.0168 -> 0.0186', 'const RHO_MIN=1e-10, RHO_MAX=0.0168;', 'const RHO_MIN=1e-10, RHO_MAX=0.0186;', 'p'],
+    ['metres per view unit 5e-4 -> 5e-3', 'const LEN_PER_UNIT=5e-4;', 'const LEN_PER_UNIT=5e-3;', 'p'],
+    ['wire cross-section 5e-4 -> 5e-5 m^2', 'const WIRE_AREA=5e-4;', 'const WIRE_AREA=5e-5;', 'p'],
+    ['minimum wire resistance 1e-14 -> 1e-12', 'const MIN_WIRE_R=1e-14;', 'const MIN_WIRE_R=1e-12;', 'p'],
+    ['zero becomes 1.1e-10 -> 1.1e-8 ohm', 'const MIN_R=1.1e-10;', 'const MIN_R=1.1e-8;', 'p'],
+    ['battery resistance floor 1e-4 -> 1e-3', 'const BATT_R_MIN=1e-4, BATT_R_MAX=10;', 'const BATT_R_MIN=1e-3, BATT_R_MAX=10;', 'p'],
+    ['fuse R = 0.06/rating -> 0.6/rating', 'const FUSE_K=0.06, FUSE_EPS=1e-6;', 'const FUSE_K=0.6, FUSE_EPS=1e-6;', 'p'],
+    ['fuse margin 1e-6 -> 1e-5 A', 'const FUSE_K=0.06, FUSE_EPS=1e-6;', 'const FUSE_K=0.06, FUSE_EPS=1e-5;', 'p'],
+    ['fire at 15 A -> 16 A', 'const FIRE_I=15, FIRE_R=1e-8;', 'const FIRE_I=16, FIRE_R=1e-8;', 'p'],
+    ['fire needs R >= 1e-8 -> 1e-12', 'const FIRE_I=15, FIRE_R=1e-8;', 'const FIRE_I=15, FIRE_R=1e-12;', 'p'],
+    ['brightness multiplier 0.35 -> 0.53', 'const B_MULT=0.35, B_PMAX=2000;', 'const B_MULT=0.53, B_PMAX=2000;', 'p'],
+    ['brightness full at 2000 -> 200 W', 'const B_MULT=0.35, B_PMAX=2000;', 'const B_MULT=0.35, B_PMAX=200;', 'p'],
+    ['real bulb cold 10 -> 12 ohm', 'const REAL_COLD=10;', 'const REAL_COLD=12;', 'p'],
+    ['charge spacing 28 -> 26', 'const CHARGE_SEP=28, CHARGE_SPEED=25, CHARGE_FRAC=0.43;', 'const CHARGE_SEP=26, CHARGE_SPEED=25, CHARGE_FRAC=0.43;', 'p'],
+    ['charge speed 25 -> 20 units/s/A', 'const CHARGE_SEP=28, CHARGE_SPEED=25, CHARGE_FRAC=0.43;', 'const CHARGE_SEP=28, CHARGE_SPEED=20, CHARGE_FRAC=0.43;', 'p'],
+    ['speed-limit fraction 0.43 -> 0.34', 'const CHARGE_SEP=28, CHARGE_SPEED=25, CHARGE_FRAC=0.43;', 'const CHARGE_SEP=28, CHARGE_SPEED=25, CHARGE_FRAC=0.34;', 'p'],
+    ['drop radius 30 -> 20', 'const SNAP_R=30, SOLDER_R=11.2, TAP_PX=15;', 'const SNAP_R=20, SOLDER_R=11.2, TAP_PX=15;', 'p'],
+    ['solder radius 11.2 -> 6', 'const SNAP_R=30, SOLDER_R=11.2, TAP_PX=15;', 'const SNAP_R=30, SOLDER_R=6, TAP_PX=15;', 'p'],
+    ['tap threshold 15 -> 5 px', 'const SNAP_R=30, SOLDER_R=11.2, TAP_PX=15;', 'const SNAP_R=30, SOLDER_R=11.2, TAP_PX=5;', 'p'],
+    ['ammeter cap 1e10 -> 1e9', 'const I_READ_MAX=1e10, I_READ_SERIES=1e3;', 'const I_READ_MAX=1e9, I_READ_SERIES=1e3;', 'p'],
+    ['series ammeter cap 1e3 -> 1e2', 'const I_READ_MAX=1e10, I_READ_SERIES=1e3;', 'const I_READ_MAX=1e10, I_READ_SERIES=1e2;', 'p'],
+    ['battery voltage default 9 -> 8', "battery:  {L:102, name:'battery',          max:10, E:9,", "battery:  {L:102, name:'battery',          max:10, E:8,", 'p'],
+    ['battery length 102 -> 100', "battery:  {L:102, name:'battery',", "battery:  {L:100, name:'battery',", 'p'],
+    ['resistor default 10 -> 12 ohm', "resistor: {L:110, name:'resistor',         max:10, R:10,", "resistor: {L:110, name:'resistor',         max:10, R:12,", 'p'],
+    ['pencil 25 -> 20 ohm', "pencil:   {L:130, name:'pencil',           max:1,  R:25},", "pencil:   {L:130, name:'pencil',           max:1,  R:20},", 'p'],
+    ['extreme battery count 4 -> 5', "xbattery: {L:102, name:'extreme battery',  max:4,", "xbattery: {L:102, name:'extreme battery',  max:5,", 'p'],
+    # ---- the laws
+    ['wire R = rho L / A: max -> min with the floor', 'function wireR(d,rho){ return Math.max(MIN_WIRE_R,', 'function wireR(d,rho){ return Math.min(MIN_WIRE_R,', 'p'],
+    ['real bulb 3|V| -> 2|V|', 'return REAL_COLD+3*a/(Math.log(a+2)/Math.log(2)); }', 'return REAL_COLD+2*a/(Math.log(a+2)/Math.log(2)); }', 'p'],
+    ['real bulb log base 2 -> 3', 'return REAL_COLD+3*a/(Math.log(a+2)/Math.log(2)); }', 'return REAL_COLD+3*a/(Math.log(a+2)/Math.log(3)); }', 'p'],
+    ['real bulb |V|+2 -> |V|+1', 'return REAL_COLD+3*a/(Math.log(a+2)/Math.log(2)); }', 'return REAL_COLD+3*a/(Math.log(a+1)/Math.log(2)); }', 'p'],
+    ['brightness denominator ln(1+x) -> ln(x)', 'd=Math.log(1+B_PMAX*B_MULT);', 'd=Math.log(B_PMAX*B_MULT);', 'p'],
+    ['brightness numerator P -> P^2', 'const n=Math.log(1+Math.abs(P)*B_MULT)', 'const n=Math.log(1+P*P*B_MULT)', 'p'],
+    ['lit glass 2b -> 3b', 'function glowOf(b){ return clamp(2*b,0,1); }', 'function glowOf(b){ return clamp(3*b,0,1); }', 'p'],
+    ['fuse R = K/rating -> K*rating', 'function fuseR(rating){ return FUSE_K/rating; }', 'function fuseR(rating){ return FUSE_K*rating; }', 'p'],
+    # ---- the solver
+    ['KCL: arriving current counted +', 'if(vi[e.b]>=0) A[vi[e.b]][nv+k]-=1; });', 'if(vi[e.b]>=0) A[vi[e.b]][nv+k]+=1; });', 'p'],
+    ['branch law: v_a sign flipped', '    if(vi[e.a]>=0) A[r][vi[e.a]]+=1/s;', '    if(vi[e.a]>=0) A[r][vi[e.a]]-=1/s;', 'p'],
+    ['branch law: -R i -> +R i', '    A[r][nv+k]-=e.R/s;', '    A[r][nv+k]+=e.R/s;', 'p'],
+    ['EMF sign: -E -> +E', '    z[r]=-E/s;', '    z[r]=E/s;', 'p'],
+    ['branch law R scaled by 1+1e-9', '    A[r][nv+k]-=e.R/s;', '    A[r][nv+k]-=e.R*(1+1e-9)/s;', 'p'],
+    ['injected current sign', 'if(opt.inj) for(const [node,J] of opt.inj) if(vi[node]>=0) z[vi[node]]+=J;', 'if(opt.inj) for(const [node,J] of opt.inj) if(vi[node]>=0) z[vi[node]]-=J;', 'p'],
+    ['superposition: keep the wrong battery', "const E=(opt.zeroE||(opt.only!==undefined&&e.kind==='B'&&k!==opt.only))?0:e.E;", "const E=(opt.zeroE||(opt.only!==undefined&&e.kind==='B'&&k===opt.only))?0:e.E;", 'p'],
+    ['no iterative refinement', 'const x=S.n?gaussSolve(S.A,S.z,2):new Float64Array(0);', 'const x=S.n?gaussSolve(S.A,S.z,0):new Float64Array(0);', 'p'],
+    ['partial pivoting off (take the first nonzero)', 'const a=Math.abs(M[r][c]); if(a>best){ best=a; p=r; } }', 'const a=Math.abs(M[r][c]); if(a>best&&best===0){ best=a; p=r; } }', 'p'],
+    ['reference: first battery -> first resistor', "for(const e of br) if(e.kind==='B'&&!ref.has(comp[e.a])) ref.set(comp[e.a],e.a);", "for(const e of br) if(e.kind==='R'&&!ref.has(comp[e.a])) ref.set(comp[e.a],e.a);", 'p'],
+    ['a zero stays 1e-6 ohm', '    if(!(R>0)) R=MIN_R;', '    if(!(R>0)) R=1e-6;', 'p'],
+    ['batteries all 1e-4 ohm whatever the slider', "if(isBattery(el.type)){ kind='B'; R=glob.rbat; E=el.E; }", "if(isBattery(el.type)){ kind='B'; R=BATT_R_MIN; E=el.E; }", 'p'],
+    ['every wire 100 units long', "else if(el.type==='wire') R=wireR(elLength(C,el),glob.rho);", "else if(el.type==='wire') R=wireR(100,glob.rho);", 'p'],
+    ['an open switch left in the circuit', "if((el.type==='switch'&&!el.closed)||(el.type==='fuse'&&el.tripped)){ off.push(el); continue; }", "if((el.type==='fuse'&&el.tripped)){ off.push(el); continue; }", 'p'],
+    ['real bulb stops after 2 passes', '        if(dmax<=1e-14) break;', '        if(dmax<=1e-14||passes>=2) break;', 'p'],
+    ['a fuse ignores current flowing backwards', "if(e.el.type==='fuse'&&Math.abs(sol.i[k])>e.el.rating+FUSE_EPS)", "if(e.el.type==='fuse'&&sol.i[k]>e.el.rating+FUSE_EPS)", 'p'],
+    ['fire ignores current flowing backwards', 'if(isFlammable(e.el.type)&&Math.abs(c)>=FIRE_I&&e.R>=FIRE_R) fire.add(e.el.id); });', 'if(isFlammable(e.el.type)&&c>=FIRE_I&&e.R>=FIRE_R) fire.add(e.el.id); });', 'p'],
+    ['bulbs flammable too', "const isFlammable=t=>isBattery(t)||t==='resistor'", "const isFlammable=t=>isBulb(t)||isBattery(t)||t==='resistor'", 'p'],
+    ['Thevenin: EMFs left on for R_th', 'const s2=mnaSolve(N,rest,{inj:[[e.a,1],[e.b,-1]],zeroE:true}), Rth=s2.v[e.a]-s2.v[e.b];', 'const s2=mnaSolve(N,rest,{inj:[[e.a,1],[e.b,-1]],zeroE:false}), Rth=s2.v[e.a]-s2.v[e.b];', 'p'],
+    ['Thevenin: V_oc sign', 'const s1=mnaSolve(N,rest), Voc=s1.v[e.a]-s1.v[e.b];', 'const s1=mnaSolve(N,rest), Voc=s1.v[e.b]-s1.v[e.a];', 'p'],
+    ['KVL check: loop orientation of tree branches', "for(const u of up){ const kk=pk[u]; L.push({k:kk,s:br[kk].a===u?1:-1}); }", "for(const u of up){ const kk=pk[u]; L.push({k:kk,s:br[kk].a===u?-1:1}); }", 'p'],
+    # ---- the meters and the charges
+    ['voltmeter: black minus red', '  return {V:r.V-b.V,r,b};', '  return {V:b.V-r.V,r,b};', 'p'],
+    ['voltmeter reads across separate pieces', '  if(SOL.comp.get(r.vid)!==SOL.comp.get(b.vid)) return {V:null,r,b,apart:true};', '  if(false) return {V:null,r,b,apart:true};', 'p'],
+    ['probe on a wire interpolates backwards', 'V:lerp(SOL.V.get(e.a),SOL.V.get(e.b),s.t)};', 'V:lerp(SOL.V.get(e.a),SOL.V.get(e.b),1-s.t)};', 'p'],
+    ['ammeter: wires before parts', '  for(const wantWire of [false,true]){', '  for(const wantWire of [true,false]){', 'p'],
+    ['series ammeter reads with a loose end', '  if(elsAt(C,e.a).length<2||elsAt(C,e.b).length<2) return null;', '  if(elsAt(C,e.a).length<1||elsAt(C,e.b).length<1) return null;', 'p'],
+    ['charge layout ceil -> floor', 'const s=L-CHARGE_SEP, o=Math.ceil(s/CHARGE_SEP);', 'const s=L-CHARGE_SEP, o=Math.floor(s/CHARGE_SEP);', 'p'],
+    ['electrons drift with the current', "  const ph=carrier==='electrons'?-phase:phase;", "  const ph=carrier==='electrons'?phase:-phase;", 'p'],
+    ['speed limit never applies', 'return n>=cap?cap/n:1; }', 'return 1; }', 'p'],
+    ['charges ignore the speed limit', 'p=(st.phase[e.id]||0)+dt*CHARGE_SPEED*I*sc;', 'p=(st.phase[e.id]||0)+dt*CHARGE_SPEED*I;', 'p'],
+    # ---- the editor
+    ['drop allowed onto a shared neighbour', '  for(const x of nv) if(nt.has(x)) return false;', '', 'p'],
+    ['snapping does not carry the rigid part', '  translateVerts(C,fixedGroup(C,src),t.x-s.x,t.y-s.y);', '', 'p'],
+    ['a rigid end drags free (no swing)', '    if(d<1e-9) return; v.x=o.x+(x-o.x)*L/d; v.y=o.y+(y-o.y)*L/d; return; }', '    v.x=x; v.y=y; return; }', 'p'],
+    ['split gap 24 -> 12', 'const SPLIT_GAP=24;', 'const SPLIT_GAP=12;', 'p'],
+    ['delete keeps orphaned vertices', '  C.verts=C.verts.filter(v=>C.els.some(x=>x.a===v.id||x.b===v.id));\n  return true;\n}\nfunction reverseBattery', '  return true;\n}\nfunction reverseBattery', 'p'],
+    ['fixed parts do not win the pointer over wires', "const score=d+(e.type==='wire'?1000:0);", 'const score=d;', 'p'],
+    ['the toolbox does not take a part back', '    if(overToolbox(G,mx,my)){ deleteElement(C,e.id); if(st.sel===e.id) st.sel=null; circuitEdited(st); return true; }', '', 'p'],
+    ['a short nudge never joins (tap only)', "    if(DRAG.dragged){ const t=dropTarget(C,[vid]); if(t){ connect(C,t.src,t.dst); circuitEdited(st); vid=t.dst; } }", "    if(DRAG.moved){ const t=dropTarget(C,[vid]); if(t){ connect(C,t.src,t.dst); circuitEdited(st); vid=t.dst; } }", 'u'],
+    ['zoom does not scale the bench', '  const sc=s0*st.zoom, cx=(x0+right)/2, cy=(y0+y1)/2;', '  const sc=s0, cx=(x0+right)/2, cy=(y0+y1)/2;', 'u'],
+    ['the #hint line is not reserved', 'const HINT_H=18;', 'const HINT_H=0;', 'p'],
+    ['a dragged part does not follow', "    if(d==='el'){ translateVerts(C,DRAG.group,dx,dy); circuitEdited(st); }", "    if(d==='el'){ circuitEdited(st); }", 'p'],
+    ['a dragged joint does not follow', "    else if(d==='vert'){ dragVertex(C,DRAG.vid,wx,wy); circuitEdited(st); }", "    else if(d==='vert'){ circuitEdited(st); }", 'p'],
+    ['the red probe is frozen', "    else if(d==='vm-red'){ st.vm.rx+=dx; st.vm.ry+=dy; }", "    else if(d==='vm-red'){ }", 'p'],
+    ['SI prefix boundary a>=q -> a>q', '  for(const q of SI_PRE){ if(a>=q[0]){ p=q; break; } }', '  for(const q of SI_PRE){ if(a>q[0]){ p=q; break; } }', 'p'],
+    ['colour code: multiplier one decade off', '  let e=Math.floor(Math.log10(R))-1, m=Math.round(R/Math.pow(10,e));', '  let e=Math.floor(Math.log10(R)), m=Math.round(R/Math.pow(10,e));', 'p'],
+    ['thev caption always names the power sweep', '  const V=viewFrame(ctx,W,H,split?THEV_CAP_FULL:THEV_CAP_ONE,THEV_CAP_SHORT);', '  const V=viewFrame(ctx,W,H,THEV_CAP_FULL,THEV_CAP_SHORT);', 'p'],
+    ['graph caption always describes the matrix', '  const V=viewFrame(ctx,W,H,W<900?GRAPH_CAP_NARROW:GRAPH_CAP_FULL,GRAPH_CAP_SHORT);', '  const V=viewFrame(ctx,W,H,GRAPH_CAP_FULL,GRAPH_CAP_SHORT);', 'p'],
+    ['fuse label in ohms, not milliohms', "  if(e.type==='fuse') return fmt(fuseR(e.rating)*1000,1)+' mΩ ≤ '+fmt(e.rating,1)+' A';", "  if(e.type==='fuse') return fmt(fuseR(e.rating),1)+' mΩ ≤ '+fmt(e.rating,1)+' A';", 'p'],
+    # ---- the frame loop and the panel (UI drive)
+    ['drag leaves the loop clean (no dirty)', "    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; roEl.innerHTML=readoutHTML(S.model()); }", "    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ roEl.innerHTML=readoutHTML(S.model()); }", 'u'],
+    ['wheel repaints only directly', "canvas.addEventListener('wheel',e=>{ e.preventDefault(); if(S.wheel(e.deltaY)){ syncPanel(); dirty=true; refresh(); } },{passive:false});", "canvas.addEventListener('wheel',e=>{ e.preventDefault(); if(S.wheel(e.deltaY)){ syncPanel(); } },{passive:false});", 'u'],
+    ['frame loop never animates', '    try{ if(S.step()) dirty=true; }catch(e){ fail(e); }', '    try{ S.step(); }catch(e){ fail(e); }', 'u'],
+    ['slider does not set', "inp.addEventListener('input',()=>{ set(parseFloat(inp.value));", "inp.addEventListener('input',()=>{ ", 'u'],
+    ['checkbox does not set', "inp.addEventListener('change',()=>{ set(inp.checked); syncPanel(); dirty=true; refresh(); });", "inp.addEventListener('change',()=>{ syncPanel(); dirty=true; refresh(); });", 'u'],
+    ['resistance slider always shown', "rows.res.row.hidden=!(e&&isEditable(e.type)&&e.R!==undefined);", 'rows.res.row.hidden=false;', 'u'],
+    ['repair does nothing', "const bFuse=btn('repair the fuse',()=>{ const e=selEl(); if(e&&e.type==='fuse'){ e.tripped=false; circuitEdited(st); } });", "const bFuse=btn('repair the fuse',()=>{ });", 'u'],
+    ['toggle button does nothing', "const bSw=btn('toggle the switch',()=>{ const e=selEl(); if(e&&e.type==='switch'){ e.closed=!e.closed; circuitEdited(st); } });", "const bSw=btn('toggle the switch',()=>{ });", 'u'],
+    ['x does not split', "else if(e.key==='x'&&st.selV!==null)", "else if(e.key==='y'&&st.selV!==null)", 'u'],
+    ['reset all keeps the circuit', "gReset.appendChild(h('div',{class:'btnrow'},btn('reset all',()=>{ const v=st.view; resetState({view:v}); DRAG.what=null; })));", "gReset.appendChild(h('div',{class:'btnrow'},btn('reset all',()=>{ DRAG.what=null; })));", 'u'],
+    ['chips never re-light', "  function syncChips(){ for(const r of chipRows) [].forEach.call(r.el.children,(b,i)=>b.className='chip'+(r.isOn(r.list[i])?' on':'')); }", '  function syncChips(){ }', 'u'],
+    ['next part stays put', "    st.thevEl=list[((j<0?0:j+d)%list.length+list.length)%list.length].id; };", '    };', 'u'],
+]
+
+
+def main():
+    sim = os.path.abspath(os.path.join(HERE, '..', '..', 'circuit-construction-kit-dc-virtual-lab.html'))
+    s = io.open(sim, encoding='utf-8').read()
+    js = s.split('<script>', 1)[1].rsplit('</script>', 1)[0]
+    bad = [(m[0], js.count(m[1])) for m in M if js.count(m[1]) != 1]
+    for label, n in bad:
+        print('PATTERN COUNT %d: %s' % (n, label))
+    assert not bad, 'fix the patterns above'
+    labels = [m[0] for m in M]
+    assert len(labels) == len(set(labels)), 'duplicate labels'
+    io.open(os.path.join(HERE, 'mutants.json'), 'w', encoding='utf-8').write(json.dumps(M, indent=1, ensure_ascii=False))
+    print('%d mutants (%d physics, %d UI) -> mutants.json' % (len(M), sum(m[3] == 'p' for m in M), sum(m[3] == 'u' for m in M)))
+
+
+if __name__ == '__main__':
+    main()

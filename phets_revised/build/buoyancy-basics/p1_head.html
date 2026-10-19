@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buoyancy: Basics &mdash; PhET&rsquo;s two screens, with the upthrust taken from the pressure on the faces</title>
+<!--
+  ===================================================================
+  buoyancy-basics.html — blocks of every material in six fluids, on
+  two scales and on the pool floor: PhET's Explore and Compare
+  screens, with the buoyant force, the apparent weight and the
+  contact force solved from Archimedes' principle and checked
+  against the hydrostatic pressure integrated over the faces
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Buoyancy: Basics (University of
+  Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or
+  assets. The model, its constants and its controls follow PhET's build 1.2.11
+  (docs/phets/buoyancy-basics_en.html) and the shared doc/model.md of
+  density-buoyancy-common; every number taken from that build is marked
+  "PhET's value" in the code and in the panel.
+
+  This is the companion of density.html and runs the SAME engine: the same
+  pool, the same free-surface solve, the same Archimedes, the same material
+  table. What it adds is what PhET's Buoyancy adds — six fluids instead of
+  water alone, a scale on the ground and a scale in the pool, and the three
+  forces drawn as arrows.
+
+  Five views.  EXPLORE is PhET's Explore screen: one or two cubes of a chosen
+  material in a pool of a chosen fluid, with gravity, buoyancy and contact
+  drawn to scale and the block movable onto either scale.  THE SETS is the
+  Compare screen: two blocks, a brick and a piece of wood, matched in mass, in
+  volume or in density, with the matched quantity on a slider.  THE FACES
+  takes the upthrust apart: the hydrostatic pressure on each of the cube's six
+  faces, the exact cancellation of the four sides, and the bottom-minus-top
+  difference that IS rho_f g V_sub.  THE SCALE lowers a block through the
+  surface and draws what a spring scale reads all the way down — the straight
+  fall while it is entering, the plateau once it is under, and the contact
+  force the moment it lands.  FLOAT OR SINK is every material against every
+  fluid at once: the submerged fraction as a grid, with the neutral line
+  rho_b = rho_f running through it.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The same solve as density.html, and the same pins.  The free surface solves
+  G(y) = A_pool (y + H) - (every solid below y) = V_fluid by bisection on a
+  function proved non-decreasing, with the SMALLEST root taken so that a body
+  spanning the pool puts the surplus fluid above itself.  A floating cube's
+  submerged fraction is rho_b/rho_f exactly (checked against scipy.brentq on
+  the force balance, 1.4e-17); a floating body raises the level by its own
+  MASS/(rho_f A_pool) and a sunk one by its own VOLUME/A_pool; the apparent
+  weight is W - rho_f g V_sub and the contact force W - rho_f g V_sub, never
+  negative (a property of the solve, asserted over 84 configurations, not a
+  clamp).  The upthrust is computed twice — Archimedes, and the hydrostatic
+  pressure integrated over the six faces and round the polygon cross-section
+  edge by edge — and the two agree to 3e-16 relative with the side faces
+  cancelling to zero.  The three awkward cases are asserted: denser than the
+  fluid, exactly neutral (submerged fraction exactly 1, N = 0, and the net
+  force unchanged at every depth), and wider than the pool's free surface.
+  Every number is pinned in selfTest to build/buoyancy-basics/refvals.txt, the
+  printed output of build/density/derive.py.
+
+  WHAT IS MEASURED, AND WHOSE NUMBER IT IS
+  ----------------------------------------
+  PhET's six fluids are gasoline 680, oil 920, water 1000, seawater 1029,
+  honey 1440 and mercury 13593 kg/m^3, read out of its build; the solid
+  densities are PhET's too (styrofoam 150, wood 400, ice 919, PVC 1440, brick
+  2000, aluminium 2700, and the rest of the table).  Beside every one is the
+  handbook value from Wikipedia's "Densities of various materials" table
+  (fetched 2026-09-21), with "no row" said plainly where that table has none.
+  Gravity is PhET's 9.8 m/s^2, not the standard 9.80665.  The pool is PhET's
+  0.9 x 0.4 x 0.4167 m holding 100 L; its scales are PhET's 0.15 x 0.06 x 0.2 m,
+  which displace 1.8 L.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  The fluid is incompressible, at rest and always flat, and responds to a moved
+  block instantly (PhET's own statement).  Air buoyancy is ignored — PhET's
+  "vacuum assumption" — so a block weighed on the ground scale reads its full
+  weight; in real air a 5 L block reads 0.06 N light.  Blocks are cubes, never
+  tilt and never rotate ("no rotation or torque is considered in these
+  simulations" — PhET's model.md).  A released block goes straight to its
+  equilibrium: this file solves the static problem, where PhET integrates
+  p2.js with damping.  A block is put on a scale by a control rather than by
+  being dragged onto it, and only one block at a time can stand on each scale.
+  The pool never overflows, which is true of every configuration its controls
+  can reach (two 10 L blocks and the 1.8 L scale in a 150 L pool).
+
+  WHAT IS NOT MODELLED
+  --------------------
+  Surface tension, viscosity, waves, the meniscus, temperature, the fluids'
+  own compressibility, and the boat, bottle, duck, cone and ellipsoid shapes
+  and the adjustable gravity of PhET's full Buoyancy sim (Buoyancy: Basics has
+  neither; its gravity is Earth's and its shapes are cubes).
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed quantity (the buoyant force, the
+       submerged fraction), orange = the reference/analytic value (the weight,
+       the handbook density) or a warning, magenta = the live marker (the block
+       being adjusted, the contact force), cyan = structure (the fluid, the
+       waterline, the scales, the frames). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Buoyancy: Basics</h1>
+  <span class="sub" id="sub">PhET&rsquo;s two screens &mdash; blocks of every material in six fluids, on the scales and on the pool floor &mdash; with the upthrust taken from the pressure on the faces</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';

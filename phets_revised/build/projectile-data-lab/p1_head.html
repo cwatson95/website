@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projectile data lab &mdash; launchers that scatter: histograms, mean and standard deviation, sampling distributions, and the exact law behind them</title>
+<!--
+  ===================================================================
+  projectile-data-lab.html — Remake of PhET Interactive Simulations'
+  Projectile Data Lab (University of Colorado Boulder,
+  phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets.
+  ===================================================================
+
+  Six views.  THE FIELD is PhET's Variability screen: six mystery
+  launchers with deliberately unequal spreads, single or continuous
+  fire onto a 100 m field, the paths, the landing histogram with its
+  bin width, and the six fields you can fill independently.  THE
+  SOURCES is PhET's Sources screen: a custom launcher whose mechanism
+  (spring, pressure, explosion) sets the speed spread and whose angle
+  stabiliser sets the angle spread, three projectiles that scale the
+  speed, and four launcher orientations.  THE MEASURES is PhET's
+  Measures screen: the mean, the standard deviation (n − 1, as PhET
+  computes it), the individual values, and the interval tool, which
+  reports the percentage of the data between two draggable edges.
+  THE SAMPLING is PhET's Sampling screen: samples of n = 2, 5, 15 or
+  40, one mean per sample, and the histogram of those means with its
+  standard error.  THE EXACT LAW and THE LIMIT THEOREM are house
+  additions: the probability density that PhET's mechanism implies,
+  computed rather than drawn, and the central limit theorem measured
+  against σ/√n.
+
+  THE RESULTS THIS FILE EXISTS FOR
+  --------------------------------
+  * PhET's mechanism is two independent Gaussians — a launch speed and
+    a launch angle — pushed through R = (v cos θ/g)(v sin θ +
+    √(v² sin²θ + 2gh)).  That makes the landing distance's whole
+    distribution a closed problem, not something to be sampled: for
+    h = 0, R = v² sin 2θ/g, and since E[v^2k] and E[sin^k 2θ] both have
+    exact Gaussian forms, so does every moment of R.
+  * The exact mean is (1 + σ_v²/μ_v²)·e^(−2σ_θ²) times the no-jitter
+    value v² sin 2θ/g — exactly, at all eighteen launcher × angle
+    settings.  The two factors pull opposite ways: the SPEED spread
+    lengthens the mean range (E[v²] = μ² + σ²) and the ANGLE spread
+    shortens it (E[sin 2θ] = sin 2μ·e^(−2σ²)), and neither wins
+    everywhere.  Twelve of the eighteen land short — mystery launcher 2
+    averages 50.084 m where the naive value says 50.849, 1.53 % high —
+    and six land LONG, launchers 3 and 5, whose speed spread beats
+    their angle spread.
+  * PhET's own spread estimate is the delta method (it sets the
+    Sampling thumbnails' x-range from it).  Against the exact standard
+    deviation it is LOW in four of the five flat cases — by 0.68 % for
+    launcher 2 and 0.04–0.06 % for the rest — and HIGH by 5×10⁻⁶ at
+    45°, where cos 2θ = 0 kills the angle term and only the speed term
+    survives.  Small, signed, and derived here rather than guessed.
+  * A launcher at 30° and the same launcher at 60° land with exactly
+    the SAME distribution of distance (sin 2θ is symmetric about 45°,
+    and so is the 0–90° truncation) — the flight times differ, the
+    histograms do not.
+  * The central limit theorem is asserted, not illustrated: over 4000
+    samples the measured standard error of the mean matches σ/√n at
+    n = 2, 5, 15 and 40, each within its own sampling spread
+    σ_n√((κ_n+2)/4M), which is computed and not chosen.
+
+  WHAT IS EXACT
+  -------------
+  * The trajectory.  PhET's closed forms for the range and the flight
+    time are re-derived in derive.py and checked against the root of
+    y(t) = 0 by brentq (1e-16) and against a marched trajectory
+    (1e-11, the accumulated rounding of 4e5 steps).  The maximum-range
+    angle from a height, cos 2θ* = gh/(v² + gh), is checked against a
+    numerical argmax.
+  * The random stream.  mulberry32 seeded per field, Box-Muller with
+    one pair of uniforms per value, bit-identical to derive.py: the
+    page and the Python twin generate the SAME 500 landing distances,
+    and the page's mean, median, standard deviation (both conventions)
+    and every histogram bin count are pinned against numpy's on that
+    sample.
+  * The distribution.  PhET re-draws the angle while it falls outside
+    (0°, 90°) — unless the launcher is the raised one, where it does
+    not — and re-draws the speed while it is ≤ 0, so both are
+    truncated normals.  The moments come from a 96×96 Gauss-Legendre
+    product rule over the truncated z-ranges, the same nodes and
+    weights in the page and in derive.py, checked there against
+    scipy's adaptive quadrature (1e-15), against a 8e6-draw Monte
+    Carlo of the actual re-draw mechanism, and against the closed form
+    of the untruncated model (whose difference, 5.5e-8 m at worst, is
+    what "the truncation is negligible" means here).
+  * The density.  f_R(r) = ∫ f_θ(θ) f_v(v*(r,θ))/|∂R/∂v| dθ, with
+    v*(r,θ) in closed form when h = 0 and by Newton otherwise.  It
+    integrates to 1 and to the exact mean to 1e-9, and matches an
+    8e6-draw Monte-Carlo histogram at worst |z| = 2.25 over 24 bins —
+    compared bin-average to bin-average, because f at the midpoint
+    would be 2.6e-3 off and the noise is only 1.1e-3.
+  * The statistics.  Binning is PhET's floor(x/w)·w; the standard
+    deviation is the n − 1 one PhET uses and is null below two
+    projectiles; the standard error is s/√n; the interval tool counts
+    x in [lo, hi] inclusive.  All are pinned against numpy.
+
+  WHAT IS MODELLED (PhET's choices, kept)
+  ---------------------------------------
+  * No air resistance at all, g = 9.81 m/s², a 100 m field, a 12 m
+    raised launcher, and PhET's launcher table: spring 23 ± 0.5 m/s,
+    pressure 24 ± 0.2, explosion 25 ± 1.2; angle spreads 0.2°–5°;
+    projectile speed multipliers 1, 1.1 and 0.9.
+  * Continuous fire every 0.7 s (PhET's minimum), at most 500
+    projectiles a field and 200 samples.  A SAMPLE is paced by PhET's
+    own totalSampleTime — 0.75 s at n = 2, 2 s at 5, 5 s at 15 and 9 s
+    at 40 — with the n launches spread evenly over it and their flights
+    overlapping, so a bigger sample fires faster per shot, not slower.
+
+  WHAT IS NOT MODELLED
+  --------------------
+  * Drag, spin, wind, the projectile's size, the ground's slope: a
+    landing distance here depends on nothing but the launch speed and
+    angle, which is what makes the exact law available.
+  * The launcher's own geometry (PhET's barrel raises the launch point
+    slightly); here the launch point is the origin except on the
+    raised launcher, where it is 12 m up, as PhET's model says.
+
+  WHERE THIS FILE DIFFERS FROM PHET
+  ---------------------------------
+  * PhET's sound, its keyboard help, its PhET-iO instrumentation and
+    its measuring tape and stopwatch are not here; the interval tool
+    is, because it is the one tool that computes a statistic.
+  * PhET's histogram can be set by total bins as well as by bin width;
+    both are here, and the two analysis views are new.
+  * The fields open with data already in them, because a view that
+    draws nothing is a defect in this collection.
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's constants are read from docs/phets/projectile-data-lab_en.html
+  (g = 9.81, MAX_FIELD_DISTANCE = 100, RAISED_LAUNCHER_HEIGHT = 12,
+  ANGLE_STANDARD_DEVIATION_RANGE = 0.2–5°, the three mechanisms, the
+  six mystery launchers, the three projectile types, the four
+  orientations, the sample sizes 2/5/15/40, the bin widths, the
+  interval tool's 40 and 60 m) and are cited as PhET's values.
+  Everything else is derived and pinned in selfTest to
+  build/projectile-data-lab/derive.py, whose printed output is
+  refvals.txt.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the simulated histogram, the
+       measured mean and standard deviation), orange = the exact law derived
+       from PhET's mechanism (the density, sigma/sqrt(n), PhET's own
+       delta-method spread) or a warning, magenta = the live marker (the
+       projectile in flight, the handle being dragged, the sample mean),
+       cyan = structure (the field, the launcher, the axes).  The six mystery
+       launchers have their own colour slots (COL.lau) rather than borrowing
+       a role colour. */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Projectile data lab</h1>
+  <span class="sub" id="sub">Launchers that scatter &mdash; PhET&rsquo;s variability, sources, measures and sampling screens, with the exact distribution of the landing distance and the central limit theorem derived rather than drawn</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';

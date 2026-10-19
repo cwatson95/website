@@ -1,0 +1,2667 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Masses and springs &mdash; Hooke&rsquo;s law you can hang a mass on, and the damped oscillator in closed form</title>
+<!--
+  ===================================================================
+  masses-and-springs-basics.html — hang a mass on a spring and it
+  stretches by mg/k; let it go and it bounces at 2π√(m/k), whatever
+  the gravity; damp it and the amplitude falls by a fixed factor each
+  period. PhET's three screens, with the closed-form solution, its
+  three regimes and its energy ledger beside them
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Masses and Springs: Basics
+  (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no
+  PhET code or assets.  The model, its constants and its controls follow PhET's
+  build 1.0.28 (docs/phets/masses-and-springs-basics_en.html) and the
+  masses-and-springs doc/model.md; every number taken from that build is marked
+  "PhET's value" in the code and in the panel.
+
+  Six views.  THE STRETCH is PhET's first screen: two springs under a ceiling,
+  a rack of masses to hang on them, a spring-strength slider each (PhET's
+  3-12 N/m), the unstretched-length and resting-position lines, a movable
+  reference line and a ruler.  Hooke's law is all it is: the extension is
+  mg/k, so at the same mass a stiff spring stretches less, in exact
+  proportion.  THE BOUNCE is PhET's second screen with the damping turned
+  off: the same two springs, released and oscillating, each drawing its own
+  height against time.  THE LAB is PhET's third: one spring, a mass slider
+  (50-300 g), gravity by planet or by slider, a period trace and a stopwatch.
+  THE PERIOD LAW puts the measured period of the
+  drawn motion on top of T = 2π√(m/k) across every mass and spring the sim
+  allows, and shows that changing gravity moves the hanging point and not the
+  period.  THE DAMPING draws the three regimes of m u" + b u' + k u = 0 and
+  where PhET's own ranges sit in them.  THE ENERGY follows the kinetic,
+  elastic, gravitational and thermal shares through a damped swing.
+
+  THE MODEL (PhET's values)
+  -------------------------
+  y is the downward extension of the spring below its unstretched length:
+      m y" = m g - k y - b y',    y_eq = m g / k,   u = y - y_eq
+      m u" + b u' + k u = 0                (PhET's doc/model.md: ms² + bs + k = 0)
+  Spring constant 3-12 N/m (integers), default 6; natural length 0.5 m;
+  ceiling 1.47 m, floor 0, shelf 0.02 m, hook 0.037 m tall with its centre
+  0.0185 m down.  Masses: a rack of 250, 250, 100, 100, 50, 50 g plus three
+  unlabelled mystery masses of 200, 100 and 75 g; the lab's own mass slider
+  runs 50-300 g (default 100) beside mystery masses of 180 and 120 g.
+  Gravity: Moon 1.6, Earth 9.8, Planet X 14.2, Jupiter 24.8 m/s², or a slider
+  0-30.  Planet X is PhET's invented value — 14.2 m/s² matches no body in the
+  solar system (Neptune 11.15 and Saturn 10.44 are the nearest); the sim hides
+  it behind "What is the value of gravity?", and you recover it from the
+  stretch as g = k y/m.  Damping is PhET's dampingCoefficient b in N s/m,
+  range 0-0.7: Basics itself has no damping slider and fixes b at 0.7 on
+  Stretch, 0 on Bounce and 0 on Lab, so the slider here is the parent sim's.
+  Slow motion ×1/8 (PhET's SLOW_SIM_DT_RATIO).  The drawn mass blocks use
+  PhET's own size rule, radius = 4√(m/(80·2.5·π)) m and height 2.5 radius.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The sim advances the state with the exact propagator of the linear equation
+  above — u = e^(-γt)[u₀(C + γS) + v₀S], v = e^(-γt)[-ω₀²u₀S + v₀(C - γS)] with
+  C = cos(√s t), S = sin(√s t)/√s and s = ω₀² - γ², continued to cosh/sinh
+  below s = 0 and to their series at s = 0 — so the trajectory is the closed
+  form to machine precision at any frame rate, in all three regimes, exactly
+  as PhET does it.  An RK4 of the same equation runs beside it in selfTest and
+  is measured to be fourth order (error ratios 16.03-16.44 per halving), and
+  scipy's solve_ivp agrees with the propagator to 2.4e-12 over 80 (m, k, b)
+  states.  Undamped, the propagator conserves energy to 5.8e-16 relative over
+  2000 steps; damped, E(0) - E(t) equals b∫v²dt to the last bit (scipy quad).
+  mg/k is asserted over all 10040 (mass, spring constant, planet) states the
+  sim can reach, the period against 2π√(m/k) and against the zero crossings of
+  the drawn motion, the damped period against 2π/√(ω₀² - γ²), and the
+  logarithmic decrement against the ratio of successive peaks.  Every number
+  is pinned in selfTest to build/masses-and-springs-basics/refvals.txt, the
+  printed output of derive.py.
+
+  WHICH REGIMES ARE REACHABLE
+  ---------------------------
+  Critical damping needs b = 2√(km), which over PhET's own box (k 3-12 N/m,
+  m 50-300 g) never falls below 0.7745966692 N s/m — above the top of its
+  damping range, 0.7.  So EVERY state PhET can reach is underdamped, with
+  ζ ≤ 0.9036961141 at the softest spring and lightest mass.  The damping view
+  therefore extends b past PhET's range to show the critical and overdamped
+  cases, and says so on the canvas.
+
+  WHAT IS MODELLED / CHOSEN (where this differs from PhET)
+  --------------------------------------------------------
+  PhET's gravities are used as PhET's (Earth 9.8, Moon 1.6, Jupiter 24.8), so
+  the extensions match its own; the real surface values (9.81, 1.62, 24.79)
+  are printed beside them in the readout.  PhET's Basics offers gravity only on
+  its Lab screen and no damping control at all; here both are live on all three
+  screens, the damping slider being the parent sim's 0-0.7 N s/m, and switching
+  views restores PhET's own per-screen damping the way switching its screens
+  does.  The rack is one chip row per spring rather than draggable blocks on a
+  shelf, and a mass is released from its unstretched position rather than
+  dropped by hand (you can still drag it, and letting go leaves it at rest as
+  PhET does).  The bounce and lab views draw a height-against-time strip PhET
+  does not have, and the stage sits in a column of its own beside it.  The
+  gravitational share of the energy is measured from the BOTTOM of the swing,
+  2mg/k down, so that none of the three shares is ever negative and their sum
+  is 2(mg)^2/k rather than a line lying on the axis.  Frames advance by real
+  elapsed time, capped at 50 ms.  PhET's spring coil is drawn as a helix whose
+  pitch follows the length and whose thickness follows the spring constant, as
+  PhET's does, but the coil count and line widths are this file's.  At large g
+  on a soft spring the mass hangs below the floor; PhET allows that too, and the
+  canvas says when it happens.
+
+  WHAT IS NOT MODELLED
+  --------------------
+  One dimension: the mass moves only up and down, and the spring is massless
+  and perfectly linear at every extension (no coil-bind, no yield).  Damping
+  is linear in velocity and acts on the mass alone.  No collisions with the
+  floor or the shelf, no air, no sound.  PhET's vector arrows for the four
+  forces, its energy bar graph on the mass, its adjustable natural length and
+  its two-spring "same length / same constant" mode are not here.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the springs, the motion, the
+       measured period), orange = the reference/analytic value (mg/k, 2 pi
+       sqrt(m/k), the closed form) or a warning, magenta = the live marker (the
+       hanging mass, the clock hand, the current setting), cyan = structure
+       (the ceiling, the rulers, the frames, the lines). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Masses and springs</h1>
+  <span class="sub" id="sub">Hang a mass on a spring and it stretches by mg/k; let go and it bounces at 2&pi;&radic;(m/k) whatever the gravity &mdash; PhET&rsquo;s three screens, with the damped oscillator in closed form, its three regimes and its energy</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  PhET's constants, and the damped oscillator in closed form         *
+ *  every constant below is read out of PhET's own build 1.0.28        *
+ *  (docs/phets/masses-and-springs-basics_en.html) — "PhET's value"    *
+ * ================================================================== */
+
+/* MassesAndSpringsConstants, verbatim from the minified build */
+const CEILING_Y=1.47, FLOOR_Y=0, SHELF_H=0.02, HOOK_H=0.037, HOOK_C=0.0185;
+const L0=0.5;                                  /* DEFAULT_SPRING_LENGTH */
+const KMIN=3, KMAX=12, KDEF=6;                 /* SPRING_CONSTANT_RANGE, integers */
+const BMIN=0, BMAX=0.7, BDEF=0.3;              /* DAMPING_RANGE, N s/m (the parent sim's slider) */
+const GMIN=0, GMAX=30, GDEF=9.8;               /* GRAVITY_RANGE */
+const G_EARTH=9.8, G_MOON=1.6, G_JUPITER=24.8, G_PLANETX=14.2;
+const LEFT_SPRING_X=1.0, RIGHT_SPRING_X=1.3, SPRING_X=1.2;
+const SLOW=1/8;                                /* SLOW_SIM_DT_RATIO = 8 */
+/* the real surface gravities, for comparison only — NOT what the sim uses */
+const G_EARTH_REAL=9.81, G_MOON_REAL=1.62, G_JUPITER_REAL=24.79;
+/* per-screen damping: StretchScreen sets .7, BounceScreen and LabScreen 0 */
+const B_STRETCH=0.7, B_BOUNCE=0, B_LAB=0;
+/* MassValueControlPanel: Range(50, 300) grams, adjustable mass default 100 g */
+const MASS_G_MIN=50, MASS_G_MAX=300, MASS_G_DEF=100;
+/* MassNode geometry: density option 80, module constants S = 2.5 and y = 4 */
+const MASS_DENS=80, MASS_S=2.5, MASS_Y=4;
+
+const BODIES=[{id:'moon',name:'Moon',g:G_MOON,real:G_MOON_REAL},
+              {id:'earth',name:'Earth',g:G_EARTH,real:G_EARTH_REAL},
+              {id:'planetX',name:'Planet X',g:G_PLANETX,real:null},
+              {id:'jupiter',name:'Jupiter',g:G_JUPITER,real:G_JUPITER_REAL},
+              {id:'custom',name:'custom',g:null,real:null}];
+/* addDefaultMasses(basicsVersion): .25, .25, .1, .1, .05, .05 labelled and
+   mystery .2 (large), .1 (medium), .075 (small).  Distinct values as chips. */
+const RACK=[{id:'none',name:'none',m:0},
+            {id:'m50',name:'50 g',m:0.05},
+            {id:'m100',name:'100 g',m:0.10},
+            {id:'m250',name:'250 g',m:0.25},
+            {id:'q75',name:'? small',m:0.075,myst:true},
+            {id:'q100',name:'? medium',m:0.10,myst:true},
+            {id:'q200',name:'? large',m:0.20,myst:true}];
+/* the lab: an adjustable mass plus mystery masses of .18 and .12 kg */
+const LAB_RACK=[{id:'adj',name:'adjustable',m:null},
+                {id:'q180',name:'? large',m:0.18,myst:true},
+                {id:'q120',name:'? medium',m:0.12,myst:true}];
+
+function bodyById(id){ for(const b of BODIES) if(b.id===id) return b; return BODIES[1]; }
+function rackById(list,id){ for(const r of list) if(r.id===id) return r; return list[0]; }
+/* PhET's mass-block size rule */
+function massRadius(m){ return Math.sqrt(m/(MASS_DENS*MASS_S*Math.PI))*MASS_Y; }
+function massHeight(m){ return MASS_S*massRadius(m); }
+
+/* ---- Hooke's law ------------------------------------------------- */
+function springForce(k,y){ return -k*y; }          /* the spring pulls back: F = -k y */
+function yEq(m,k,g){ return m*g/k; }               /* the static extension, mg/k */
+function gFromStretch(k,y,m){ return k*y/m; }      /* what Planet X asks you to invert */
+function mFromStretch(k,y,g){ return k*y/g; }      /* and what a mystery mass asks */
+
+/* ---- the damped oscillator: m u" + b u' + k u = 0 ------------------ */
+function omega0(m,k){ return Math.sqrt(k/m); }
+function period0(m,k){ return TAU*Math.sqrt(m/k); }
+function gammaOf(m,b){ return b/(2*m); }
+function bCrit(m,k){ return 2*Math.sqrt(k*m); }
+function zetaOf(m,k,b){ return b/bCrit(m,k); }
+function discr(m,k,b){ const g=gammaOf(m,b); return k/m-g*g; }   /* s = w0^2 - gam^2 */
+function omegaD(m,k,b){ const s=discr(m,k,b); return s>0?Math.sqrt(s):0; }
+function periodD(m,k,b){ const w=omegaD(m,k,b); return w>0?TAU/w:Infinity; }
+function logDec(m,k,b){ const z=zetaOf(m,k,b); return z<1?TAU*z/Math.sqrt(1-z*z):Infinity; }
+function qFactor(m,k,b){ const z=zetaOf(m,k,b); return z>0?1/(2*z):Infinity; }
+
+/* C(t) = cos(sqrt(s) t) and Sn(t) = sin(sqrt(s) t)/sqrt(s), both entire in s:
+   cosh/sinh below s = 0, and their three-term series at the critical point,
+   where the direct forms are 0/0.
+   The join is |s| t^2 < 1e-5, chosen so that BOTH terms of each series are
+   load-bearing at the top of the branch and the truncation is still far below
+   a rounding error.  Measured (build/masses-and-springs-basics/_out/diag.py):
+   at x = |s|t^2 = 1e-5 the three-term series agrees with cos and sin/w exactly
+   (its next term is x^3/720 = 1.4e-18), while the x^2 terms are worth
+   4.167e-12 of C and 8.333e-13 of Sn.  At the earlier join of 1e-8 those terms
+   were 4.167e-18 and 8.333e-19 — BELOW half an ulp (1.11e-16) — so the result
+   was bit-identical with or without them and no assertion could reach them. */
+function CSn(s,t){
+  const st2=Math.abs(s)*t*t;
+  if(st2<1e-5){ const t2=t*t, s2=s*s;
+    return [1-s*t2/2+s2*t2*t2/24, t*(1-s*t2/6+s2*t2*t2/120)]; }
+  if(s>0){ const w=Math.sqrt(s); return [Math.cos(w*t),Math.sin(w*t)/w]; }
+  const r=Math.sqrt(-s); return [Math.cosh(r*t),Math.sinh(r*t)/r];
+}
+/* the exact propagator of the linear equation: (u, v) at time t from (u0, v0).
+   This IS the sim's integrator — its error is the rounding of exp/cos, at any
+   step size, in all three regimes, which is how PhET advances its springs. */
+function prop(m,k,b,u0,v0,t){
+  const w02=k/m, gam=gammaOf(m,b), cs=CSn(w02-gam*gam,t), C=cs[0], Sn=cs[1], e=Math.exp(-gam*t);
+  return [e*(u0*(C+gam*Sn)+v0*Sn), e*(-w02*u0*Sn+v0*(C-gam*Sn))];
+}
+/* classical RK4 of the same equation, for the order measurement in selfTest */
+function rk4(m,k,b,u0,v0,T,n){
+  const hh=T/n; let u=u0, v=v0;
+  const fa=(u,v)=>v, fb=(u,v)=>(-k*u-b*v)/m;
+  for(let i=0;i<n;i++){
+    const a1=fa(u,v), b1=fb(u,v);
+    const a2=fa(u+hh*a1/2,v+hh*b1/2), b2=fb(u+hh*a1/2,v+hh*b1/2);
+    const a3=fa(u+hh*a2/2,v+hh*b2/2), b3=fb(u+hh*a2/2,v+hh*b2/2);
+    const a4=fa(u+hh*a3,v+hh*b3), b4=fb(u+hh*a3,v+hh*b3);
+    u+=hh*(a1+2*a2+2*a3+a4)/6; v+=hh*(b1+2*b2+2*b3+b4)/6;
+  }
+  return [u,v];
+}
+/* ---- energy ------------------------------------------------------- */
+function energyU(m,k,u,v){ return 0.5*m*v*v+0.5*k*u*u; }          /* about the equilibrium */
+function keOf(m,v){ return 0.5*m*v*v; }
+function peElastic(k,y){ return 0.5*k*y*y; }
+/* the gravitational zero is the BOTTOM of the swing, y_bot = 2mg/k, so all
+   three shares are non-negative and their sum is a POSITIVE constant — a sum
+   drawn on the zero line is a sum nobody can see */
+function swingBottom(m,k,g){ return 2*yEq(m,k,g); }
+function peGrav(m,g,y,ybot){ return m*g*(ybot-y); }
+function gravOffset(m,k,g){ return 1.5*m*m*g*g/k; }               /* KE+PEel+PEgr = E_u + this */
+function ledgerTotal(m,k,g){ return 2*m*m*g*g/k; }                /* ... and at the release */
+
+/* the one bisection used for every crossing time — the live period trace and
+   the measured period in selfTest go through this same function */
+function zeroBetween(m,k,b,u0,v0,tlo,thi){
+  let a=tlo, c=thi, fa=prop(m,k,b,u0,v0,a)[0], fc=prop(m,k,b,u0,v0,c)[0];
+  if(fa===0) return a;
+  if(fa*fc>0) return NaN;
+  for(let i=0;i<200;i++){
+    const mid=0.5*(a+c); if(mid<=a||mid>=c) break;
+    const fm=prop(m,k,b,u0,v0,mid)[0];
+    if(fm===0){ a=c=mid; break; }
+    if(fa*fm<0){ c=mid; fc=fm; } else { a=mid; fa=fm; }
+  }
+  return 0.5*(a+c);
+}
+function extremumBetween(m,k,b,u0,v0,tlo,thi){
+  let a=tlo, c=thi, fa=prop(m,k,b,u0,v0,a)[1];
+  if(fa*prop(m,k,b,u0,v0,c)[1]>0) return NaN;
+  for(let i=0;i<200;i++){
+    const mid=0.5*(a+c); if(mid<=a||mid>=c) break;
+    const fm=prop(m,k,b,u0,v0,mid)[1];
+    if(fm===0){ a=c=mid; break; }
+    if(fa*fm<0){ c=mid; } else { a=mid; fa=fm; }
+  }
+  return 0.5*(a+c);
+}
+/* the period measured from the drawn motion: two crossings apart, released
+   from rest at u0 so the first zero is a quarter period in */
+function measurePeriod(m,k,b,u0){
+  const Td=periodD(m,k,b); if(!isFinite(Td)) return NaN;
+  const z1=zeroBetween(m,k,b,u0,0,1e-12,Td*0.6);
+  const z3=zeroBetween(m,k,b,u0,0,Td*1.1,Td*1.6);
+  return z3-z1;
+}
+
+/* ---- the spring coil ---------------------------------------------- */
+const COILS=10, COIL_R=0.045, LEG=0.06;
+/* the drawn helix, top at the ceiling, running down to the bottom.  PhET's
+   thickness rule: thickness proportional to k and to the natural length. */
+function coilPoints(xc,ytop,len,n){
+  const pts=[], body=Math.max(0.02,len-2*LEG);
+  pts.push([xc,ytop]); pts.push([xc,ytop-LEG]);
+  for(let i=0;i<=n;i++){
+    const f=i/n, ph=TAU*COILS*f;
+    pts.push([xc+COIL_R*Math.sin(ph),ytop-LEG-body*f]);
+  }
+  pts.push([xc,ytop-LEG-body]); pts.push([xc,ytop-len]);
+  return pts;
+}
+function coilWidth(k){ return 1.6+2.6*(k-KMIN)/(KMAX-KMIN); }
+
+/* ================================================================== *
+ *  state, the live springs, the per-view model, readout, eqbar, tag   *
+ * ================================================================== */
+const TABS=[['str','the stretch'],['bnc','the bounce'],['lab','the lab'],
+            ['per','the period law'],['dmp','the damping'],['eng','the energy']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6',
+           edge:'#242a3a', text:'#aeb6c6', ke:'#b8ec4c', pel:'#5ac8e0', pgr:'#cd35c4',
+           th:'#e8843a', tot:'#e4e8f0', coil:'#9aa4bb', mass1:'#b8ec4c', mass2:'#5ac8e0'};
+const RO_W=300;
+const SPEED_LIST=[{id:'normal',name:'normal'},{id:'slow',name:'slow motion'}];
+const BODY_LIST=BODIES.map(b=>({id:b.id,name:b.name}));
+const HMAX=1400;                 /* history points kept per spring */
+const HWIN=6.0;                  /* the longest window the strips show */
+const CROSS_V=1e-3;              /* m/s: below this the spring has stopped moving */
+
+/* PhET's own defaults: spring constant 6 N/m on both springs, 100 g on the lab's
+   adjustable mass, Earth, playing, normal speed, the lines and tools as PhET
+   leaves them.  The damping is PhET's per-SCREEN value (the Stretch screen sets
+   0.7, Bounce and Lab 0): switching views restores it, as switching PhET's
+   screens does, and the slider then moves it inside the parent sim's 0-0.7. */
+const DEFAULTS={view:'str', k1:KDEF, k2:KDEF, kl:KDEF,
+                mass1:'m250', mass2:'m50', labMass:'adj', massG:MASS_G_DEF,
+                body:'earth', gCustom:GDEF, damping:B_STRETCH,
+                running:true, speed:'normal', reveal:false,
+                natLine:true, restLine:true, movLine:false, movY:0.62,
+                ruler:false, rulerX:0.40, rulerY:1.44, stopwatch:false, trace:true,
+                zeta:0.25, bExt:1.0, kA:KDEF, mAg:MASS_G_DEF};
+const ST=Object.assign({},DEFAULTS);
+const VIEW_DAMPING={str:B_STRETCH, bnc:B_BOUNCE, lab:B_LAB};
+
+/* ---- the live springs ---------------------------------------------
+   slot 0 and 1 are the two-spring screens, slot 2 is the lab.  y is the
+   spring's extension below its unstretched length (m), v its rate; the
+   equilibrium mg/k is recomputed from the current settings every step, so
+   moving gravity or the spring constant moves the hanging point under the
+   mass exactly as PhET's re-linked equilibrium does. */
+function newSlot(){ return {y:0,v:0,hist:[],ht:[],cross:[],tAttach:0,last:null}; }
+const LIVE={t:0, sw:0, swOn:false, slot:[newSlot(),newSlot(),newSlot()]};
+function slotReset(i,t){ const s=LIVE.slot[i]; s.y=0; s.v=0; s.hist=[]; s.ht=[]; s.cross=[]; s.tAttach=t===undefined?LIVE.t:t; s.last=null; }
+function liveReset(){ LIVE.t=0; LIVE.sw=0; LIVE.swOn=false; for(let i=0;i<3;i++) slotReset(i,0); }
+
+function gOf(st){ const b=bodyById(st.body); return b.g===null?st.gCustom:b.g; }
+function labMassKg(st){ const r=rackById(LAB_RACK,st.labMass); return r.m===null?st.massG/1000:r.m; }
+/* the springs the current view runs: index into LIVE.slot, world x, k, mass */
+function springsOf(st){
+  if(st.view==='lab'||st.view==='eng'){
+    const r=rackById(LAB_RACK,st.labMass);
+    return [{i:2,x:SPRING_X,k:st.kl,m:labMassKg(st),myst:!!r.myst,name:r.name,label:'spring'}];
+  }
+  const a=rackById(RACK,st.mass1), b=rackById(RACK,st.mass2);
+  return [{i:0,x:LEFT_SPRING_X,k:st.k1,m:a.m,myst:!!a.myst,name:a.name,label:'spring 1'},
+          {i:1,x:RIGHT_SPRING_X,k:st.k2,m:b.m,myst:!!b.myst,name:b.name,label:'spring 2'}];
+}
+function liveViews(v){ return v==='str'||v==='bnc'||v==='lab'||v==='eng'; }
+
+/* one step of one spring, by the exact propagator, with the equilibrium
+   crossings recorded through the same bisection selfTest measures with */
+function stepSlot(sp,g,b,dt){
+  const S=LIVE.slot[sp.i];
+  if(!(sp.m>0)||!(dt>0)) return;
+  const ye=yEq(sp.m,sp.k,g), u0=S.y-ye, v0=S.v;
+  const r=prop(sp.m,sp.k,b,u0,v0,dt);
+  const u1=r[0];
+  /* a crossing counts only while the spring is still visibly moving: at 1 mm/s
+     the swing is sub-pixel, and the sign changes of a dying exponential would
+     otherwise go on filling the trace for ever (PhET has the same threshold) */
+  if(u0!==0&&u1!==0&&(u0<0)!==(u1<0)&&Math.abs(v0)>CROSS_V){
+    const tc=zeroBetween(sp.m,sp.k,b,u0,v0,0,dt);
+    if(isFinite(tc)){ S.cross.push(LIVE.t+tc); if(S.cross.length>8) S.cross.shift(); }
+  }
+  S.y=u1+ye; S.v=r[1];
+}
+function pushHist(sp){
+  const S=LIVE.slot[sp.i];
+  S.hist.push(S.y); S.ht.push(LIVE.t);
+  if(S.hist.length>HMAX){ S.hist.shift(); S.ht.shift(); }
+}
+function advance(st,dts){
+  const g=gOf(st), b=st.damping, sps=springsOf(st);
+  for(const sp of sps){ if(DRAG.what===null||DRAG.sp!==sp.i) stepSlot(sp,g,b,dts); }
+  LIVE.t+=dts;
+  if(LIVE.swOn) LIVE.sw+=dts;
+  for(const sp of sps) pushHist(sp);
+}
+/* the period the trace has measured: two crossings apart */
+function tracedPeriod(i){
+  const c=LIVE.slot[i].cross;
+  return c.length>=3?c[c.length-1]-c[c.length-3]:NaN;
+}
+
+/* ---- the per-view model ------------------------------------------- */
+function springModel(st,sp,g,b){
+  const S=LIVE.slot[sp.i], m=sp.m, k=sp.k;
+  const o={i:sp.i,x:sp.x,k:k,m:m,myst:sp.myst,name:sp.name,label:sp.label,on:m>0};
+  o.ye=m>0?yEq(m,k,g):0;
+  o.y=S.y; o.v=S.v; o.u=S.y-o.ye;
+  o.bottom=CEILING_Y-L0-S.y;                 /* the free end of the spring, world y */
+  /* the flag is about the BLOCK: that is what a reader sees crossing the floor */
+  o.floorBust=m>0?(o.bottom-HOOK_C-massHeight(m)<FLOOR_Y):(o.bottom<FLOOR_Y);
+  if(m>0){
+    o.w0=omega0(m,k); o.T0=period0(m,k); o.gam=gammaOf(m,b); o.zeta=zetaOf(m,k,b);
+    o.bc=bCrit(m,k); o.wd=omegaD(m,k,b); o.Td=periodD(m,k,b); o.ld=logDec(m,k,b); o.Q=qFactor(m,k,b);
+    o.ybot=swingBottom(m,k,g);
+    o.KE=keOf(m,S.v); o.PEe=peElastic(k,S.y); o.PEg=peGrav(m,g,S.y,o.ybot);
+    o.E=energyU(m,k,o.u,S.v); o.off=gravOffset(m,k,g);
+    o.E0=energyU(m,k,-o.ye,0);               /* released from the unstretched end */
+    o.Eth=Math.max(0,o.E0-o.E);
+    o.Tmeas=tracedPeriod(sp.i);
+    o.hist=S.hist; o.ht=S.ht; o.cross=S.cross;
+    o.mInfer=g>0?mFromStretch(k,o.ye,g):NaN;
+  }
+  return o;
+}
+function buildModel(){
+  const st=ST, g=gOf(st), body=bodyById(st.body), b=st.damping;
+  const M={st,view:st.view,g,body,b,t:LIVE.t,sw:LIVE.sw,swOn:LIVE.swOn,
+           gReal:body.real,springs:springsOf(st).map(sp=>springModel(st,sp,g,b))};
+  M.mysteryG=(st.body==='planetX'&&!st.reveal);
+  M.anyMyst=M.springs.some(s=>s.myst&&!st.reveal);
+  /* the analysis views, built lazily: the sweeps are the expensive part and
+     three of six views never look at them */
+  let _per=null,_dmp=null,_eng=null;
+  Object.defineProperty(M,'per',{get(){ return _per||(_per=perModel(st,b)); }});
+  Object.defineProperty(M,'dmp',{get(){ return _dmp||(_dmp=dmpModel(st)); }});
+  Object.defineProperty(M,'eng',{get(){ return _eng||(_eng=engModel(st,g,b)); }});
+  return M;
+}
+/* the period law: T(m) at four spring constants, with the period measured from
+   the drawn motion at a handful of masses */
+function perModel(st,b){
+  const ks=[3,6,9,12], ms=[], curves=[];
+  for(let i=0;i<=60;i++) ms.push((MASS_G_MIN+(MASS_G_MAX-MASS_G_MIN)*i/60)/1000);
+  for(const k of ks) curves.push({k,T:ms.map(m=>period0(m,k))});
+  const mk=st.mAg/1000, k=st.kA;
+  const pts=[];
+  for(const gm of [60,110,170,230,290]){
+    const m=gm/1000;
+    pts.push({m,T:measurePeriod(m,k,0,0.05),T0:period0(m,k)});
+  }
+  const zs=[]; for(let i=0;i<=80;i++) zs.push(i/80*0.999);
+  return {ks,ms,curves,pts,m:mk,k,T0:period0(mk,k),Td:periodD(mk,k,b),zeta:zetaOf(mk,k,b),
+          zs,stretch:zs.map(z=>1/Math.sqrt(1-z*z)),
+          planets:BODIES.filter(x=>x.g!==null).map(x=>({name:x.name,g:x.g,ye:yEq(mk,k,x.g),T:period0(mk,k)})),
+          zMaxPhet:BMAX/bCrit(MASS_G_MIN/1000,KMIN)};
+}
+/* the three regimes, at the current k and m, with b run past PhET's range */
+function dmpModel(st){
+  const m=st.mAg/1000, k=st.kA, bc=bCrit(m,k), u0=0.05;
+  const T0=period0(m,k), tmax=3.2*T0, n=260, ts=[];
+  for(let i=0;i<=n;i++) ts.push(tmax*i/n);
+  const zlist=[{z:st.zeta,lab:'ζ = '+fmt(st.zeta,2),col:COL.pos},
+               {z:1,lab:'ζ = 1 critical',col:COL.ref},
+               {z:1.8,lab:'ζ = 1.8 over',col:COL.struct}];
+  const curves=zlist.map(o=>({z:o.z,lab:o.lab,col:o.col,b:o.z*bc,
+                              u:ts.map(t=>prop(m,k,o.z*bc,u0,0,t)[0])}));
+  const gamZ=st.zeta*bc/(2*m);
+  const env=ts.map(t=>u0*Math.exp(-gamZ*t));
+  /* successive peaks of the underdamped curve, for the logarithmic decrement */
+  const Td=periodD(m,k,st.zeta*bc), peaks=[];
+  if(isFinite(Td)) for(let n2=0;n2<6;n2++){
+    const t=n2*Td; peaks.push({n:n2,t,u:prop(m,k,st.zeta*bc,u0,0,t)[0]});
+  }
+  return {m,k,bc,u0,ts,curves,env,Td,T0,peaks,ld:logDec(m,k,st.zeta*bc),
+          bPhet:BMAX,bcMin:bCrit(MASS_G_MIN/1000,KMIN),bcMax:bCrit(MASS_G_MAX/1000,KMAX),
+          zMax:BMAX/bCrit(MASS_G_MIN/1000,KMIN),reach:st.zeta*bc<=BMAX+1e-12};
+}
+/* the energy ledger of the lab spring over three periods from its release */
+function engModel(st,g,b){
+  const m=labMassKg(st), k=st.kl, ye=yEq(m,k,g), T0=period0(m,k);
+  const n=240, tmax=3*T0, ts=[], KE=[], PEe=[], PEg=[], TH=[], TOT=[];
+  const E0=energyU(m,k,-ye,0), off=gravOffset(m,k,g), ybot=swingBottom(m,k,g);
+  for(let i=0;i<=n;i++){
+    const t=tmax*i/n, r=prop(m,k,b,-ye,0,t), y=r[0]+ye;
+    ts.push(t); KE.push(keOf(m,r[1])); PEe.push(peElastic(k,y)); PEg.push(peGrav(m,g,y,ybot));
+    const th=E0-energyU(m,k,r[0],r[1]); TH.push(th);
+    TOT.push(keOf(m,r[1])+peElastic(k,y)+peGrav(m,g,y,ybot)+th);
+  }
+  return {m,k,g,b,ye,ybot,T0,ts,KE,PEe,PEg,TH,TOT,E0,off,base:E0+off,
+          Etot:E0+off,drift:Math.max.apply(null,TOT.map(x=>Math.abs(x-(E0+off))))};
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function cmv(x,n){ return sigf(100*x,n||4)+' cm'; }
+function gName(st){ const b=bodyById(st.body); return b.id==='custom'?'custom':b.name; }
+function gShown(M){ return M.mysteryG?'?':fmt(M.g,1)+' m/s<sup>2</sup>'; }
+function massShown(M,s){ return !s.on?'&mdash;':(s.myst&&!M.st.reveal?'?':fmt(1000*s.m,0)+' g'); }
+
+function springRows(M,s){
+  const st=M.st;
+  let out=hd(s.label+' &mdash; k = '+fmt(s.k,0)+' N/m');
+  out+=rrow('mass',massShown(M,s));
+  if(!s.on) return out+rrow('nothing hangs on it','spring at its natural length');
+  out+=rrow('resting extension m g / k',cmv(s.ye),'good');
+  out+=rrow('extension now',cmv(s.y)+(s.floorBust?' (past the floor)':''),s.floorBust?'bad':'');
+  out+=rrow('speed',sigf(Math.abs(s.v),3)+' m/s');
+  out+=rrow('period 2&pi;&radic;(m/k)',sigf(s.T0,4)+' s','good');
+  if(M.b>0) out+=rrow('damped period, &zeta; = '+fmt(s.zeta,3),isFinite(s.Td)?sigf(s.Td,4)+' s':'no oscillation');
+  if(isFinite(s.Tmeas)) out+=rrow('period measured from the trace',sigf(s.Tmeas,4)+' s',Math.abs(s.Tmeas-(M.b>0?s.Td:s.T0))<1e-6?'good':'');
+  if(s.myst&&!st.reveal) out+=rrow('unlabelled mass','solve m = k y / g');
+  if(st.body==='planetX'&&!st.reveal) out+=rrow('unknown gravity','solve g = k y / m');
+  return out;
+}
+function readoutHTML(M){
+  const st=M.st;
+  let s='<div class="rname">masses and springs<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(liveViews(M.view)&&M.view!=='eng'){
+    s+=hd('gravity &mdash; '+gName(st))+rrow('g',gShown(M),'good');
+    if(M.gReal!==null&&!M.mysteryG) s+=rrow('the real surface value',fmt(M.gReal,2)+' m/s<sup>2</sup> ('+(M.g>M.gReal?'&minus;':'+')+fmt(Math.abs(M.gReal-M.g),2)+')');
+    if(st.body==='planetX'&&st.reveal) s+=rrow('Planet X','PhET&rsquo;s invented 14.2 m/s<sup>2</sup>');
+    for(const sp of M.springs) s+=springRows(M,sp);
+    s+=hd('the clock')+rrow('t',fmt(M.t,2)+' s'+(st.running?'':' (paused)'))
+      +(st.speed==='slow'?rrow('slow motion','&times;1/8 (PhET)'):'');
+    if(st.stopwatch) s+=rrow('stopwatch',fmt(M.sw,2)+' s'+(M.swOn?' (running)':''));
+    if(st.movLine) s+=rrow('movable line',fmt(100*st.movY,1)+' cm above the floor');
+  }
+  else if(M.view==='per'){
+    const P=M.per;
+    s+=hd('the spring')+rrow('k',fmt(P.k,0)+' N/m')+rrow('m',fmt(1000*P.m,0)+' g')
+      +rrow('T = 2&pi;&radic;(m/k)',sigf(P.T0,5)+' s','good')
+      +rrow('damped T<sub>d</sub>, &zeta; = '+fmt(P.zeta,3),isFinite(P.Td)?sigf(P.Td,5)+' s':'no oscillation')
+      +rrow('T<sub>d</sub>/T',isFinite(P.Td)?sigf(P.Td/P.T0,5):'&mdash;');
+    s+=hd('measured from the motion');
+    for(const p of P.pts) s+=rrow(fmt(1000*p.m,0)+' g: zeros two apart',sigf(p.T,6)+' s',Math.abs(p.T-p.T0)<1e-9?'good':'bad');
+    s+=hd('gravity moves the hanging point, not the period');
+    for(const pl of P.planets) s+=rrow(pl.name+', g = '+fmt(pl.g,1),cmv(pl.ye,4)+', T = '+sigf(pl.T,4)+' s');
+  }
+  else if(M.view==='dmp'){
+    const D=M.dmp;
+    s+=hd('the spring')+rrow('k, m',fmt(D.k,0)+' N/m, '+fmt(1000*D.m,0)+' g')
+      +rrow('undamped period',sigf(D.T0,5)+' s')
+      +rrow('critical damping 2&radic;(km)',sigf(D.bc,5)+' N s/m','good');
+    s+=hd('the damping drawn')+rrow('&zeta;',fmt(st.zeta,3))
+      +rrow('b = &zeta; &times; 2&radic;(km)',sigf(st.zeta*D.bc,4)+' N s/m',D.reach?'good':'bad')
+      +rrow('within PhET&rsquo;s 0&ndash;0.7?',D.reach?'yes':'no &mdash; beyond its slider','')
+      +rrow('damped period',isFinite(D.Td)?sigf(D.Td,5)+' s':'none')
+      +rrow('log decrement &gamma;T<sub>d</sub>',isFinite(D.ld)?sigf(D.ld,5):'&mdash;')
+      +rrow('amplitude kept per period',isFinite(D.ld)?sigf(Math.exp(-D.ld),4):'&mdash;');
+    s+=hd('what the sim can reach')
+      +rrow('2&radic;(km) over its box',sigf(D.bcMin,6)+' &ndash; '+sigf(D.bcMax,5)+' N s/m')
+      +rrow('its damping tops out at',fmt(BMAX,1)+' N s/m')
+      +rrow('so &zeta; never exceeds',sigf(D.zMax,6),'good')
+      +rrow('every reachable state is','underdamped');
+  }
+  else{
+    const E=M.eng, sp=M.springs[0];
+    s+=hd('the run drawn')+rrow('m, k, g',fmt(1000*E.m,0)+' g, '+fmt(E.k,0)+' N/m, '+fmt(E.g,1)+' m/s<sup>2</sup>')
+      +rrow('released from the unstretched end','y = 0, v = 0')
+      +rrow('resting extension m g / k',cmv(E.ye),'good')
+      +rrow('so it swings between','0 and '+cmv(2*E.ye))
+      +rrow('starting energy &frac12;k(mg/k)<sup>2</sup>',sigf(E.E0,5)+' J','good')
+      +rrow('the gravitational zero','the bottom of the swing, '+cmv(E.ybot)+' down');
+    s+=hd('the ledger')+rrow('damping b',fmt(E.b,2)+' N s/m')
+      +rrow('KE + PE<sub>elastic</sub> + PE<sub>gravity</sub> + E<sub>thermal</sub>',sigf(E.Etot,6)+' J','good')
+      +rrow('&hellip; drift over three periods',sigf(E.drift,2)+' J',E.drift<1e-12?'good':'bad')
+      +rrow('the constant 3(mg)<sup>2</sup>/2k',sigf(E.off,5)+' J');
+    if(sp&&sp.on) s+=hd('the live spring')+rrow('KE',sigf(sp.KE,4)+' J')+rrow('PE elastic',sigf(sp.PEe,4)+' J')
+      +rrow('PE gravity',sigf(sp.PEg,4)+' J')+rrow('thermal so far',sigf(sp.Eth,4)+' J');
+  }
+  s+='</table><div class="note">PhET&rsquo;s values (spring 3&ndash;12 N/m, masses 50&ndash;300 g, Moon 1.6, Earth 9.8, Planet X 14.2, '
+    +'Jupiter 24.8 m/s<sup>2</sup>, damping 0&ndash;0.7 N s/m) are read from its build 1.0.28; the real surface gravities are 1.62, 9.81 and '
+    +'24.79. Everything else is exact and pinned in selfTest to derive.py.</div>';
+  return s;
+}
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='str') return E('<span class="hl">F = &minus;k y</span> &nbsp;&rArr;&nbsp; <span class="hl">y<sub>eq</sub> = m g / k</span>',
+    'the spring pulls back in proportion to its stretch, so it stops where the pull equals the weight: twice the mass is twice the stretch, twice the stiffness is half');
+  if(M.view==='bnc') return E('<span class="hl">m &#375; + b &#7823; + k y = m g</span> &nbsp;&middot;&nbsp; y = y<sub>eq</sub> + u, &nbsp; <span class="hl">m &uuml; + b &#361; + k u = 0</span>',
+    'gravity only moves the resting point; about it the motion is the plain harmonic oscillator, so letting go from the unstretched end swings exactly 2mg/k');
+  if(M.view==='lab') return E('<span class="hl">T = 2&pi;&radic;(m/k)</span> &nbsp;&middot;&nbsp; y<sub>eq</sub> = m g / k',
+    'the period holds the mass and the spring and nothing else: the same spring beats the same time on the Moon, on Jupiter and on Planet X');
+  if(M.view==='per') return E('<span class="hl">T<sub>d</sub> = 2&pi;/&radic;(k/m &minus; (b/2m)<sup>2</sup>) = T/&radic;(1 &minus; &zeta;<sup>2</sup>)</span>',
+    'damping lengthens the period, and only at second order: at PhET&rsquo;s stiffest and heaviest it is 1.7 % longer, at its softest and lightest 2.34 times');
+  if(M.view==='dmp') return E('<span class="hl">&zeta; = b/(2&radic;(km))</span> &nbsp;&middot;&nbsp; <span class="rm">&zeta; &lt; 1 oscillates, &zeta; = 1 critical, &zeta; &gt; 1 crawls back</span>',
+    'the whole behaviour of a damped spring is one number; PhET&rsquo;s own ranges keep it below 0.904, so nothing it can draw is critically damped');
+  return E('<span class="hl">E = &frac12;mv<sup>2</sup> + &frac12;ku<sup>2</sup></span> &nbsp;&middot;&nbsp; <span class="hl">dE/dt = &minus;b v<sup>2</sup></span> &nbsp;&middot;&nbsp; KE + PE<sub>el</sub> + PE<sub>gr</sub> = E &minus; (mg)<sup>2</sup>/2k',
+    'the damper is the only leak, and it takes energy at bv&sup2;: with none, the three stores add to a constant for ever');
+}
+function tagHTML(M){
+  const st=M.st;
+  const mm=M.springs.map(s=>s.on?(s.myst&&!st.reveal?'?':fmt(1000*s.m,0)+' g'):'empty').join(' / ');
+  if(M.view==='str') return '<b>the stretch</b> &mdash; '+mm+' on k = '+fmt(st.k1,0)+' / '+fmt(st.k2,0)+' N/m, '+gName(st)+', damping '+fmt(M.b,2);
+  if(M.view==='bnc') return '<b>the bounce</b> &mdash; '+mm+', damping '+fmt(M.b,2)+' N s/m'+(st.running?'':', paused')+(st.speed==='slow'?', slow motion':'');
+  if(M.view==='lab') return '<b>the lab</b> &mdash; '+mm+' on k = '+fmt(st.kl,0)+' N/m, '+gName(st)+(M.mysteryG?' (g hidden)':'');
+  if(M.view==='per') return '<b>the period law</b> &mdash; T = 2&pi;&radic;(m/k), measured against the closed form';
+  if(M.view==='dmp') return '<b>the damping</b> &mdash; &zeta; = '+fmt(st.zeta,2)+(M.dmp.reach?' (inside PhET&rsquo;s range)':' (beyond PhET&rsquo;s range)');
+  return '<b>the energy</b> &mdash; three periods from the unstretched end, damping '+fmt(M.b,2);
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — from build_cycloid via build_buoy/p4_views.js, unchanged              *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  the stage: the ceiling, the springs, the masses, the lines, the    *
+ *  ruler — and PhET's three screens drawn on it                       *
+ * ================================================================== */
+/* the house #hint sits at bottom:11px, on top of the last line of a caption
+   anchored at H - 12: every caption here ends HINT_H higher, clear of it */
+const HINT_H=18;
+const RULER_L=0.80, RULER_W=0.12;       /* the drawn ruler, metres */
+
+/* An axis whose tick COUNT follows the panel size and whose decimals follow the
+   tick SPACING.  Both are Known-bad traps: six ticks in a 60 px box collide,
+   and fmt(t,2) prints "0.00" five times over a 0.01 range. */
+function decOf(ts){
+  if(ts.length<2) return 2;
+  const st=Math.abs(ts[1]-ts[0]);
+  return clamp(Math.ceil(-Math.log10(st))+1,0,6);
+}
+function ax2(b,xlo,xhi,ylo,yhi,opt){
+  const yt=sparseTicks(Math.min(ylo,yhi),Math.max(ylo,yhi),b.h);
+  const xt=sparseTicks(Math.min(xlo,xhi),Math.max(xlo,xhi),b.w/2.4);
+  const yd=decOf(yt), xd=decOf(xt);
+  return Object.assign({yticks:yt,xticks:xt,yfmt:t=>fmt(t,yd),xfmt:t=>fmt(t,xd)},opt||{});
+}
+/* reserve a rectangle in the label registry so later lab() calls dodge it */
+function regBox(x0,y0,x1,y1){ LABELS.push([x0,y0,x1,y1]); }
+
+
+function xExtent(M){
+  const xs=M.springs.map(s=>s.x);
+  let lo=Math.min.apply(null,xs)-0.30, hi=Math.max.apply(null,xs)+0.30;
+  if(M.st.ruler){ lo=Math.min(lo,M.st.rulerX-0.03); hi=Math.max(hi,M.st.rulerX+RULER_W+0.03); }
+  return [lo,hi];
+}
+function lowestPoint(M){
+  let lo=-0.06;
+  for(const s of M.springs){ if(!s.on) continue;
+    lo=Math.min(lo,s.bottom-HOOK_C-massHeight(s.m)-0.03); }
+  if(M.st.ruler) lo=Math.min(lo,M.st.rulerY-RULER_L-0.02);
+  if(M.st.movLine) lo=Math.min(lo,M.st.movY-0.02);
+  return lo;
+}
+/* the stage is intrinsically tall and thin (PhET's own geometry: 1.47 m of
+   ceiling over 0.3 m between the springs), so on a wide canvas it gets a
+   narrow column of its own and the analysis panel sits BESIDE it rather than
+   under it — stacked, the stage used a quarter of the width and the picture
+   was mostly background. */
+function splitLayout(ctx,W,H,v){
+  const a=viewCaps(v);
+  if(isNarrow(W)) return stageLayout(ctx,W,H-HINT_H,a[0],a[1],1,0.42,1);
+  const left=56, right=W-RO_W-44, top=stageTop()+30;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H-HINT_H,a[0],a[1],capW,top+220);
+  const bot=fit.capY-16;
+  const stageW=clamp(Math.round(0.34*(right-left)),240,430);
+  const px=left+stageW+72;
+  return {narrow:false,left,right,capY:fit.capY,capTxt:fit.txt,capW,
+          main:box(left,top,stageW,Math.max(120,bot-top)),
+          bottom:[box(px,top+16,Math.max(170,right-px),Math.max(110,bot-top-54))]};
+}
+function stageMap(M,b){
+  const xe=xExtent(M), ylo=lowestPoint(M);
+  return worldFitUp(b,{xmin:xe[0],xmax:xe[1],ymin:ylo,ymax:CEILING_Y+0.09},0.01);
+}
+/* the hatched ceiling PhET hangs its springs from */
+function drawCeiling(ctx,map,x0,x1){
+  const Y=map.Y(CEILING_Y);
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=2.4;
+  ctx.beginPath(); ctx.moveTo(map.X(x0),Y); ctx.lineTo(map.X(x1),Y); ctx.stroke();
+  POLY_SEGS.push(map.X(x0),Y,map.X(x1),Y);
+  ctx.strokeStyle=rgba(COL.struct,0.4); ctx.lineWidth=1;
+  for(let X=map.X(x0);X<map.X(x1);X+=9){
+    ctx.beginPath(); ctx.moveTo(X,Y); ctx.lineTo(X+7,Y-7); ctx.stroke();
+  }
+}
+function drawFloor(ctx,map,x0,x1){
+  const Y=map.Y(FLOOR_Y);
+  ctx.strokeStyle=rgba(COL.dim,0.55); ctx.lineWidth=1.4; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(map.X(x0),Y); ctx.lineTo(map.X(x1),Y); ctx.stroke();
+}
+/* the coil: a helix whose pitch follows the length and whose line weight
+   follows the spring constant, as PhET's OscillatingSpringNode does */
+/* COILS*20 points: 20 samples a turn puts one exactly on each quarter, so the
+   drawn coil's widest point IS COIL_R and the display list can be measured
+   against it (at 18 a turn the peak is never sampled and the extent is 0.985 of
+   the radius, which is a fact about the sampling, not about the spring) */
+function drawSpring(ctx,map,x,len,k,col){
+  const pts=coilPoints(x,CEILING_Y,len,COILS*20);
+  ctx.beginPath();
+  for(let i=0;i<pts.length;i++){ const X=map.X(pts[i][0]), Y=map.Y(pts[i][1]);
+    if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y); }
+  ctx.strokeStyle=col; ctx.lineWidth=coilWidth(k); ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.stroke(); ctx.lineWidth=1;
+  for(let i=1;i<pts.length;i++) POLY_SEGS.push(map.X(pts[i-1][0]),map.Y(pts[i-1][1]),map.X(pts[i][0]),map.Y(pts[i][1]));
+}
+/* PhET's mass block: a cylinder of its own size rule, hung from a hook */
+function drawMass(ctx,map,x,topY,m,col,label,dragging){
+  const r=massRadius(m), hh=massHeight(m);
+  const X0=map.X(x-r), X1=map.X(x+r), Yt=map.Y(topY), Yb=map.Y(topY-hh);
+  ctx.beginPath(); ctx.moveTo(map.X(x),map.Y(topY+HOOK_H)); ctx.lineTo(map.X(x),Yt);
+  ctx.strokeStyle=COL.coil; ctx.lineWidth=1.6; ctx.stroke();
+  ctx.fillStyle=shade(col,dragging?0.95:0.62); ctx.fillRect(X0,Yt,X1-X0,Yb-Yt);
+  ctx.strokeStyle=dragging?'#fff':shade(col,1); ctx.lineWidth=dragging?2:1.3;
+  ctx.strokeRect(X0,Yt,X1-X0,Yb-Yt);
+  POLY_SEGS.push(X0,Yt,X1,Yt,X1,Yt,X1,Yb,X1,Yb,X0,Yb,X0,Yb,X0,Yt);
+  if(label&&Yb-Yt>13&&X1-X0>plain(label).length*6.2){
+    ctx.fillStyle='#0a0c12'; ctx.font='bold 11px -apple-system, sans-serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(plain(label),(X0+X1)/2,(Yt+Yb)/2);
+    const lw=plain(label).length*11*0.52;
+    regBox((X0+X1)/2-lw/2,(Yt+Yb)/2-6.3,(X0+X1)/2+lw/2,(Yt+Yb)/2+6.3); }
+}
+function massTopY(s){ return s.bottom-HOOK_C; }
+function massRectPx(map,s){
+  const r=massRadius(s.m), top=massTopY(s);
+  return {x:map.X(s.x-r),y:map.Y(top),x1:map.X(s.x+r),y1:map.Y(top-massHeight(s.m))};
+}
+/* a dashed rule across the stage with a right-hand label */
+function ruleLine(ctx,map,W,H,x0,x1,y,col,txt){
+  const Y=map.Y(y);
+  ctx.strokeStyle=col; ctx.lineWidth=1.3; ctx.setLineDash([7,5]);
+  ctx.beginPath(); ctx.moveTo(map.X(x0),Y); ctx.lineTo(map.X(x1),Y); ctx.stroke(); ctx.setLineDash([]);
+  if(txt) lab(ctx,W,H,map.X(x0),Y-4,txt,col,SM_FONT,'left','bottom');
+}
+function drawRuler(ctx,map,W,H,st){
+  const x=st.rulerX, yTop=st.rulerY;
+  const X0=map.X(x), X1=map.X(x+RULER_W), Yt=map.Y(yTop), Yb=map.Y(yTop-RULER_L);
+  ctx.fillStyle='rgba(16,19,27,.92)'; ctx.fillRect(X0,Yt,X1-X0,Yb-Yt);
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1.2; ctx.strokeRect(X0,Yt,X1-X0,Yb-Yt);
+  ctx.font='9px -apple-system, sans-serif'; ctx.textBaseline='middle';
+  const numbered=(map.s*0.10>=18);          /* 10 cm must be 18 px before it is numbered */
+  for(let c=0;c<=80;c++){
+    const Y=map.Y(yTop-c/100);
+    const major=(c%10===0), mid=(c%5===0);
+    ctx.strokeStyle=rgba(COL.struct,major?0.9:0.45); ctx.lineWidth=major?1.2:0.8;
+    ctx.beginPath(); ctx.moveTo(X0,Y); ctx.lineTo(X0+(major?(X1-X0)*0.55:(mid?(X1-X0)*0.35:(X1-X0)*0.2)),Y); ctx.stroke();
+    /* the numbers sit OUTSIDE the ruler body: inside a 29 px scale they land
+       on their own tick marks */
+    if(major&&c>0&&numbered){ ctx.fillStyle=COL.struct; ctx.textAlign='left'; ctx.fillText(String(c),X1+3,Y);
+      regBox(X1+3,Y-5.2,X1+3+String(c).length*4.7,Y+5.2); }
+  }
+  if(numbered){ ctx.fillStyle=COL.dim; ctx.textAlign='left'; ctx.textBaseline='bottom';
+    ctx.font='9.5px -apple-system, sans-serif'; ctx.fillText('cm',X0,Yt-3);
+    regBox(X0,Yt-14,X0+12,Yt-3); }
+}
+/* the whole stage, shared by the stretch, bounce and lab views */
+function drawStageBox(ctx,W,H,M,b){
+  const st=M.st, map=stageMap(M,b), xe=xExtent(M);
+  /* the full-width rules start clear of the ruler, so their labels do not land
+     on its scale */
+  const rx=st.ruler?Math.max(xe[0]+0.05,st.rulerX+RULER_W+0.10):xe[0]+0.05;
+  drawCeiling(ctx,map,xe[0]+0.02,xe[1]-0.02);
+  drawFloor(ctx,map,xe[0]+0.02,xe[1]-0.02);
+  lab(ctx,W,H,map.X(xe[0]+0.03),map.Y(FLOOR_Y)+11,'floor',COL.dim,SM_FONT,'left','top');
+  for(const s of M.springs) drawSpring(ctx,map,s.x,CEILING_Y-(s.on?s.bottom:CEILING_Y-L0),s.k,COL.coil);
+  for(let i=0;i<M.springs.length;i++){
+    const s=M.springs[i], col=i===0?COL.mass1:COL.mass2;
+    if(!s.on) continue;
+    drawMass(ctx,map,s.x,massTopY(s),s.m,col,(s.myst&&!st.reveal)?'?':fmt(1000*s.m,0)+' g',
+             DRAG.what==='mass'&&DRAG.sp===s.i);
+  }
+  if(st.ruler) drawRuler(ctx,map,W,H,st);
+  /* the spring labels go ABOVE the ceiling: under it they lay on the coils */
+  for(let i=0;i<M.springs.length;i++){
+    const s=M.springs[i];
+    lab(ctx,W,H,map.X(s.x),map.Y(CEILING_Y)-7,'k = '+fmt(s.k,0)+' N/m',COL.dim,LAB_FONT,'center','bottom');
+  }
+  if(st.natLine) ruleLine(ctx,map,W,H,rx,xe[1]-0.12,CEILING_Y-L0,COL.struct,'unstretched length');
+  /* the resting-position lines are drawn per spring, short, so two springs of
+     different stiffness do not paint one line over the other */
+  /* the movable line is labelled BEFORE the resting lines so its label wins the
+     space: its height is the thing the reader has set by hand, and the resting
+     value is in the readout as well */
+  if(st.movLine) ruleLine(ctx,map,W,H,rx,xe[1]-0.12,st.movY,COL.live,'movable line '+fmt(100*st.movY,1)+' cm');
+  if(st.restLine) for(let i=0;i<M.springs.length;i++){
+    const s=M.springs[i]; if(!s.on) continue;
+    const y=CEILING_Y-L0-s.ye;
+    ruleLine(ctx,map,W,H,s.x-0.15,s.x+0.15,y,COL.ref,null);
+    /* the label hangs off the LEFT end of its line: on the line it lands on a
+       block, and off the right it runs into the analysis panel beside the stage */
+    lab(ctx,W,H,map.X(s.x-0.16)-4,map.Y(y),'resting '+sigf(100*s.ye,3)+' cm',
+        COL.ref,SM_FONT,'right','middle');
+  }
+  const anyBust=M.springs.some(s=>s.on&&s.floorBust);   /* the block, not the spring end */
+  if(anyBust) lab(ctx,W,H,map.X(xe[0]+0.03),map.Y(FLOOR_Y)+26,'below the floor — PhET too',COL.ref,SM_FONT,'left','top');
+  lab(ctx,W,H,b.x+3,b.y+2,'true shape, '+sigf(map.s/100,3)+' px per cm',COL.dim,SM_FONT,'left','top');
+  return map;
+}
+/* the height-against-time strip the bounce and lab views draw underneath */
+function drawStrip(ctx,W,H,M,b,withTrace){
+  /* the window is about four periods of the slowest spring, and it GROWS from
+     the release rather than opening on six empty seconds */
+  let Tm=1;
+  for(const s of M.springs) if(s.on) Tm=Math.max(Tm,isFinite(s.Td)?s.Td:s.T0);
+  const span=clamp(4*Tm,1.5,HWIN);
+  const t1=Math.max(M.t,Math.min(span,1.4*Tm)), t0=Math.max(0,t1-span);
+  let ymax=0.02;
+  for(const s of M.springs) if(s.on) ymax=Math.max(ymax,2.05*s.ye,1.05*Math.abs(s.y));
+  axesR(ctx,b,t0,t1,ymax,0,ax2(b,t0,t1,0,ymax,{xlab:'time, s',ylab:'extension, cm',
+    yfmt:t=>fmt(100*t,0),title:titleFor(b,'the spring below its unstretched end','extension')}));
+  for(let i=0;i<M.springs.length;i++){
+    const s=M.springs[i], col=i===0?COL.mass1:COL.mass2;
+    if(!s.on) continue;
+    polyline(ctx,b,[t0,t1],[s.ye,s.ye],t0,t1,ymax,0,COL.ref,1.1,[6,4]);
+    if(s.hist&&s.hist.length>1) polyline(ctx,b,s.ht,s.hist,t0,t1,ymax,0,col,1.7);
+    marker(ctx,b,t0,t1,ymax,0,Math.min(M.t,t1),s.y,col);
+  }
+  polyline(ctx,b,[t0,t1],[0,0],t0,t1,ymax,0,rgba(COL.struct,0.5),1.1,[3,4]);
+  { const items=[];
+    for(let i=0;i<M.springs.length;i++){ const s=M.springs[i];
+      if(s.on) items.push([i===0?COL.mass1:COL.mass2,s.label+', '+fmt(1000*s.m,0)+' g on '+fmt(s.k,0)+' N/m']); }
+    items.push([COL.ref,'resting point, mg/k']);
+    if(withTrace) items.push([COL.live,'the period trace']);
+    legendAuto(ctx,b,items); }
+  /* PhET's period trace: the crossings two apart are one whole period */
+  if(withTrace&&M.springs[0].on){
+    const c=M.springs[0].cross.filter(x=>x>=t0);
+    for(const tc of c){
+      const X=b.x+b.w*(tc-t0)/(t1-t0);
+      ctx.strokeStyle=rgba(COL.live,0.85); ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.moveTo(X,b.y1-10); ctx.lineTo(X,b.y1); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y+10); ctx.stroke();
+    }
+    const T=M.springs[0].Tmeas;
+    if(isFinite(T)&&c.length>=3){
+      const a=c[c.length-3], z=c[c.length-1];
+      const Xa=b.x+b.w*(a-t0)/(t1-t0), Xz=b.x+b.w*(z-t0)/(t1-t0), Y=b.y+26;
+      ctx.strokeStyle=COL.live; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(Xa,Y); ctx.lineTo(Xz,Y); ctx.stroke();
+      lab(ctx,W,H,(Xa+Xz)/2,Y-9,'period trace: T = '+sigf(T,4)+' s',COL.live,SM_FONT,'center','bottom');
+    }
+  }
+}
+/* ---- view 1: the stretch ------------------------------------------ */
+const STR_CAP_FULL='PhET&rsquo;s Stretch screen. Hang a mass on either spring and it settles where the spring&rsquo;s pull equals the weight, '
+  +'at y = mg/k: the orange line. Twice the mass is twice the stretch; twice the spring constant is half of it. The springs are drawn at true '
+  +'shape (no vertical exaggeration); the panel beside them is the same law as a straight line through the origin.';
+const STR_CAP_SHORT='PhET&rsquo;s Stretch screen: a mass settles at y = mg/k, drawn at true shape.';
+function drawStretch(ctx,W,H,M){
+  const L=layoutFor(ctx,W,H,'str');
+  const map=drawStageBox(ctx,W,H,M,L.main);
+  const bb=L.bottom[0];
+  if(bb){
+    const ks=[M.springs[0].k,M.springs[1]?M.springs[1].k:M.springs[0].k];
+    const mmax=MASS_G_MAX/1000, gg=M.g;
+    let ymax=0.02; for(const k of ks) ymax=Math.max(ymax,mmax*gg/k*1.08);
+    const xs=[]; for(let i=0;i<=40;i++) xs.push(mmax*i/40);
+    axesR(ctx,bb,0,1000*mmax,0,100*ymax,ax2(bb,0,1000*mmax,0,100*ymax,{xlab:'mass, g',ylab:'extension, cm',
+      title:titleFor(bb,'Hooke&rsquo;s law: the extension is a straight line through the origin','Hooke&rsquo;s law')}));
+    for(let i=0;i<M.springs.length;i++){
+      const s=M.springs[i], col=i===0?COL.mass1:COL.mass2;
+      polyline(ctx,bb,xs.map(m=>1000*m),xs.map(m=>100*m*gg/s.k),0,1000*mmax,0,100*ymax,col,1.8);
+      if(s.on) marker(ctx,bb,0,1000*mmax,0,100*ymax,1000*s.m,100*s.ye,COL.live);
+    }
+    legendAuto(ctx,bb,M.springs.map((s,i)=>[i===0?COL.mass1:COL.mass2,s.label+', k = '+fmt(s.k,0)+' N/m'])
+      .concat([[COL.live,'what hangs there now']]));
+    lab(ctx,W,H,bb.x1-6,bb.y1-8,'slope g/k = '+sigf(100*gg/M.springs[0].k,3)+' cm per 1000 g',COL.dim,SM_FONT,'right','bottom');
+    if(M.springs.length>1&&M.springs[0].k===M.springs[1].k)
+      lab(ctx,W,H,bb.x+8,bb.y1-8,'both springs are '+fmt(M.springs[0].k,0)+' N/m: the two lines coincide',COL.ref,SM_FONT,'left','bottom');
+  }
+  drawCaption(ctx,L);
+}
+/* ---- view 2: the bounce ------------------------------------------- */
+const BNC_CAP_FULL='PhET&rsquo;s Bounce screen, with its damping off as PhET leaves it. Gravity only decides where the resting point is; about '
+  +'that point the motion is the plain harmonic oscillator, so a mass let go from the unstretched end swings down exactly 2mg/k and back. '
+  +'The strip beside it is the same two springs against time, with their resting points in orange.';
+const BNC_CAP_SHORT='PhET&rsquo;s Bounce screen: released from the unstretched end, the swing is exactly 2mg/k.';
+function drawBounce(ctx,W,H,M){
+  const L=layoutFor(ctx,W,H,'bnc');
+  drawStageBox(ctx,W,H,M,L.main);
+  if(L.bottom[0]) drawStrip(ctx,W,H,M,L.bottom[0],false);
+  drawCaption(ctx,L);
+}
+/* ---- view 3: the lab ---------------------------------------------- */
+const LAB_CAP_FULL='PhET&rsquo;s Lab screen: one spring, a mass slider and a gravity you can move from the Moon to Jupiter &mdash; or to Planet X, '
+  +'whose value PhET hides. The period trace marks the spring crossing its resting point; two crossings apart is one whole period, and it is '
+  +'2&pi;&radic;(m/k) whatever the gravity. Read the stretch off the ruler and g = k y/m gives Planet X away.';
+const LAB_CAP_SHORT='PhET&rsquo;s Lab screen: the period trace measures 2&pi;&radic;(m/k), and the stretch gives the gravity away.';
+function drawLab(ctx,W,H,M){
+  const L=layoutFor(ctx,W,H,'lab');
+  drawStageBox(ctx,W,H,M,L.main);
+  if(L.bottom[0]) drawStrip(ctx,W,H,M,L.bottom[0],M.st.trace);
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  the analysis views, the dispatcher and the scene                   *
+ * ================================================================== */
+
+/* ---- view 4: the period law --------------------------------------- */
+const PER_CAP_FULL='T = 2&pi;&radic;(m/k) and nothing else: not the amplitude, not the gravity. The green points are the period MEASURED from the '
+  +'drawn motion &mdash; two crossings of the resting point, found by bisecting the same solution the stage integrates &mdash; laid on the orange '
+  +'closed form. Below left, the same spring and mass on four gravities: the hanging point moves by the ratio of the g&rsquo;s and the period does '
+  +'not move at all. Below right, damping lengthens the period by 1/&radic;(1 &minus; ζ&sup2;), which is second order and so barely shows until '
+  +'ζ is large.';
+const PER_CAP_SHORT='T = 2&pi;&radic;(m/k): measured against the closed form, and unmoved by gravity.';
+/* the four analytic curves are the REFERENCE role, so none of them may take
+   the green reserved for the measured points or the magenta for the live one */
+const KCOLS={3:'#e8843a',6:'#e0cf4a',9:'#5ac8e0',12:'#9a7fd1'};
+function drawPeriod(ctx,W,H,M){
+  const P=M.per;
+  const L=layoutFor(ctx,W,H,'per');
+  const b=L.main, gms=P.ms.map(m=>1000*m);
+  let tmax=0; for(const c of P.curves) tmax=Math.max(tmax,Math.max.apply(null,c.T));
+  axesR(ctx,b,MASS_G_MIN,MASS_G_MAX,0,tmax*1.06,ax2(b,MASS_G_MIN,MASS_G_MAX,0,tmax*1.06,{xlab:'mass, g',ylab:'period, s',
+    title:titleFor(b,'the period against the mass, at the four spring constants PhET&rsquo;s slider marks','the period against the mass')}));
+  for(const c of P.curves) polyline(ctx,b,gms,c.T,MASS_G_MIN,MASS_G_MAX,0,tmax*1.06,KCOLS[c.k]||COL.ref,1.8);
+  for(const p of P.pts) marker(ctx,b,MASS_G_MIN,MASS_G_MAX,0,tmax*1.06,1000*p.m,p.T,COL.pos);
+  marker(ctx,b,MASS_G_MIN,MASS_G_MAX,0,tmax*1.06,1000*P.m,P.T0,COL.live);
+  legendAuto(ctx,b,[[KCOLS[3],'k = 3 N/m'],[KCOLS[6],'k = 6'],[KCOLS[9],'k = 9'],
+                    [KCOLS[12],'k = 12'],[COL.pos,'measured from the motion, k = '+fmt(P.k,0)],
+                    [COL.live,'the setting now']]);
+  lab(ctx,W,H,b.x+8,b.y1-8,'worst |measured - 2 pi sqrt(m/k)| = '+sigf(Math.max.apply(null,P.pts.map(p=>Math.abs(p.T-p.T0))),2)+' s',
+      COL.dim,SM_FONT,'left','bottom');
+  const b0=L.bottom[0];
+  if(b0){
+    const ymax=Math.max.apply(null,P.planets.map(p=>100*p.ye))*1.25;
+    axesR(ctx,b0,0,P.planets.length,0,ymax,ax2(b0,0,P.planets.length,0,ymax,{xticks:[],ylab:'extension, cm',
+      title:titleFor(b0,'the same spring on four gravities','four gravities')}));
+    const wpx=b0.w/P.planets.length;
+    for(let i=0;i<P.planets.length;i++){
+      const pl=P.planets[i], X=b0.x+wpx*(i+0.5), hpx=b0.h*100*pl.ye/ymax;
+      ctx.fillStyle=rgba(COL.pos,0.45); ctx.fillRect(X-wpx*0.26,b0.y1-hpx,wpx*0.52,hpx);
+      ctx.strokeStyle=COL.pos; ctx.lineWidth=1.2; ctx.strokeRect(X-wpx*0.26,b0.y1-hpx,wpx*0.52,hpx);
+      lab(ctx,W,H,X,b0.y1-hpx-8,sigf(100*pl.ye,3)+' cm',COL.pos,SM_FONT,'center','bottom');
+      lab(ctx,W,H,X,b0.y1+7,pl.name,COL.dim,SM_FONT,'center','top');
+    }
+    lab(ctx,W,H,b0.x+b0.w/2,b0.y+10,'T = '+sigf(P.planets[0].T,5)+' s on every one of them',COL.ref,LAB_FONT,'center','top');
+  }
+  const b1=L.bottom[1];
+  if(b1){
+    axesR(ctx,b1,0,1,1,3.2,ax2(b1,0,1,1,3.2,{xlab:'damping ratio zeta',ylab:'T_d / T',
+      title:titleFor(b1,'damping lengthens the period','T_d / T')}));
+    ctx.fillStyle=rgba(COL.struct,0.10);
+    ctx.fillRect(b1.x,b1.y,b1.w*P.zMaxPhet,b1.h);
+    polyline(ctx,b1,P.zs,P.stretch,0,1,1,3.2,COL.ref,1.8);
+    marker(ctx,b1,0,1,1,3.2,Math.min(P.zeta,0.999),Math.min(isFinite(P.Td)?P.Td/P.T0:3.2,3.2),COL.live);
+    lab(ctx,W,H,b1.x+b1.w*P.zMaxPhet-5,b1.y+12,'PhET reaches zeta = '+sigf(P.zMaxPhet,4),COL.struct,SM_FONT,'right','top');
+  }
+  drawCaption(ctx,L);
+}
+
+/* ---- view 5: the damping ------------------------------------------ */
+const DMP_CAP_FULL='One number decides everything a damped spring does: ζ = b/(2&radic;(km)). Below 1 it oscillates inside an e<sup>&minus;&gamma;t</sup> '
+  +'envelope, at exactly 1 it returns in the shortest time without crossing, above 1 it crawls back more slowly than that. Below left is where '
+  +'PhET can go: its damping stops at 0.7 N s/m while 2&radic;(km) never falls below 0.7746 over its own masses and springs, so every state it can '
+  +'draw is underdamped &mdash; the critical and overdamped curves above are outside its range and are marked so. Below right: released from rest, '
+  +'the turning points fall exactly half a damped period apart and the amplitude is multiplied by e<sup>&minus;&delta;/2</sup> at each one.';
+const DMP_CAP_SHORT='ζ = b/(2&radic;(km)) decides everything; PhET&rsquo;s own ranges never reach ζ = 1.';
+function drawDamping(ctx,W,H,M){
+  const D=M.dmp;
+  const L=layoutFor(ctx,W,H,'dmp');
+  const b=L.main, tmax=D.ts[D.ts.length-1];
+  /* no curve ever exceeds u0, so a top band 0.6 u0 deep is always free and
+     legendAuto has a corner to sit in rather than dropping the key */
+  axesR(ctx,b,0,tmax,-100*D.u0*1.15,100*D.u0*1.6,ax2(b,0,tmax,-100*D.u0*1.15,100*D.u0*1.6,{xlab:'time, s',ylab:'u, cm',
+    title:titleFor(b,'the three regimes of m u" + b u\' + k u = 0, all released from rest at the same place','the three regimes')}));
+  polyline(ctx,b,[0,tmax],[0,0],0,tmax,-100*D.u0*1.15,100*D.u0*1.6,rgba(COL.dim,0.5),1,[3,4]);
+  polyline(ctx,b,D.ts,D.env.map(x=>100*x),0,tmax,-100*D.u0*1.15,100*D.u0*1.6,rgba(COL.pos,0.45),1.1,[5,4]);
+  polyline(ctx,b,D.ts,D.env.map(x=>-100*x),0,tmax,-100*D.u0*1.15,100*D.u0*1.6,rgba(COL.pos,0.45),1.1,[5,4]);
+  for(const c of D.curves) polyline(ctx,b,D.ts,c.u.map(x=>100*x),0,tmax,-100*D.u0*1.15,100*D.u0*1.6,c.col,1.8);
+  legendAuto(ctx,b,D.curves.map(c=>[c.col,c.lab+', b = '+sigf(c.b,3)+(c.b>BMAX?' (beyond PhET)':'')])
+    .concat([[rgba(COL.pos,0.45),'envelope e^(-gam t)']]));
+  const b0=L.bottom[0];
+  if(b0){
+    const bmax=4.2, xlo=0.6, xhi=4.0;
+    axesR(ctx,b0,xlo,xhi,0,bmax,ax2(b0,xlo,xhi,0,bmax,{xlab:'2 sqrt(km), N s/m',ylab:'damping b, N s/m',
+      title:titleFor(b0,'where PhET can go on the damping plane','PhET’s reachable box')}));
+    ctx.fillStyle=rgba(COL.struct,0.13);
+    ctx.fillRect(b0.x+b0.w*(D.bcMin-xlo)/(xhi-xlo),b0.y1-b0.h*BMAX/bmax,
+                 b0.w*(D.bcMax-D.bcMin)/(xhi-xlo),b0.h*BMAX/bmax);
+    polyline(ctx,b0,[xlo,xhi],[xlo,xhi],xlo,xhi,0,bmax,COL.ref,1.8);
+    polyline(ctx,b0,[xlo,xhi],[BMAX,BMAX],xlo,xhi,0,bmax,COL.struct,1.3,[6,4]);
+    marker(ctx,b0,xlo,xhi,0,bmax,D.bc,M.st.zeta*D.bc,COL.live);
+    lab(ctx,W,H,b0.x1-6,b0.y1-b0.h*BMAX/bmax-7,'b = 0.7, the top of PhET’s slider',COL.struct,SM_FONT,'right','bottom');
+    lab(ctx,W,H,b0.x+b0.w*0.52,b0.y+14,'b = 2 sqrt(km): critical',COL.ref,SM_FONT,'left','top');
+  }
+  const b1=L.bottom[1];
+  if(b1){
+    if(isFinite(D.Td)&&D.peaks.length){
+      const ns=D.peaks.map(p=>p.n), us=D.peaks.map(p=>100*Math.abs(p.u));
+      const an=[]; for(let i=0;i<=50;i++) an.push(5*i/50);
+      axesR(ctx,b1,0,5,0,100*D.u0*1.08,ax2(b1,0,5,0,100*D.u0*1.08,{xlab:'whole periods elapsed',ylab:'|u| at the turn, cm',
+        title:titleFor(b1,'the amplitude falls by e^(-delta) every period','amplitude per period')}));
+      polyline(ctx,b1,an,an.map(n=>100*D.u0*Math.exp(-D.ld*n)),0,5,0,100*D.u0*1.08,COL.ref,1.6);
+      for(let i=0;i<ns.length;i++) marker(ctx,b1,0,5,0,100*D.u0*1.08,ns[i],us[i],COL.pos);
+      lab(ctx,W,H,b1.x1-6,b1.y+12,'delta = gam T_d = '+sigf(D.ld,4),COL.pos,SM_FONT,'right','top');
+    } else {
+      axesR(ctx,b1,0,5,0,100*D.u0*1.08,ax2(b1,0,5,0,100*D.u0*1.08,{xlab:'whole periods elapsed',ylab:'|u| at the turn, cm',title:'amplitude per period'}));
+      caption(ctx,b1.x+8,b1.y+b1.h/2-14,'zeta >= 1: it never turns, so there is no period to count',b1.w-16,COL.ref,CAP_FONT);
+    }
+  }
+  drawCaption(ctx,L);
+}
+
+/* ---- view 6: the energy ------------------------------------------- */
+const ENG_CAP_FULL='The lab spring let go from its unstretched end, followed for three periods. Kinetic energy, the energy stored in the spring '
+  +'and the height gravity has yet to take &mdash; measured from the bottom of the swing, so none of the three is ever negative &mdash; trade back '
+  +'and forth; the damper takes the rest, at b v&sup2; a second. The white line is their sum, flat to the last digit because the propagator is the '
+  +'closed form, and equal to 2(mg)&sup2;/k. At the resting point the spring has stored exactly half of what gravity has given up.';
+const ENG_CAP_SHORT='Three periods of the lab spring: the four shares, and their sum flat to the last digit at 2(mg)&sup2;/k.';
+function drawEnergy(ctx,W,H,M){
+  const E=M.eng;
+  const L=layoutFor(ctx,W,H,'eng');
+  const b=L.main, tmax=E.ts[E.ts.length-1];
+  const mJ=a=>a.map(v=>1000*v);
+  let lo=0, hi=0;
+  for(const a of [E.KE,E.PEe,E.PEg,E.TH,E.TOT]) for(const v of a){ if(1000*v<lo) lo=1000*v; if(1000*v>hi) hi=1000*v; }
+  /* a wide band above the curves, so the legend has a corner to sit in
+     (Known-bad: legendAuto draws nothing rather than lying, and then the key
+     for five curves is simply missing) */
+  const pad=0.09*(hi-lo), padT=0.55*(hi-lo);
+  lo=lo-pad; hi=hi+padT;
+  const pad0=0;
+  axesR(ctx,b,0,tmax,lo-pad0,hi+pad0,ax2(b,0,tmax,lo-pad0,hi+pad0,{xlab:'time, s',ylab:'energy, mJ',
+    title:titleFor(b,'the four shares and their sum, three periods from the unstretched end','the four shares and their sum')}));
+  polyline(ctx,b,[0,tmax],[0,0],0,tmax,lo-pad0,hi+pad0,rgba(COL.dim,0.45),1,[3,4]);
+  polyline(ctx,b,E.ts,mJ(E.PEe),0,tmax,lo-pad0,hi+pad0,COL.pel,1.7);
+  polyline(ctx,b,E.ts,mJ(E.PEg),0,tmax,lo-pad0,hi+pad0,COL.pgr,1.7);
+  polyline(ctx,b,E.ts,mJ(E.KE),0,tmax,lo-pad0,hi+pad0,COL.ke,1.7);
+  polyline(ctx,b,E.ts,mJ(E.TH),0,tmax,lo-pad0,hi+pad0,COL.th,1.7);
+  polyline(ctx,b,E.ts,mJ(E.TOT),0,tmax,lo-pad0,hi+pad0,COL.tot,2.1,[9,4]);
+  legendAuto(ctx,b,[[COL.ke,'kinetic'],[COL.pel,'elastic'],[COL.pgr,'gravitational'],
+                    [COL.th,'thermal (the damper)'],[COL.tot,'their sum, '+sigf(E.Etot,5)+' J']]);
+  const b0=L.bottom[0], sp=M.springs[0];
+  if(b0){
+    const bars=[{n:'kinetic',v:sp.on?1000*sp.KE:0,c:COL.ke},{n:'elastic',v:sp.on?1000*sp.PEe:0,c:COL.pel},
+                {n:'gravity',v:sp.on?1000*sp.PEg:0,c:COL.pgr},{n:'thermal',v:sp.on?1000*sp.Eth:0,c:COL.th},
+                {n:'sum',v:sp.on?1000*(sp.KE+sp.PEe+sp.PEg+sp.Eth):0,c:COL.tot}];
+    let blo=0,bhi=0; for(const x of bars){ if(x.v<blo) blo=x.v; if(x.v>bhi) bhi=x.v; }
+    const span=Math.max(1e-6,bhi-blo)*1.25, base=blo-0.1*span;
+    axesR(ctx,b0,0,bars.length,base,base+span,ax2(b0,0,bars.length,base,base+span,{xticks:[],ylab:'energy, mJ',
+      title:titleFor(b0,'the shares at this instant','now')}));
+    const wpx=b0.w/bars.length, Y0=b0.y1-b0.h*(0-base)/span;
+    for(let i=0;i<bars.length;i++){
+      const X=b0.x+wpx*(i+0.5), Y=b0.y1-b0.h*(bars[i].v-base)/span;
+      ctx.fillStyle=rgba(bars[i].c,0.42); ctx.fillRect(X-wpx*0.24,Math.min(Y,Y0),wpx*0.48,Math.abs(Y-Y0));
+      ctx.strokeStyle=bars[i].c; ctx.lineWidth=1.2; ctx.strokeRect(X-wpx*0.24,Math.min(Y,Y0),wpx*0.48,Math.abs(Y-Y0));
+      lab(ctx,W,H,X,b0.y1+7,bars[i].n,COL.dim,SM_FONT,'center','top');
+    }
+    ctx.strokeStyle=rgba(COL.dim,0.5); ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(b0.x,Y0); ctx.lineTo(b0.x1,Y0); ctx.stroke();
+  }
+  const b1=L.bottom[1];
+  if(b1){
+    const m=E.m, k=E.k, bb=E.b, u0=-E.ye, Td=periodD(m,k,bb), ld=logDec(m,k,bb);
+    const nmax=6, ns=[], Es=[], an=[], ae=[];
+    const E0=energyU(m,k,u0,0);
+    for(let n=0;n<=nmax;n++){ const t=n*Td/2, r=prop(m,k,bb,u0,0,t);
+      ns.push(n/2); Es.push(1000*energyU(m,k,r[0],r[1])); }
+    for(let i=0;i<=60;i++){ const n=nmax*i/60; an.push(n/2); ae.push(1000*E0*Math.exp(-ld*n)); }
+    const Emax=1000*E0*1.08;
+    axesR(ctx,b1,0,nmax/2,0,Emax,ax2(b1,0,nmax/2,0,Emax,{xlab:'whole periods elapsed',ylab:'E at the turn, mJ',
+      title:titleFor(b1,'the energy at each turning point, exactly E0 e^(-n delta)','energy per turn')}));
+    polyline(ctx,b1,an,ae,0,nmax/2,0,Emax,COL.ref,1.6);
+    for(let i=0;i<ns.length;i++) marker(ctx,b1,0,nmax/2,0,Emax,ns[i],Es[i],COL.pos);
+    lab(ctx,W,H,b1.x1-6,b1.y+12,bb>0?'delta = '+sigf(ld,4)+', kept per period e^(-2 delta) = '+sigf(Math.exp(-2*ld),3)
+      :'no damping: every turn is the same height',COL.pos,SM_FONT,'right','top');
+  }
+  drawCaption(ctx,L);
+}
+
+/* ---- dispatch ------------------------------------------------------ *
+ * one layout per view, used by the drawing AND by the pointer hit-test,
+ * so the two cannot drift apart (waveguides.html, Known-bad)            */
+function viewCaps(v){
+  if(v==='bnc') return [BNC_CAP_FULL,BNC_CAP_SHORT,1,0.38];
+  if(v==='lab') return [LAB_CAP_FULL,LAB_CAP_SHORT,1,0.38];
+  if(v==='per') return [PER_CAP_FULL,PER_CAP_SHORT,2,0.40];
+  if(v==='dmp') return [DMP_CAP_FULL,DMP_CAP_SHORT,2,0.40];
+  if(v==='eng') return [ENG_CAP_FULL,ENG_CAP_SHORT,2,0.40];
+  return [STR_CAP_FULL,STR_CAP_SHORT,1,0.34];
+}
+function layoutFor(ctx,W,H,v){
+  if(v==='str'||v==='bnc'||v==='lab') return splitLayout(ctx,W,H,v);
+  const a=viewCaps(v);
+  return stageLayout(ctx,W,H-HINT_H,a[0],a[1],a[2],a[3],1);
+}
+function drawView(ctx,W,H,M){
+  LABELS=[]; POLY_SEGS=[]; LEGEND_RECTS=[];
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  const v=M.view;
+  if(v==='str') drawStretch(ctx,W,H,M);
+  else if(v==='bnc') drawBounce(ctx,W,H,M);
+  else if(v==='lab') drawLab(ctx,W,H,M);
+  else if(v==='per') drawPeriod(ctx,W,H,M);
+  else if(v==='dmp') drawDamping(ctx,W,H,M);
+  else drawEnergy(ctx,W,H,M);
+}
+
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame: only the three PhET screens and the energy view carry a clock */
+  S.step=function(dtWall){
+    if(!ST.running) return false;
+    if(!liveViews(ST.view)) return false;
+    const dts=(dtWall||0)*(ST.speed==='slow'?SLOW:1);
+    if(!(dts>0)) return false;
+    advance(ST,dts);
+    return true;
+  };
+  /* the pointer: PhET's own three draggables — the hanging mass, the movable
+     reference line and the ruler */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null;
+      if(DRAG.what==='mass'){ LIVE.slot[DRAG.sp].v=0; }
+      DRAG.what=null; return had; }
+    if(ST.view!=='str'&&ST.view!=='bnc'&&ST.view!=='lab') return false;
+    const ctx=canvas.getContext('2d'), M=buildModel();
+    const L=layoutFor(ctx,S.W,S.H,ST.view);
+    const map=stageMap(M,L.main), wy=map.wy(y), wx=map.wx(x);
+    if(type==='down'){
+      if(ST.ruler&&wx>=ST.rulerX&&wx<=ST.rulerX+RULER_W&&wy<=ST.rulerY&&wy>=ST.rulerY-RULER_L){
+        DRAG.what='ruler'; DRAG.ox=ST.rulerX-wx; DRAG.oy=ST.rulerY-wy; return true; }
+      if(ST.movLine&&Math.abs(y-map.Y(ST.movY))<=7){ DRAG.what='movline'; DRAG.oy=ST.movY-wy; return true; }
+      for(const s of M.springs){
+        if(!s.on) continue;
+        const r=massRectPx(map,s);
+        if(x>=r.x-3&&x<=r.x1+3&&y>=r.y-3&&y<=r.y1+3){
+          DRAG.what='mass'; DRAG.sp=s.i; DRAG.oy=s.bottom-wy; return true; }
+      }
+      return false;
+    }
+    if(type==='move'){
+      if(DRAG.what==='ruler'){ ST.rulerX=clamp(wx+DRAG.ox,0.15,2.0); ST.rulerY=clamp(wy+DRAG.oy,0.2,CEILING_Y+0.05); return true; }
+      if(DRAG.what==='movline'){ ST.movY=clamp(wy+DRAG.oy,FLOOR_Y,CEILING_Y); return true; }
+      if(DRAG.what==='mass'){
+        const bot=wy+DRAG.oy;
+        LIVE.slot[DRAG.sp].y=clamp(CEILING_Y-L0-bot,-0.12,1.55);
+        LIVE.slot[DRAG.sp].v=0;
+        return true;
+      }
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  /* PhET gives each screen its own model, and the Stretch screen sets the
+     damping to 0.7 while Bounce and Lab set 0 — switching views does the same,
+     and re-hangs that screen's masses at the unstretched end */
+  function releaseView(){
+    const seen={};
+    for(const sp of springsOf(st)){ if(!seen[sp.i]){ slotReset(sp.i); seen[sp.i]=1; } }
+  }
+  function setView(k){
+    st.view=k;
+    if(VIEW_DAMPING[k]!==undefined) st.damping=VIEW_DAMPING[k];
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    releaseView();
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab2));
+  });
+
+  const rows={};
+  function slider(key,lab2,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab2,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        const was=st[key]; st[key]=o.id; if(onPick) onPick(o,was);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  function btn(label,fn){ return h('button',{onclick:()=>{ fn(); syncPanel(); dirty=true; refresh(); }},label); }
+
+  /* the two-spring screens */
+  const gTwo=h('div',{class:'grp'},h('h3',null,'the two springs'));
+  gTwo.appendChild(slider('k1','spring 1 strength, N/m',KMIN,KMAX,1,v=>fmt(v,0)+' N/m'));
+  const m1Chips=chipRow(RACK,'mass1',()=>slotReset(0)); gTwo.appendChild(m1Chips); trackChips(gTwo,RACK,'mass1');
+  gTwo.appendChild(slider('k2','spring 2 strength, N/m',KMIN,KMAX,1,v=>fmt(v,0)+' N/m'));
+  const m2Chips=chipRow(RACK,'mass2',()=>slotReset(1)); gTwo.appendChild(m2Chips); trackChips(gTwo,RACK,'mass2');
+  const twoTag=h('div',{class:'tag'}); gTwo.appendChild(twoTag);
+
+  /* the lab's single spring */
+  const gOne=h('div',{class:'grp'},h('h3',null,'the spring'));
+  gOne.appendChild(slider('kl','spring strength, N/m',KMIN,KMAX,1,v=>fmt(v,0)+' N/m'));
+  const mlChips=chipRow(LAB_RACK,'labMass',()=>slotReset(2)); gOne.appendChild(mlChips); trackChips(gOne,LAB_RACK,'labMass');
+  gOne.appendChild(slider('massG','mass, g',MASS_G_MIN,MASS_G_MAX,1,v=>fmt(v,0)+' g',()=>slotReset(2)));
+  const oneTag=h('div',{class:'tag'}); gOne.appendChild(oneTag);
+
+  const gGrav=h('div',{class:'grp'},h('h3',null,'gravity'));
+  const bodyChips=chipRow(BODY_LIST,'body'); gGrav.appendChild(bodyChips); trackChips(gGrav,BODY_LIST,'body');
+  gGrav.appendChild(slider('gCustom','g, m/s²',GMIN,GMAX,0.1,v=>fmt(v,1)+' m/s²'));
+  gGrav.appendChild(h('div',{class:'checks'},checkbox('reveal','reveal the hidden values')));
+  const gravTag=h('div',{class:'tag'}); gGrav.appendChild(gravTag);
+
+  const gDamp=h('div',{class:'grp'},h('h3',null,'damping'));
+  gDamp.appendChild(slider('damping','b, N s/m',BMIN,BMAX,0.01,v=>fmt(v,2)+' N s/m'));
+  const dampTag=h('div',{class:'tag'}); gDamp.appendChild(dampTag);
+
+  const gTime=h('div',{class:'grp'},h('h3',null,'time'));
+  gTime.appendChild(h('div',{class:'checks'},checkbox('running','time runs')));
+  const speedChips=chipRow(SPEED_LIST,'speed'); gTime.appendChild(speedChips); trackChips(gTime,SPEED_LIST,'speed');
+  gTime.appendChild(h('div',{class:'btnrow'},btn('step',()=>{ if(liveViews(st.view)) advance(st,0.02*(st.speed==='slow'?SLOW:1)); }),
+    btn('let go again',releaseView),
+    btn('reset all',()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v;
+      if(VIEW_DAMPING[v]!==undefined) st.damping=VIEW_DAMPING[v]; liveReset(); syncChips(); })));
+  const timeTag=h('div',{class:'tag'}); gTime.appendChild(timeTag);
+
+  const gTools=h('div',{class:'grp'},h('h3',null,'lines and tools'));
+  gTools.appendChild(h('div',{class:'checks'},checkbox('natLine','unstretched length'),checkbox('restLine','resting position'),
+    checkbox('movLine','movable line'),checkbox('ruler','ruler'),checkbox('stopwatch','stopwatch'),checkbox('trace','period trace')));
+  const swBtns=h('div',{class:'btnrow'},btn('start / stop',()=>{ LIVE.swOn=!LIVE.swOn; }),btn('clear',()=>{ LIVE.sw=0; }));
+  gTools.appendChild(swBtns);
+  const toolTag=h('div',{class:'tag'}); gTools.appendChild(toolTag);
+
+  const gAna=h('div',{class:'grp'},h('h3',null,'the spring analysed'));
+  gAna.appendChild(slider('kA','spring constant k, N/m',KMIN,KMAX,1,v=>fmt(v,0)+' N/m'));
+  gAna.appendChild(slider('mAg','mass m, g',MASS_G_MIN,MASS_G_MAX,1,v=>fmt(v,0)+' g'));
+  gAna.appendChild(slider('zeta','damping ratio ζ',0,2,0.01,v=>fmt(v,2)));
+  const anaTag=h('div',{class:'tag'}); gAna.appendChild(anaTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Masses and Springs: Basics (University of Colorado Boulder, '
+      +'phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets. PhET&rsquo;s values (spring 3&ndash;12 N/m, masses 50&ndash;300 g and the '
+      +'rack of 50/100/250 g, Moon 1.6, Earth 9.8, Planet X 14.2, Jupiter 24.8 m/s<sup>2</sup>, damping 0&ndash;0.7 N s/m, ceiling 1.47 m, natural '
+      +'length 0.5 m, slow motion &times;1/8) are read from its build 1.0.28 and its doc/model.md; the real surface gravities are Moon 1.62, Earth '
+      +'9.81, Jupiter 24.79 m/s<sup>2</sup>. Everything else is exact and pinned in selfTest to build/masses-and-springs-basics/derive.py '
+      +'(scipy solve_ivp and quad, an RK4 whose order is measured, and the closed form).'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the physics'),h('div',{id:'phys'}));
+  [gTwo,gOne,gGrav,gDamp,gTime,gTools,gAna,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++) if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  /* a row the view ignores is hidden, never left live and inert */
+  function syncPanel(){
+    const v=st.view, two=(v==='str'||v==='bnc'), one=(v==='lab'||v==='eng'), live=two||one;
+    gTwo.hidden=!two; gOne.hidden=!one;
+    rows.massG.row.hidden=(rackById(LAB_RACK,st.labMass).m!==null);
+    gGrav.hidden=!live;
+    rows.gCustom.row.hidden=(st.body!=='custom');
+    rows.cb_reveal.row.hidden=!(M_anyHidden());
+    gDamp.hidden=!live;
+    gTime.hidden=!live;
+    gTools.hidden=!(v==='str'||v==='bnc'||v==='lab');
+    rows.cb_trace.row.hidden=(v!=='lab');
+    swBtns.hidden=!st.stopwatch;
+    gAna.hidden=!(v==='per'||v==='dmp');
+    rows.zeta.row.hidden=(v!=='dmp');
+    for(const k in rows) rows[k].sync();
+    const bc=bCrit(st.mAg/1000,st.kA);
+    twoTag.innerHTML='PhET&rsquo;s rack: 250, 100 and 50 g, and three unlabelled ones. Drag a mass on the canvas to move it; let go and it swings from there.';
+    oneTag.innerHTML='PhET&rsquo;s lab mass runs 50&ndash;300 g; its two unlabelled masses are 180 and 120 g. Drag it on the canvas.';
+    gravTag.innerHTML='PhET&rsquo;s own values, not the real ones (Earth 9.81, Moon 1.62, Jupiter 24.79). Planet X is its invented '
+      +(st.reveal?'14.2 m/s<sup>2</sup>':'mystery &mdash; read the stretch and solve g = k y/m');
+    dampTag.innerHTML='PhET&rsquo;s Basics has no damping slider: it fixes b at 0.7 on Stretch and 0 on Bounce and Lab, which is what switching '
+      +'views here restores. This slider is the parent sim&rsquo;s, 0&ndash;0.7 N s/m.';
+    timeTag.innerHTML='space runs/pauses &nbsp; <b>.</b> steps &nbsp; <b>r</b> lets go again &nbsp; 1&ndash;6 switch views'
+      +(st.speed==='slow'?' &nbsp; slow motion &times;1/8 (PhET)':'');
+    toolTag.innerHTML='drag the ruler and the movable line on the canvas'+(st.stopwatch?'; the stopwatch runs on the readout':'');
+    anaTag.innerHTML='2&radic;(km) = '+sigf(bc,4)+' N s/m here, so &zeta; = 1 needs b = '+sigf(bc,4)
+      +' &mdash; '+(bc>BMAX?'past':'inside')+' PhET&rsquo;s 0.7. The slider runs to &zeta; = 2 so the other two regimes can be drawn.';
+  }
+  function M_anyHidden(){
+    if(st.body==='planetX') return true;
+    for(const sp of springsOf(st)) if(sp.myst) return true;
+    return false;
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='str'||st.view==='bnc'||st.view==='lab')
+        ?'drag a mass, the ruler or the movable line · space pauses · 1–6 switch views'
+        :'space pauses · 1–6 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; syncPanel(); }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ releaseView(); dirty=true; refresh(); }
+    else if(e.key==='.'){ if(liveViews(st.view)) advance(st,0.02*(st.speed==='slow'?SLOW:1)); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0, last=0;
+  function frameLoop(tm){
+    frameN++;
+    const dtw=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    const advanced=S.step(dtw);
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw(); if(advanced&&frameN%8===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  str:'This is PhET&rsquo;s Stretch screen. Hang a mass on a spring and it falls until the spring is pulling up exactly as hard as gravity is '
+    +'pulling down. A spring&rsquo;s pull grows in proportion to how far it has been stretched &mdash; that is Hooke&rsquo;s law, F = &minus;ky &mdash; '
+    +'so the balance is at ky = mg and the mass comes to rest at y = mg/k. Everything on this screen is that one formula. Double the mass and the '
+    +'stretch doubles. Double the spring constant and it halves. Move to the Moon and it shrinks by a factor of six; move to Jupiter and it grows '
+    +'by two and a half. The springs are drawn at their true shape, so you can lay the ruler against them and read the answer off. PhET&rsquo;s own '
+    +'Stretch screen fixes the damping at 0.7 N s/m so the mass settles quickly rather than bouncing, and that is what this view does too.',
+  bnc:'PhET&rsquo;s Bounce screen, with the damping PhET sets there: none. Write the extension as the resting value plus a wobble, y = mg/k + u, '
+    +'and the mg on the right of Newton&rsquo;s law cancels against the ky of the resting stretch. What is left is m&uuml; + b&#361; + ku = 0, the '
+    +'plain harmonic oscillator, which knows nothing about gravity at all. So gravity decides where the spring hangs and has no say in what it does '
+    +'afterwards. Let a mass go from the unstretched end and it is starting a whole amplitude away from the resting point, so it falls exactly '
+    +'2mg/k, comes to a stop, and comes back &mdash; for ever, with no damping. Turn the damping up and the swing shrinks by the same factor every '
+    +'period, which is the next view but one.',
+  lab:'PhET&rsquo;s Lab screen: one spring, a mass you can set anywhere from 50 to 300 g, and a gravity you can move from the Moon to Jupiter. The '
+    +'period trace marks each time the spring passes its resting point; two marks apart is one whole period, and the number it measures is '
+    +'2&pi;&radic;(m/k) to every digit the trace can carry. Change the gravity and watch what happens: the mass hangs somewhere else entirely, and '
+    +'the trace does not change at all. That is the single most useful thing about a mass on a spring, and it is why a spring balance has to be '
+    +'recalibrated on the Moon while a spring clock does not. Planet X is PhET&rsquo;s puzzle: its gravity is hidden, but the stretch is not, so '
+    +'g = ky/m gives it away. The unlabelled masses work the same way round, m = ky/g.',
+  per:'T = 2&pi;&radic;(m/k) says the period depends on the mass and the spring and on nothing else &mdash; not on how far you pulled it, not on '
+    +'where you are. The orange curves are that formula at the four spring constants PhET&rsquo;s slider marks; the green points are the period '
+    +'MEASURED from the drawn motion, by finding two crossings of the resting point and taking the gap. They agree to about a part in 10<sup>15</sup>, '
+    +'which is as close as a double can come. The bar chart below shows the same spring and mass on the Moon, on Earth, on Planet X and on Jupiter: '
+    +'four very different hanging points, one period. Damping does change the period, but only at second order: the damped period is T/&radic;(1 &minus; '
+    +'&zeta;&sup2;), so even at PhET&rsquo;s heaviest damping on its stiffest spring it is 1.7 % long.',
+  dmp:'Add a damper and the equation becomes m&uuml; + b&#361; + ku = 0, whose solutions go as e<sup>st</sup> with ms&sup2; + bs + k = 0 &mdash; '
+    +'PhET&rsquo;s own model notes say exactly this. Whether the two roots are complex, equal or real is decided by b&sup2; &minus; 4km, so the whole '
+    +'behaviour hangs on the single ratio &zeta; = b/(2&radic;(km)). Below one, the roots are complex and the spring oscillates inside a shrinking '
+    +'envelope. At exactly one, the roots coincide and the spring comes back as fast as it can without overshooting &mdash; which is how a door '
+    +'closer and a car damper are tuned. Above one, it crawls back more slowly than that, because the slow root is nearer to zero. Now look at the '
+    +'panel below left: PhET&rsquo;s damping stops at 0.7 N s/m, and 2&radic;(km) over its own masses and springs never falls below 0.7746, so '
+    +'nothing PhET can draw is critically damped. The curves above go past its range on purpose, and say so.',
+  eng:'Three energies are in play. The mass carries &frac12;mv&sup2;; the spring stores &frac12;ky&sup2;; gravity still has mg(y<sub>bot</sub> '
+    +'&minus; y) to give, measured from the bottom of the swing at y<sub>bot</sub> = 2mg/k so that none of the three is ever negative. With no '
+    +'damper they add to a constant for ever &mdash; the flat white line &mdash; and that constant is 2(mg)&sup2;/k, which is what gravity hands '
+    +'over in the fall. Halfway down, at the resting point, the spring has stored exactly half of it and the mass carries the other half as kinetic '
+    +'energy. Add a damper and it takes energy at bv&sup2; a '
+    +'second, fastest where the mass is moving fastest. Released from rest, the turning points fall exactly half a damped period apart and the '
+    +'energy at each one is E&#8320;e<sup>&minus;n&delta;</sup>, a clean geometric decay; the points on the panel below right sit on that curve.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  str:'<h4>Hooke&rsquo;s law</h4>'
+    +EQ(1,'F<sub>spring</sub> = &minus;k y &nbsp;&middot;&nbsp; at rest &nbsp; k y = m g &nbsp;&rArr;&nbsp; y<sub>eq</sub> = '+FR('m g','k'))
+    +EQ(2,'PE<sub>elastic</sub> = &frac12; k y&sup2; &nbsp;&middot;&nbsp; PE<sub>gravity</sub> = m g (y<sub>bot</sub> &minus; y), &nbsp; y<sub>bot</sub> = 2mg/k')
+    +EQ(3,'<span class="rm">the drawn block:</span> r = 4&radic;(m/(80 &middot; 2.5 &pi;)) m, &nbsp; height 2.5 r &nbsp;<span class="rm">(PhET&rsquo;s rule)</span>')
+    +'<p>Nothing on this screen is approximate: the spring is linear at every extension by construction, so the extension is exactly mg/k. At '
+    +'PhET&rsquo;s largest mass on its softest spring at its largest gravity the extension is 3.00 m, well below the floor &mdash; PhET draws that too.</p>'
+    +'<div class="cite">pins: mg/k over all 10040 (mass, spring constant, planet) states the sim allows, against derive.py&rsquo;s sum 3549.219863636362 m &mdash; derive.py</div>',
+  bnc:'<h4>the oscillator, and why gravity drops out</h4>'
+    +EQ(1,'m &#375; = m g &minus; k y &minus; b &#7823;')
+    +EQ(2,'y = y<sub>eq</sub> + u, &nbsp; y<sub>eq</sub> = m g/k &nbsp;&rArr;&nbsp; m &uuml; + b &#361; + k u = 0')
+    +EQ(3,'&omega;<sub>0</sub> = &radic;(k/m), &nbsp; &gamma; = '+FR('b','2m')+', &nbsp; &zeta; = '+FR('&gamma;','&omega;<sub>0</sub>')+' = '+FR('b','2&radic;(km)'))
+    +EQ(4,'u = e<sup>&minus;&gamma;t</sup>[u<sub>0</sub>(C + &gamma;S) + v<sub>0</sub>S], &nbsp; v = e<sup>&minus;&gamma;t</sup>[&minus;&omega;<sub>0</sub>&sup2;u<sub>0</sub>S + v<sub>0</sub>(C &minus; &gamma;S)]')
+    +EQ(5,'C = cos(&radic;s t), &nbsp; S = sin(&radic;s t)/&radic;s, &nbsp; s = &omega;<sub>0</sub>&sup2; &minus; &gamma;&sup2; &nbsp;<span class="rm">(cosh/sinh below 0, series at 0)</span>')
+    +'<p>[4] is the sim&rsquo;s integrator: the state is advanced by the exact solution every frame, so the trajectory is the closed form at any '
+    +'frame rate and in every regime. An RK4 of [2] runs beside it in the test suite and is measured to be fourth order.</p>'
+    +'<div class="cite">pins: u and v at four times in six (m, k, b) cases against derive.py; scipy solve_ivp over 80 states to 2.4e&minus;12; the RK4 error ratios 16.03&ndash;16.44 per halving &mdash; derive.py</div>',
+  lab:'<h4>the period</h4>'
+    +EQ(1,'T = '+FR('2&pi;','&omega;<sub>0</sub>')+' = 2&pi;&radic;(m/k) &nbsp;<span class="rm">&mdash; no g, no amplitude</span>')
+    +EQ(2,'T<sub>d</sub> = '+FR('2&pi;','&radic;(&omega;<sub>0</sub>&sup2; &minus; &gamma;&sup2;)')+' = '+FR('T','&radic;(1 &minus; &zeta;&sup2;)'))
+    +EQ(3,'<span class="rm">released from rest, v = 0 exactly at</span> &omega;<sub>d</sub>t = n&pi; <span class="rm">and</span> |u<sub>n</sub>| = u<sub>0</sub>e<sup>&minus;n&delta;/2</sup>, &nbsp; &delta; = &gamma;T<sub>d</sub>')
+    +EQ(4,'g = k y<sub>eq</sub>/m &nbsp;<span class="rm">(Planet X)</span>, &nbsp; m = k y<sub>eq</sub>/g &nbsp;<span class="rm">(the unlabelled masses)</span>')
+    +'<p>[3] is exact and is why the period trace works: with the mass let go from rest, the velocity vanishes at whole multiples of half a damped '
+    +'period whatever the damping, so the crossings of the resting point are evenly spaced.</p>'
+    +'<div class="cite">pins: the measured period against 2&pi;&radic;(m/k) at five masses; the zeros 0.20278893379868057, 0.6083668013960417, 1.0139446689934029 s at 100 g on 6 N/m &mdash; derive.py</div>',
+  per:'<h4>what the period does and does not depend on</h4>'
+    +EQ(1,'T = 2&pi;&radic;(m/k): &nbsp; &part;T/&part;g = 0, &nbsp; &part;T/&part;A = 0')
+    +EQ(2,'y<sub>eq</sub>(Jupiter)/y<sub>eq</sub>(Moon) = 24.8/1.6 = 15.5 &nbsp;<span class="rm">while T is unchanged</span>')
+    +EQ(3,'T<sub>d</sub>/T = (1 &minus; &zeta;&sup2;)<sup>&minus;&frac12;</sup> = 1 + &zeta;&sup2;/2 + O(&zeta;<sup>4</sup>)')
+    +'<p>The measured points come from bisecting u(t) for its zeros &mdash; the same function the stage steps with &mdash; so the agreement is a '
+    +'statement about the solution, not about the drawing.</p>'
+    +'<div class="cite">pins: the five measured periods to 1e&minus;12 of the closed form; T identical on all four planets to the last bit &mdash; derive.py</div>',
+  dmp:'<h4>the three regimes</h4>'
+    +EQ(1,'m s&sup2; + b s + k = 0 &nbsp;&rArr;&nbsp; s = &minus;&gamma; &plusmn; &radic;(&gamma;&sup2; &minus; &omega;<sub>0</sub>&sup2;)')
+    +EQ(2,'&zeta; &lt; 1 <span class="rm">two complex roots &mdash; oscillates in</span> e<sup>&minus;&gamma;t</sup>; &nbsp; &zeta; = 1 <span class="rm">one double root</span>; &nbsp; &zeta; &gt; 1 <span class="rm">two real roots</span>')
+    +EQ(3,'&delta; = &gamma;T<sub>d</sub> = '+FR('2&pi;&zeta;','&radic;(1 &minus; &zeta;&sup2;)')+' &nbsp;<span class="rm">amplitude &times; e<sup>&minus;&delta;</sup> per period</span>')
+    +EQ(4,'b<sub>crit</sub> = 2&radic;(km) &isin; [0.774597, 3.794733] <span class="rm">N s/m over PhET&rsquo;s box</span> &nbsp;&rArr;&nbsp; &zeta; &le; 0.903696')
+    +'<p>[4] is the whole content of the panel below left. Nothing PhET&rsquo;s own sliders can reach is critically damped; the closest it comes is '
+    +'the lightest mass on the softest spring at full damping.</p>'
+    +'<div class="cite">pins: u and v in the critical and overdamped cases against scipy; 2&radic;(km) at the four corners; &zeta;<sub>max</sub> = 0.9036961141150639 &mdash; derive.py</div>',
+  eng:'<h4>the ledger</h4>'
+    +EQ(1,'E = &frac12;mv&sup2; + &frac12;ku&sup2; &nbsp;&middot;&nbsp; '+FR('dE','dt')+' = &minus;b v&sup2;')
+    +EQ(2,'&frac12;mv&sup2; + &frac12;ky&sup2; + mg(y<sub>bot</sub> &minus; y) = E + '+FR('3(mg)&sup2;','2k')+' &nbsp;<span class="rm">with</span> y<sub>bot</sub> = 2mg/k')
+    +EQ(3,'<span class="rm">let go from y = 0:</span> E<sub>0</sub> = &frac12;k(mg/k)&sup2; = '+FR('(mg)&sup2;','2k')+', <span class="rm">swing</span> 0 &rarr; 2mg/k, <span class="rm">ledger</span> '+FR('2(mg)&sup2;','k'))
+    +EQ(4,'E(nT<sub>d</sub>/2) = E<sub>0</sub> e<sup>&minus;n&delta;</sup> &nbsp;<span class="rm">exactly, for a release from rest</span>')
+    +'<p>[2] is why the four shares add to a flat line: the gravitational and elastic terms carry a constant between them that the oscillation never '
+    +'touches. The datum for the gravitational share is the BOTTOM of the swing, which keeps all three shares non-negative &mdash; with the zero at '
+    +'the unstretched end the sum would be &minus;(mg)&sup2;/2k and would lie on the axis, where nobody could see it. [4] is exact because the '
+    +'velocity vanishes exactly at &omega;<sub>d</sub>t = n&pi;.</p>'
+    +'<div class="cite">pins: the sum flat to 1e&minus;16 J over three periods; E(0) &minus; E(t) against b&int;v&sup2;dt by scipy quad (residual 0 to 5e&minus;18 J) &mdash; derive.py</div>',
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Every value labelled (derive)   *
+ *  is a line of build/masses-and-springs-basics/refvals.txt, the      *
+ *  printed output of derive.py (scipy solve_ivp, scipy quad, an RK4   *
+ *  whose convergence order is measured, and the closed form), read    *
+ *  in full.  The recording stub is the house one.                     *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0w=Date.now();
+  const stSave=Object.assign({},ST);
+  function withState(over,fn){
+    const clean={}; for(const k in over) if(k[0]!=='_') clean[k]=over[k];
+    Object.assign(ST,DEFAULTS,clean); liveReset();
+    /* clicking a tab is what applies PhET's per-screen damping, so a headless
+       configuration has to do the same or it runs the Lab screen at 0.7 */
+    if(clean.damping===undefined&&VIEW_DAMPING[ST.view]!==undefined) ST.damping=VIEW_DAMPING[ST.view];
+    if(over._live&&liveViews(ST.view)) for(let i=0;i<over._live;i++) advance(ST,0.02);
+    if(over._sw!==undefined){ LIVE.sw=over._sw; LIVE.swOn=true; }
+    try{ return fn(); } finally{ Object.assign(ST,stSave); liveReset(); DRAG.what=null; }
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  ok(mix('#070b18',mix('#b8ec4c','#cd35c4',0.5),1)!=='rgb(0,0,0)','mix() output is a legal mix() input (not black)');
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+
+  /* ---------- 1. PhET's constants, pinned absolutely ---------- */
+  eq(CEILING_Y,1.47,"PhET's ceiling"); eq(FLOOR_Y,0,"PhET's floor");
+  eq(L0,0.5,"PhET's natural spring length"); eq(SHELF_H,0.02,"PhET's shelf height");
+  eq(HOOK_H,0.037,"PhET's hook height"); eq(HOOK_C,0.0185,"PhET's hook centre");
+  eq(KMIN,3,"PhET's spring constant floor"); eq(KMAX,12,"PhET's spring constant ceiling"); eq(KDEF,6,"PhET's default spring constant");
+  eq(BMIN,0,"PhET's damping floor"); eq(BMAX,0.7,"PhET's damping ceiling"); eq(BDEF,0.3,"PhET's default damping");
+  eq(GMIN,0,"PhET's gravity floor"); eq(GMAX,30,"PhET's gravity ceiling");
+  eq(G_EARTH,9.8,"PhET's Earth"); eq(G_MOON,1.6,"PhET's Moon"); eq(G_JUPITER,24.8,"PhET's Jupiter");
+  eq(G_PLANETX,14.2,"PhET's Planet X (its invented mystery value)");
+  eq(G_EARTH_REAL,9.81,'the real Earth'); eq(G_MOON_REAL,1.62,'the real Moon'); eq(G_JUPITER_REAL,24.79,'the real Jupiter');
+  eq(MASS_G_MIN,50,"PhET's lightest lab mass"); eq(MASS_G_MAX,300,"PhET's heaviest lab mass"); eq(MASS_G_DEF,100,"PhET's default lab mass");
+  eq(SLOW,1/8,"PhET's slow-motion ratio"); eq(B_STRETCH,0.7,"the Stretch screen's damping");
+  eq(B_BOUNCE,0,"the Bounce screen's damping"); eq(B_LAB,0,"the Lab screen's damping");
+  eq(LEFT_SPRING_X,1,"PhET's left spring x"); eq(RIGHT_SPRING_X,1.3,"PhET's right spring x"); eq(SPRING_X,1.2,"PhET's lab spring x");
+  eq(RACK.filter(r=>!r.myst&&r.m>0).map(r=>r.m).join(','),'0.05,0.1,0.25',"PhET's labelled rack");
+  eq(RACK.filter(r=>r.myst).map(r=>r.m).join(','),'0.075,0.1,0.2',"PhET's mystery rack");
+  eq(LAB_RACK.filter(r=>r.myst).map(r=>r.m).join(','),'0.18,0.12',"PhET's lab mystery masses");
+  /* the mass-block size rule (derive) */
+  rel(massRadius(0.05),0.035682482323055424,1e-15,'block radius at 50 g (derive)');
+  rel(massRadius(0.10),0.050462650440403205,1e-15,'block radius at 100 g (derive)');
+  rel(massRadius(0.25),0.07978845608028654,1e-15,'block radius at 250 g (derive)');
+  rel(massHeight(0.30),0.21850968611841579,1e-15,'block height at 300 g (derive)');
+  rel(massRadius(0.2)/massRadius(0.05),2,1e-15,'the block scales as the square root of the mass');
+
+  /* ---------- 2. Hooke's law over everything the sim allows ---------- */
+  eq(springForce(6,0.25),-1.5,'F = -k y');
+  rel(yEq(0.25,6,G_EARTH),0.4083333333333334,1e-15,'250 g on 6 N/m, Earth (derive)');
+  rel(yEq(0.25,6,G_MOON),0.06666666666666667,1e-15,'250 g on 6 N/m, Moon (derive)');
+  rel(yEq(0.25,6,G_JUPITER),1.0333333333333334,1e-15,'250 g on 6 N/m, Jupiter (derive)');
+  rel(yEq(0.25,6,G_PLANETX),0.5916666666666667,1e-15,'250 g on 6 N/m, Planet X (derive)');
+  rel(yEq(0.10,3,G_EARTH),0.3266666666666667,1e-15,'100 g on 3 N/m, Earth (derive)');
+  rel(yEq(0.10,12,G_EARTH),0.08166666666666668,1e-15,'100 g on 12 N/m, Earth (derive)');
+  rel(yEq(0.30,12,G_JUPITER),0.62,1e-15,'300 g on 12 N/m, Jupiter (derive)');
+  rel(yEq(0.075,9,G_PLANETX),0.11833333333333333,1e-15,'75 g on 9 N/m, Planet X (derive)');
+  rel(yEq(0.18,6,G_EARTH),0.294,1e-15,'180 g on 6 N/m, Earth (derive)');
+  rel(yEq(0.3,3,30),3.0,1e-15,'the largest extension the sim allows is 3.00 m (derive)');
+  { let tot=0,mx=0,n=0;
+    for(let i=50;i<=300;i++){ const m=i/1000;
+      for(let k=3;k<=12;k++) for(const g of [G_MOON,G_EARTH,G_PLANETX,G_JUPITER]){
+        const y=yEq(m,k,g); tot+=y; if(y>mx) mx=y; n++; } }
+    eq(n,10040,'the (mass, spring, planet) grid has 10040 states');
+    close(tot,3549.219863636362,1e-9,'sum of mg/k over the whole grid (derive)');
+    close(mx,2.48,1e-15,'the largest mg/k on the grid (derive)'); }
+  /* the two inversions the sim asks the reader to make */
+  rel(gFromStretch(6,yEq(0.1,6,G_PLANETX),0.1),G_PLANETX,1e-15,'g = k y/m recovers Planet X (derive)');
+  rel(mFromStretch(6,yEq(0.18,6,G_EARTH),G_EARTH),0.18,1e-15,'m = k y/g recovers the 180 g mystery mass');
+  rel(yEq(0.25,6,G_EARTH)/yEq(0.25,12,G_EARTH),2,1e-15,'half the stiffness is twice the stretch');
+  rel(yEq(0.25,6,G_EARTH)/yEq(0.05,6,G_EARTH),5,1e-15,'five times the mass is five times the stretch');
+
+  /* ---------- 3. the closed form, in all three regimes ---------- */
+  const CASES=[
+    ['undamped 250 g on 6',0.25,6,0,0.08,0,
+     [[0.1,0.07059047056533474,-0.184411635123033],[0.5,-0.06159245837999144,-0.25010569305199065],
+      [1,0.014840773232274418,0.38511561224759117],[2,-0.07449378624670518,0.14288533673937562]]],
+    ['100 g on 6 at b = 0.7',0.1,6,0.7,0.05,0,
+     [[0.1,0.038525427222468434,-0.194979145395194],[0.5,-0.009622350432244927,0.023264159874715765],
+      [1,0.0016713855119263703,-0.007691386638806669],[2,3.6151447780342915e-05,-0.0003761768881245891]]],
+    ['50 g on 3 at b = 0.7 (zeta nearest 1)',0.05,3,0.7,0.06,0,
+     [[0.1,0.04864766307341515,-0.17551122526739346],[0.5,0.0036510405712336723,-0.03265203098348571],
+      [1,-7.398591449412565e-05,0.0001723625001069216],[2,8.297947254689328e-08,-3.0954556199583647e-07]]],
+    ['300 g on 12 at b = 0.7, moving',0.3,12,0.7,0.04,-0.2,
+     [[0.1,0.01615408560695363,-0.2586204624527365],[0.5,-0.022771016830434684,0.10742451340794086],
+      [1,0.012943596324753219,-0.05754505950430216],[2,0.0041642995774548,-0.01636422882277377]]],
+    ['critically damped',0.1,6,2*Math.sqrt(0.6),0.05,0,
+     [[0.1,0.040894660511993086,-0.1382668903446304],[0.5,0.005066985199404945,-0.03119435162864973],
+      [1,0.00018912425570916157,-0.001297450098042457],[2,1.5423409631409277e-07,-1.12225117127359e-06]]],
+    ['overdamped, b = 3',0.1,6,3,0.05,0,
+     [[0.1,0.04342964268979529,-0.08692701631547152],[0.5,0.018452150882428114,-0.03975999677955409],
+      [1,0.006282684995787803,-0.013537724947346005],[2,0.0007283526162092788,-0.0015694304886517748]]]];
+  for(const [nm,m,k,b,u0,v0,rows] of CASES){
+    for(const [t,u,v] of rows){
+      const r=prop(m,k,b,u0,v0,t);
+      rel(r[0],u,2e-12,nm+': u at t = '+t+' (derive)');
+      rel(r[1],v,2e-12,nm+': v at t = '+t+' (derive)');
+    }
+    /* the propagator is a one-parameter group: two steps equal one */
+    const a=prop(m,k,b,u0,v0,1.3), c=prop(m,k,b,u0,v0,0.7), d=prop(m,k,b,c[0],c[1],0.6);
+    close(a[0],d[0],1e-15,nm+': P(0.7)P(0.6) = P(1.3) in u');
+    close(a[1],d[1],1e-14,nm+': P(0.7)P(0.6) = P(1.3) in v');
+    /* and it satisfies the equation it claims to solve: a central difference
+       of v against (-k u - b v)/m at a handful of times */
+    for(const t of [0.13,0.61,1.41]){
+      const hh=1e-5, p1=prop(m,k,b,u0,v0,t+hh), p2=prop(m,k,b,u0,v0,t-hh), p0=prop(m,k,b,u0,v0,t);
+      /* an ABSOLUTE tolerance: dv/dt passes through zero every half period, so
+         a relative one would be measuring the cancellation and not the solution */
+      close((p1[1]-p2[1])/(2*hh),(-k*p0[0]-b*p0[1])/m,1e-5,nm+': the solution satisfies m u" + b u\' + k u = 0 at t = '+t);
+      close((p1[0]-p2[0])/(2*hh),p0[1],1e-8,nm+': and v is du/dt at t = '+t);
+    }
+  }
+  /* a SECOND, independent spelling of each regime — typing catcher */
+  for(const [m,k,b,u0,v0] of [[0.1,6,0.35,0.05,-0.2],[0.25,6,0,0.08,0.1],[0.3,12,0.7,0.04,-0.2]]){
+    const gam=gammaOf(m,b), wd=omegaD(m,k,b);
+    const A=Math.sqrt(u0*u0+Math.pow((v0+gam*u0)/wd,2)), ph=Math.atan2((v0+gam*u0)/wd,u0);
+    for(const t of [0.2,0.9,1.7]) rel(prop(m,k,b,u0,v0,t)[0],A*Math.exp(-gam*t)*Math.cos(wd*t-ph),1e-12,
+      'underdamped: the amplitude-phase form agrees at t = '+t+' (m '+m+', b '+b+')');
+  }
+  { const m=0.1,k=6,b=3,u0=0.05,v0=0, gam=gammaOf(m,b), r=Math.sqrt(gam*gam-k/m);
+    const s1=-gam+r, s2=-gam-r, c1=(v0-s2*u0)/(s1-s2), c2=(s1*u0-v0)/(s1-s2);
+    rel(s1,-2.1547674213348706,1e-14,'overdamped slow root (derive)');
+    rel(s2,-27.84523257866513,1e-14,'overdamped fast root (derive)');
+    for(const t of [0.2,1.1]) rel(prop(m,k,b,u0,v0,t)[0],c1*Math.exp(s1*t)+c2*Math.exp(s2*t),1e-12,
+      'overdamped: the two-exponential form agrees at t = '+t); }
+  { const m=0.1,k=6,b=2*Math.sqrt(0.6),u0=0.05,v0=0.3, gam=gammaOf(m,b);
+    for(const t of [0.05,0.4,1.3]) rel(prop(m,k,b,u0,v0,t)[0],Math.exp(-gam*t)*(u0+(v0+gam*u0)*t),1e-12,
+      'critical: the (a + bt)e^(-gam t) form agrees at t = '+t); }
+  /* The C/Sn series branch, asserted AT ITS JOIN from both sides.  The join sits
+     at |s|t^2 = 1e-5, where the three-term series is still exact to 1.4e-18 and
+     BOTH of its terms move the answer by far more than a rounding error: the
+     tolerance below is 1e-14, against x^2/24 = 4.2e-12 of C and x^2/120 =
+     8.3e-13 of Sn, so a wrong quadratic coefficient fails by 83x or more. */
+  { const t=0.37, XJ=1e-5, sj=XJ/(t*t);
+    for(const s of [sj*0.999,sj*1.001,-sj*0.999,-sj*1.001,0]){
+      const r=CSn(s,t), C=s>0?Math.cos(Math.sqrt(s)*t):(s<0?Math.cosh(Math.sqrt(-s)*t):1);
+      const Sn=s>0?Math.sin(Math.sqrt(s)*t)/Math.sqrt(s):(s<0?Math.sinh(Math.sqrt(-s)*t)/Math.sqrt(-s):t);
+      rel(r[0],C,1e-14,'CSn: C agrees with the direct form across the join at s = '+s.toExponential(2));
+      rel(r[1],Sn,1e-14,'CSn: Sn agrees with the direct form across the join at s = '+s.toExponential(2)); }
+    /* and the quadratic terms are what that tolerance is pinning: state their
+       size, measured off the series itself */
+    const x=XJ*0.999, s2=x/(t*t);
+    const r2=CSn(s2,t), C2=Math.cos(Math.sqrt(s2)*t), S2=Math.sin(Math.sqrt(s2)*t)/Math.sqrt(s2);
+    rel(r2[0],C2,1e-15,'CSn: C at the top of the series branch');
+    rel(r2[1],S2,1e-15,'CSn: Sn at the top of the series branch');
+    const cQuad=Math.abs(x*x/24), sQuad=Math.abs(x*x/120);
+    ok(cQuad>1e-13&&sQuad>1e-13,'the quadratic terms are worth '+cQuad.toExponential(2)+' and '+sQuad.toExponential(2)
+       +' at the top of the branch, both far above a rounding error');
+    ok(Math.abs(C2-(1-x/2))>1e-13&&Math.abs(S2/t-(1-x/6))>1e-13,'... and the two-term series is visibly wrong there');
+    /* the invariance that made them untestable at the old join of 1e-8: there the
+       quadratic terms are below half an ulp and the double is bit-identical */
+    { const xo=1e-8;
+      eq(1-xo/2+xo*xo/24,1-xo/2,'at |s|t^2 = 1e-8 the C quadratic term is below half an ulp (bit-identical)');
+      eq(1-xo/6+xo*xo/120,1-xo/6,'and so is the Sn one: the old 1e-8 join could not test either'); } }
+  eq(CSn(0,0.4)[1],0.4,'CSn at s = 0 exactly: Sn = t, where the direct quotient is 0/0');
+  eq(CSn(0,0.4)[0],1,'CSn at s = 0 exactly: C = 1');
+  { const r=CSn(9,0.5); rel(r[0],Math.cos(1.5),1e-15,'CSn takes the cosine branch above s = 0');
+    rel(r[1],Math.sin(1.5)/3,1e-15,'CSn: Sn on the cosine branch');
+    const q=CSn(-9,0.5); rel(q[0],Math.cosh(1.5),1e-15,'CSn takes the cosh branch below s = 0');
+    rel(q[1],Math.sinh(1.5)/3,1e-15,'CSn: Sn on the cosh branch'); }
+
+  /* ---------- 4. the integrator: RK4's order, measured ---------- */
+  for(const [nm,m,k,b,u0,v0] of [['undamped',0.25,6,0,0.08,0],['damped',0.1,6,0.7,0.05,0],['overdamped',0.1,6,3,0.05,0]]){
+    const ex=prop(m,k,b,u0,v0,2);
+    let prev=null, orders=[];
+    for(const n of [200,400,800,1600]){
+      const r=rk4(m,k,b,u0,v0,2,n), e=Math.hypot(r[0]-ex[0],r[1]-ex[1]);
+      if(prev!==null) orders.push(Math.log(prev/e)/Math.LN2);
+      prev=e;
+    }
+    for(const o of orders) ok(o>3.9&&o<4.15,nm+': RK4 converges at order '+fmt(o,3)+' (derive: 4.00-4.10)');
+    rel(prev,0,1,nm+': RK4 at 1600 steps is within 1e-10 of the propagator');
+    ok(prev<1e-10,nm+': RK4 at 1600 steps agrees with the closed form to '+prev.toExponential(2));
+  }
+  rel(rk4(0.25,6,0,0.08,0,2,200)[0],prop(0.25,6,0,0.08,0,2)[0],1e-5,'RK4 at 200 steps is already within 1e-5');
+
+  /* ---------- 5. the period ---------- */
+  rel(omega0(0.25,6),4.898979485566356,1e-15,'w0 at 250 g on 6 N/m (derive)');
+  rel(period0(0.25,6),1.282549830161864,1e-15,'T at 250 g on 6 N/m (derive)');
+  rel(period0(0.1,6),0.8111557351947223,1e-15,'T at 100 g on 6 N/m (derive)');
+  rel(period0(0.1,12),0.5735737209545476,1e-15,'T at 100 g on 12 N/m (derive)');
+  rel(period0(0.05,3),0.8111557351947223,1e-15,'T at 50 g on 3 N/m equals 100 g on 6 (same m/k)');
+  rel(period0(0.4,6)/period0(0.1,6),2,1e-15,'four times the mass is twice the period');
+  rel(gammaOf(0.1,0.7),3.4999999999999996,1e-15,'gam = b/2m (derive)');
+  rel(zetaOf(0.1,6,0.7),0.4518480570575319,1e-15,'zeta at 100 g on 6 N/m, b = 0.7 (derive)');
+  rel(zetaOf(0.05,3,0.7),0.9036961141150638,1e-15,'zeta at 50 g on 3 N/m, b = 0.7 (derive)');
+  rel(omegaD(0.1,6,0.7),6.910137480542628,1e-15,'w_d (derive)');
+  rel(periodD(0.1,6,0.7),0.9092706657243222,1e-15,'T_d (derive)');
+  rel(periodD(0.05,3,0.7),1.894451650198964,1e-15,'T_d at the most damped state the sim allows (derive)');
+  rel(periodD(0.05,3,0.7)/period0(0.05,3),2.335496832484567,1e-14,'and it is 2.335 times the undamped period (derive)');
+  rel(logDec(0.1,6,0.7),3.1824473300351275,1e-14,'the logarithmic decrement (derive)');
+  rel(Math.exp(-logDec(0.1,6,0.7)),0.041484005733899036,1e-13,'4.1 % of the amplitude survives a period (derive)');
+  rel(qFactor(0.1,6,0.7),1.1065666703449764,1e-14,'Q = 1/(2 zeta) (derive)');
+  ok(!isFinite(qFactor(0.1,6,0)),'Q is infinite with no damping');
+  ok(!isFinite(periodD(0.1,6,2*Math.sqrt(0.6))),'a critically damped spring has no period');
+  /* the period MEASURED from the drawn motion, by bisecting for the crossings */
+  { const zs=[zeroBetween(0.1,6,0,0.05,0,1e-12,0.5),zeroBetween(0.1,6,0,0.05,0,0.5,0.9),zeroBetween(0.1,6,0,0.05,0,0.9,1.3)];
+    rel(zs[0],0.20278893379868057,1e-12,'first crossing, 100 g on 6 N/m (derive)');
+    rel(zs[1],0.6083668013960417,1e-12,'second crossing (derive)');
+    rel(zs[2],1.0139446689934029,1e-12,'third crossing (derive)'); }
+  for(const [m,k,b,T,nm] of [[0.1,6,0,0.8111557351947223,'undamped'],[0.25,6,0,1.2825498301618643,'250 g'],
+                             [0.1,12,0,0.5735737209545476,'stiff'],[0.1,6,0.35,0.8326848655149497,'damped'],
+                             [0.05,3,0.7,1.8944516501989646,'heavily damped']]){
+    rel(measurePeriod(m,k,b,0.05),T,1e-12,'the measured period, '+nm+' (derive)');
+    rel(measurePeriod(m,k,b,0.05),periodD(m,k,b),1e-12,'the measured period equals 2 pi / w_d, '+nm);
+    rel(measurePeriod(m,k,b,0.02),measurePeriod(m,k,b,0.09),1e-12,'the period does not depend on the amplitude, '+nm);
+  }
+  /* released from rest, v vanishes EXACTLY at whole half periods, and the
+     amplitude is multiplied by e^(-delta/2) at each one */
+  for(const [m,k,b] of [[0.1,6,0.35],[0.05,3,0.7],[0.3,12,0.7],[0.25,6,0]]){
+    const Td=periodD(m,k,b), ld=logDec(m,k,b), u0=0.05;
+    for(let n=1;n<=3;n++) close(prop(m,k,b,u0,0,n*Td/2)[1],0,1e-12,'v = 0 at n = '+n+' half periods (m '+m+', b '+b+')');
+    for(let n=1;n<=3;n++) rel(Math.abs(prop(m,k,b,u0,0,n*Td/2)[0]),u0*Math.exp(-ld*n/2),1e-11,
+      '|u| at turn '+n+' is u0 e^(-n delta/2) (m '+m+', b '+b+')');
+    rel(Math.abs(prop(m,k,b,u0,0,Td)[0]/prop(m,k,b,u0,0,Td/2)[0]),Math.exp(-ld/2),1e-11,'consecutive turns differ by e^(-delta/2)');
+  }
+  rel(Math.abs(prop(0.1,6,0.35,0.05,0,periodD(0.1,6,0.35))[0]/prop(0.1,6,0.35,0.05,0,periodD(0.1,6,0.35)/2)[0]),0.48258449357063454,1e-12,
+      'the peak ratio at b = 0.35 (derive)');
+  rel(Math.abs(prop(0.05,3,0.7,0.06,0,periodD(0.05,3,0.7))[0]/prop(0.05,3,0.7,0.06,0,periodD(0.05,3,0.7)/2)[0]),0.0013193965899875686,1e-11,
+      'the peak ratio at the most damped state (derive)');
+  /* gravity moves the hanging point and NOT the period */
+  { const Ts=[G_MOON,G_EARTH,G_PLANETX,G_JUPITER].map(()=>period0(0.1,6));
+    for(const T of Ts) eq(T,0.8111557351947223,'the period is bit-identical on every planet (derive)');
+    rel(yEq(0.1,6,G_JUPITER)/yEq(0.1,6,G_MOON),15.5,1e-14,'Jupiter stretches it 15.5 times as far as the Moon');
+    rel(100*yEq(0.1,6,G_PLANETX),23.666666666666668,1e-13,'Planet X stretches it 23.67 cm (derive)'); }
+
+  /* ---------- 6. the regimes the sim can reach ---------- */
+  rel(bCrit(0.05,3),0.7745966692414834,1e-15,'the smallest critical damping over PhET\'s box (derive)');
+  rel(bCrit(0.3,12),3.794733192202055,1e-15,'the largest critical damping over PhET\'s box (derive)');
+  rel(BMAX/bCrit(0.05,3),0.9036961141150639,1e-15,'so zeta tops out at 0.9037 (derive)');
+  rel(bCrit(0.05,3)/BMAX,1.1065666703449764,1e-14,'critical damping is 1.107 times the top of the slider (derive)');
+  ok(bCrit(0.05,3)>BMAX,'PhET cannot reach critical damping at all');
+  { let worst=0,n=0,anyOver=false;
+    for(let i=50;i<=300;i+=5){ const m=i/1000;
+      for(let k=3;k<=12;k++) for(let j=0;j<=14;j++){ const b=j*0.05;
+        const z=zetaOf(m,k,b); if(z>worst) worst=z; if(z>=1) anyOver=true; n++; } }
+    ok(n>=7000,'the reachability sweep covers '+n+' states');
+    ok(!anyOver,'not one reachable state is critically or overdamped');
+    rel(worst,0.9036961141150639,1e-15,'the worst zeta over the whole sweep is PhET\'s 0.9037'); }
+  eq(zetaOf(0.1,6,2*Math.sqrt(0.6))===1,true,'b = 2 sqrt(km) is exactly zeta = 1');
+  ok(discr(0.1,6,3)<0,'b = 3 N s/m is overdamped');
+  ok(discr(0.1,6,0.7)>0,'b = 0.7 N s/m at 100 g on 6 N/m is underdamped');
+
+  /* ---------- 7. energy ---------- */
+  { const m=0.1,k=6,u0=0.05,v0=0.3, E=energyU(m,k,u0,v0);
+    rel(E,0.012,1e-15,'E = 1/2 m v^2 + 1/2 k u^2 (derive)');
+    const A=Math.sqrt(u0*u0+Math.pow(v0/omega0(m,k),2));
+    rel(A,0.06324555320336758,1e-15,'the amplitude sqrt(u0^2 + (v0/w0)^2) (derive)');
+    rel(0.5*k*A*A,E,1e-15,'and 1/2 k A^2 is the same energy');
+    let worst=0;
+    for(let i=1;i<=2000;i++){ const r=prop(m,k,0,u0,v0,i*0.01);
+      worst=Math.max(worst,Math.abs(energyU(m,k,r[0],r[1])-E)/E); }
+    ok(worst<3e-15,'undamped: the propagator holds the energy to '+worst.toExponential(2)+' over 2000 steps (derive 5.8e-16)');
+    const rr=rk4(m,k,0,u0,v0,20,2000);
+    rel(Math.abs(energyU(m,k,rr[0],rr[1])-E)/E,5.995482030979327e-06,2e-6,'RK4 drifts 6.0e-6 over the same 20 s (derive)'); }
+  /* dE/dt = -b v^2, by central difference */
+  for(const [m,k,b] of [[0.1,6,0.35],[0.25,6,0.7],[0.1,6,0]]){
+    for(const t of [0.17,0.63]){
+      const hh=1e-5, p1=prop(m,k,b,0.05,0,t+hh), p2=prop(m,k,b,0.05,0,t-hh), p0=prop(m,k,b,0.05,0,t);
+      const dE=(energyU(m,k,p1[0],p1[1])-energyU(m,k,p2[0],p2[1]))/(2*hh);
+      close(dE,-b*p0[1]*p0[1],1e-8,'dE/dt = -b v^2 at t = '+t+' (b '+b+')');
+    } }
+  /* the ledger with gravity: KE + PE_elastic + PE_gravity is constant, and the
+     constant is -(mg)^2/2k */
+  { const m=0.1,k=6,g=G_EARTH, ye=yEq(m,k,g), u0=0.08, ybot=swingBottom(m,k,g);
+    rel(ybot,0.3266666666666667,1e-15,'the bottom of the swing, y_bot = 2mg/k (derive)');
+    rel(gravOffset(m,k,g),0.24010000000000006,1e-14,'the constant 3(mg)^2/2k (derive)');
+    rel(energyU(m,k,u0,0)+gravOffset(m,k,g),0.25930000000000003,1e-14,'the invariant of the ledger (derive)');
+    rel(ledgerTotal(m,k,g),0.3201333333333334,1e-14,'the ledger total at the release, 2(mg)^2/k (derive)');
+    rel(ledgerTotal(m,k,g),energyU(m,k,-ye,0)+gravOffset(m,k,g),1e-15,'... which is E(release) + the constant');
+    rel(peGrav(m,g,0,ybot),0.32013333333333344,1e-13,'at the release gravity holds all of it (derive)');
+    ok(peGrav(m,g,ybot,ybot)===0,'and none of it at the bottom');
+    let worst=0, neg=false;
+    for(let i=0;i<=400;i++){ const t=i*0.01, r=prop(m,k,0,u0,0,t), y=r[0]+ye;
+      const S3=keOf(m,r[1])+peElastic(k,y)+peGrav(m,g,y,ybot);
+      if(keOf(m,r[1])<0||peElastic(k,y)<0||peGrav(m,g,y,ybot)<-1e-15) neg=true;
+      worst=Math.max(worst,Math.abs(S3-(energyU(m,k,u0,0)+gravOffset(m,k,g)))); }
+    ok(worst<1e-15,'the three shares add to that constant to '+worst.toExponential(2)+' J over four seconds');
+    ok(!neg,'and with this datum not one of them ever goes negative');
+    const r2=prop(m,k,0,u0,0,0.2), y2=r2[0]+ye;
+    rel(keOf(m,r2[1]),0.01919104096302817,1e-12,'KE at t = 0.2 s (derive)');
+    rel(peElastic(k,y2),0.08173583492047881,1e-12,'the elastic share at t = 0.2 s (derive)');
+    rel(peGrav(m,g,y2,ybot),0.1583731241164931,1e-12,'the gravitational share at t = 0.2 s (derive)'); }
+  /* released from the unstretched end: the swing is exactly 2mg/k */
+  for(const [m,k,g] of [[0.1,6,G_EARTH],[0.25,3,G_JUPITER],[0.05,12,G_MOON]]){
+    const ye=yEq(m,k,g), r=prop(m,k,0,-ye,0,period0(m,k)/2);
+    rel(r[0]+ye,2*ye,1e-14,'let go from y = 0, it reaches exactly 2mg/k (m '+m+', k '+k+')');
+    close(r[1],0,1e-13,'and arrives there at rest'); }
+  { const m=0.1,k=6,g=G_EARTH, ye=yEq(m,k,g), b=0.35, E0=energyU(m,k,-ye,0);
+    rel(E0,0.08003333333333335,1e-14,'the starting energy is (mg)^2/2k');
+    const r=prop(m,k,b,-ye,0,2);
+    rel(E0-energyU(m,k,r[0],r[1]),E0*0.9992548613609622,2e-9,'the damper has taken 99.93 % by t = 2 s (derive)'); }
+  { /* the thermal ledger of the run the energy view draws, at b = 0.35 and u0 = 0.08 */
+    const m=0.1,k=6,b=0.35,u0=0.08, E0=energyU(m,k,u0,0);
+    rel(E0,0.0192,1e-15,'E(0) = 1/2 k u0^2 (derive)');
+    for(const [t,E] of [[0.5,0.004198777583040618],[1,0.0007141714312805042],[2,1.4306661869525964e-05]]){
+      const r=prop(m,k,b,u0,0,t); rel(energyU(m,k,r[0],r[1]),E,1e-11,'E at t = '+t+' s (derive)'); } }
+
+  /* ---------- 8. the stage geometry ---------- */
+  rel(CEILING_Y-L0,0.97,1e-15,'the spring bottom at its natural length (derive)');
+  { const t=coilPoints(1.2,CEILING_Y,0.5,40);
+    eq(t[0][0],1.2,'the coil starts on the spring axis'); eq(t[0][1],CEILING_Y,'and at the ceiling');
+    close(t[t.length-1][1],CEILING_Y-0.5,1e-15,'and ends exactly a spring length down');
+    let mx=0; for(const p of t) mx=Math.max(mx,Math.abs(p[0]-1.2));
+    /* an ABSOLUTE number, not COIL_R: comparing the measured width against the
+       constant that produced it moves both sides together (Known-bad) */
+    close(mx,0.045,1e-15,'the coil is 4.5 cm wide about the spring axis');
+    close(coilPoints(1.2,CEILING_Y,0.5,200).reduce((a,p)=>Math.max(a,Math.abs(p[0]-1.2)),0),0.045,1e-15,
+          '... at five times the sampling too'); }
+  /* and the same constant, measured off the DRAWING: the display list the
+     spring emits must span 2 x 4.5 cm about its axis, in pixels */
+  { const shot=makeShot(900,700);
+    const mp=worldFitUp(box(0,0,600,600),{xmin:0.7,xmax:1.7,ymin:0,ymax:1.6},0.01);
+    LABELS=[]; POLY_SEGS=[];
+    drawSpring(shot,mp,1.2,0.5,6,'#fff');
+    let lo=Infinity,hi=-Infinity;
+    for(let i=0;i<POLY_SEGS.length;i+=2){ const X=POLY_SEGS[i]; if(X<lo) lo=X; if(X>hi) hi=X; }
+    ok(POLY_SEGS.length>=800,'the drawn coil records '+(POLY_SEGS.length/4)+' segments');
+    rel(hi-lo,2*0.045*mp.s,1e-12,'the drawn coil spans 9.0 cm across, in pixels ('+fmt(hi-lo,2)+' px at '+fmt(mp.s,2)+' px/m)');
+    rel((hi+lo)/2,mp.X(1.2),1e-9,'and is centred on the spring axis');
+    POLY_SEGS=[]; }
+  ok(coilWidth(KMAX)>coilWidth(KMIN),'a stiffer spring is drawn with a heavier wire');
+  { const s=springModel(ST,{i:0,x:1,k:3,m:0.3,myst:false,name:'',label:''},24.8,0);
+    LIVE.slot[0].y=2.48;
+    const s2=springModel(ST,{i:0,x:1,k:3,m:0.3,myst:false,name:'',label:''},24.8,0);
+    rel(s2.bottom,-1.51,1e-14,'300 g on 3 N/m on Jupiter hangs 1.51 m below the floor (derive)');
+    ok(s2.floorBust,'and the model says so');
+    LIVE.slot[0].y=0; ok(!springModel(ST,{i:0,x:1,k:6,m:0.1,myst:false,name:'',label:''},9.8,0).floorBust,'the default does not'); }
+
+  /* ---------- 9. the live path: stepping, crossings, the traced period ---- */
+  withState({view:'lab',kl:6,labMass:'adj',massG:100,body:'earth',damping:0},()=>{
+    const ye=yEq(0.1,6,G_EARTH);
+    close(LIVE.slot[2].y,0,1e-15,'the lab mass starts at the unstretched end');
+    for(let i=0;i<400;i++) advance(ST,0.005);
+    close(LIVE.t,2,1e-12,'400 steps of 5 ms is 2 s');
+    const ex=prop(0.1,6,0,-ye,0,2);
+    rel(LIVE.slot[2].y,ex[0]+ye,1e-13,'stepping 400 times equals one 2-second propagation');
+    rel(LIVE.slot[2].v,ex[1],1e-13,'and so does the velocity');
+    const T=tracedPeriod(2);
+    rel(T,period0(0.1,6),1e-9,'the trace measures 2 pi sqrt(m/k) from the live crossings');
+    ok(LIVE.slot[2].cross.length>=3,'it has recorded '+LIVE.slot[2].cross.length+' crossings');
+    ok(LIVE.slot[2].hist.length===400,'and 400 history points');
+  });
+  withState({view:'lab',kl:9,massG:250,body:'jupiter',damping:0.4},()=>{
+    for(let i=0;i<900;i++) advance(ST,0.004);
+    rel(tracedPeriod(2),periodD(0.25,9,0.4),1e-8,'the trace measures the DAMPED period when there is damping');
+  });
+  withState({view:'bnc',k1:3,k2:12,mass1:'m250',mass2:'m50',damping:0},()=>{
+    for(let i=0;i<300;i++) advance(ST,0.005);
+    const M=buildModel();
+    const e1=prop(0.25,3,0,-yEq(0.25,3,G_EARTH),0,1.5), e2=prop(0.05,12,0,-yEq(0.05,12,G_EARTH),0,1.5);
+    rel(M.springs[0].y,e1[0]+yEq(0.25,3,G_EARTH),1e-13,'spring 1 follows its own closed form');
+    rel(M.springs[1].y,e2[0]+yEq(0.05,12,G_EARTH),1e-13,'spring 2 follows its own closed form');
+    ok(M.springs[0].T0!==M.springs[1].T0,'and the two springs keep different periods');
+  });
+  withState({view:'str'},()=>{
+    /* gam = b/2m = 1.4 at 250 g and b = 0.7, so 12 s leaves e^(-16.8) = 5e-8 of it */
+    for(let i=0;i<1200;i++) advance(ST,0.01);
+    const M=buildModel();
+    rel(M.springs[0].y,M.springs[0].ye,1e-6,'at the Stretch screen damping the mass has settled on mg/k after 12 s');
+    close(M.springs[0].v,0,1e-6,'and stopped');
+  });
+  withState({view:'bnc',mass1:'none',mass2:'none'},()=>{
+    for(let i=0;i<50;i++) advance(ST,0.01);
+    const M=buildModel();
+    ok(!M.springs[0].on&&M.springs[0].y===0,'an empty spring stays at its natural length');
+  });
+  /* slow motion is PhET's x1/8 */
+  withState({view:'bnc',speed:'slow'},()=>{
+    const S=makeScene({getContext:()=>makeShot(900,600)});
+    S.step(0.08); close(LIVE.t,0.01,1e-15,'slow motion advances one eighth of the wall clock');
+  });
+  withState({view:'per'},()=>{
+    const S=makeScene({getContext:()=>makeShot(900,600)});
+    ok(S.step(0.02)===false,'the analysis views carry no clock');
+  });
+
+  /* ---------- 10. the model the panels are built from ---------- */
+  const PRESETS=[{},{body:'moon'},{body:'jupiter'},{body:'planetX'},{body:'custom',gCustom:0},{body:'custom',gCustom:30},
+                 {k1:3,k2:12},{mass1:'none',mass2:'none'},{mass1:'q200',mass2:'q75',reveal:true},{mass1:'q100',mass2:'q75'},
+                 {labMass:'q180'},{labMass:'q120',reveal:true},{massG:50},{massG:300},{kl:3},{kl:12},
+                 {damping:0},{damping:0.7},{zeta:0},{zeta:1},{zeta:2},{kA:3,mAg:50},{kA:12,mAg:300},
+                 {ruler:true,movLine:true,stopwatch:true},{natLine:false,restLine:false,trace:false}];
+  for(const [v] of TABS) for(const pre of PRESETS){
+    withState(Object.assign({view:v},pre),()=>{
+      const M=buildModel();
+      const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M)+(INFO[v]||'')+(DERIV[v]||'');
+      ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0,v+' panels are clean for '+JSON.stringify(pre));
+      /* a non-finite-safe formatter makes the check above vacuous, so demand a
+         number that must be there: the readout always names PhET's own 14.2 */
+      ok(readoutHTML(M).indexOf('14.2')>=0,v+' readout names PhET\'s Planet X value');
+      for(const s of M.springs){ if(!s.on) continue;
+        ok(isFinite(s.ye)&&isFinite(s.T0)&&isFinite(s.y)&&isFinite(s.v)&&isFinite(s.E),v+' spring model finite for '+JSON.stringify(pre)); }
+      if(v==='per'){ const P=M.per; ok(P.curves.every(c=>c.T.every(isFinite))&&isFinite(P.T0),'per model finite'); }
+      if(v==='dmp'){ const D=M.dmp; ok(D.curves.every(c=>c.u.every(isFinite)),'dmp model finite'); }
+      if(v==='eng'){ const E=M.eng; ok(E.TOT.every(isFinite)&&E.drift<1e-12,'eng ledger flat to '+E.drift.toExponential(2)); }
+    });
+  }
+  withState({view:'eng',damping:0,kl:6,labMass:'adj',massG:100},()=>{
+    const E=buildModel().eng;
+    ok(E.drift<4e-16,'with no damping the four shares add to a constant to '+E.drift.toExponential(2)+' J');
+    rel(E.Etot,energyU(0.1,6,-yEq(0.1,6,G_EARTH),0)+gravOffset(0.1,6,G_EARTH),1e-15,'and that constant is E0 - (mg)^2/2k');
+  });
+  withState({view:'eng',damping:0.4},()=>{
+    const E=buildModel().eng;
+    ok(E.TH[E.TH.length-1]>E.TH[0],'with damping the thermal share only grows');
+    let mono=true; for(let i=1;i<E.TH.length;i++) if(E.TH[i]<E.TH[i-1]-1e-15) mono=false;
+    ok(mono,'and it never goes down');
+    ok(E.drift<1e-12,'the ledger still closes to '+E.drift.toExponential(2)+' J');
+  });
+
+  /* ---------- 10b. the same numbers, read off the BUILT model ----------
+     (Known-bad: a test that re-derives the thing it is testing tests nothing —
+     these read the objects the readout and the canvas are drawn from) */
+  withState({view:'str'},()=>{
+    const M=buildModel(), s0=M.springs[0], s1=M.springs[1];
+    rel(s0.ye,0.4083333333333334,1e-15,'model: spring 1 resting extension (250 g, 6 N/m, Earth)');
+    rel(s1.ye,0.08166666666666668,1e-15,'model: spring 2 resting extension (50 g, 6 N/m, Earth)');
+    rel(s0.T0,1.282549830161864,1e-15,'model: spring 1 period');
+    rel(s1.T0,0.5735737209545476,1e-15,'model: spring 2 period');
+    rel(s0.bc,2.449489742783178,1e-15,'model: spring 1 critical damping');
+    rel(s0.zeta,0.7/2.449489742783178,1e-15,'model: spring 1 zeta at the Stretch screen damping');
+    rel(s0.E0,0.5*6*0.4083333333333334*0.4083333333333334,1e-15,'model: the energy of a release from the unstretched end');
+    eq(M.g,9.8,'model: PhET\'s Earth gravity'); eq(M.gReal,9.81,'model: the real one beside it');
+    rel(s0.bottom,CEILING_Y-L0,1e-15,'model: at t = 0 the spring is at its natural length');
+    rel(s1.off,1.5*0.05*0.05*9.8*9.8/6,1e-15,'model: spring 2 gravitational offset 3(mg)^2/2k');
+    rel(s0.ybot,2*0.4083333333333334,1e-15,'model: spring 1 swing bottom, 2mg/k');
+    ok(s0.PEg>=0&&s1.PEg>=0,'model: the gravitational share starts non-negative');
+  });
+  withState({view:'per',kA:6,mAg:100,damping:0.7},()=>{
+    const P=buildModel().per;
+    rel(P.T0,0.8111557351947223,1e-15,'model: the period law view\'s T');
+    rel(P.Td,periodD(0.1,6,0.7),1e-15,'model: and its damped period');
+    rel(P.zMaxPhet,0.9036961141150639,1e-15,'model: the reachable zeta ceiling the shaded band uses');
+    eq(P.planets.length,4,'model: four named gravities');
+    eq(P.planets.map(x=>x.name).join(','),'Moon,Earth,Planet X,Jupiter','model: in PhET\'s own order');
+    rel(P.planets[3].ye/P.planets[0].ye,24.8/1.6,1e-14,'model: Jupiter stretches it 15.5x the Moon');
+    for(const pl of P.planets) eq(pl.T,P.T0,'model: '+pl.name+' shares the same period');
+    for(const p2 of P.pts) rel(p2.T,p2.T0,1e-12,'model: the measured point at '+fmt(1000*p2.m,0)+' g sits on the curve');
+    rel(P.curves[0].T[0],period0(MASS_G_MIN/1000,3),1e-15,'model: the k = 3 curve starts at 50 g');
+  });
+  withState({view:'dmp',kA:6,mAg:100,zeta:0.25},()=>{
+    const D=buildModel().dmp;
+    rel(D.bc,1.5491933384829668,1e-15,'model: 2 sqrt(km) at 100 g on 6 N/m');
+    rel(D.bcMin,0.7745966692414834,1e-15,'model: the smallest 2 sqrt(km) the shaded box uses');
+    rel(D.bcMax,3.794733192202055,1e-15,'model: and the largest');
+    rel(D.zMax,0.9036961141150639,1e-15,'model: the reachable zeta ceiling');
+    ok(D.reach,'model: zeta = 0.25 is inside PhET\'s damping range');
+    rel(D.curves[0].b,0.25*1.5491933384829668,1e-15,'model: the drawn b is zeta x 2 sqrt(km)');
+    eq(D.curves[1].z,1,'model: the second curve is critical');
+    ok(D.curves[1].b>BMAX,'model: and it is beyond PhET\'s range');
+    rel(D.ld,logDec(0.1,6,0.25*D.bc),1e-15,'model: the log decrement');
+    for(let n=0;n<D.peaks.length;n++) rel(Math.abs(D.peaks[n].u),D.u0*Math.exp(-D.ld*n),1e-11,'model: peak '+n+' is u0 e^(-n delta)');
+  });
+  withState({view:'dmp',zeta:1.4},()=>{ const D=buildModel().dmp;
+    ok(!D.reach,'model: zeta = 1.4 is beyond PhET\'s damping range');
+    ok(!isFinite(D.Td)&&D.peaks.length===0,'model: and it has no turning points to count'); });
+
+  /* ---------- 11. the pointer: the three things PhET lets you drag ------- */
+  withState({view:'str',ruler:true,movLine:true},()=>{
+    const shot=makeShot(1100,700), S=makeScene({getContext:()=>shot});
+    S.W=1100; S.H=700;
+    const M=buildModel(), L=layoutFor(shot,1100,700,'str'), map=stageMap(M,L.main);
+    const s0=M.springs[0], r=massRectPx(map,s0);
+    ok(S.pointer('down',(r.x+r.x1)/2,(r.y+r.y1)/2),'grab the hanging mass');
+    eq(DRAG.what,'mass','the mass is what was grabbed'); eq(DRAG.sp,0,'and it is spring 1');
+    const y0=LIVE.slot[0].y;
+    S.pointer('move',(r.x+r.x1)/2,(r.y+r.y1)/2+40);
+    rel(LIVE.slot[0].y-y0,40/map.s,1e-9,'it follows the pointer down, keeping the grab offset');
+    LIVE.slot[0].v=0.7; S.pointer('up',0,0);
+    eq(LIVE.slot[0].v,0,'letting go leaves it at rest, as PhET does');
+    const lx=map.X(1.0), ly=map.Y(ST.movY);
+    ok(S.pointer('down',lx,ly+2),'grab the movable line'); eq(DRAG.what,'movline','the movable line');
+    S.pointer('move',lx,map.Y(0.5)+2); close(ST.movY,0.5,1e-9,'it follows to 0.5 m'); S.pointer('up',0,0);
+    const rx=map.X(ST.rulerX+RULER_W/2), ry=map.Y(ST.rulerY-0.3);
+    ok(S.pointer('down',rx,ry),'grab the ruler'); eq(DRAG.what,'ruler','the ruler');
+    const rx0=ST.rulerX; S.pointer('move',rx+55,ry); rel(ST.rulerX-rx0,55/map.s,1e-9,'it follows the pointer sideways'); S.pointer('up',0,0);
+    ok(!S.pointer('down',map.X(1.15),map.Y(1.40)),'empty stage grabs nothing');
+  });
+  withState({view:'str',ruler:false,movLine:false},()=>{
+    const shot=makeShot(1100,700), S=makeScene({getContext:()=>shot}); S.W=1100; S.H=700;
+    const M=buildModel(), L=layoutFor(shot,1100,700,'str'), map=stageMap(M,L.main);
+    ok(!S.pointer('down',map.X(ST.rulerX+0.03),map.Y(ST.rulerY-0.3)),'a hidden ruler cannot be grabbed');
+    ok(!S.pointer('down',map.X(1.0),map.Y(ST.movY)),'nor a hidden movable line');
+  });
+  for(const v of ['per','dmp','eng']) withState({view:v},()=>{
+    const S=makeScene({getContext:()=>makeShot(1100,700)});
+    ok(!S.pointer('down',400,300),'the '+v+' view ignores the pointer');
+  });
+
+  /* ---------- 12. the drawing: layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['str default',{view:'str'},60],['str settled',{view:'str',_live:300},60],
+    ['str soft/stiff',{view:'str',k1:3,k2:12,mass1:'m250',mass2:'m50',_live:200},59],
+    ['str jupiter',{view:'str',body:'jupiter',k1:3,mass1:'m250',_live:200},58],
+    ['str moon tools',{view:'str',body:'moon',ruler:true,movLine:true,stopwatch:true,_sw:3.21,_live:150},144],
+    ['str empty',{view:'str',mass1:'none',mass2:'none'},46],
+    ['str mystery',{view:'str',mass1:'q200',mass2:'q75',_live:200},59],
+    ['str through the floor',{view:'str',body:'custom',gCustom:30,k1:3,mass1:'m250',_live:200},56],
+    ['bnc start',{view:'bnc'},51],['bnc mid',{view:'bnc',_live:90},53],
+    ['bnc damped',{view:'bnc',damping:0.5,_live:200},55],
+    ['bnc slow',{view:'bnc',speed:'slow',_live:60},53],
+    ['lab default',{view:'lab',_live:200},47],['lab planetX',{view:'lab',body:'planetX',_live:250},50],
+    ['lab heavy soft',{view:'lab',kl:3,massG:300,_live:300},56],
+    ['lab light stiff damped',{view:'lab',kl:12,massG:50,damping:0.6,_live:250},44],
+    ['lab mystery + tools',{view:'lab',labMass:'q180',ruler:true,movLine:true,trace:true,_live:250},138],
+    ['lab zero g',{view:'lab',body:'custom',gCustom:0,_live:200},51],
+    ['per default',{view:'per'},68],['per corner',{view:'per',kA:3,mAg:300,damping:0.7},66],
+    ['per stiff light',{view:'per',kA:12,mAg:50,damping:0.7},68],
+    ['dmp default',{view:'dmp'},62],['dmp critical',{view:'dmp',zeta:1},62],['dmp over',{view:'dmp',zeta:2},62],
+    ['dmp tiny',{view:'dmp',zeta:0.02,kA:3,mAg:300},64],['dmp zero',{view:'dmp',zeta:0},62],
+    ['eng undamped',{view:'eng',damping:0,_live:120},52],['eng damped',{view:'eng',damping:0.5,_live:120},52],
+    ['eng moon',{view:'eng',body:'moon',damping:0.2,kl:12,massG:60,_live:80},56],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minOps] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      /* floor the TOTAL ops, derived from what each configuration emits: a
+         fill count punishes a view for batching and misses a blank one */
+      ok(c.ops.length>=minOps&&texts.length>=3&&fills.length>=1,
+         nm+' '+W+'x'+H+' draws substance ('+c.ops.length+' ops, floor '+minOps+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      const inHint=texts.filter(t=>t.bb[0]<340&&t.bb[3]>H-27);
+      ok(!inHint.length,nm+' '+W+'x'+H+' no canvas text under the #hint line'+(inHint.length?' ("'+inHint[0].t.slice(0,30)+'" to y '+fmt(inHint[0].bb[3],0)+')':''));
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  Object.assign(ST,stSave); liveReset();
+  const dt=(Date.now()-T0w)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

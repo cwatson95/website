@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Write mutants.json and check every pattern appears EXACTLY ONCE in the assembled sim.
+
+    python3 gen_mutants.py
+
+Each entry is [label, old, new, "p"|"u"]: "p" is checked by the physics suite (selfTest),
+"u" by the UI drive.  Cover every leading coefficient, every exponent, every unit
+conversion, every sign, and the four pointer/flag paths the frame loop depends on.
+Keep every mutant TERMINATING: break constants, signs and exponents, never a loop bound
+that has to converge (tools/mutate.py has no per-mutant timeout)."""
+import io
+import json
+import os
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SRC = io.open(os.path.join(HERE, '_out', 'run.js'), encoding='utf-8').read()
+
+M = [
+    # ---- the lattice and its calibration ----
+    ['Courant number C', 'C:0.5, SRC_OFF', 'C:0.45, SRC_OFF', 'p'],
+    ['the source calibration 1.2', 'AMP_CAL:1.2', 'AMP_CAL:1.25', 'p'],
+    ['the visible cell count', 'VIS:191', 'VIS:181', 'p'],
+    ['the lattice size', 'N:231, PAD', 'N:221, PAD', 'p'],
+    ['the pad', 'PAD:20, VIS', 'PAD:18, VIS', 'p'],
+    ['the source column', 'SRC_OFF:34', 'SRC_OFF:30', 'p'],
+    ['Mur A1 = (C-1)/(C+1)', 'MUR1=(LAT.C-1)/(LAT.C+1)', 'MUR1=(LAT.C-1)/(LAT.C+2)', 'p'],
+    ['Mur A2 = 2/(C+1)', 'MUR2A=2/(LAT.C+1)', 'MUR2A=3/(LAT.C+1)', 'p'],
+    ['Mur B = C^2/(2(C+1))', 'MUR2B=LAT.C2/(2*(LAT.C+1))', 'MUR2B=LAT.C2/(3*(LAT.C+1))', 'p'],
+    ['the 5-point stencil: -4u', 'u[k+nx]+u[k-nx]-4*c', 'u[k+nx]+u[k-nx]-3.9*c', 'p'],
+    ['the leapfrog: -u^{n-1}', 'const v=2*c-up[k]', 'const v=2*c-1.02*up[k]', 'p'],
+    ['the stencil: 2u^n', 'const v=2*c-up[k]+C2', 'const v=2.02*c-up[k]+C2', 'p'],
+    ['the dispersion relation: the leading 2', 'return 2*Math.asin(LAT.C*Math.sqrt(s*s+t*t));',
+     'return 2.05*Math.asin(LAT.C*Math.sqrt(s*s+t*t));', 'p'],
+    ['the dispersion relation: sin^2(kx/2)+sin^2(ky/2)', 'Math.sqrt(s*s+t*t));', 'Math.sqrt(s*s+1.05*t*t));', 'p'],
+    ['the solved step: Omega = 2 asin(C sin(pi/Nl))', 'function omegaStep(Nl){ return 2*Math.asin(LAT.C*Math.sin(PI/Nl)); }',
+     'function omegaStep(Nl){ return 2*Math.asin(LAT.C*Math.sin(PI/(1.02*Nl))); }', 'p'],
+    ['the solved step: dt = Omega/(2 pi f)', 'return omegaStep(cellsPerWave(f))/(TAU*f);',
+     'return omegaStep(cellsPerWave(f))/(PI*f);', 'p'],
+    ['cells per wavelength', 'function cellsPerWave(f){ return AIR.v/f/sceneDx(); }',
+     'function cellsPerWave(f){ return AIR.v/f/(1.02*sceneDx()); }', 'p'],
+    ['PhET’s own fixed step', 'const s=Math.sin(Om/2)/LAT.C;', 'const s=Math.sin(Om/2)/(1.05*LAT.C);', 'p'],
+    ['the phase speed', 'return latOmega(k*Math.cos(th),k*Math.sin(th))/k;',
+     'return latOmega(k*Math.cos(th),k*Math.sin(th))/(1.02*k);', 'p'],
+    ['the group speed', 'return LAT.C2*Math.hypot(Math.sin(kx),Math.sin(ky))/Math.sin(Om);',
+     'return LAT.C*Math.hypot(Math.sin(kx),Math.sin(ky))/Math.sin(Om);', 'p'],
+    # ---- the room, in SI ----
+    ['the speed of sound', 'v:343, fmin', 'v:340, fmin', 'p'],
+    ['the wave area', 'W:10, unit', 'W:9.8, unit', 'p'],
+    ['PhET’s time scale', 'phetTimeScale:0.004837569423218267', 'phetTimeScale:0.0048', 'p'],
+    ['full contrast', 'const U_FULL=2.0;', 'const U_FULL=1.85;', 'p'],
+    ['the cell centre offset', 'function cellOfX(R,x){ return R.lat.pad-0.5+x/sceneDx(); }',
+     'function cellOfX(R,x){ return R.lat.pad+x/sceneDx(); }', 'p'],
+    ['its inverse', 'function xOfCell(R,i){ return (i-R.lat.pad+0.5)*sceneDx(); }',
+     'function xOfCell(R,i){ return (i-R.lat.pad)*sceneDx(); }', 'p'],
+    ['the bilinear read: x and y', 'const fx=X-i0, fy=Y-j0, u=L.u', 'const fx=Y-j0, fy=X-i0, u=L.u', 'p'],
+    ['the drive scales with the air density', 'const amp=R.A*LAT.AMP_CAL*R.pressure;',
+     'const amp=R.A*LAT.AMP_CAL;', 'p'],
+    # ---- the composition ----
+    ['the second speaker adds', 'v[q+i]=(r0>=0?u[r0+I]:0)+(r1>=0?u[r1+I]:0);',
+     'v[q+i]=(r0>=0?u[r0+I]:0)-(r1>=0?u[r1+I]:0);', 'p'],
+    ['the second speaker’s shift', 'const s0=rows[0]-mid, s1=rows[1]-mid;',
+     'const s0=rows[0]-mid, s1=2*(rows[1]-mid);', 'p'],
+    ['the mirror map on the grid', 'const kx=2*G.nxh/dx, ky=2*G.nyh/dx;',
+     'const kx=G.nxh/dx, ky=G.nyh/dx;', 'p'],
+    ['which side of the wall the sound is on', 'if(s>=0){ v[q+i]=0; mk[q+i]=0; continue; }',
+     'if(s>=0.02){ v[q+i]=0; mk[q+i]=0; continue; }', 'p'],
+    ['the wall’s normal', 'nxh:Math.sin(th), nyh:Math.cos(th)', 'nxh:Math.cos(th), nyh:Math.sin(th)', 'p'],
+    ['the mirror is TWICE the distance', 'const s=2*wallSide(G,x,y);', 'const s=1.5*wallSide(G,x,y);', 'p'],
+    ['the foot of the perpendicular', 'const t=(x-G.ax)*G.dxh+(y-G.ay)*G.dyh;',
+     'const t=(x-G.ax)*G.dxh-(y-G.ay)*G.dyh;', 'p'],
+    ['the angle to the normal', 'Math.acos(Math.min(1,Math.abs((vx*G.nxh+vy*G.nyh)/L)))',
+     'Math.acos(Math.min(1,Math.abs((vx*G.nxh-vy*G.nyh)/L)))', 'p'],
+    ['the image plus the direct wave', 'return latBilinear(L,cellOfX(R,x),cellOfX(R,y))+latBilinear(L,cellOfX(R,m[0]),cellOfX(R,m[1]));',
+     'return latBilinear(L,cellOfX(R,x),cellOfX(R,y))-latBilinear(L,cellOfX(R,m[0]),cellOfX(R,m[1]));', 'p'],
+    # ---- two sources ----
+    ['the half-wavelength in the node condition', 'for(let m=0;(m+0.5)*lam<d;m++) out.push(m);',
+     'for(let m=0;(m+1)*lam<d;m++) out.push(m);', 'p'],
+    ['the hyperbola’s semi-axis', 'const a=(m+0.5)*lam/2, c=d/2, t=c*c-a*a;',
+     'const a=(m+0.5)*lam, c=d/2, t=c*c-a*a;', 'p'],
+    ['the hyperbola y(x)', 'return a*Math.sqrt(1+x*x/t);', 'return a*Math.sqrt(1+x*x/(2*t));', 'p'],
+    ['the hyperbola x(y)', 'return Math.sqrt((c*c-a*a)*t);', 'return Math.sqrt((c*c+a*a)*t);', 'p'],
+    ['the far-field two-slit condition', 'const s=(m+0.5)*lam/d;\n  return s<=1?Math.asin(s):NaN;',
+     'const s=(m+0.5)*lam/(2*d);\n  return s<=1?Math.asin(s):NaN;', 'p'],
+    ['the two-source amplitude law', 'return Math.sqrt(a1*a1+a2*a2+2*a1*a2*Math.cos(dphi));',
+     'return Math.sqrt(a1*a1+a2*a2+2*a1*a2*Math.sin(dphi));', 'p'],
+    # NOT swapping the two arguments of atan2 here: a square lattice is symmetric about its
+    # diagonal, so that mutant is provably EQUIVALENT (selfTest states the symmetry instead).
+    # The cells-to-metres conversion is the part that is load-bearing.
+    ['the lattice k(theta) of a node', 'function latKofDir(Om,dx0,dy0){ return latK(Om,Math.atan2(Math.abs(dy0),Math.abs(dx0)))/sceneDx(); }',
+     'function latKofDir(Om,dx0,dy0){ return latK(Om,Math.atan2(Math.abs(dy0),Math.abs(dx0)))/(1.02*sceneDx()); }', 'p'],
+    ['the (2m+1) pi a node costs', 'let lo=0.25*y0, hi=3*y0, want=(2*m+1)*PI;',
+     'let lo=0.25*y0, hi=3*y0, want=(2*m+2)*PI;', 'p'],
+    # ---- the gas ----
+    ['gamma', 'gamma:1.4,', 'gamma:1.33,', 'p'],
+    ['the molar gas constant', 'R:8.314462618,', 'R:8.2,', 'p'],
+    ['the molar mass of air', 'M:28.9647e-3,', 'M:28.0e-3,', 'p'],
+    ['20 C', 'T0:293.15,', 'T0:300.15,', 'p'],
+    ['Boltzmann', 'kB:1.380649e-23,', 'kB:1.30e-23,', 'p'],
+    ['the collision diameter', 'd:3.7e-10,', 'd:3.4e-10,', 'p'],
+    ['one atmosphere', 'pAtm:101325};', 'pAtm:100000};', 'p'],
+    ['the square root in c = sqrt(gamma R T / M)', 'function soundSpeedIdeal(T){ return Math.sqrt(GAS.gamma*GAS.R*T/GAS.M); }',
+     'function soundSpeedIdeal(T){ return Math.cbrt(GAS.gamma*GAS.R*T/GAS.M); }', 'p'],
+    ['its inverse, T from v', 'function tempForSpeed(v){ return v*v*GAS.M/(GAS.gamma*GAS.R); }',
+     'function tempForSpeed(v){ return v*GAS.M/(GAS.gamma*GAS.R); }', 'p'],
+    ['the ideal gas law for the density', 'return frac*GAS.pAtm*GAS.M/(GAS.R*(T===undefined?GAS.T0:T));',
+     'return 2*frac*GAS.pAtm*GAS.M/(GAS.R*(T===undefined?GAS.T0:T));', 'p'],
+    ['the sqrt(2) in the mean free path', 'return GAS.kB*TT/(Math.SQRT2*PI*GAS.d*GAS.d*frac*GAS.pAtm);',
+     'return GAS.kB*TT/(PI*GAS.d*GAS.d*frac*GAS.pAtm);', 'p'],
+    ['the d^2 in the mean free path', 'Math.SQRT2*PI*GAS.d*GAS.d*frac', 'Math.SQRT2*PI*GAS.d*frac', 'p'],
+    ['the 20 in 20 log10', 'function dbOf(r){ return r>0?20*Math.log10(r):-Infinity; }',
+     'function dbOf(r){ return r>0?10*Math.log10(r):-Infinity; }', 'p'],
+    # ---- the measurement ----
+    ['the fit window', 'R0:30, R1:120', 'R0:25, R1:110', 'p'],
+    ['the settling steps', 'N0:470, PER:2', 'N0:400, PER:2', 'p'],
+    ['the periods recorded', 'N0:470, PER:2,', 'N0:470, PER:3,', 'p'],
+    ['the least-squares slope', 'return num/den;', 'return num/(1.02*den);', 'p'],
+    ['unwrapPhase: the downward branch', 'while(d>PI) d-=TAU;', 'while(d>PI) d-=1.5*PI;', 'p'],
+    ['unwrapPhase: the upward branch', 'while(d<-PI) d+=TAU;', 'while(d<-PI) d+=1.5*PI;', 'p'],
+    ['lambda from the phase slope', 'const lamCells=TAU/(-lineSlope(rs,un,MEAS.R0,MEAS.R1))',
+     'const lamCells=PI/(-lineSlope(rs,un,MEAS.R0,MEAS.R1))', 'p'],
+    ['the drive’s own phase in the fit', 'b=[Math.sin(R.phi),Math.cos(R.phi),1,tq]',
+     'b=[Math.cos(R.phi),Math.sin(R.phi),1,tq]', 'p'],
+    # ---- the parcels, the probe and the tone ----
+    ['the parcels’ exaggeration', 'PARC_N=20, PARC_PUSH=0.45', 'PARC_N=20, PARC_PUSH=0.3', 'p'],
+    ['the central difference', 'const gx=(g.mask[q+1]&&g.mask[q-1])?(g.v[q+1]-g.v[q-1])/2:0;',
+     'const gx=(g.mask[q+1]&&g.mask[q-1])?(g.v[q+1]-g.v[q-1]):0;', 'p'],
+    ['the parcel row and column', 'const i=clamp(Math.round(a*V/PARC_N),1,V-2), j=clamp(Math.round(b*V/PARC_N),1,V-2), q=j*V+i;',
+     'const i=clamp(Math.round(b*V/PARC_N),1,V-2), j=clamp(Math.round(a*V/PARC_N),1,V-2), q=j*V+i;', 'p'],
+    ['rms to amplitude', 'return Math.sqrt(2*s/P.count);', 'return Math.sqrt(s/P.count);', 'p'],
+    ['the tone’s whole cycles', 'const m=Math.max(1,Math.round(hz*TONE_SECONDS)), L=Math.round(m*sr/hz)',
+     'const m=Math.max(1,Math.round(hz*TONE_SECONDS)), L=Math.round(m*sr/(2*hz))', 'p'],
+    ['the tone’s sine', 'data[i]=level*Math.sin(TAU*m*i/L);', 'data[i]=level*Math.sin(PI*m*i/L);', 'p'],
+    ['the tone’s top level', 'TONE_SR=44100, TONE_SECONDS=0.5, TONE_MAX=0.3',
+     'TONE_SR=44100, TONE_SECONDS=0.5, TONE_MAX=0.25', 'p'],
+    ['PhET’s own listener wavelength', 'phetListenerLambdaK:36', 'phetListenerLambdaK:34.3', 'p'],
+    # ---- the UI: the four flag/pointer paths the frame loop depends on ----
+    ['the dirty flag on pointer-down', "if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; syncPanel(); }",
+     "if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); syncPanel(); }", 'u'],
+    ['the dirty flag on pointer-move', "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel();",
+     "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ syncPanel();", 'u'],
+    ['the listener drag', "if(DRAG.what==='listener'){ TOOLS.listener=[X,Y]; return true; }",
+     "if(DRAG.what==='listener'){ return true; }", 'u'],
+    ['the second speaker drag', "if(DRAG.what==='spk2'){ ST.spk2y=clamp(Y,0.35,AIR.W-0.35); return true; }",
+     "if(DRAG.what==='spk2'){ return true; }", 'u'],
+    ['the ruler drag', "if(DRAG.what==='ruler'){ TOOLS.ruler=[clamp(X-RULER_LEN/2,-1,AIR.W-1),Y]; return true; }",
+     "if(DRAG.what==='ruler'){ return true; }", 'u'],
+    ['the speaker button', "if(Math.hypot(x-g.btn.x,y-g.btn.y)<g.btn.r+3){ DRAG.what='button'; return pressSource(M.R); }",
+     "if(Math.hypot(x-g.btn.x,y-g.btn.y)<g.btn.r+3){ DRAG.what='button'; return true; }", 'u'],
+    ['the slow-motion chip', "AIR.phetTimeScale/RUN.dt*(ST.speed==='slow'?0.5:1)",
+     "AIR.phetTimeScale/RUN.dt*(ST.speed==='slow'?1:1)", 'u'],
+    ['the frame clock', 'CLOCK.acc+=FRAME_DT;', 'CLOCK.acc+=FRAME_DT*0.6;', 'u'],
+]
+
+bad = []
+for label, old, new, suite in M:
+    n = SRC.count(old)
+    if n != 1:
+        bad.append('%-46s appears %d times' % (label, n))
+assert not bad, 'patterns that are not unique:\n' + '\n'.join(bad)
+io.open(os.path.join(HERE, 'mutants.json'), 'w', encoding='utf-8').write(
+    json.dumps(M, ensure_ascii=False, indent=1))
+print('%d mutants written (%d physics, %d UI)' % (len(M), sum(1 for m in M if m[3] == 'p'),
+                                                  sum(1 for m in M if m[3] == 'u')))

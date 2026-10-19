@@ -1,0 +1,2422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wave on a string &mdash; PhET&rsquo;s bead lattice, exactly: reflections, standing waves, and a dispersion relation that is a straight line</title>
+<!--
+  ===================================================================
+  wave-on-a-string.html — a string of 61 beads driven at one end by a
+  hand, an oscillator or a pulse generator, and clamped, looped or
+  running on at the other: PhET's model exactly, with d'Alembert's
+  solution, the standing waves and the lattice's dispersion beside it
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Wave on a String (University of
+  Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or
+  assets.  The model, its constants and its controls follow PhET's build
+  1.2.4 (docs/phets/wave-on-a-string_en.html) and its doc/model.md; every
+  number taken from that build is marked "PhET's value" in the code.
+
+  Five views.  THE STRING is PhET's screen: the wrench (manual), the
+  oscillator or the pulse generator at bead 0; a fixed end, a loose end or
+  no end at bead 60; amplitude, frequency, pulse width, damping and tension;
+  the rulers, the stopwatch and the reference line; normal or slow motion,
+  play, pause, step and restart.  THE SPACE-TIME is the same string's last
+  240 lattice steps as a picture in x and t, where d'Alembert's two sliding
+  shapes are stripes whose tilt is set by v.  THE REFLECTIONS sends one pulse at all
+  three ends at once, undamped, and lays the image construction over the
+  lattice: inverted from the clamp, upright from the ring, nothing from the
+  open end.  THE STANDING WAVES drives the string from rest, draws the exact
+  steady state it settles into, and sweeps the driving frequency across
+  PhET's 0-3 Hz to show the resonances.  THE DISPERSION sets the lattice's
+  dispersion relation beside the continuum and a real bead chain: at PhET's
+  Courant number it is exactly omega = vk, which is why PhET's pulses never
+  spread.
+
+  THE MODEL (PhET's values)
+  -------------------------
+  61 beads 0.125 cm apart (10 model units at 80 per cm): 7.5 cm of string.
+  The update is the leapfrog
+      (1+b) y_i^{n+1} = (b-1) y_i^{n-1} + 2(1-a^2) y_i^n + a^2 (y_{i+1}^n + y_{i-1}^n)
+  with the Courant number a = v dt/dx held at exactly 1 (the tension sets
+  the time step dt = dx/v, never the stencil) and b = 0.1 x damping per step
+  (damping slider 0-1, default 0.2).  Ends: fixed y_60 = 0; loose
+  y_60 = y_59; no end y_60^{n+1} = y_59^n.  Driver at bead 0: the oscillator
+  A sin(2 pi f t), rising first; the pulse, a triangle of height A lasting
+  w; the wrench, within +-1.3 cm.  Ranges and defaults: amplitude 0-1.3 cm
+  (0.75), frequency 0-3 Hz (1.5), pulse width 0.2-1 s (0.5), slow motion
+  x0.25, 50 lattice steps a second at full tension (v = 6.25 cm/s).  Rulers
+  of 10 cm and 5 cm, a reference line starting 1.45 cm up, every tenth bead
+  marked.
+
+  WHAT IS EXACT HERE
+  ------------------
+  At a = 1 and no damping the lattice IS d'Alembert's solution sampled at the
+  beads: a pulse fed in at bead 0 appears at bead i exactly i steps later,
+  unchanged.  Asserted below 1e-13 (the Python twin measures 1e-14) against
+  the image series for all three ends over two parameter sets (one
+  deliberately incommensurate): fixed returns
+  it inverted, loose upright about bead 59.5 (the ring copies its neighbour,
+  so the mirror sits half a bead in; putting it at bead 60 is off by 0.06 cm),
+  and the open end absorbs it completely.  A damped mode loses exactly
+  sqrt((1-b)/(1+b)) = exp(-atanh b) per step; the dispersion relation
+  (1+b) z^2 - 2(1 - 2a^2 sin^2(k dx/2)) z + (1-b) = 0 is checked against
+  numpy.roots and against lattice runs; the driven steady state is solved in
+  closed form, by a tridiagonal solve and by a brute-force run of thousands
+  of steps, all three agreeing to within 3e-11; the resonances
+  f_n = n v/2L (fixed) and (2n-1) v/4L' (loose, L' = 7.4375 cm) and the
+  1/(N b) peak height as b -> 0.  Every number is pinned in selfTest to
+  build/wave-on-a-string/refvals.txt, the printed output of derive.py.
+
+  WHAT IS MODELLED / CHOSEN (where this differs from PhET)
+  ---------------------------------------------------------
+  Tension.  PhET's slider (relative, 0.2-0.8) maps sqrt(T) AFFINELY onto
+  10-50 steps a second: 1.25-6.25 cm/s over a 4:1 tension range, where
+  v proportional to sqrt(T) gives 2:1.  The remake keeps PhET's speed range
+  and makes it the law, v = 6.25 cm/s x sqrt(T/0.8), so its slider runs
+  0.032-0.8.  The driver is evaluated at each lattice time (PhET samples it
+  on a 0.02-s tick), so a pulse is the triangle sampled exactly.  The
+  standing-wave and reflection views run their own lattices from rest.
+  Frames advance by the real elapsed time, capped at 50 ms.  Changing the
+  tension mid-run changes the lattice's clock, as PhET does: every wave on
+  the string simply speeds up or slows down.  The dispersion view's lattice
+  at a < 1 keeps the same PHYSICAL damping (b scales with a); its bead chain
+  is the same lattice at a = 0.05, within 0.04 % (a^2/6) of the continuous-
+  time chain's omega(k).
+
+  WHAT IS NOT MODELLED
+  --------------------
+  Transverse motion only: no longitudinal motion, no gravity and no sag (as
+  PhET's own notes say); small slopes (the wave equation is linear); a
+  uniform tension that is set, not computed from the stretch; a massless,
+  frictionless ring on the loose end; no air, no sound, no energy readout.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed string (the lattice, its beads),
+       orange = the reference/analytic solution (d'Alembert, the steady state,
+       the continuum) or a warning, magenta = the live marker (the marked beads,
+       the driver's pin, the current frequency), cyan = structure (the ends,
+       the rulers, the frames). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Wave on a string</h1>
+  <span class="sub" id="sub">A string of 61 beads, shaken by hand, by an oscillator or by a pulse, tied, looped or running on at the far end &mdash; PhET&rsquo;s lattice exactly, and why its waves reflect, stand and never disperse</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html, via                 *
+ *  build_lagr/p1_utils.js, verbatim)                                  *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the model: PhET's bead lattice, exactly.  Every constant marked    *
+ *  "PhET's value" was read out of wave-on-a-string_en.html 1.2.4      *
+ *  (docs/phets/) and agrees with its doc/model.md.                    *
+ * ================================================================== */
+const NSEG=60;                 /* PhET's value: 61 beads, indices 0..60 */
+const DX=10/80;                /* PhET's value: 10 model units apart at 80 per cm = 0.125 cm */
+const LSTR=NSEG*DX;            /* 7.5 cm from bead 0 to bead 60 */
+const LLOOSE=(NSEG-0.5)*DX;    /* the loose end reflects about bead 59.5 (y60 copies y59) */
+const TMAX=0.8;                /* PhET's value: its tension slider tops out (and starts) at 0.8 */
+const TMIN=TMAX/25;            /* 0.032: where v = sqrt(T) reaches PhET's slowest speed */
+const VMAX=50*DX;              /* PhET's value: 50 lattice steps a second at full tension = 6.25 cm/s */
+const BPD=0.1;                 /* PhET's value: beta = (0.2 x damping)/2 per step */
+const SLOW=0.25;               /* PhET's value: slow motion */
+const AMAX=1.3;                /* PhET's value: amplitude slider and the wrench's travel, cm */
+const FMAX=3;                  /* PhET's value: frequency slider, Hz */
+const WMIN=0.2, WMAX=1;        /* PhET's value: pulse width slider, s */
+const REF_Y0=1.45;             /* PhET's value: the reference line starts 1.45 cm above the string */
+const RULER_H=10, RULER_V=5;   /* PhET's value: the rulers are 10 cm and 5 cm long */
+
+/* v = v_max sqrt(T / T_max): the physical law, over PhET's own speed range */
+function speedOf(T){ return VMAX*Math.sqrt(T/TMAX); }
+/* the lattice step: alpha = v dt/dx = 1, so the tension sets the clock, not the stencil */
+function dtOf(T){ return DX/speedOf(T); }
+function betaOf(d){ return BPD*d; }
+/* PhET's own map, kept for the record (header, readout): steps per second linear
+   in sqrt(T) from sqrt(0.2) -> 0.2 to sqrt(0.8) -> 1, times 50 */
+function phetRate(T){ const s=Math.sqrt(T); return 50*(0.2+(1-0.2)*(s-Math.sqrt(0.2))/(Math.sqrt(0.8)-Math.sqrt(0.2))); }
+/* the amplitude a travelling wave keeps per step (= per bead): sqrt((1-b)/(1+b)) = exp(-atanh b) */
+function keepPerStep(b){ return Math.sqrt((1-b)/(1+b)); }
+function decayLength(b){ return b>0?DX/Math.atanh(b):Infinity; }
+
+/* the pulse generator: a triangle of height A lasting w (PhET's shape) */
+function tri(u){ return (u>=0&&u<=1)?1-Math.abs(2*u-1):0; }
+
+/* ---- the lattice ---------------------------------------------------------
+   (1+b) y_i^{n+1} = (b-1) y_i^{n-1} + 2(1-a^2) y_i^n + a^2 (y_{i+1}^n + y_{i-1}^n)
+   ends: fixed y_N = 0; loose y_N = y_{N-1}; none y_N^{n+1} = y_{N-1}^n.  PhET
+   re-asserts the end on the current level before each update (it matters only
+   the step after the end type is switched) and sets it on the new one after. */
+function makeLat(n){ return {n,prev:new Float64Array(n+1),cur:new Float64Array(n+1),nxt:new Float64Array(n+1),steps:0}; }
+function latClear(L){ L.prev.fill(0); L.cur.fill(0); L.nxt.fill(0); L.steps=0; }
+function latStep(L,a,b,end,yl){
+  const n=L.n, P=L.prev, C=L.cur, X=L.nxt;
+  if(end==='fixed') C[n]=0; else if(end==='loose') C[n]=C[n-1]; else C[n]=P[n-1];
+  const a2=a*a, c=2*(1-a2), inv=1/(1+b);
+  for(let i=1;i<n;i++) X[i]=inv*((b-1)*P[i]+c*C[i]+a2*(C[i+1]+C[i-1]));
+  X[0]=yl;
+  if(end==='fixed') X[n]=0; else if(end==='loose') X[n]=X[n-1]; else X[n]=C[n-1];
+  L.prev=C; L.cur=X; L.nxt=P; L.steps++;
+}
+
+/* ---- d'Alembert with images: the lattice at a = 1, b = 0 IS this, sampled ----
+   A pulse f(t) fed in at x = 0 travels right; the fixed end sends it back
+   inverted, the loose end upright (about L' = 59.5 dx), and the driven left
+   end sends every returning wave back inverted.  Returns the incident and the
+   reflected parts separately so the view can draw both. */
+function imageParts(end,A,w,v,t,x){
+  const f=tau=>A*tri(tau/w);
+  if(end==='none') return {inc:f(t-x/v),ref:0};
+  const Lr=end==='fixed'?LSTR:LLOOSE, sr=end==='fixed'?-1:1;
+  if(x>Lr) x=2*Lr-x;                         /* the ring bead copies its neighbour */
+  let inc=0, ref=0, rt=1;
+  for(let m=0;m<100000;m++){
+    const t1=t-(2*m*Lr+x)/v;
+    if(t1<=0) break;
+    inc+=rt*f(t1); ref+=rt*sr*f(t-(2*(m+1)*Lr-x)/v);
+    rt*=-sr;
+  }
+  return {inc,ref};
+}
+function imageSeries(end,A,w,v,t,x){ const p=imageParts(end,A,w,v,t,x); return p.inc+p.ref; }
+
+/* ---- the lattice dispersion relation ----------------------------------------
+   y ~ z^n e^{i k x}:  (1+b) z^2 - 2(1 - 2a^2 sin^2(k dx/2)) z + (1-b) = 0,
+   |z| = sqrt((1-b)/(1+b)) and cos(omega dt) = (1 - 2a^2 sin^2(k dx/2))/sqrt(1-b^2).
+   kap = k dx (rad per bead); theta = omega dt (rad per step); omega dx/v = theta/a. */
+function thetaOf(kap,a,b){
+  const s=Math.sin(kap/2), c=(1-2*a*a*s*s)/Math.sqrt(1-b*b);
+  return Math.acos(clamp(c,-1,1));
+}
+function omegaNorm(kap,a,b){ return thetaOf(kap,a,b)/a; }          /* omega dx / v */
+function vpOverV(kap,a,b){ return omegaNorm(kap,a,b)/kap; }
+/* d theta/d kap from differentiating cos(theta) = c(kap)/sqrt(1-b^2):
+   v_g/v = a sin(kap) / (sqrt(1-b^2) sin(theta)); NaN where theta is pinned (overdamped) */
+function vgOverV(kap,a,b){
+  const th=thetaOf(kap,a,b), s=Math.sin(th);
+  if(!(s>1e-12)) return NaN;
+  return a*Math.sin(kap)/(Math.sqrt(1-b*b)*s);
+}
+/* a real bead-and-spring chain (continuous time): omega = (2v/dx) sin(k dx/2) — the a -> 0 limit */
+function chainOmegaNorm(kap){ return 2*Math.sin(kap/2); }
+function chainVgOverV(kap){ return Math.cos(kap/2); }
+/* long waves are overdamped below k dx = asin(b) (a = 1) */
+function cutoffKap(b){ return Math.asin(Math.min(1,b)); }
+
+/* ---- small complex arithmetic ([re, im]) ---- */
+const cadd=(a,b)=>[a[0]+b[0],a[1]+b[1]];
+const csub=(a,b)=>[a[0]-b[0],a[1]-b[1]];
+const cmul=(a,b)=>[a[0]*b[0]-a[1]*b[1],a[0]*b[1]+a[1]*b[0]];
+const cdiv=(a,b)=>{ const d=b[0]*b[0]+b[1]*b[1]; return [(a[0]*b[0]+a[1]*b[1])/d,(a[1]*b[0]-a[0]*b[1])/d]; };
+const cabs=a=>Math.hypot(a[0],a[1]);
+/* principal square root without cancellation (re from im when re < 0) */
+function csqrt(a){
+  const r=cabs(a); if(r===0) return [0,0];
+  if(a[0]>=0){ const re=Math.sqrt((r+a[0])/2); return [re,a[1]/(2*re)]; }
+  const t=Math.sqrt((r-a[0])/2), im=a[1]<0?-t:t; return [a[1]/(2*im),im];
+}
+
+/* ---- the driven steady state --------------------------------------------------
+   The oscillator makes y_0^n = A sin(phi_n), phi_n = n theta, theta = 2 pi f dt.
+   Then y_i^n = Im(Y_i e^{i phi_n}) with Y_{i+1} + Y_{i-1} = 2C Y_i,
+   C = cos(theta) + i b sin(theta)   [from (1+b) z + (1-b)/z, z = e^{i theta}].
+   Route 1 (closed form): Y_i = p lam^i + q lam^{N-i}, lam the root of
+   lam^2 - 2C lam + 1 = 0 inside the unit circle, p and q from Y_0 = A and the end.
+   Route 2: the same tridiagonal system solved directly (Thomas).                  */
+function steadyTheta(f,T){ return TAU*f*dtOf(T); }
+function steadyClosed(f,A,b,T,end,n){
+  n=n||NSEG;
+  const th=steadyTheta(f,T);
+  if(!(th>1e-12)) return dcProfile(A,end,n);
+  const C=[Math.cos(th),b*Math.sin(th)], z=[Math.cos(th),Math.sin(th)];
+  let lam=csub(C,csqrt(csub(cmul(C,C),[1,0])));
+  if(cabs(lam)>1) lam=cdiv([1,0],lam);
+  const pw=[[1,0]]; for(let i=1;i<=n;i++) pw.push(cmul(pw[i-1],lam));
+  const r0=[[1,0],pw[n]];
+  let r1;
+  if(end==='fixed') r1=[pw[n],[1,0]];
+  else if(end==='loose') r1=[csub(pw[n],pw[n-1]),csub([1,0],pw[1])];
+  else r1=[csub(cmul(z,pw[n]),pw[n-1]),csub(z,pw[1])];
+  const det=csub(cmul(r0[0],r1[1]),cmul(r0[1],r1[0]));
+  const p=cdiv(cmul([A,0],r1[1]),det), q=cdiv(cmul([-A,0],r1[0]),det);
+  const Y=[]; for(let i=0;i<=n;i++) Y.push(cadd(cmul(p,pw[i]),cmul(q,pw[n-i])));
+  return {Y,lam,p,q,z,th,dc:false};
+}
+function dcProfile(A,end,n){
+  const Y=[]; for(let i=0;i<=n;i++) Y.push([end==='fixed'?A*(n-i)/n:A,0]);
+  return {Y,lam:[1,0],p:[A,0],q:[0,0],z:[1,0],th:0,dc:true};
+}
+function steadyThomas(f,A,b,T,end,n){
+  n=n||NSEG;
+  const th=steadyTheta(f,T);
+  if(!(th>1e-12)) return dcProfile(A,end,n).Y;
+  const C=[Math.cos(th),b*Math.sin(th)], z=[Math.cos(th),Math.sin(th)];
+  const cp=new Array(n+1), dp=new Array(n+1);
+  cp[0]=[0,0]; dp[0]=[A,0];                                   /* row 0: Y_0 = A */
+  for(let i=1;i<=n;i++){
+    let ai, bi, ci=[0,0];
+    if(i<n){ ai=[1,0]; bi=[-2*C[0],-2*C[1]]; ci=[1,0]; }
+    else if(end==='fixed'){ ai=[0,0]; bi=[1,0]; }
+    else if(end==='loose'){ ai=[-1,0]; bi=[1,0]; }
+    else { ai=[-1,0]; bi=z; }
+    const m=csub(bi,cmul(ai,cp[i-1]));
+    cp[i]=cdiv(ci,m); dp[i]=cdiv(csub([0,0],cmul(ai,dp[i-1])),m);
+  }
+  const Y=new Array(n+1); Y[n]=dp[n];
+  for(let i=n-1;i>=0;i--) Y[i]=csub(dp[i],cmul(cp[i],Y[i+1]));
+  return Y;
+}
+function steadyMax(S){ let m=0; for(const y of S.Y) m=Math.max(m,cabs(y)); return m; }
+/* the undamped resonances: fixed f_n = n v/(2L), loose f_n = (2n-1) v/(4L'), none: none */
+function resonances(end,T,fmax){
+  const v=speedOf(T), out=[];
+  if(end==='fixed') for(let n=1;n*v/(2*LSTR)<=fmax;n++) out.push(n*v/(2*LSTR));
+  else if(end==='loose') for(let n=1;(2*n-1)*v/(4*LLOOSE)<=fmax;n++) out.push((2*n-1)*v/(4*LLOOSE));
+  return out;
+}
+/* what the no-end absorber sends back at bead N: q/(p lam^N) = (z lam - 1)/(lam (lam - z)),
+   zero at b = 0 (lam = e^{-i theta}); about b/(2 sin theta) for small b */
+function noEndReflection(f,b,T){
+  const th=steadyTheta(f,T); if(!(th>1e-12)) return 1;
+  const C=[Math.cos(th),b*Math.sin(th)], z=[Math.cos(th),Math.sin(th)];
+  let lam=csub(C,csqrt(csub(cmul(C,C),[1,0])));
+  if(cabs(lam)>1) lam=cdiv([1,0],lam);
+  return cabs(cdiv(csub(cmul(z,lam),[1,0]),cmul(lam,csub(lam,z))));
+}
+
+/* ---- a triangle pulse on a LONG lattice at Courant number a (the dispersion view) ----
+   driven at bead 0 from t = 0, run until the exact pulse centre reaches xcen;
+   160 beads: at a <= 1 nothing on the lattice outruns the front (v_g <= v). */
+const LONG_N=160;
+function longPulse(a,b,A,w,T,xcen){
+  const v=speedOf(T), dt=a*DX/v, tstop=xcen/v+w/2;
+  const ns=Math.floor(tstop/dt+1e-9), L=makeLat(LONG_N);
+  for(let k=1;k<=ns;k++) latStep(L,a,b,'none',A*tri(k*dt/w));
+  return {y:Array.from(L.cur),t:ns*dt,steps:ns,dt};
+}
+
+/* ================================================================== *
+ *  state, the three clocks (the live string, the reflection demo, the *
+ *  standing-wave run), the per-view model, readout, eqbar, tag        *
+ * ================================================================== */
+const TABS=[['str','the string'],['xt','the space-time'],['refl','the reflections'],
+            ['stand','the standing waves'],['disp','the dispersion']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6',
+           edge:'#242a3a', chain:'#9a7fd1', dn:'#5ac8e0', text:'#aeb6c6', bead2:'#5c7a22'};
+const RO_W=300;
+const MODE_LIST=[{id:'manual',name:'manual'},{id:'osc',name:'oscillate'},{id:'pulse',name:'pulse'}];
+const END_LIST=[{id:'fixed',name:'fixed end'},{id:'loose',name:'loose end'},{id:'none',name:'no end'}];
+const SPEED_LIST=[{id:'normal',name:'normal'},{id:'slow',name:'slow motion'}];
+const ENDS=['fixed','loose','none'];
+
+/* PhET's defaults (manual, fixed end, amplitude 0.75 cm, 1.5 Hz, 0.5 s, damping
+   0.2, full tension, playing, normal speed, every tool hidden).  Tool positions
+   are world cm: the rulers' zero marks, the reference line's height (PhET's
+   1.45 cm), the stopwatch's top-left corner. */
+const DEFAULTS={view:'str', mode:'manual', end:'fixed', amp:0.75, freq:1.5, pw:0.5, damping:0.2, tension:TMAX,
+                running:true, speed:'normal', rulers:false, stopwatch:false, refline:false, alpha:1,
+                rhX:0, rhY:-1.95, rvX:-2.55, rvY:-2.5, refY:REF_Y0, swX:0.3, swY:2.62};
+const ST=Object.assign({},DEFAULTS);
+const HMAX=240;                 /* the space-time view keeps this many lattice levels: two round trips, so a stripe tilts ~7 degrees */
+
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+function simFactor(st){ return st.speed==='slow'?SLOW:1; }
+
+/* ---- the live string (views 1 and 2) -----------------------------------------
+   acc = sim time since the current level; t = the sim time of the current level;
+   phase = the oscillator's phase at the current level; wr/wrPrev = the wrench now
+   and at the start of this frame (the lattice steps inside a frame see it
+   interpolated, as PhET's ticks do); sw = the stopwatch. */
+const LIVE={lat:makeLat(NSEG), acc:0, t:0, phase:0, pulseOn:false, pulseT0:0, wr:0, wrPrev:0,
+            sw:0, swOn:false, arrows:true, hist:[], histT:[]};
+function liveRestart(){
+  latClear(LIVE.lat); LIVE.acc=0; LIVE.t=0; LIVE.phase=0; LIVE.pulseOn=false; LIVE.pulseT0=0;
+  LIVE.wr=0; LIVE.wrPrev=0; LIVE.hist=[]; LIVE.histT=[];
+}
+/* the left end at the next lattice time tn; frac = how far through this frame tn falls */
+function liveDriver(st,dt,tn,frac){
+  if(st.mode==='osc'){ LIVE.phase=(LIVE.phase+TAU*st.freq*dt)%TAU; return st.amp*Math.sin(LIVE.phase); }
+  if(st.mode==='pulse'){
+    if(!LIVE.pulseOn) return 0;
+    const u=(tn-LIVE.pulseT0)/st.pw;
+    if(u>=1) LIVE.pulseOn=false;
+    return st.amp*tri(u);
+  }
+  return LIVE.wrPrev+(LIVE.wr-LIVE.wrPrev)*frac;
+}
+function liveStepOnce(st,frac){
+  const dt=dtOf(st.tension), tn=LIVE.t+dt;
+  const yl=liveDriver(st,dt,tn,frac===undefined?1:frac);
+  latStep(LIVE.lat,1,betaOf(st.damping),st.end,yl);
+  LIVE.t=tn;
+  LIVE.hist.push(Float64Array.from(LIVE.lat.cur)); LIVE.histT.push(tn);
+  if(LIVE.hist.length>HMAX){ LIVE.hist.shift(); LIVE.histT.shift(); }
+}
+/* a whole number of steps with a guard: 60 frames of 1/60 s leave acc at
+   0.019999... < 0.02 and the clock would fall a step behind (Known-bad) */
+const STEP_TOL=1e-9;
+/* advance the live string by dtSim seconds of simulated time */
+function liveAdvance(st,dtSim){
+  const dt=dtOf(st.tension), t0=LIVE.t+LIVE.acc;
+  LIVE.acc+=dtSim;
+  let n=0;
+  while(LIVE.acc>=dt*(1-STEP_TOL)){
+    LIVE.acc-=dt;
+    liveStepOnce(st,dtSim>0?clamp((LIVE.t+dt-t0)/dtSim,0,1):1);
+    n++;
+  }
+  LIVE.wrPrev=LIVE.wr;
+  if(LIVE.swOn) LIVE.sw+=dtSim;
+  return n;
+}
+/* the step button: exactly one lattice step, whatever the frame clock says */
+function liveStepButton(st){ LIVE.acc=0; liveStepOnce(st,1); LIVE.wrPrev=LIVE.wr; if(LIVE.swOn) LIVE.sw+=dtOf(st.tension); }
+function sendPulse(st){
+  if(st.mode!=='pulse'||LIVE.pulseOn) return false;
+  LIVE.pulseOn=true; LIVE.pulseT0=LIVE.t+LIVE.acc; return true;
+}
+/* the drawn string: interior beads between the last two levels (PhET's yDraw),
+   bead 0 where the driver is NOW */
+function liveLeftNow(st){
+  if(st.mode==='osc') return st.amp*Math.sin(LIVE.phase+TAU*st.freq*LIVE.acc);
+  if(st.mode==='pulse') return LIVE.pulseOn?st.amp*tri((LIVE.t+LIVE.acc-LIVE.pulseT0)/st.pw):0;
+  return LIVE.wr;
+}
+function liveDraw(st){
+  const L=LIVE.lat, dt=dtOf(st.tension), s=clamp(LIVE.acc/dt,0,1), y=new Float64Array(NSEG+1);
+  for(let i=1;i<=NSEG;i++) y[i]=L.prev[i]+(L.cur[i]-L.prev[i])*s;
+  y[0]=liveLeftNow(st);
+  if(st.end==='fixed') y[NSEG]=0;
+  return y;
+}
+
+/* ---- the reflection demo (view 3): one pulse, three ends, undamped, whole steps ---- */
+const REFL={key:'', lats:null, n:0, acc:0};
+function reflKey(st){ return [st.amp,st.pw,st.tension].join('|'); }
+function reflLoop(st){ return 2*NSEG+Math.ceil(st.pw/dtOf(st.tension))+14; }
+function reflReset(st){ REFL.lats={fixed:makeLat(NSEG),loose:makeLat(NSEG),none:makeLat(NSEG)}; REFL.n=0; REFL.acc=0; REFL.key=reflKey(st); }
+function reflStep(st){
+  if(REFL.key!==reflKey(st)) reflReset(st);
+  if(REFL.n>=reflLoop(st)) reflReset(st);
+  REFL.n++;
+  const yl=st.amp*tri(REFL.n*dtOf(st.tension)/st.pw);
+  for(const e of ENDS) latStep(REFL.lats[e],1,0,e,yl);
+}
+function reflAdvance(st,dtSim){
+  if(REFL.key!==reflKey(st)) reflReset(st);
+  const dt=dtOf(st.tension); REFL.acc+=dtSim; let n=0;
+  while(REFL.acc>=dt*(1-STEP_TOL)){ REFL.acc-=dt; reflStep(st); n++; }
+  return n;
+}
+/* the whole demo run once, for the numbers: the reflection each end returns
+   (the extreme of y_30 on the way back over the extreme on the way in) and the
+   largest departure from d'Alembert anywhere, any step */
+function reflSummary(st){
+  return memo('reflsum',reflKey(st),()=>{
+    const v=speedOf(st.tension), dt=dtOf(st.tension), nL=reflLoop(st), out={};
+    const tIn=(30*DX)/v+st.pw, tBack=(2*LSTR-30*DX)/v;
+    for(const e of ENDS){
+      const L=makeLat(NSEG); let dev=0, inc=0, back=0;
+      for(let n=1;n<=nL;n++){
+        latStep(L,1,0,e,st.amp*tri(n*dt/st.pw));
+        for(let i=0;i<=NSEG;i++) dev=Math.max(dev,Math.abs(L.cur[i]-imageSeries(e,st.amp,st.pw,v,n*dt,i*DX)));
+        const y=L.cur[30], t=n*dt;
+        if(t<=tIn&&Math.abs(y)>Math.abs(inc)) inc=y;
+        if(t>tBack&&t<=tBack+st.pw+dt&&Math.abs(y)>Math.abs(back)) back=y;
+      }
+      out[e]={dev,inc,back,r:Math.abs(inc)>0?back/inc:NaN};
+    }
+    return out;
+  });
+}
+
+/* ---- the standing-wave run (view 4): the oscillator from rest ---- */
+const STAND={key:'', lat:null, n:0, acc:0, phase:0};
+function standKey(st){ return [st.freq,st.amp,st.damping,st.tension,st.end].join('|'); }
+function standReset(st){ STAND.lat=makeLat(NSEG); STAND.n=0; STAND.acc=0; STAND.phase=0; STAND.key=standKey(st); }
+function standStep(st){
+  if(STAND.key!==standKey(st)) standReset(st);
+  const dt=dtOf(st.tension);
+  STAND.phase=(STAND.phase+TAU*st.freq*dt)%TAU;
+  latStep(STAND.lat,1,betaOf(st.damping),st.end,st.amp*Math.sin(STAND.phase));
+  STAND.n++;
+}
+function standAdvance(st,dtSim){
+  if(STAND.key!==standKey(st)) standReset(st);
+  const dt=dtOf(st.tension); STAND.acc+=dtSim; let n=0;
+  while(STAND.acc>=dt*(1-STEP_TOL)){ STAND.acc-=dt; standStep(st); n++; }
+  return n;
+}
+function standDraw(st){
+  const L=STAND.lat, s=clamp(STAND.acc/dtOf(st.tension),0,1), y=new Float64Array(NSEG+1);
+  for(let i=0;i<=NSEG;i++) y[i]=L.prev[i]+(L.cur[i]-L.prev[i])*s;
+  return y;
+}
+/* the response curve: the largest steady amplitude anywhere on the string, over A */
+const FGRID_N=420, FLO=0.01;
+function responseCurve(st){
+  return memo('resp',[st.damping,st.tension,st.end].join('|'),()=>{
+    const b=betaOf(st.damping), fn=resonances(st.end,st.tension,FMAX);
+    const fs=[]; for(let k=0;k<=FGRID_N;k++) fs.push(FLO+(FMAX-FLO)*k/FGRID_N);
+    for(const f of fn) fs.push(f);
+    fs.sort((a,c)=>a-c);
+    const gb=[], g0=[];
+    for(const f of fs){
+      gb.push(steadyMax(steadyClosed(f,1,b,st.tension,st.end)));
+      const onRes=fn.some(x=>Math.abs(x-f)<1e-12);
+      g0.push(onRes?NaN:steadyMax(steadyClosed(f,1,0,st.tension,st.end)));
+    }
+    return {fs,gb,g0,fn,b};
+  });
+}
+
+/* ---- the dispersion view ---- */
+function dispModel(st){
+  return memo('disp',[st.alpha,st.damping,st.tension,st.amp,st.pw,st.freq].join('|'),()=>{
+    const a=st.alpha, b0=betaOf(st.damping), ba=a*b0;   /* the same PHYSICAL damping at any a */
+    const K=[], om=[], omPhet=[], chain=[], cont=[], vp=[], vg=[], vgChain=[];
+    for(let k=0;k<=240;k++){
+      const kap=Math.PI*k/240; K.push(kap);
+      om.push(omegaNorm(kap,a,ba)); omPhet.push(omegaNorm(kap,1,b0)); chain.push(chainOmegaNorm(kap)); cont.push(kap);
+      vp.push(kap>0?vpOverV(kap,a,ba):NaN); vg.push(vgOverV(kap,a,ba)); vgChain.push(chainVgOverV(kap));
+    }
+    const v=speedOf(st.tension), xcen=0.72*LSTR;
+    /* the pulses run UNDAMPED, so that only the dispersion changes their shape */
+    const P=longPulse(a,0,st.amp,st.pw,st.tension,xcen);
+    const Pc=longPulse(0.05,0,st.amp,st.pw,st.tension,xcen);   /* the bead chain (a -> 0, converged to O(a^2)) */
+    const ex=t=>{ const y=[]; for(let i=0;i<=NSEG;i++) y.push(st.amp*tri((t-i*DX/v)/st.pw)); return y; };
+    const exP=ex(P.t), exC=ex(Pc.t);
+    let dev=0, devC=0; for(let i=0;i<=NSEG;i++){ dev=Math.max(dev,Math.abs(P.y[i]-exP[i])); devC=Math.max(devC,Math.abs(Pc.y[i]-exC[i])); }
+    /* the oscillator's wave on each dispersion relation: k from omega */
+    const thOsc=TAU*st.freq*a*DX/v;                          /* omega dt at this a */
+    const sArg=Math.sin(thOsc/2)/a;
+    const kOsc=(b0===0&&sArg<=1)?2*Math.asin(sArg):NaN;      /* undamped inverse; with damping solved below */
+    return {a,b0,ba,K,om,omPhet,chain,cont,vp,vg,vgChain,P,Pc,exP,exC,dev,devC,v,xcen,
+            kOsc:isFinite(kOsc)?kOsc:kapFromOmega(TAU*st.freq*DX/v,a,ba),
+            wOsc:TAU*st.freq*DX/v, zone:Math.PI/DX, fChain:v/(Math.PI*DX), fLat:v/(2*a*DX),
+            cut:cutoffKap(ba)};
+  });
+}
+/* invert omega dx/v = theta(kap)/a for kap (bisection on the monotone branch) */
+function kapFromOmega(wn,a,b){
+  let lo=cutoffKap(b), hi=Math.PI;
+  if(!(omegaNorm(hi,a,b)>=wn)) return NaN;
+  for(let k=0;k<80;k++){ const m=(lo+hi)/2; if(omegaNorm(m,a,b)<wn) lo=m; else hi=m; }
+  return (lo+hi)/2;
+}
+
+/* ---- the model ---- */
+/* the model carries a SNAPSHOT of the state, so a readout rendered later
+   cannot read whatever state ran last */
+function buildModel(){
+  const st=Object.assign({},ST), view=st.view, v=speedOf(st.tension), dt=dtOf(st.tension), b=betaOf(st.damping);
+  const M={view,st,v,dt,b,T:st.tension,running:st.running};
+  if(view==='str'||view==='xt'){
+    M.y=liveDraw(st); M.t=LIVE.t+LIVE.acc; M.steps=LIVE.lat.steps; M.sw=LIVE.sw; M.swOn=LIVE.swOn;
+    let mx=0, at=0; for(let i=0;i<=NSEG;i++) if(Math.abs(M.y[i])>mx){ mx=Math.abs(M.y[i]); at=i; }
+    M.maxAbs=mx; M.maxAt=at; M.offScale=mx>YHALF;
+    M.left=M.y[0]; M.right=M.y[NSEG]; M.pulseOn=LIVE.pulseOn;
+    M.lambda=st.freq>0?v/st.freq:Infinity; M.rNone=noEndReflection(st.freq>0?st.freq:1.5,b,st.tension);
+    M.phaseNow=LIVE.phase+TAU*st.freq*LIVE.acc;
+    if(view==='xt'){ M.hist=LIVE.hist; M.histT=LIVE.histT;
+      let hm=mx; for(const r of LIVE.hist) for(let i=0;i<r.length;i++) hm=Math.max(hm,Math.abs(r[i])); M.hmax=hm; }
+  }
+  if(view==='refl'){
+    if(REFL.key!==reflKey(st)) reflReset(st);
+    M.n=REFL.n; M.tR=REFL.n*dt; M.loop=reflLoop(st); M.lats=REFL.lats; M.sum=reflSummary(st);
+  }
+  if(view==='stand'){
+    if(STAND.key!==standKey(st)) standReset(st);
+    M.S=steadyClosed(st.freq,st.amp,b,st.tension,st.end); M.Smax=steadyMax(M.S);
+    M.env=M.S.Y.map(cabs); M.y=standDraw(st); M.n=STAND.n;
+    let mx=0; for(let i=0;i<=NSEG;i++) mx=Math.max(mx,Math.abs(M.y[i])); M.latMax=mx;
+    M.resp=responseCurve(st); M.fn=M.resp.fn; M.lambda=st.freq>0?v/st.freq:Infinity;
+    M.transient=Math.pow(keepPerStep(b),STAND.n);
+    let near=null; for(let k=0;k<M.fn.length;k++) if(near===null||Math.abs(M.fn[k]-st.freq)<Math.abs(M.fn[near]-st.freq)) near=k;
+    M.near=near; M.rNone=noEndReflection(st.freq,b,st.tension);
+    M.nodes=nodesOf(M.env,M.Smax);
+  }
+  if(view==='disp') M.D=dispModel(st);
+  return M;
+}
+/* nodes: interior local minima of the envelope below 15 % of its maximum, and the fixed end */
+function nodesOf(env,mx){
+  const out=[];
+  for(let i=1;i<NSEG;i++) if(env[i]<=env[i-1]&&env[i]<=env[i+1]&&env[i]<0.15*mx) out.push(i);
+  if(env[NSEG]<1e-12*Math.max(mx,1e-300)) out.push(NSEG);
+  return out;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+const YHALF=2.7;                /* the string view shows y in [-2.7, 2.7] cm */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function cm(x,n){ return sigf(x,n||3)+' cm'; }
+function modeName(m){ return MODE_LIST.find(o=>o.id===m).name; }
+function endName(e){ return END_LIST.find(o=>o.id===e).name; }
+function endRows(M){
+  const st=M.st;
+  if(st.end==='fixed') return rrow('fixed end','reflects inverted, r = &minus;1');
+  if(st.end==='loose') return rrow('loose end','reflects upright, r = +1')+rrow('&hellip; about','x = '+fmt(LLOOSE,4)+' cm (bead 59&frac12;)');
+  return rrow('no end','absorbs: exact at zero damping')+rrow('&hellip; leaks at '+(st.freq>0?fmt(st.freq,2):'1.50')+' Hz','|r| = '+sigf(M.rNone,2),M.rNone>0.02?'bad':'good');
+}
+function stringRows(M){
+  const st=M.st;
+  return hd('the string')+rrow('tension T (relative)',fmt(st.tension,3))
+    +rrow('wave speed v',fmt(M.v,3)+' cm/s','good')+rrow('lattice step &Delta;t = &Delta;x/v',sigf(M.dt*1000,3)+' ms ('+sigf(1/M.dt,3)+' per s)')
+    +rrow('61 beads, 1.25 mm apart',fmt(LSTR,1)+' cm, crossed in '+sigf(LSTR/M.v,3)+' s');
+}
+function dampRows(M){
+  return hd('damping '+fmt(M.st.damping,2))+rrow('&beta; per step',sigf(M.b,3))
+    +rrow('kept per bead, e<sup>&minus;atanh &beta;</sup>',sigf(keepPerStep(M.b),4))
+    +rrow('decay length &Delta;x/atanh &beta;',isFinite(decayLength(M.b))?cm(decayLength(M.b)):'none');
+}
+function readoutHTML(M){
+  const st=M.st;
+  let s='<div class="rname">wave on a string<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  if(M.view==='str'||M.view==='xt'){
+    s+=stringRows(M);
+    s+=hd('the wave: '+modeName(st.mode));
+    if(st.mode==='manual') s+=rrow('wrench height',cm(M.left,3));
+    else if(st.mode==='osc') s+=rrow('frequency, period',fmt(st.freq,2)+' Hz, '+(st.freq>0?sigf(1/st.freq,3)+' s':'&infin;'))+rrow('wavelength &lambda; = v/f',isFinite(M.lambda)?cm(M.lambda):'&infin;','good')+rrow('amplitude',cm(st.amp,3));
+    else s+=rrow('pulse width w, length v&middot;w',fmt(st.pw,2)+' s, '+cm(M.v*st.pw))+rrow('height',cm(st.amp,3))+rrow('generator',M.pulseOn?'sending':'ready');
+    s+=dampRows(M);
+    s+=hd('the far end')+endRows(M);
+    if(M.view==='str') s+=hd('now')+rrow('t, lattice steps',fmt(M.t,2)+' s, '+M.steps)+rrow('largest |y|',cm(M.maxAbs,3)+' (bead '+M.maxAt+')',M.offScale?'bad':'')
+      +(st.stopwatch?rrow('stopwatch',fmt(M.sw,2)+' s'+(M.swOn?' (running)':'')):'');
+    else s+=hd('the record')+rrow('levels kept',(M.hist?M.hist.length:0)+' of '+HMAX)+rrow('spanning',M.hist&&M.hist.length>1?fmt(M.histT[M.histT.length-1]-M.histT[0],2)+' s':'&mdash;');
+  }
+  else if(M.view==='refl'){
+    const R=M.sum;
+    s+=stringRows(M)+hd('the pulse')+rrow('height A, width w',cm(st.amp,3)+', '+fmt(st.pw,2)+' s')+rrow('step n of the loop',M.n+' / '+M.loop);
+    for(const e of ENDS){
+      const r=R[e];
+      s+=hd(endName(e))+rrow('reflected / incident (bead 30)',isFinite(r.r)?fmt(r.r,3):'&mdash;',e==='none'?'':'good')
+        +rrow('max |lattice &minus; d&rsquo;Alembert|',sigf(r.dev,2)+' cm',r.dev<1e-12?'good':'bad');
+    }
+  }
+  else if(M.view==='stand'){
+    s+=stringRows(M)+hd('the oscillator')+rrow('frequency f',fmt(st.freq,3)+' Hz')+rrow('wavelength v/f',isFinite(M.lambda)?cm(M.lambda):'&infin;');
+    if(M.near!==null){ const n=M.near+1, fn=M.fn[M.near];
+      s+=rrow(st.end==='fixed'?'nearest f<sub>'+n+'</sub> = '+n+'v/2L':'nearest f<sub>'+n+'</sub> = '+(2*n-1)+'v/4L&prime;',fmt(fn,4)+' Hz'); }
+    else s+=rrow('resonances','none: nothing comes back');
+    s+=hd('the steady state (exact)')+rrow('largest amplitude / A',sigf(M.Smax/Math.max(st.amp,1e-300),4),'good')
+      +rrow('largest amplitude',cm(M.Smax,4))+rrow('nodes on the string',String(M.nodes.length));
+    s+=hd('the lattice run')+rrow('steps from rest',String(M.n))+rrow('its largest |y| now',cm(M.latMax,4))
+      +rrow('transient left, (e<sup>&minus;atanh &beta;</sup>)<sup>n</sup>',M.b>0?sigf(M.transient,2):'never decays',M.b>0&&M.transient<1e-3?'good':'bad');
+    if(st.end==='none') s+=rrow('the absorber leaks |r|',sigf(M.rNone,2));
+  }
+  else {
+    const D=M.D;
+    s+=hd('the lattice')+rrow('Courant number &alpha; = v&Delta;t/&Delta;x',fmt(D.a,2)+(D.a===1?' (PhET)':''))+rrow('wave speed v',fmt(D.v,3)+' cm/s')
+      +rrow('zone edge k = &pi;/&Delta;x',sigf(D.zone,3)+' rad/cm')+rrow('lattice Nyquist f = v/2&alpha;&Delta;x',sigf(D.fLat,3)+' Hz')
+      +rrow('bead chain tops out at v/&pi;&Delta;x',sigf(D.fChain,3)+' Hz');
+    s+=hd('the oscillator, '+fmt(st.freq,2)+' Hz')+rrow('k&Delta;x on the lattice',isFinite(D.kOsc)?sigf(D.kOsc,4)+' rad':'overdamped')
+      +rrow('phase speed / v',isFinite(D.kOsc)?sigf(vpOverV(D.kOsc,D.a,D.ba),5):'&mdash;')+rrow('group speed / v',isFinite(D.kOsc)?sigf(vgOverV(D.kOsc,D.a,D.ba),5):'&mdash;');
+    s+=hd('the pulse after 5.4 cm, undamped')+rrow('max |lattice &minus; exact| (&alpha; = '+fmt(D.a,2)+')',sigf(D.dev,2)+' cm',D.dev<1e-12?'good':'bad')
+      +rrow('bead chain (&alpha; &rarr; 0)',sigf(D.devC,2)+' cm','bad')+rrow('damping &beta; per step at this &alpha;',sigf(D.ba,3));
+  }
+  s+='</table><div class="note">PhET&rsquo;s lattice steps at &alpha; = v&Delta;t/&Delta;x = 1 exactly: the tension sets the clock, never the stencil. '
+    +'PhET&rsquo;s values (61 beads, 0.125 cm, 50 steps/s, &beta; = 0.1 &times; damping) are from its build 1.2.4; everything else is exact and pinned in selfTest to derive.py.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='str') return E('<span class="hl">(1+&beta;) y<sub>i</sub><sup>n+1</sup> = y<sub>i+1</sub><sup>n</sup> + y<sub>i&minus;1</sub><sup>n</sup> &minus; (1&minus;&beta;) y<sub>i</sub><sup>n&minus;1</sup></span> &nbsp;&middot;&nbsp; &alpha; = v&Delta;t/&Delta;x = 1, &nbsp; v = v<sub>max</sub>&radic;(T/T<sub>max</sub>)',
+    'each bead goes to the sum of its neighbours&rsquo; positions less its own previous one: at &alpha; = 1 that moves every wave exactly one bead per step');
+  if(M.view==='xt') return E('<span class="hl">y(x, t) = f(x &minus; vt) + g(x + vt)</span> &nbsp;&middot;&nbsp; y<sub>i</sub><sup>n</sup> = F(n &minus; i) + G(n + i) <span class="rm">on the lattice, exactly</span>',
+    'd&rsquo;Alembert: any motion of the string is two shapes sliding in opposite directions at v — the stripes of the space-time picture');
+  if(M.view==='refl') return E('<span class="hl">y = f(t &minus; x/v) &mp; f(t &minus; (2L &minus; x)/v)</span> &nbsp;&middot;&nbsp; <span class="rm">fixed: &minus;, &nbsp; loose: + about L&prime; = 59&frac12; &Delta;x, &nbsp; no end: no image</span>',
+    'the end is a mirror: a fixed end holds y = 0, so the image pulse must arrive upside down; a loose end holds the slope at zero, so it arrives upright');
+  if(M.view==='stand') return E('<span class="hl">f<sub>n</sub> = n v/2L</span> <span class="rm">(fixed)</span>, &nbsp; <span class="hl">(2n&minus;1) v/4L&prime;</span> <span class="rm">(loose)</span> &nbsp;&middot;&nbsp; Y<sub>i+1</sub> + Y<sub>i&minus;1</sub> = 2(cos &theta; + i&beta; sin &theta;) Y<sub>i</sub>',
+    'the driven end reflects too, so waves that fit a whole number of round trips pile up: the peak grows as 1/(N&beta;) when the damping goes');
+  return E('<span class="hl">(1+&beta;) z&sup2; &minus; 2(1 &minus; 2&alpha;&sup2; sin&sup2;(k&Delta;x/2)) z + (1&minus;&beta;) = 0</span> &nbsp;&middot;&nbsp; &alpha; = 1, &beta; = 0 <span class="rm">&rArr;</span> &omega; = vk &nbsp;&middot;&nbsp; <span class="rm">bead chain:</span> &omega; = (2v/&Delta;x) sin(k&Delta;x/2)',
+    'at &alpha; = 1 the time step exactly cancels the chain&rsquo;s dispersion: PhET&rsquo;s beads carry a continuous string, not a chain of beads');
+}
+function tagHTML(M){
+  const st=M.st;
+  if(M.view==='str') return '<b>the string</b> — '+modeName(st.mode)+', '+endName(st.end)+(st.running?'':', paused')+(st.speed==='slow'?', slow motion':'');
+  if(M.view==='xt') return '<b>the space-time</b> — the last '+HMAX+' lattice steps of the string, time running up';
+  if(M.view==='refl') return '<b>the reflections</b> — one pulse, three ends, no damping';
+  if(M.view==='stand') return '<b>the standing waves</b> — '+fmt(st.freq,3)+' Hz, '+endName(st.end);
+  return '<b>the dispersion</b> — &alpha; = '+fmt(st.alpha,2)+(st.alpha===1?' (PhET)':'');
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — from build_cycloid via build_buoy/p4_views.js, unchanged              *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  view 1: the string — PhET's screen, drawn at true aspect           *
+ * ================================================================== */
+const STR_EXT={xmin:-2.62,xmax:8.35,ymin:-YHALF,ymax:YHALF};   /* the left margin holds the vertical ruler clear of the driver */
+const SW_W=128, SW_H=48;                 /* the stopwatch, px */
+/* the house #hint sits at bottom:11px, on top of the last line of a caption
+   anchored at H - 12: every caption here ends HINT_H higher, clear of it */
+const HINT_H=18;
+/* tick labels follow the tick SPACING, not a fixed decimal count (Known-bad: fmt(t,2)
+   prints 318.00 whatever the range, and six of those do not fit a narrow panel) */
+function tickFmt(ticks){
+  let g=Infinity; for(let i=1;i<ticks.length;i++) g=Math.min(g,Math.abs(ticks[i]-ticks[i-1]));
+  if(!isFinite(g)||g<=0) return v=>sigf(v,3);
+  let d=0; while(d<6&&Math.abs(Math.round(g*Math.pow(10,d))-g*Math.pow(10,d))>1e-6*Math.max(1,g*Math.pow(10,d))) d++;
+  return v=>fmt(Math.abs(v)<1e-12?0:v,d);
+}
+function axesT(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=Object.assign({},opt||{});
+  if(o.xticks===undefined) o.xticks=ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  if(o.yticks===undefined) o.yticks=ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  if(!o.xfmt) o.xfmt=tickFmt(o.xticks);
+  if(!o.yfmt) o.yfmt=tickFmt(o.yticks);
+  axesR(ctx,b,xlo,xhi,ylo,yhi,o);
+}
+function mapLim(map,b){ return [map.wx(b.x),map.wx(b.x1),map.wy(b.y1),map.wy(b.y)]; }
+function inLim(x,y,l){ return x>=l[0]&&x<=l[1]&&y>=l[2]&&y<=l[3]; }
+function beadR(s){ return Math.max(2.2,0.0625*s*0.92); }   /* PhET's bead radius is 5 model units = 0.0625 cm */
+
+function strCaption(M,sTxt){
+  const st=M.st;
+  const mode={manual:'Drag the wrench up and down (or use the arrow keys) and a kink runs down the string.',
+              osc:'The oscillator’s pin goes round at f; the yoke turns its circle into A sin 2πft at bead 0.',
+              pulse:'Click the generator (or press p) for one triangular pulse, A high and w long.'}[st.mode];
+  const end={fixed:'The clamp holds bead 60 at zero, so every reflection comes back inverted.',
+             loose:'The ring slides on its pole, so reflections come back upright (about bead 59½).',
+             none:'Past bead 60 the string runs on out of the window and nothing comes back.'}[st.end];
+  return {full:'True aspect: 1 cm = '+sTxt+' px on both axes. 61 beads 1.25 mm apart make 7.5 cm of string; every tenth bead is magenta. '+mode+' '+end,
+          short:'True aspect, 1 cm = '+sTxt+' px. '+mode};
+}
+function strGeo(ctx,W,H,M){
+  const narrow=isNarrow(W), left=18, right=narrow?W-18:W-RO_W-40;
+  const ph=strCaption(M,'000');
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H-HINT_H,ph.full,ph.short,capW,stageTop()+30+180);
+  const top=stageTop()+30, b=box(left,top,right-left,Math.max(120,fit.capY-12-top));
+  const map=worldFitUp(b,STR_EXT,0);
+  return {b,map,fit,full:fit.txt===ph.full,narrow,lim:mapLim(map,b)};
+}
+/* hit rectangles, world cm (the stopwatch is a pixel box anchored in the world) */
+function wrenchRect(y0){ return [-1.5,0.28,y0-0.34,y0+0.34]; }
+const GEN_RECT=[-1.5,-0.3,-0.5,0.5];
+function rulerHRect(st){ return [st.rhX-0.12,st.rhX+RULER_H+0.12,st.rhY-0.5,st.rhY]; }
+function rulerVRect(st){ return [st.rvX,st.rvX+0.5,st.rvY-0.12,st.rvY+RULER_V+0.12]; }
+function swRect(map,st,W,H){ return {x:clamp(map.X(st.swX),0,W-SW_W),y:clamp(map.Y(st.swY),0,H-SW_H),w:SW_W,h:SW_H}; }
+function inRect(x,y,r){ return x>=r[0]&&x<=r[1]&&y>=r[2]&&y<=r[3]; }
+
+function drawStr(ctx,W,H,M){
+  const st=M.st, G=strGeo(ctx,W,H,M), map=G.map, s=map.s, lim=G.lim, X=map.X, Y=map.Y;
+  /* the equilibrium line */
+  ctx.save(); ctx.setLineDash([4,5]); ctx.strokeStyle='#2a3142'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(X(0),Y(0)); ctx.lineTo(X(st.end==='none'?LSTR+0.66:LSTR),Y(0)); ctx.stroke(); ctx.restore();
+  if(st.stopwatch){ const r=swRect(map,st,W,H); LABELS.push([r.x,r.y,r.x+r.w,r.y+r.h]); }   /* labels dodge the stopwatch */
+  if(st.refline) drawRefLine(ctx,W,H,map,st);
+  drawFarEnd(ctx,W,H,map,M,G);
+  const xs=[], ys=[]; for(let i=0;i<=NSEG;i++){ xs.push(i*DX); ys.push(M.y[i]); }
+  polyline(ctx,G.b,xs,ys,lim[0],lim[1],lim[2],lim[3],COL.pos,1.5);
+  drawBeads(ctx,map,xs,ys,beadR(s),lim);
+  drawDriver(ctx,W,H,map,M,lim);
+  if(st.rulers){ drawRulerV(ctx,map,st.rvX,st.rvY,H); drawRulerH(ctx,map,st.rhX,st.rhY,W); }
+  if(st.stopwatch) drawStopwatch(ctx,W,H,map,M);
+  if(M.offScale) lab(ctx,W,H,G.b.x+6,G.b.y+6,'The string leaves the view: |y| = '+fmt(M.maxAbs,2)+' cm at bead '+M.maxAt+'; the view shows ±'+fmt(YHALF,1)+' cm.',COL.ref,LAB_FONT,'left','top');
+  const cap=strCaption(M,fmt(s,0));
+  caption(ctx,G.b.x,G.fit.capY,G.full?cap.full:cap.short,G.fit.capW,'#767e92',CAP_FONT);
+}
+function drawBeads(ctx,map,xs,ys,r,lim){
+  for(const pass of [0,1]){
+    ctx.beginPath(); let any=false;
+    for(let i=0;i<xs.length;i++){
+      if((i%10===0)!==(pass===1)||!inLim(xs[i],ys[i],lim)) continue;
+      const X=map.X(xs[i]), Y=map.Y(ys[i]); ctx.moveTo(X+r,Y); ctx.arc(X,Y,r,0,TAU); any=true;
+    }
+    if(!any) continue;
+    ctx.fillStyle=pass?COL.live:COL.pos; ctx.fill();
+    ctx.strokeStyle=pass?'#5e1a5a':COL.bead2; ctx.lineWidth=0.8; ctx.stroke();
+  }
+}
+function drawFarEnd(ctx,W,H,map,M,G){
+  const st=M.st, X=map.X, Y=map.Y, s=map.s, xe=LSTR, yN=M.y[NSEG];
+  if(st.end==='fixed'){
+    const x0=X(xe)+beadR(s)*0.6, x1=X(xe+0.38), y0=Y(0.34), y1=Y(-0.34);
+    ctx.fillStyle='#232a38'; ctx.fillRect(x0,y0,x1-x0,y1-y0);
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.2; ctx.strokeRect(x0,y0,x1-x0,y1-y0);
+    ctx.beginPath(); for(let k=1;k<5;k++){ const yy=y0+(y1-y0)*k/5; ctx.moveTo(x0+2,yy); ctx.lineTo(x1-2,yy+(y1-y0)/10); }
+    ctx.strokeStyle='#3d6f7e'; ctx.lineWidth=1; ctx.stroke();
+  } else if(st.end==='loose'){
+    const Xp=X(xe);
+    ctx.beginPath(); ctx.moveTo(Xp,Y(-YHALF+0.3)); ctx.lineTo(Xp,Y(YHALF-0.3));
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=Math.max(2,0.05*s); ctx.stroke();
+    ctx.fillStyle='#232a38'; ctx.fillRect(Xp-0.22*s,Y(-YHALF+0.3),0.44*s,0.12*s);
+    if(Math.abs(yN)<=YHALF-0.2){
+      ctx.beginPath(); ctx.arc(Xp,Y(yN),0.15*s,0,TAU);
+      ctx.strokeStyle='#e9e9f0'; ctx.lineWidth=Math.max(1.6,0.035*s); ctx.stroke();
+    }
+  } else {
+    /* the window: the string runs on and out; a fading, dotted continuation */
+    const x0=X(xe+0.08), x1=X(xe+0.7), y0=Y(1.7), y1=Y(-1.7);
+    ctx.save(); ctx.setLineDash([3,4]); ctx.strokeStyle=COL.struct; ctx.lineWidth=1; ctx.strokeRect(x0,y0,x1-x0,y1-y0); ctx.restore();
+    const slope=(M.y[NSEG]-M.y[NSEG-1])/DX;
+    for(let k=1;k<=5;k++){
+      const xx=xe+k*0.11, yy=yN+slope*k*0.11;
+      if(!inLim(xx,yy,G.lim)) continue;
+      dot(ctx,X(xx),Y(yy),Math.max(1.2,beadR(s)*(1-k*0.13)),mix('#070b18',COL.pos,1-k*0.16),null);
+    }
+  }
+}
+function drawDriver(ctx,W,H,map,M,lim){
+  const st=M.st, X=map.X, Y=map.Y, s=map.s, y0=M.y[0];
+  if(st.mode==='manual'){
+    const yc=clamp(y0,-AMAX,AMAX);
+    ctx.fillStyle='#454b5a'; ctx.fillRect(X(-1.42),Y(yc+0.11),0.5*s,0.22*s);
+    ctx.fillStyle='#6b7285'; ctx.fillRect(X(-0.92),Y(yc+0.09),0.74*s,0.18*s);
+    ctx.strokeStyle='#aeb6c6'; ctx.lineWidth=1; ctx.strokeRect(X(-1.42),Y(yc+0.11),1.24*s,0.22*s);
+    ctx.beginPath(); ctx.arc(X(0),Y(yc),0.18*s,0,TAU); ctx.strokeStyle='#c8ccd6'; ctx.lineWidth=Math.max(2,0.05*s); ctx.stroke();
+    if(LIVE.arrows){ arrowW(ctx,map,[-0.8,yc+0.28],[0,0.5],COL.struct,2); arrowW(ctx,map,[-0.8,yc-0.28],[0,-0.5],COL.struct,2); }
+  } else if(st.mode==='osc'){
+    const xc=-0.95, A=st.amp, Rd=Math.max(0.3,A+0.12), ph=M.phaseNow;
+    ctx.beginPath(); ctx.arc(X(xc),Y(0),Rd*s,0,TAU); ctx.fillStyle='#161c2c'; ctx.fill();
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.3; ctx.stroke();
+    if(A>0.02){ ctx.save(); ctx.setLineDash([2,4]); ctx.beginPath(); ctx.arc(X(xc),Y(0),A*s,0,TAU); ctx.strokeStyle='#3a4152'; ctx.lineWidth=1; ctx.stroke(); ctx.restore(); }
+    /* the scotch yoke: a rigid bar at the pin's height carries bead 0 */
+    ctx.beginPath(); ctx.moveTo(X(xc-Rd-0.08),Y(y0)); ctx.lineTo(X(0),Y(y0)); ctx.strokeStyle='#8b93a6'; ctx.lineWidth=Math.max(2.5,0.06*s); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(X(-0.08),Y(-YHALF+0.5)); ctx.lineTo(X(-0.08),Y(YHALF-0.5)); ctx.strokeStyle='#2c4f5a'; ctx.lineWidth=1.2; ctx.stroke();
+    dot(ctx,X(xc+A*Math.cos(ph)),Y(A*Math.sin(ph)),Math.max(3,0.07*s),COL.live,'#fff',1);
+  } else {
+    const r=GEN_RECT;
+    ctx.fillStyle='#161c2c'; ctx.fillRect(X(r[0]),Y(r[3]),(r[1]-r[0])*s,(r[3]-r[2])*s);
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.2; ctx.strokeRect(X(r[0]),Y(r[3]),(r[1]-r[0])*s,(r[3]-r[2])*s);
+    dot(ctx,X(-0.9),Y(0.05),Math.max(6,0.22*s),M.pulseOn?COL.live:COL.pos,'#e9e9f0',1.2);
+    ctx.beginPath(); const gx=X(-0.9), gy=Y(0.05), gs=Math.max(3,0.1*s);
+    ctx.moveTo(gx-gs,gy+gs*0.5); ctx.lineTo(gx,gy-gs*0.7); ctx.lineTo(gx+gs,gy+gs*0.5);
+    ctx.strokeStyle='#10131b'; ctx.lineWidth=1.6; ctx.stroke();
+    lab(ctx,W,H,X(-0.9),Y(-0.62),M.pulseOn?'sending':'pulse',M.pulseOn?COL.live:'#8b93a6',SM_FONT,'center','top');
+    ctx.beginPath(); ctx.moveTo(X(-0.12),Y(-YHALF+0.5)); ctx.lineTo(X(-0.12),Y(YHALF-0.5)); ctx.strokeStyle='#2c4f5a'; ctx.lineWidth=1.2; ctx.stroke();
+    ctx.fillStyle='#8b93a6'; ctx.fillRect(X(-0.2),Y(y0+0.07),0.2*s,0.14*s);
+  }
+}
+function drawRulerH(ctx,map,x0,yTop,W){
+  const s=map.s, X0=map.X(x0), Y0=map.Y(yTop), pad=0.12*s;
+  ctx.fillStyle='rgba(18,22,31,0.9)'; ctx.fillRect(X0-pad,Y0,RULER_H*s+2*pad,0.5*s);
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1; ctx.strokeRect(X0-pad,Y0,RULER_H*s+2*pad,0.5*s);
+  ctx.beginPath();
+  for(let k=0;k<=RULER_H*10;k++){ const Xk=X0+k*0.1*s, l=(k%10===0?0.2:k%5===0?0.13:0.08)*s; ctx.moveTo(Xk,Y0); ctx.lineTo(Xk,Y0+l); }
+  ctx.strokeStyle='#aeb6c6'; ctx.lineWidth=0.8; ctx.stroke();
+  ctx.fillStyle='#cfd4de'; ctx.font='10px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  for(let c=0;c<=RULER_H;c++){ const Xc=X0+c*s; if(Xc>6&&Xc<W-6) ctx.fillText(String(c),Xc,Y0+0.22*s); }
+  ctx.textAlign='left'; if(X0>0&&X0+40<W) ctx.fillText('cm',X0+Math.max(8,0.12*s),Y0+0.22*s);
+}
+function drawRulerV(ctx,map,xLeft,y0,H){
+  const s=map.s, X0=map.X(xLeft), Yb=map.Y(y0), pad=0.12*s, x1=X0+0.5*s;
+  ctx.fillStyle='rgba(18,22,31,0.9)'; ctx.fillRect(X0,Yb-RULER_V*s-pad,0.5*s,RULER_V*s+2*pad);
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1; ctx.strokeRect(X0,Yb-RULER_V*s-pad,0.5*s,RULER_V*s+2*pad);
+  ctx.beginPath();
+  for(let k=0;k<=RULER_V*10;k++){ const Yk=Yb-k*0.1*s, l=(k%10===0?0.2:k%5===0?0.13:0.08)*s; ctx.moveTo(x1,Yk); ctx.lineTo(x1-l,Yk); }
+  ctx.strokeStyle='#aeb6c6'; ctx.lineWidth=0.8; ctx.stroke();
+  ctx.fillStyle='#cfd4de'; ctx.font='10px -apple-system, sans-serif'; ctx.textAlign='left'; ctx.textBaseline='middle';
+  for(let c=0;c<=RULER_V;c++){ const Yc=Yb-c*s-(c===0?0.08*s:0); if(Yc>6&&Yc<H-6) ctx.fillText(String(c),X0+0.06*s,Yc); }
+}
+function drawStopwatch(ctx,W,H,map,M){
+  const r=swRect(map,M.st,W,H);
+  ctx.fillStyle='#10131b'; ctx.fillRect(r.x,r.y,r.w,r.h);
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1; ctx.strokeRect(r.x,r.y,r.w,r.h);
+  ctx.fillStyle='#8b93a6'; ctx.font='10px -apple-system, sans-serif'; ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.fillText('stopwatch',r.x+8,r.y+6);
+  ctx.fillStyle='#e9e9f0'; ctx.font='italic 18px Georgia, serif'; ctx.fillText(fmt(M.sw,2)+' s',r.x+8,r.y+21);
+  if(M.swOn) dot(ctx,r.x+r.w-12,r.y+12,4,COL.live,null);
+}
+function drawRefLine(ctx,W,H,map,st){
+  const Yr=map.Y(st.refY), X0=map.X(-0.3), X1=map.X(LSTR+0.35);
+  ctx.save(); ctx.setLineDash([7,5]); ctx.beginPath(); ctx.moveTo(X0,Yr); ctx.lineTo(X1,Yr);
+  ctx.strokeStyle=COL.ref; ctx.lineWidth=1.4; ctx.stroke(); ctx.restore();
+  ctx.fillStyle=COL.ref; ctx.fillRect(X0-9,Yr-4.5,9,9);
+  lab(ctx,W,H,map.X(0.15),Yr-9,'reference line, '+fmt(st.refY,2)+' cm',COL.ref,SM_FONT,'left','bottom');
+}
+
+/* ================================================================== *
+ *  view 2: the space-time — the string's recent past, t running up    *
+ * ================================================================== */
+const XT_CAP_FULL='Each row is one lattice step of the string you are driving (up to the last '+HMAX+'), newest at the top: green is up, cyan is down, '
+  +'brighter is further from rest. A wave is a stripe whose tilt is set by v; the dashed orange lines are x ± vt = constant at the current speed, and every '
+  +'stripe follows one. At the clamp a green stripe comes back cyan (inverted); at the ring it keeps its colour; with no end it simply leaves.';
+const XT_CAP_SHORT='The string’s last '+HMAX+' steps, newest at the top: green up, cyan down. Stripes run along x ± vt (dashed).';
+function xtGeo(ctx,W,H){
+  const narrow=isNarrow(W), left=62, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H-HINT_H,XT_CAP_FULL,XT_CAP_SHORT,capW,stageTop()+30+240);
+  const top=stageTop()+34, avail=fit.capY-44-top;
+  const sh=clamp(Math.round(avail*0.2),56,120);
+  return {fit,sb:box(left,top+8,right-left,sh),mb:box(left,top+8+sh+34,right-left,Math.max(60,avail-sh-42)),narrow};
+}
+function drawXT(ctx,W,H,M){
+  const G=xtGeo(ctx,W,H), sb=G.sb, mb=G.mb, v=M.v;
+  const ym=Math.max(0.5,1.15*M.hmax);
+  axesT(ctx,sb,0,LSTR,-ym,ym,{title:titleFor(sb,'the string now, y against x','the string now'),ylab:'y, cm',xticks:[],yticks:sparseTicks(-ym,ym,sb.h)});
+  const xs=[], ys=[]; for(let i=0;i<=NSEG;i++){ xs.push(i*DX); ys.push(M.y[i]); }
+  polyline(ctx,sb,xs,ys,0,LSTR,-ym,ym,COL.pos,1.5);
+  const H0=M.hist, T0=M.histT, n=H0.length;
+  const span=n>1?Math.max(T0[n-1]-T0[0]+M.dt,1e-6):HMAX*M.dt;
+  axesT(ctx,mb,0,LSTR,-span,0,{title:n?titleFor(mb,'the last '+n+' lattice steps, time running up','the last '+n+' steps'):'the record, empty',xlab:'x, cm (bead 0 at the left)',ylab:'t − now, s'});
+  if(n===0){ lab(ctx,W,H,mb.x+mb.w/2,mb.y+mb.h/2,'nothing recorded yet: the picture fills as the string runs',COL.dim,LAB_FONT,'center','middle'); }
+  else {
+    const NL=12, bins=[];
+    for(let j=0;j<2*NL;j++) bins.push([]);
+    const tNow=T0[n-1], cw=mb.w/NSEG;
+    for(let k=0;k<n;k++){
+      const tHi=T0[k]-tNow, tLo=tHi-(k>0?T0[k]-T0[k-1]:M.dt);
+      const yTop=mb.y+mb.h*(-tHi)/span, yBot=Math.min(mb.y1,mb.y+mb.h*(-tLo)/span);
+      if(yTop>=mb.y1) continue;
+      const row=H0[k];
+      for(let i=0;i<=NSEG;i++){
+        const u=Math.min(1,Math.abs(row[i])/(M.hmax||1)), j=Math.floor(u*NL);
+        if(j<1) continue;
+        const xL=Math.max(mb.x,mb.x+(i-0.5)*cw), xR=Math.min(mb.x1,mb.x+(i+0.5)*cw);
+        bins[(row[i]>0?0:NL)+Math.min(j,NL)-1].push(xL,yTop,xR-xL+0.6,yBot-yTop+0.6);
+      }
+    }
+    for(let j=0;j<2*NL;j++){
+      const r=bins[j]; if(!r.length) continue;
+      ctx.beginPath(); for(let q=0;q<r.length;q+=4) ctx.rect(r[q],r[q+1],r[q+2],r[q+3]);
+      const lev=((j%NL)+1.5)/NL;
+      ctx.fillStyle=shade(j<NL?COL.pos:COL.dn,Math.pow(Math.min(1,lev),0.7)); ctx.fill();
+    }
+  }
+  /* the characteristics at the current speed */
+  const tc=LSTR/v;
+  for(let c=-span-2*tc;c<=tc;c+=tc){
+    polyline(ctx,mb,[0,LSTR],[c,c+tc],0,LSTR,-span,0,rgba(COL.ref,0.8),1,[5,5]);
+    polyline(ctx,mb,[LSTR,0],[c,c+tc],0,LSTR,-span,0,rgba(COL.ref,0.8),1,[5,5]);
+  }
+  if(n&&M.hmax>0) lab(ctx,W,H,mb.x1-4,mb.y-9,'full colour = ±'+fmt(M.hmax,2)+' cm',COL.dim,SM_FONT,'right','bottom');
+  caption(ctx,mb.x,G.fit.capY,G.fit.txt,G.fit.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  view 3: the reflections — one pulse, three ends, the images        *
+ * ================================================================== */
+const REFL_CAP_FULL='One pulse, A high and w long, goes into three strings at once, with no damping. Green is the lattice; this view moves in whole '
+  +'steps, so every frame is a lattice level. Orange is d’Alembert with an image: the incident pulse (dashed) runs on past the end into the mirror '
+  +'world (shaded), its image (dotted) runs back out, and their sum (the orange halo) goes through every bead. The clamp needs y = 0, so its image is inverted; '
+  +'the ring needs zero slope, so its image is upright, mirrored about bead 59½; the open end has no image at all.';
+const REFL_CAP_SHORT='One pulse, three ends, no damping: green lattice on orange d’Alembert-with-images. Fixed inverts, loose does not, open absorbs.';
+const REFL_XHI=LSTR+2.2;
+function reflGeo(ctx,W,H){
+  const narrow=isNarrow(W), left=62, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H-HINT_H,REFL_CAP_FULL,REFL_CAP_SHORT,capW,stageTop()+30+300);
+  const top=stageTop()+30, avail=fit.capY-40-top, gap=30, h=Math.max(40,(avail-2*gap-18)/3);
+  const strips=[0,1,2].map(k=>box(left,top+18+k*(h+gap),right-left,h));
+  return {fit,strips,narrow};
+}
+/* the incident and reflected parts along the whole drawn range, mirror world included */
+function reflCurves(end,A,w,v,t,n){
+  const Lr=end==='fixed'?LSTR:LLOOSE, sr=end==='fixed'?-1:1, f=tau=>A*tri(tau/w);
+  const xs=[], inc=[], ref=[], sum=[];
+  for(let k=0;k<=n;k++){
+    const x=REFL_XHI*k/n; xs.push(x);
+    let a=0, b=0, rt=1;
+    if(end==='none') a=f(t-x/v);
+    else for(let m=0;m<1000;m++){
+      const t1=t-(2*m*Lr+x)/v, t2=t-(2*(m+1)*Lr-x)/v;
+      if(t1<=0&&t2<=0) break;
+      a+=rt*f(t1); b+=rt*sr*f(t2); rt*=-sr;
+    }
+    inc.push(a); ref.push(b); sum.push(x<=(end==='none'?LSTR:Lr)?a+b:NaN);
+  }
+  return {xs,inc,ref,sum,Lr};
+}
+function drawRefl(ctx,W,H,M){
+  const st=M.st, G=reflGeo(ctx,W,H), A=Math.max(st.amp,0.05), ylo=-2.3*A, yhi=2.3*A, t=M.tR;
+  const TITLES={fixed:['fixed end: y₆₀ = 0, so the image comes back inverted','fixed end'],
+                loose:['loose end: y₆₀ = y₅₉, so the image comes back upright','loose end'],
+                none:['no end: y₆₀ follows y₅₉ one step late, and nothing comes back','no end']};
+  ENDS.forEach((e,k)=>{
+    const b=G.strips[k], last=k===2, C=reflCurves(e,st.amp,st.pw,M.v,t,360), R=M.sum[e];
+    const XL=b.x+b.w*(e==='none'?LSTR:C.Lr)/REFL_XHI;
+    ctx.fillStyle='#0d1322'; ctx.fillRect(XL,b.y,b.x1-XL,b.h);
+    axesT(ctx,b,0,REFL_XHI,ylo,yhi,{title:titleFor(b,TITLES[e][0]+(isFinite(R.r)?'  (r = '+fmt(R.r,3)+')':''),TITLES[e][1]),
+      xticks:last?undefined:[],yticks:[-2*A,-A,0,A,2*A].filter(v=>Math.abs(v)<=2.3*A),yfmt:v=>fmt(v,2),xlab:last?'x, cm (the string ends at 7.5 cm; shaded: the mirror world)':undefined,ylab:k===1?'y, cm':undefined});
+    ctx.save(); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(XL,b.y); ctx.lineTo(XL,b.y1); ctx.strokeStyle=COL.live; ctx.lineWidth=1.2; ctx.stroke(); ctx.restore();
+    polyline(ctx,b,C.xs,C.inc,0,REFL_XHI,ylo,yhi,COL.ref,1.1,[6,4]);
+    if(e!=='none') polyline(ctx,b,C.xs,C.ref,0,REFL_XHI,ylo,yhi,COL.ref,1.1,[2,3]);
+    /* the exact sum lies exactly under the lattice, so it is drawn as an opaque orange halo round it */
+    polyline(ctx,b,C.xs,C.sum,0,REFL_XHI,ylo,yhi,shade(COL.ref,0.55),6);
+    const L=M.lats[e], xs=[], ys=[]; for(let i=0;i<=NSEG;i++){ xs.push(i*DX); ys.push(L.cur[i]); }
+    polyline(ctx,b,xs,ys,0,REFL_XHI,ylo,yhi,COL.pos,1.6);
+    const r=Math.max(1.6,Math.min(3.2,b.w/REFL_XHI*DX*0.36));
+    ctx.beginPath(); for(let i=0;i<=NSEG;i++){ const X=b.x+b.w*xs[i]/REFL_XHI, Y=b.y1-b.h*(ys[i]-ylo)/(yhi-ylo); if(Y>=b.y&&Y<=b.y1){ ctx.moveTo(X+r,Y); ctx.arc(X,Y,r,0,TAU); } }
+    ctx.fillStyle=COL.pos; ctx.fill();
+  });
+  const b0=G.strips[0], sx=b0.w/REFL_XHI, sy=b0.h/(yhi-ylo);
+  lab(ctx,W,H,b0.x1-4,b0.y-9,'step '+M.n+' of '+M.loop+'   vertical ×'+sigf(sy/sx,2),COL.dim,SM_FONT,'right','bottom');
+  caption(ctx,b0.x,G.fit.capY,G.fit.txt,G.fit.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  view 4: the standing waves — the response sweep and the build-up   *
+ * ================================================================== */
+const STAND_CAP_FULL='Top: how hard the string answers the oscillator — the largest steady amplitude anywhere on it, over the driving amplitude A, against '
+  +'the frequency (log scale). Green is this damping, exactly; dashed orange is no damping, which diverges at every resonance fₙ (cyan ticks). '
+  +'Drag across the top panel to set f. Bottom: the lattice driven from rest at f (green) growing into the exact steady state, whose envelope '
+  +'±|Yᵢ| is orange; the vertical scale is stretched by the printed factor.';
+const STAND_CAP_SHORT='Top: the steady response against f (drag to set f). Bottom: the string from rest (green) inside the exact envelope (orange).';
+function standGeo(ctx,W,H){
+  const narrow=isNarrow(W), left=64, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H-HINT_H,STAND_CAP_FULL,STAND_CAP_SHORT,capW,stageTop()+30+260);
+  const top=stageTop()+34, avail=fit.capY-top-44, gap=58;
+  const th=Math.max(60,Math.floor((avail-gap)*0.46));
+  return {fit,tb:box(left,top+14,right-left,th),bb:box(left,top+14+th+gap,right-left,Math.max(50,avail-th-gap-14)),narrow};
+}
+function freqAt(tb,x){ return Math.round(clamp((x-tb.x)/tb.w,0,1)*FMAX*100)/100; }
+function drawStand(ctx,W,H,M){
+  const st=M.st, G=standGeo(ctx,W,H), tb=G.tb, bb=G.bb, R=M.resp;
+  let pk=1; for(const g of R.gb) if(isFinite(g)) pk=Math.max(pk,g);
+  const ly1=Math.log10(Math.min(1000,Math.max(3,1.6*pk))), ly0=Math.log10(0.5);
+  const yt=[0,1,2,3].filter(v=>v<=ly1+1e-9);
+  axesT(ctx,tb,0,FMAX,ly0,ly1,{title:titleFor(tb,'the steady response: largest |Y| on the string over A, against the driving frequency','largest |Y|/A against f'),
+    xlab:'driving frequency f, Hz',ylab:'|Y|max / A',yticks:yt,yfmt:v=>String(Math.round(Math.pow(10,v)))});
+  const lg=a=>a.map(g=>isFinite(g)&&g>0?Math.log10(g):NaN);
+  polyline(ctx,tb,R.fs,lg(R.gb),0,FMAX,ly0,ly1,COL.pos,1.7);
+  polyline(ctx,tb,R.fs,lg(R.g0),0,FMAX,ly0,ly1,COL.ref,1.1,[5,4]);
+  if(!R.fn.length) lab(ctx,W,H,tb.x+tb.w/2,tb.y+tb.h*0.35,'no end: nothing comes back to pile up, so there are no resonances — the response is flat at A',COL.dim,LAB_FONT,'center','middle');
+  ctx.beginPath();
+  for(const f of R.fn){ const X=tb.x+tb.w*f/FMAX; ctx.moveTo(X,tb.y); ctx.lineTo(X,tb.y+8); }
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1.4; ctx.stroke();
+  R.fn.forEach((f,k)=>{ if(R.fn.length<=12||k%2===0) lab(ctx,W,H,tb.x+tb.w*f/FMAX,tb.y+10,String(k+1),COL.struct,SM_FONT,'center','top'); });
+  const Xf=tb.x+tb.w*st.freq/FMAX, gA=M.Smax/Math.max(st.amp,1e-300);
+  ctx.save(); ctx.setLineDash([3,3]); ctx.beginPath(); ctx.moveTo(Xf,tb.y); ctx.lineTo(Xf,tb.y1); ctx.strokeStyle=rgba(COL.live,0.7); ctx.lineWidth=1; ctx.stroke(); ctx.restore();
+  if(st.amp>0&&isFinite(gA)) marker(ctx,tb,0,FMAX,ly0,ly1,st.freq,Math.log10(Math.max(gA,1)),COL.live);
+  /* the string */
+  const ym=Math.max(0.05,1.15*Math.max(M.Smax,M.latMax));
+  axesT(ctx,bb,0,LSTR,-ym,ym,{title:titleFor(bb,'the string at '+fmt(st.freq,2)+' Hz: the lattice from rest inside the exact envelope','the string at '+fmt(st.freq,2)+' Hz'),
+    xlab:'x, cm',ylab:'y, cm',yticks:sparseTicks(-ym,ym,bb.h)});
+  const xs=[], up=[], dn=[], ys=[]; for(let i=0;i<=NSEG;i++){ xs.push(i*DX); up.push(M.env[i]); dn.push(-M.env[i]); ys.push(M.y[i]); }
+  ctx.beginPath();
+  for(let i=0;i<=NSEG;i++){ const X=bb.x+bb.w*xs[i]/LSTR, Y=bb.y1-bb.h*(clamp(up[i],-ym,ym)+ym)/(2*ym); if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y); }
+  for(let i=NSEG;i>=0;i--){ const X=bb.x+bb.w*xs[i]/LSTR, Y=bb.y1-bb.h*(clamp(dn[i],-ym,ym)+ym)/(2*ym); ctx.lineTo(X,Y); }
+  ctx.closePath(); ctx.fillStyle=rgba(COL.ref,0.1); ctx.fill();
+  polyline(ctx,bb,xs,up,0,LSTR,-ym,ym,COL.ref,1.2); polyline(ctx,bb,xs,dn,0,LSTR,-ym,ym,COL.ref,1.2);
+  polyline(ctx,bb,xs,ys,0,LSTR,-ym,ym,COL.pos,1.6);
+  { const r=Math.max(1.6,Math.min(3.2,bb.w/LSTR*DX*0.36)); ctx.beginPath();
+    for(let i=0;i<=NSEG;i++){ const X=bb.x+bb.w*xs[i]/LSTR, Y=bb.y1-bb.h*(ys[i]+ym)/(2*ym); if(Y>=bb.y&&Y<=bb.y1){ ctx.moveTo(X+r,Y); ctx.arc(X,Y,r,0,TAU); } }
+    ctx.fillStyle=COL.pos; ctx.fill(); }
+  ctx.beginPath();
+  for(const i of M.nodes){ const X=bb.x+bb.w*i*DX/LSTR, Y=bb.y1-bb.h*0.5; ctx.moveTo(X,Y-6); ctx.lineTo(X,Y+6); }
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=1.6; ctx.stroke();
+  const sx=bb.w/LSTR, sy=bb.h/(2*ym);
+  lab(ctx,W,H,bb.x1-4,bb.y-9,'vertical ×'+sigf(sy/sx,2)+'   step '+M.n+' from rest',COL.dim,SM_FONT,'right','bottom');
+  if(!(M.b>0)) lab(ctx,W,H,bb.x+6,bb.y+6,'no damping: nothing takes energy out, so at a resonance the amplitude grows without end',COL.ref,SM_FONT,'left','top');
+  caption(ctx,tb.x,G.fit.capY,G.fit.txt,G.fit.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  view 5: the dispersion — the lattice, the continuum, a bead chain  *
+ * ================================================================== */
+const DISP_CAP_FULL='Left: frequency against wavenumber across the whole zone (kΔx from 0 to π: two beads a wavelength at the edge). Orange dashed is the '
+  +'continuous string, ω = vk. Green is the lattice at Courant number α = vΔt/Δx (PhET runs at α = 1, on the orange line). Violet is a '
+  +'real chain of beads on springs, ω = (2v/Δx) sin(kΔx/2), the α → 0 limit. Right: phase (dashed) and group (solid) speed over v. '
+  +'Bottom: one triangular pulse after 5.4 cm on each; only the α = 1 lattice keeps its shape.';
+const DISP_CAP_NARROW='Top: frequency against wavenumber across the zone. Orange dashed is the continuous string, ω = vk; green is the lattice at Courant '
+  +'number α (PhET’s α = 1 lies on the orange line); violet is a real bead chain, the α → 0 limit. Bottom: one triangular pulse after '
+  +'5.4 cm on each; only the α = 1 lattice keeps its shape. (The speeds panel needs a wider window.)';
+const DISP_CAP_SHORT='ω(k): continuum (orange), the lattice at α (green; PhET’s α = 1 is exact), a bead chain (violet); below, the pulse after 5.4 cm.';
+function dispGeo(ctx,W,H){
+  const narrow=isNarrow(W), left=64, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H-HINT_H,narrow?DISP_CAP_NARROW:DISP_CAP_FULL,DISP_CAP_SHORT,capW,stageTop()+30+280);
+  const top=stageTop()+34, avail=fit.capY-top-44, gapV=58, gapH=74;
+  const th=Math.max(70,Math.floor((avail-gapV)*0.55)), span=right-left;
+  if(narrow) return {fit,narrow,wb:box(left,top+14,span,th),sb:null,pb:box(left,top+14+th+gapV,span,Math.max(50,avail-th-gapV-14))};
+  const w1=Math.floor((span-gapH)*0.55);
+  return {fit,narrow,wb:box(left,top+14,w1,th),sb:box(left+w1+gapH,top+14,span-w1-gapH,th),pb:box(left,top+14+th+gapV,span,Math.max(50,avail-th-gapV-14))};
+}
+function drawDisp(ctx,W,H,M){
+  const D=M.D, st=M.st, G=dispGeo(ctx,W,H), wb=G.wb, sb=G.sb, pb=G.pb, PI1=Math.PI;
+  axesT(ctx,wb,0,PI1,0,PI1*1.04,{title:titleFor(wb,'ωΔx/v against kΔx, the whole zone','ω(k)'),xlab:'kΔx, rad per bead',ylab:'ωΔx / v',
+    xticks:[0,0.5,1,1.5,2,2.5,3],yticks:[0,1,2,3]});
+  polyline(ctx,wb,D.K,D.chain,0,PI1,0,PI1*1.04,COL.chain,1.6);
+  polyline(ctx,wb,D.K,D.om,0,PI1,0,PI1*1.04,COL.pos,1.8);
+  polyline(ctx,wb,D.K,D.cont,0,PI1,0,PI1*1.04,COL.ref,1.3,[6,4]);      /* on top: at a = 1 it lies ON the green */
+  if(isFinite(D.kOsc)) marker(ctx,wb,0,PI1,0,PI1*1.04,D.kOsc,omegaNorm(D.kOsc,D.a,D.ba),COL.live);
+  legendAuto(ctx,wb,[[COL.pos,'lattice, α = '+fmt(D.a,2)],[COL.ref,'continuum, ω = vk'],[COL.chain,'bead chain (α → 0)'],[COL.live,'the oscillator, '+fmt(st.freq,2)+' Hz']]);
+  if(sb){
+    axesT(ctx,sb,0,PI1,0,1.15,{title:titleFor(sb,'phase and group speed over v','speeds / v'),xlab:'kΔx',ylab:'speed / v',xticks:[0,1,2,3],yticks:[0,0.25,0.5,0.75,1],yfmt:v=>fmt(v,2)});
+    const vpc=D.K.map(k=>k>0?2*Math.sin(k/2)/k:1);
+    polyline(ctx,sb,D.K,vpc,0,PI1,0,1.15,COL.chain,1.2,[4,3]);
+    polyline(ctx,sb,D.K,D.vgChain,0,PI1,0,1.15,COL.chain,1.6);
+    polyline(ctx,sb,D.K,D.vp,0,PI1,0,1.15,COL.pos,1.2,[4,3]);
+    polyline(ctx,sb,D.K,D.vg,0,PI1,0,1.15,COL.pos,1.8);
+    polyline(ctx,sb,[0,PI1],[1,1],0,PI1,0,1.15,COL.ref,1.2,[6,4]);
+  }
+  const Ap=Math.max(st.amp,0.05), plo=-0.4*Ap, phi=1.18*Ap, xs=[];
+  for(let i=0;i<=NSEG;i++) xs.push(i*DX);
+  axesT(ctx,pb,0,LSTR,plo,phi,{title:titleFor(pb,'one pulse, undamped, after its centre has run '+fmt(D.xcen,2)+' cm, on each','the pulse after '+fmt(D.xcen,2)+' cm'),
+    xlab:'x, cm',ylab:'y, cm',yticks:sparseTicks(plo,phi,pb.h)});
+  const xf=[], yf=[]; for(let k=0;k<=600;k++){ const x=LSTR*k/600; xf.push(x); yf.push(st.amp*tri((D.P.t-x/D.v)/st.pw)); }
+  polyline(ctx,pb,xs,D.Pc.y.slice(0,NSEG+1),0,LSTR,plo,phi,COL.chain,1.6);
+  polyline(ctx,pb,xs,D.P.y.slice(0,NSEG+1),0,LSTR,plo,phi,COL.pos,1.7);
+  polyline(ctx,pb,xf,yf,0,LSTR,plo,phi,COL.ref,1.2,[5,4]);             /* on top, dashed: at a = 1 the lattice is under it */
+  const r=2.2;
+  ctx.beginPath(); for(let i=0;i<=NSEG;i++){ const X=pb.x+pb.w*xs[i]/LSTR, Y=pb.y1-pb.h*(D.P.y[i]-plo)/(phi-plo); if(Y>=pb.y&&Y<=pb.y1){ ctx.moveTo(X+r,Y); ctx.arc(X,Y,r,0,TAU); } }
+  ctx.fillStyle=COL.pos; ctx.fill();
+  legendAuto(ctx,pb,[[COL.ref,'exact: the triangle moved at v (dashed)'],[COL.pos,'the lattice at α = '+fmt(D.a,2)],[COL.chain,'the bead chain']]);
+  caption(ctx,wb.x,G.fit.capY,G.fit.txt,G.fit.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  dispatch and the scene                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LABELS=[]; POLY_SEGS=[]; LEGEND_RECTS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='str') drawStr(ctx,W,H,M);
+  else if(M.view==='xt') drawXT(ctx,W,H,M);
+  else if(M.view==='refl') drawRefl(ctx,W,H,M);
+  else if(M.view==='stand') drawStand(ctx,W,H,M);
+  else drawDisp(ctx,W,H,M);
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame of dtWall seconds: the live string in views 1-2, each demo in its own view */
+  S.step=function(dtWall){
+    if(!ST.running) return false;
+    const dts=(dtWall||0)*simFactor(ST);
+    if(!(dts>0)) return false;
+    const v=ST.view;
+    if(v==='str'||v==='xt'){ liveAdvance(ST,dts); return true; }
+    if(v==='refl') return reflAdvance(ST,dts)>0;
+    if(v==='stand'){ standAdvance(ST,dts); return true; }
+    return false;
+  };
+  /* the pointer: the wrench, the pulse generator and PhET's three tools on the string;
+     the frequency on the standing waves' response panel */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    const ctx=canvas.getContext('2d');
+    if(ST.view==='str'){
+      const G=strGeo(ctx,S.W,S.H,buildModel()), map=G.map, wx=map.wx(x), wy=map.wy(y), l=G.lim;
+      if(type==='down'){
+        if(ST.stopwatch){ const r=swRect(map,ST,S.W,S.H); if(x>=r.x&&x<=r.x+r.w&&y>=r.y&&y<=r.y+r.h){ DRAG.what='sw'; DRAG.ox=x-r.x; DRAG.oy=y-r.y; return true; } }
+        if(ST.rulers){
+          if(inRect(wx,wy,rulerVRect(ST))){ DRAG.what='rv'; DRAG.ox=ST.rvX-wx; DRAG.oy=ST.rvY-wy; return true; }
+          if(inRect(wx,wy,rulerHRect(ST))){ DRAG.what='rh'; DRAG.ox=ST.rhX-wx; DRAG.oy=ST.rhY-wy; return true; }
+        }
+        if(ST.refline&&Math.abs(y-map.Y(ST.refY))<=7&&wx>=-0.6&&wx<=LSTR+0.4){ DRAG.what='ref'; DRAG.oy=ST.refY-wy; return true; }
+        if(ST.mode==='manual'&&inRect(wx,wy,wrenchRect(LIVE.wr))){ DRAG.what='wrench'; DRAG.oy=LIVE.wr-wy; LIVE.arrows=false; return true; }
+        if(ST.mode==='pulse'&&inRect(wx,wy,GEN_RECT)){ const sent=sendPulse(ST); if(sent) ST.running=true; return sent; }
+        return false;
+      }
+      if(type==='move'){
+        if(DRAG.what==='wrench'){ LIVE.wr=clamp(wy+DRAG.oy,-AMAX,AMAX); ST.running=true; return true; }   /* PhET: the wrench also presses play */
+        if(DRAG.what==='rh'){ ST.rhX=clamp(wx+DRAG.ox,l[0]-RULER_H+0.6,l[1]-0.6); ST.rhY=clamp(wy+DRAG.oy,l[2]+0.5,l[3]); return true; }
+        if(DRAG.what==='rv'){ ST.rvX=clamp(wx+DRAG.ox,l[0],l[1]-0.5); ST.rvY=clamp(wy+DRAG.oy,l[2]-RULER_V+0.6,l[3]-0.6); return true; }
+        if(DRAG.what==='ref'){ ST.refY=clamp(wy+DRAG.oy,l[2]+0.05,l[3]-0.05); return true; }
+        if(DRAG.what==='sw'){ ST.swX=map.wx(clamp(x-DRAG.ox,0,S.W-SW_W)); ST.swY=map.wy(clamp(y-DRAG.oy,0,S.H-SW_H)); return true; }
+      }
+      return false;
+    }
+    if(ST.view==='stand'){
+      const tb=standGeo(ctx,S.W,S.H).tb;
+      if(type==='down'){ if(x>=tb.x&&x<=tb.x1&&y>=tb.y&&y<=tb.y1){ DRAG.what='freq'; ST.freq=freqAt(tb,x); return true; } return false; }
+      if(type==='move'&&DRAG.what==='freq'){ ST.freq=freqAt(tb,x); return true; }
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    st.view=k;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>{
+    tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab2));
+  });
+
+  const rows={};
+  function slider(key,lab2,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function checkbox(key,lab2,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        const was=st[key]; st[key]=o.id; if(onPick) onPick(o,was);
+        [].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+        syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS=[];
+  function trackChips(g,list,key){ CHIPROWS.push([g,list,key]); }
+  function btn(label,fn){ return h('button',{onclick:()=>{ fn(); syncPanel(); dirty=true; refresh(); }},label); }
+
+  /* PhET: switching the wave mode restarts the string; switching to the fixed end zeroes bead 60 */
+  const gWave=h('div',{class:'grp'},h('h3',null,'the wave'));
+  const modeChips=chipRow(MODE_LIST,'mode',(o,was)=>{ if(o.id!==was) liveRestart(); }); gWave.appendChild(modeChips); trackChips(gWave,MODE_LIST,'mode');
+  const pulseBtn=h('div',{class:'btnrow'},btn('send a pulse',()=>{ if(sendPulse(st)) st.running=true; }));
+  gWave.appendChild(pulseBtn);
+  gWave.appendChild(slider('amp','amplitude, cm',0,AMAX,0.01,v=>fmt(v,2)+' cm'));
+  gWave.appendChild(slider('freq','frequency, Hz',0,FMAX,0.01,v=>fmt(v,2)+' Hz'));
+  gWave.appendChild(slider('pw','pulse width, s',WMIN,WMAX,0.01,v=>fmt(v,2)+' s'));
+  const waveTag=h('div',{class:'tag'}); gWave.appendChild(waveTag);
+
+  const gString=h('div',{class:'grp'},h('h3',null,'the string'));
+  gString.appendChild(slider('damping','damping',0,1,0.01,v=>fmt(v,2)));
+  gString.appendChild(slider('tension','tension (relative)',TMIN,TMAX,0.001,v=>fmt(v,3)));
+  const endChips=chipRow(END_LIST,'end',o=>{ if(o.id==='fixed'){ LIVE.lat.cur[NSEG]=0; LIVE.lat.prev[NSEG]=0; } });
+  gString.appendChild(endChips); trackChips(gString,END_LIST,'end');
+  const stringTag=h('div',{class:'tag'}); gString.appendChild(stringTag);
+
+  const restartView=()=>{ if(st.view==='refl') reflReset(st); else if(st.view==='stand') standReset(st); else liveRestart(); };
+  const stepView=()=>{ if(st.view==='refl') reflStep(st); else if(st.view==='stand') standStep(st); else liveStepButton(st); };
+  const gTime=h('div',{class:'grp'},h('h3',null,'time'));
+  gTime.appendChild(h('div',{class:'checks'},checkbox('running','time runs')));
+  const speedChips=chipRow(SPEED_LIST,'speed'); gTime.appendChild(speedChips); trackChips(gTime,SPEED_LIST,'speed');
+  gTime.appendChild(h('div',{class:'btnrow'},btn('step',stepView),btn('restart string',restartView),
+    btn('reset all',()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; liveRestart(); LIVE.sw=0; LIVE.swOn=false; LIVE.arrows=true;
+      reflReset(st); standReset(st); syncChips(); })));
+  const timeTag=h('div',{class:'tag'}); gTime.appendChild(timeTag);
+
+  const gTools=h('div',{class:'grp'},h('h3',null,'tools'));
+  gTools.appendChild(h('div',{class:'checks'},checkbox('rulers','rulers'),checkbox('stopwatch','stopwatch'),checkbox('refline','reference line')));
+  const swBtns=h('div',{class:'btnrow'},btn('start / stop',()=>{ LIVE.swOn=!LIVE.swOn; }),btn('clear',()=>{ LIVE.sw=0; }));
+  gTools.appendChild(swBtns);
+  const toolTag=h('div',{class:'tag'}); gTools.appendChild(toolTag);
+
+  const gLat=h('div',{class:'grp'},h('h3',null,'the lattice'));
+  gLat.appendChild(slider('alpha','Courant number α',0.05,1,0.01,v=>fmt(v,2)));
+  const latTag=h('div',{class:'tag'}); gLat.appendChild(latTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Wave on a String (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). '
+      +'New code; no PhET code or assets. PhET&rsquo;s values (61 beads 0.125 cm apart, 50 steps a second at full tension, &beta; = 0.1 &times; damping, '
+      +'the slider ranges, the end rules, the triangular pulse) are read from its build 1.2.4 and its doc/model.md; everything else is exact and pinned '
+      +'in selfTest to build/wave-on-a-string/derive.py (d&rsquo;Alembert image series, numpy.roots, a dense and a tridiagonal solve, brute-force runs, scipy).'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the physics'),h('div',{id:'phys'}));
+  [gWave,gString,gTime,gTools,gLat,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g,list,key] of CHIPROWS){
+      const cws=g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length!==list.length) continue;
+        let match=0;
+        for(let i=0;i<list.length;i++) if(cw.children[i].textContent===list[i].name) match++;
+        if(match===list.length)
+          [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':''));
+      }
+    }
+  }
+  /* a row the view ignores is hidden, never left live and inert */
+  function syncPanel(){
+    const v=st.view, live=(v==='str'||v==='xt');
+    gWave.hidden=false; gString.hidden=false;
+    modeChips.hidden=!live; pulseBtn.hidden=!(live&&st.mode==='pulse');
+    rows.amp.row.hidden=live&&st.mode==='manual';
+    rows.freq.row.hidden=!((live&&st.mode==='osc')||v==='stand'||v==='disp');
+    rows.pw.row.hidden=!((live&&st.mode==='pulse')||v==='refl'||v==='disp');
+    rows.damping.row.hidden=(v==='refl');
+    endChips.hidden=!(live||v==='stand');
+    gTime.hidden=(v==='disp');
+    gTools.hidden=(v!=='str');
+    swBtns.hidden=!st.stopwatch;
+    gLat.hidden=(v!=='disp');
+    for(const k in rows) rows[k].sync();
+    waveTag.innerHTML=live?(st.mode==='manual'?'drag the wrench on the canvas (or &uarr; &darr;); PhET&rsquo;s wrench stops at &plusmn;1.3 cm'
+      :st.mode==='osc'?'A sin 2&pi;ft at bead 0, rising first; the phase runs on when f changes'
+      :'a triangle, A high and w long; click the generator, press p, or the button')
+      :v==='refl'?'the pulse fed to all three strings':v==='stand'?'the oscillator driving the run; drag the top panel to set f':'the pulse in the bottom panel; f marks the oscillator on &omega;(k)';
+    stringTag.innerHTML='v = '+fmt(speedOf(st.tension),3)+' cm/s, &Delta;t = '+sigf(1000*dtOf(st.tension),3)+' ms'+(v==='refl'?'; this view is undamped':'')
+      +' &nbsp; (PhET&rsquo;s own slider, 0.2&ndash;0.8, would give '+(st.tension>=0.2?fmt(phetRate(st.tension)*DX,3)+' cm/s':'&mdash; below its range')+')';
+    timeTag.innerHTML='space runs/pauses &nbsp; <b>.</b> steps &nbsp; <b>r</b> restarts &nbsp; 1&ndash;5 switch views'+(st.speed==='slow'?' &nbsp; slow motion: &times;0.25':'');
+    toolTag.innerHTML='drag the rulers, the stopwatch and the reference line on the canvas';
+    latTag.innerHTML='PhET runs at &alpha; = 1; below it the leapfrog is dispersive, and &alpha; &rarr; 0 is a bead chain';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=st.view==='str'?(st.mode==='manual'?'drag the wrench':st.mode==='pulse'?'click the generator or press p':'the oscillator runs')+' · space pauses · 1–5 switch views'
+        :st.view==='stand'?'drag the top panel to set f · space pauses · 1–5 switch views':'space pauses · 1–5 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; syncPanel(); }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel(); roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ restartView(); dirty=true; refresh(); }
+    else if(e.key==='.'){ stepView(); dirty=true; refresh(); }
+    else if(e.key==='p'){ if(sendPulse(st)){ st.running=true; syncPanel(); dirty=true; refresh(); } }
+    else if((e.key==='ArrowUp'||e.key==='ArrowDown')&&st.view==='str'&&st.mode==='manual'){
+      e.preventDefault(); LIVE.wr=clamp(LIVE.wr+(e.key==='ArrowUp'?0.1:-0.1),-AMAX,AMAX); LIVE.arrows=false; st.running=true; syncPanel(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0, last=0;
+  function frameLoop(tm){
+    frameN++;
+    const dtw=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    const advanced=S.step(dtw);
+    if(advanced||dirty){
+      dirty=false;
+      try{ S.draw(); if(advanced&&frameN%8===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  str:'PhET&rsquo;s Wave on a String is a chain of 61 beads, and this is its model exactly. Each bead moves only up and down, and at every '
+    +'step it goes to the sum of its two neighbours&rsquo; positions less its own previous position, with a little damping. That rule is the '
+    +'wave equation on a lattice, and PhET runs it at the one time step where it is exact: the step in which a wave moves precisely one bead, '
+    +'so the Courant number &alpha; = v&Delta;t/&Delta;x is 1. The tension therefore never changes the rule. It changes how often the rule is '
+    +'applied, 10 to 50 times a second, and that is the wave speed v = &radic;(T/&mu;). Shake the wrench, or switch on the oscillator or the '
+    +'pulse generator, and watch what the far end does with what arrives: the clamp sends it back upside down, the ring on its pole sends it '
+    +'back upright, and with no end it simply leaves. Damping keeps the same fraction, e<sup>&minus;atanh &beta;</sup>, at every bead of travel, '
+    +'whatever the tension.',
+  xt:'d&rsquo;Alembert&rsquo;s solution of the wave equation says that any motion of a uniform string is two shapes sliding in opposite '
+    +'directions at the wave speed: y = f(x &minus; vt) + g(x + vt). Plot the string&rsquo;s height against position and time and each shape '
+    +'becomes a stripe whose tilt is set by v. This view records the string you are driving on the first tab, one row per lattice step, newest at the '
+    +'top. On PhET&rsquo;s lattice the statement is exact rather than approximate: at &alpha; = 1 every level is y<sub>i</sub><sup>n</sup> = '
+    +'F(n &minus; i) + G(n + i), two sequences shifted one bead per step, which is why the stripes are straight to the last pixel. Watch a pulse '
+    +'reach the clamp: the green stripe turns back and comes out cyan, because the reflected wave is inverted. At the ring it keeps its colour; '
+    +'with no end it leaves the picture.',
+  refl:'Why does a fixed end invert a pulse and a loose end not? Extend the string past its end into an imaginary mirror world, and send '
+    +'an image pulse in from the far side to meet the real one at the end. If the end must stay at zero, the image has to be the real pulse '
+    +'upside down, so that the two cancel there; if the end must have zero slope, as a massless ring free to slide has, the image has to be '
+    +'upright, so that their slopes cancel. Once the real pulse has run into the mirror world only the image is left on the string, and that '
+    +'is the reflection. Here one pulse goes into three strings at once, and the green lattice sits on the orange image construction to the '
+    +'last digit, because at &alpha; = 1 the lattice is the exact solution sampled at the beads. One detail shows: PhET&rsquo;s loose end is '
+    +'the rule y<sub>60</sub> = y<sub>59</sub>, which puts the mirror half a bead in, at bead 59&frac12;, not at the ring.',
+  stand:'The oscillator at bead 0 is also a wall: whatever comes back along the string is reflected there too, inverted, as from a clamp. '
+    +'So a wave that fits a whole number of round trips arrives back in step with the next push, and the pushes add up. That is a resonance. '
+    +'With a fixed far end it happens when the string holds a whole number of half wavelengths, f<sub>n</sub> = nv/2L; with a loose end, an '
+    +'odd number of quarter wavelengths, f<sub>n</sub> = (2n &minus; 1)v/4L&prime;. The top panel is the exact steady answer of PhET&rsquo;s '
+    +'lattice across PhET&rsquo;s 0&ndash;3 Hz: the biggest amplitude anywhere on the string, as a multiple of the driving amplitude. With no '
+    +'damping it is infinite at every f<sub>n</sub>; with damping &beta; per step the peak is close to 1/(N&beta;), N = 60, so lowering the damping '
+    +'sharpens the peaks. The bottom panel drives the lattice from rest and shows it growing into that steady state as the transient dies, '
+    +'e<sup>&minus;n atanh &beta;</sup>. With no end the response is flat: nothing comes back to pile up.',
+  disp:'A real chain of beads on springs is dispersive: short waves travel slower than long ones, and a wave two beads long does not travel '
+    +'at all. Its frequency is &omega; = (2v/&Delta;x) sin(k&Delta;x/2), the violet curve, which bends away from the straight line of a '
+    +'continuous string. PhET&rsquo;s string is drawn as beads but does not behave like a chain. It is the leapfrog lattice at Courant number 1, '
+    +'whose dispersion relation sin(&omega;&Delta;t/2) = &alpha; sin(k&Delta;x/2) is exactly &omega; = vk when &alpha; = 1: the error of '
+    +'stepping in time cancels the error of the beads, at every wavelength up to the zone edge. That is why a PhET pulse never spreads or '
+    +'rings, however sharp it is. Lower &alpha; to see what a smaller time step would give: the green curve bends toward the chain, the '
+    +'phase and group speeds fall, and the pulse sheds ripples behind it; &alpha; &rarr; 0 is the chain itself. Damping adds a little '
+    +'dispersion of its own (the telegrapher&rsquo;s equation): waves longer than 2&pi;&Delta;x/&beta; are overdamped, 39 cm at PhET&rsquo;s '
+    +'default, far longer than the string.',
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  str:'<h4>the lattice</h4>'
+    +EQ(1,'(1+&beta;) y<sub>i</sub><sup>n+1</sup> = (&beta;&minus;1) y<sub>i</sub><sup>n&minus;1</sup> + 2(1&minus;&alpha;&sup2;) y<sub>i</sub><sup>n</sup> + &alpha;&sup2;(y<sub>i+1</sub><sup>n</sup> + y<sub>i&minus;1</sub><sup>n</sup>)')
+    +EQ(2,'&alpha; = '+FR('v&Delta;t','&Delta;x')+' = 1 &nbsp;&rArr;&nbsp; (1+&beta;) y<sub>i</sub><sup>n+1</sup> = y<sub>i+1</sub><sup>n</sup> + y<sub>i&minus;1</sub><sup>n</sup> &minus; (1&minus;&beta;) y<sub>i</sub><sup>n&minus;1</sup>')
+    +EQ(3,'<span class="rm">fixed</span> y<sub>60</sub> = 0, &nbsp; <span class="rm">loose</span> y<sub>60</sub> = y<sub>59</sub>, &nbsp; <span class="rm">no end</span> y<sub>60</sub><sup>n+1</sup> = y<sub>59</sub><sup>n</sup>')
+    +EQ(4,'v = v<sub>max</sub>&radic;(T/T<sub>max</sub>) = 6.25 cm/s &times; &radic;(T/0.8), &nbsp; &Delta;t = &Delta;x/v')
+    +EQ(5,'|z| = &radic;'+FR('1&minus;&beta;','1+&beta;')+' = e<sup>&minus;atanh &beta;</sup> <span class="rm">per step, decay length</span> &Delta;x/atanh &beta;')
+    +'<p>PhET&rsquo;s own tension slider maps &radic;T linearly onto 10&ndash;50 steps a second, so its speed changes 5:1 over a 4:1 tension '
+    +'range where &radic;T gives 2:1. The remake keeps the 5:1 speed range and makes it the law [4], so its slider runs 0.032&ndash;0.8. '
+    +'PhET&rsquo;s damping is per step, so it fixes the loss per bead travelled [5], whatever the tension: 6.25 cm to e<sup>&minus;1</sup> at the default.</p>'
+    +'<div class="cite">pins: v and &Delta;t at six tensions, PhET&rsquo;s map at 0.2, 0.5, 0.8; the arrival step and the centroid speed of a pulse; '
+    +'|z| and the decay length &mdash; derive.py</div>',
+  xt:'<h4>d&rsquo;Alembert, on the lattice</h4>'
+    +EQ(1,'y<sub>tt</sub> = v&sup2; y<sub>xx</sub> &nbsp;&rArr;&nbsp; y = f(x &minus; vt) + g(x + vt)')
+    +EQ(2,'y<sub>i</sub><sup>n</sup> = F(n &minus; i) + G(n + i): &nbsp; F(n&minus;i&minus;1) + F(n&minus;i+1) &minus; F(n&minus;1&minus;i) = F(n+1&minus;i) &nbsp;<span class="rm">exactly</span>')
+    +'<p>At &alpha; = 1 and no damping any two lattice levels split exactly into a right-moving and a left-moving sequence, so the lattice carries '
+    +'d&rsquo;Alembert&rsquo;s solution with no error at all; with damping each stripe fades by e<sup>&minus;atanh &beta;</sup> per bead.</p>'
+    +'<div class="cite">the same rows are what the first tab draws; the record keeps '+HMAX+' levels</div>',
+  refl:'<h4>the image construction</h4>'
+    +EQ(1,'<span class="rm">fixed:</span> y = f(t &minus; x/v) &minus; f(t &minus; (2L &minus; x)/v) &nbsp;&rArr;&nbsp; y(L) = 0')
+    +EQ(2,'<span class="rm">loose:</span> y = f(t &minus; x/v) + f(t &minus; (2L&prime; &minus; x)/v), &nbsp; L&prime; = (N &minus; &frac12;)&Delta;x &nbsp;&rArr;&nbsp; y<sub>N</sub> = y<sub>N&minus;1</sub>')
+    +EQ(3,'<span class="rm">the driven end reflects inverted:</span> y = &Sigma;<sub>m</sub> (&plusmn;1)<sup>m</sup>[f(t &minus; (2mL + x)/v) &plusmn; f(t &minus; (2(m+1)L &minus; x)/v)]')
+    +EQ(4,'<span class="rm">no end:</span> y<sub>N</sub><sup>n+1</sup> = y<sub>N&minus;1</sub><sup>n</sup> &nbsp; <span class="rm">is exact for</span> F(n &minus; i) <span class="rm">at &alpha; = 1: nothing comes back</span>')
+    +'<p>Every image argument is a whole number of steps, 2N for the clamp and 2N &minus; 1 for the ring, so the series is exact on the lattice. '
+    +'Putting the ring&rsquo;s mirror at bead 60 instead of 59&frac12; is wrong by 0.06 cm at the default pulse.</p>'
+    +'<div class="cite">pins: max |lattice &minus; series| &lt; 1e&minus;13 (derive: 1e&minus;14) for all three ends at two parameter sets, one incommensurate; '
+    +'bead values at chosen steps; the reflected extremes &minus;0.72, +0.72, 0 &mdash; derive.py</div>',
+  stand:'<h4>the driven steady state</h4>'
+    +EQ(1,'y<sub>i</sub><sup>n</sup> = Im(Y<sub>i</sub> e<sup>in&theta;</sup>), &nbsp; &theta; = 2&pi;f&Delta;t, &nbsp; Y<sub>i+1</sub> + Y<sub>i&minus;1</sub> = 2(cos &theta; + i&beta; sin &theta;) Y<sub>i</sub>')
+    +EQ(2,'Y<sub>i</sub> = p&lambda;<sup>i</sup> + q&lambda;<sup>N&minus;i</sup>, &nbsp; &lambda;&sup2; &minus; 2C&lambda; + 1 = 0, |&lambda;| &lt; 1, &nbsp; Y<sub>0</sub> = A <span class="rm">and the end</span>')
+    +EQ(3,'<span class="rm">fixed:</span> sin N&theta; = 0 &rArr; f<sub>n</sub> = '+FR('n','2N&Delta;t')+' = '+FR('nv','2L')+'; &nbsp; <span class="rm">loose:</span> cos(N&minus;&frac12;)&theta; = 0 &rArr; f<sub>n</sub> = '+FR('(2n&minus;1)v','4L&prime;'))
+    +EQ(4,'<span class="rm">at a resonance</span> max|Y|/A &rarr; 1/(N&beta;) <span class="rm">as &beta; &rarr; 0</span>')
+    +EQ(5,'<span class="rm">no end:</span> |r| = '+FR('|z&lambda; &minus; 1|','|&lambda;(&lambda; &minus; z)|')+' &asymp; '+FR('&beta;','2 sin &theta;'))
+    +'<p>[2] is checked against a tridiagonal solve of the same equations and against a brute-force lattice run of thousands of steps; the three '
+    +'agree to within 3e&minus;11. The absorber leaks: at the default 1.5 Hz and damping it sends back 5.4 %, which is PhET&rsquo;s own &ldquo;greatly '
+    +'reduces but does not perfectly eliminate&rdquo;.</p>'
+    +'<div class="cite">pins: six steady states (|Y| at four beads, Y<sub>30</sub>, the maximum), the peak heights 166.7 and 1666.7 at &beta; = 1e&minus;4 and 1e&minus;5, '
+    +'the scipy-located peaks, the no-end reflection &mdash; derive.py</div>',
+  disp:'<h4>the dispersion relation</h4>'
+    +EQ(1,'y &prop; z<sup>n</sup>e<sup>ikx</sup>: &nbsp; (1+&beta;) z&sup2; &minus; 2(1 &minus; 2&alpha;&sup2; sin&sup2;(k&Delta;x/2)) z + (1&minus;&beta;) = 0')
+    +EQ(2,'&beta; = 0: &nbsp; sin(&omega;&Delta;t/2) = &alpha; sin(k&Delta;x/2); &nbsp; &alpha; = 1 &rArr; &omega; = vk <span class="rm">for all</span> |k| &le; &pi;/&Delta;x')
+    +EQ(3,'v<sub>g</sub> = '+FR('d&omega;','dk')+' = '+FR('&alpha; v sin k&Delta;x','&radic;(1&minus;&beta;&sup2;) sin &omega;&Delta;t'))
+    +EQ(4,'&alpha; &rarr; 0: &nbsp; &omega; &rarr; (2v/&Delta;x) sin(k&Delta;x/2) <span class="rm">(the bead chain), error O(&alpha;&sup2;)</span>')
+    +EQ(5,'&alpha; = 1: &nbsp; cos &omega;&Delta;t = cos k&Delta;x / &radic;(1&minus;&beta;&sup2;) &nbsp;<span class="rm">overdamped for</span> sin k&Delta;x &lt; &beta;')
+    +'<p>The lattice at &alpha; &lt; 1 keeps the same physical damping, so its &beta; per step is &alpha;&beta;. The bead chain drawn is the same lattice at '
+    +'&alpha; = 0.05, within 0.04 % (&alpha;&sup2;/6) of the continuous-time chain&rsquo;s &omega;(k).</p>'
+    +'<div class="cite">pins: &theta; at six (k, &alpha;, &beta;) against numpy.roots, v<sub>g</sub> against a numerical derivative, the O(&alpha;&sup2;) approach to the chain '
+    +'(error ratio 100.01), a cosine mode after 300 steps, the pulse on the long lattice at &alpha; = 1, 0.5, 0.05 &mdash; derive.py</div>',
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) are lines of build/wave-on-a-string/refvals.txt, the      *
+ *  printed output of derive.py (an independent Python lattice, the    *
+ *  d'Alembert image series, numpy.roots, a dense solve, brute-force   *
+ *  runs, scipy minimize_scalar), read in full.                        *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function resetAll(){ liveRestart(); LIVE.sw=0; LIVE.swOn=false; LIVE.arrows=true; reflReset(ST); standReset(ST); }
+  /* a configuration: plain keys go into ST; _keys drive the clocks */
+  function withState(over,fn){
+    const clean={}; for(const k in over) if(k[0]!=='_') clean[k]=over[k];
+    Object.assign(ST,DEFAULTS,clean); resetAll();
+    if(over._wr!==undefined){ LIVE.wr=over._wr; LIVE.wrPrev=over._wr; }
+    if(over._pulse) sendPulse(ST);
+    if(over._live) for(let k=0;k<over._live;k++) liveStepOnce(ST,1);
+    if(over._acc) LIVE.acc=over._acc*dtOf(ST.tension);
+    if(over._refl) for(let k=0;k<over._refl;k++) reflStep(ST);
+    if(over._stand) for(let k=0;k<over._stand;k++) standStep(ST);
+    if(over._sw!==undefined){ LIVE.sw=over._sw; LIVE.swOn=true; }
+    try{ return fn(); } finally{ Object.assign(ST,stSave); resetAll(); }
+  }
+  /* the JS lattice fed one pulse from rest (the same run derive.py makes) */
+  function runPulse(end,A,w,T,nst,a,b,nseg){
+    a=a===undefined?1:a; b=b||0; nseg=nseg||NSEG;
+    const dt=a*DX/speedOf(T), L=makeLat(nseg), lev=[Array.from(L.cur)];
+    for(let k=1;k<=nst;k++){ latStep(L,a,b,end,A*tri(k*dt/w)); lev.push(Array.from(L.cur)); }
+    return {lev,dt};
+  }
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  ok(mix('#070b18',mix('#b8ec4c','#cd35c4',0.5),1)!=='rgb(0,0,0)','mix() output is a legal mix() input (not black)');
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  { const f=tickFmt([0,0.25,0.5]); eq(f(0.25),'0.25','tick labels follow the spacing (0.25 needs two decimals)'); eq(tickFmt([0,2,4])(4),'4','and 2 needs none'); }
+
+  for(const [a,r] of [[[-3,-4],[1,-2]],[[-3,4],[1,2]],[[3,4],[2,1]],[[-4,0],[0,2]],[[5,-12],[3,-2]]]){
+    const q=csqrt(a); ok(Math.abs(q[0]-r[0])<1e-15&&Math.abs(q[1]-r[1])<1e-15,'csqrt is the principal root: sqrt('+a+') = '+r+' ['+q+']'); }
+
+  /* ---------- A. PhET's values ---------- */
+  eq(NSEG,60,'61 beads: 60 intervals (PhET\'s value)'); eq(DX,0.125,'0.125 cm apart: 10 model units at 80 per cm (PhET\'s value)');
+  eq(LSTR,7.5,'7.5 cm of string (derive)'); eq(LLOOSE,7.4375,'the loose end mirrors about 7.4375 cm (derive)');
+  eq(VMAX,6.25,'50 steps/s at full tension = 6.25 cm/s (PhET\'s value, derive)'); close(TMIN,0.032,1e-17,'T_min = 0.8/25 = 0.032');
+  close(betaOf(0.2),0.02,1e-17,'beta = 0.1 x damping: 0.02 at PhET\'s default 0.2'); eq(SLOW,0.25,'slow motion x0.25 (PhET\'s value)');
+  eq(AMAX,1.3,'amplitude and wrench to 1.3 cm (PhET\'s value)'); eq(FMAX,3,'frequency to 3 Hz'); ok(WMIN===0.2&&WMAX===1,'pulse width 0.2..1 s');
+  eq(REF_Y0,1.45,'reference line starts 1.45 cm up (PhET\'s value)'); ok(RULER_H===10&&RULER_V===5,'rulers of 10 and 5 cm (PhET\'s value)');
+  ok(DEFAULTS.amp===0.75&&DEFAULTS.freq===1.5&&DEFAULTS.pw===0.5&&DEFAULTS.damping===0.2&&DEFAULTS.tension===0.8,'PhET\'s defaults: 0.75 cm, 1.5 Hz, 0.5 s, damping 0.2, full tension');
+  ok(DEFAULTS.mode==='manual'&&DEFAULTS.end==='fixed'&&DEFAULTS.running&&DEFAULTS.speed==='normal'&&!DEFAULTS.rulers&&!DEFAULTS.stopwatch&&!DEFAULTS.refline,'PhET starts manual, fixed end, playing, tools hidden');
+
+  /* ---------- B. tension -> speed ---------- */
+  for(const [T,v,dt] of [[0.8,6.25,0.02],[0.5,4.941058844013093,0.02529822128134703],[0.2,3.125,0.04],[0.032,1.25,0.1],[0.29,3.762998305872592,0.03321819194149599],[0.53,5.087131436281158,0.02457180467335805]]){
+    rel(speedOf(T),v,1e-15,'v(T='+T+') = v_max sqrt(T/T_max) (derive)'); rel(dtOf(T),dt,1e-15,'dt(T='+T+') = dx/v (derive)'); rel(DX/dtOf(T)/speedOf(T),1,1e-15,'alpha = v dt/dx = 1 at T='+T); }
+  rel(speedOf(0.4)/speedOf(0.1),2,1e-15,'v is proportional to sqrt(T): quadruple the tension, double the speed');
+  rel(phetRate(0.8),50,1e-15,'PhET\'s map: 50 steps/s at 0.8 (derive)'); rel(phetRate(0.5),33.24555320336759,1e-14,'PhET\'s map at 0.5 (derive)'); rel(phetRate(0.2),10,1e-14,'PhET\'s map: 10 steps/s at 0.2 (derive)');
+  rel(phetRate(0.8)/phetRate(0.2),5,1e-14,'PhET: 5:1 in speed over 4:1 in tension (derive)'); rel(speedOf(0.8)/speedOf(0.2),2,1e-15,'sqrt(T): 2:1 over the same range (derive)');
+  rel(speedOf(TMIN),phetRate(0.2)*DX,1e-14,'the remake\'s slowest string is PhET\'s slowest, 1.25 cm/s');
+  rel(keepPerStep(0.02),0.9801960588196068,1e-15,'amplitude kept per step at b = 0.02 (derive)'); rel(keepPerStep(0.02),Math.exp(-Math.atanh(0.02)),1e-15,'= exp(-atanh b) (derive)');
+  rel(decayLength(0.02),6.249166577759148,1e-14,'decay length dx/atanh b at 0.02 (derive)'); rel(decayLength(0.1),1.245822163640993,1e-14,'at 0.1 (derive)'); eq(decayLength(0),Infinity,'no damping, no decay');
+  rel(2*0.02/dtOf(0.8),2,1e-14,'the damping rate 2b/dt = 2 /s at PhET\'s defaults (derive)');
+
+  /* ---------- C. d'Alembert with images: the lattice is exact ---------- */
+  for(const [A,w,T,nst,devs,bad] of [[0.75,0.5,0.8,170,[2.442490654175344e-15,2.831068712794149e-15,6.661338147750939e-16],0.06000000000000155],
+                                     [1.1,0.37,0.29,200,[1.06581410364015e-14,9.769962616701378e-15,1.720845688168993e-15],0.1975135737061956]]){
+    const v=speedOf(T);
+    ENDS.forEach((e,k)=>{
+      const R=runPulse(e,A,w,T,nst); let dev=0;
+      for(let n=0;n<=nst;n++) for(let i=0;i<=NSEG;i++) dev=Math.max(dev,Math.abs(R.lev[n][i]-imageSeries(e,A,w,v,n*R.dt,i*DX)));
+      ok(dev<1e-13,'lattice = d\'Alembert with images, '+e+' A='+A+' w='+w+' T='+T+' (dev '+dev.toExponential(2)+'; derive '+devs[k].toExponential(2)+')');
+    });
+    const R=runPulse('loose',A,w,T,nst); let dv=0;
+    for(let n=0;n<=nst;n++) for(let i=0;i<NSEG;i++){ const t=n*R.dt, x=i*DX;
+      if(t<2*LSTR/v) dv=Math.max(dv,Math.abs(R.lev[n][i]-(A*tri((t-x/v)/w)+A*tri((t-(2*LSTR-x)/v)/w)))); }
+    rel(dv,bad,1e-9,'the loose end\'s mirror at bead 60 instead of 59.5 is WRONG by this much (derive)');
+  }
+  { const F=runPulse('fixed',0.75,0.5,0.8,170).lev, Lo=runPulse('loose',0.75,0.5,0.8,170).lev, No=runPulse('none',0.75,0.5,0.8,170).lev;
+    rel(F[60][45],0.6000000000000001,1e-14,'fixed: y[45] at step 60 (derive)'); rel(F[40][30],0.6000000000000001,1e-14,'fixed: y[30] at step 40 (derive)'); rel(F[70][57],0.3,1e-13,'fixed: y[57] at step 70, incident + inverted image (derive)');
+    let mn=Infinity; for(let n=95;n<=130;n++) mn=Math.min(mn,F[n][30]); rel(mn,-0.72,1e-13,'fixed: the reflection comes back INVERTED, -0.72 at bead 30 (derive)');
+    rel(Lo[72][60],1.44,1e-13,'loose: the ring rises to twice the pulse, 1.44, at step 72 (derive)');
+    let mx=-Infinity; for(let n=0;n<=170;n++) mx=Math.max(mx,Lo[n][60]); rel(mx,1.44,1e-13,'loose: 1.44 is the ring\'s highest (derive)');
+    let mb=-Infinity; for(let n=95;n<=130;n++) mb=Math.max(mb,Lo[n][30]); rel(mb,0.7200000000000002,1e-13,'loose: the reflection comes back UPRIGHT, +0.72 (derive)');
+    let mz=0; for(let n=90;n<=170;n++) for(let i=0;i<=NSEG;i++) mz=Math.max(mz,Math.abs(No[n][i])); eq(mz,0,'no end: after the pulse leaves, the string is EXACTLY at rest (derive: 0)');
+    rel(0.75*tri(12*0.02/0.5),0.72,1e-15,'the triangle sampled at its apex step is 0.96 A = 0.72 (derive)');
+    const F2=runPulse('fixed',1.1,0.37,0.29,200).lev, L2=runPulse('loose',1.1,0.37,0.29,200).lev;
+    rel(F2[31][20],0.02735068923188355,1e-12,'incommensurate fixed y[20] step 31 (derive)'); rel(F2[75][51],-1.014918557762845,1e-13,'incommensurate fixed y[51] step 75 (derive)');
+    rel(L2[66][60],1.832323541819498,1e-13,'incommensurate loose y[60] step 66 (derive)');
+    const C=runPulse('none',0.75,0.5,0.5,60);
+    const cen=y=>{ let s=0,m=0; for(let i=0;i<y.length;i++){ s+=y[i]; m+=i*DX*y[i]; } return m/s; };
+    rel((cen(C.lev[50])-cen(C.lev[30]))/(20*C.dt),4.941058844013092,1e-12,'the pulse centroid moves at exactly v, T = 0.5 (derive)');
+    let first=-1; for(let n=0;n<=60&&first<0;n++) if(C.lev[n][40]!==0) first=n; eq(first,41,'the pulse reaches bead 40 at step 41: one bead per step (derive)'); }
+  { const L=makeLat(NSEG); let y71=null;
+    for(let k=1;k<=90;k++){ latStep(L,1,0,k<=70?'fixed':'loose',0.75*tri(k*0.02/0.5)); if(k===71) y71=L.cur[59]; }
+    rel(y71,0.2400000000000001,1e-13,'switching fixed -> loose mid-run: y[59] one step later (derive)');
+    rel(L.cur[59],-1.14,1e-13,'... and at step 90: PhET re-asserts the end on the current level first (derive; without it -1.26)');
+    rel(L.cur[40],-0.48,1e-13,'y[40] at step 90 (derive)'); }
+  { const p=imageParts('fixed',0.75,0.5,6.25,1.45,7.5); close(p.inc+p.ref,0,1e-15,'the image series holds the clamp at zero'); ok(p.inc>0.7&&p.ref<-0.7,'with the incident apex and its inverted image both there at t = L/v + w/2');
+    const q=imageParts('loose',0.75,0.5,6.25,1.45,LLOOSE); ok(q.inc>0&&Math.abs(q.ref-q.inc)<1e-15,'at the loose mirror the image equals the incident'); }
+  { const R=withState({view:'refl',_refl:60},()=>({y:REFL.lats.fixed.cur[45],n:REFL.n})); eq(R.n,60,'the demo clock ran 60 steps'); rel(R.y,0.6000000000000001,1e-14,'the reflection demo IS the same lattice: y[45] at step 60 (derive)');
+    const S=withState({view:'refl'},()=>reflSummary(ST));
+    close(S.fixed.r,-1,1e-12,'the demo measures r = -1 at the clamp'); close(S.loose.r,1,1e-12,'r = +1 at the ring'); close(S.none.r,0,1e-15,'r = 0 with no end');
+    ok(S.fixed.dev<1e-13&&S.loose.dev<1e-13&&S.none.dev<1e-13,'and the demo departs from d\'Alembert by < 1e-13 anywhere');
+    const n0=withState({view:'refl'},()=>{ const L0=reflLoop(ST); for(let k=0;k<L0+1;k++) reflStep(ST); return REFL.n; }); eq(n0,1,'the demo loops back to step 1 after reflLoop steps'); }
+
+  /* ---------- D. damping: lattice eigenmodes against the closed form ---------- */
+  function modeRun(m,a,b,nmax,g0,gm1){
+    const kap=m*Math.PI/NSEG, L=makeLat(NSEG);
+    for(let i=0;i<=NSEG;i++){ L.prev[i]=Math.sin(kap*i)*gm1; L.cur[i]=Math.sin(kap*i)*g0; }
+    L.prev[0]=L.cur[0]=L.prev[NSEG]=L.cur[NSEG]=0;
+    const out={0:Array.from(L.cur)};
+    for(let n=1;n<=nmax;n++){ latStep(L,a,b,'fixed',0); out[n]=Array.from(L.cur); }
+    return {out,kap};
+  }
+  function modeClosed(kap,a,b,g0,gm1,n){                      /* g_n = c1 z^n + c2 zbar^n, fitted to g_0, g_-1 */
+    const r=keepPerStep(b), th=thetaOf(kap,a,b), z=[r*Math.cos(th),r*Math.sin(th)], zb=[z[0],-z[1]];
+    const iz=cdiv([1,0],z), izb=cdiv([1,0],zb), det=csub(izb,iz);
+    const c1=cdiv(csub(cmul([g0,0],izb),[gm1,0]),det), c2=csub([g0,0],c1);
+    let zn=[1,0], zbn=[1,0]; for(let k=0;k<n;k++){ zn=cmul(zn,z); zbn=cmul(zbn,zb); }
+    return cadd(cmul(c1,zn),cmul(c2,zbn))[0];
+  }
+  for(const [m,a,b,g0,gm1,ib,want,th,zabs] of [[3,1,0.02,1,1,10,[[1,0.9758594913630152],[10,0.05094969713420937],[100,-0.1333645990730346],[500,-3.519448272767077e-05]],0.1558114257283117,0.9801960588196068],
+      [17,0.6,0.05,1,1,13,[[1,0.745819696719888],[7,-0.5610779159905422],[60,0.05033930820583879],[250,-4.468366739102583e-07]],0.5203593491726836,0.9511897312113418],
+      [41,1,0,1,0,9,[[1,-1.089278070030057],[33,-0.7978467731353353],[400,0.06240347311954156]],2.146754979953025,1]]){
+    const R=modeRun(m,a,b,want[want.length-1][0],g0,gm1);
+    for(const [n,g] of want){
+      const gl=R.out[n][ib]/Math.sin(R.kap*ib);
+      rel(gl,g,1e-11,'mode m='+m+' a='+a+' b='+b+': g_'+n+' on the lattice (derive)');
+      rel(modeClosed(R.kap,a,b,g0,gm1,n),gl,n>100?5e-10:1e-11,'mode m='+m+': g_'+n+' closed form = lattice');
+    }
+    rel(thetaOf(R.kap,a,b),th,1e-13,'mode m='+m+': theta per step (derive)'); rel(keepPerStep(b),zabs,1e-15,'mode m='+m+': |z| per step (derive)');
+  }
+  { const R=modeRun(17,0.6,0,300,1,Math.cos(thetaOf(17*Math.PI/NSEG,0.6,0)));
+    rel(R.out[300][13]/Math.sin(R.kap*13),0.9497830028392059,1e-12,'a pure cosine mode at a = 0.6 after 300 steps (derive)'); rel(R.out[300][13]/Math.sin(R.kap*13),Math.cos(300*thetaOf(R.kap,0.6,0)),1e-12,'= cos(300 theta) (derive)'); }
+
+  /* ---------- E. the dispersion relation ---------- */
+  for(const [kap,a,b,th,wn,vg,vp] of [[1,1,0,0.9999999999999999,0.9999999999999999,1,0.9999999999999999],[2,0.5,0,0.8685118212476725,1.737023642495345,0.5955822502390045,0.8685118212476725],
+      [1.5,0.8,0.05,1.152964949175388,1.441206186469234,0.8742020222031517,0.960804124312823],[0.3,1,0.02,0.2993525828002437,0.2993525828002437,1.002298003277742,0.9978419426674789],
+      [2.9,0.35,0,0.7096996427648868,2.027713265042534,0.1285090531539653,0.6992114707043221]]){
+    const tag='k dx='+kap+' a='+a+' b='+b+': ';
+    rel(thetaOf(kap,a,b),th,1e-13,tag+'theta = omega dt (derive; numpy.roots agrees)'); rel(omegaNorm(kap,a,b),wn,1e-13,tag+'omega dx/v (derive)');
+    rel(vgOverV(kap,a,b),vg,1e-12,tag+'v_g/v closed form (derive)'); rel(vpOverV(kap,a,b),vp,1e-13,tag+'v_p/v (derive)');
+    const hh=1e-5, num=(omegaNorm(kap+hh,a,b)-omegaNorm(kap-hh,a,b))/(2*hh);
+    rel(num,vgOverV(kap,a,b),1e-8,tag+'v_g closed form = the numerical derivative');
+    const s=Math.sin(kap/2), c=1-2*a*a*s*s, z=[c/(1+b),Math.sqrt(Math.max(0,(1-b)/(1+b)-c*c/((1+b)*(1+b))))];
+    const res=cadd(csub(cmul([1+b,0],cmul(z,z)),cmul([2*c,0],z)),[1-b,0]); ok(cabs(res)<1e-14,tag+'the root solves (1+b)z^2 - 2cz + (1-b) = 0'); rel(Math.atan2(z[1],z[0]),th,1e-12,tag+'and its angle is theta');
+  }
+  eq(thetaOf(0.02,1,0.1),0,'k dx = 0.02 is overdamped at b = 0.1: theta pinned at 0 (derive)'); rel(cutoffKap(0.02),0.02000133357339049,1e-15,'the overdamped cutoff asin(b) (derive)');
+  { let worst=0; for(let k=1;k<=400;k++){ const kap=Math.PI*k/400; worst=Math.max(worst,Math.abs(omegaNorm(kap,1,0)-kap)); } ok(worst<2e-12,'alpha = 1, b = 0: omega = vk across the whole zone ('+worst.toExponential(2)+')'); }
+  rel(chainOmegaNorm(2),1.682941969615793,1e-15,'the bead chain at k dx = 2 (derive)'); rel(omegaNorm(2,0.02,0),1.683021422840909,1e-12,'the lattice at a = 0.02 (derive)'); rel(omegaNorm(2,0.002,0),1.682942764047706,1e-12,'at a = 0.002 (derive)');
+  rel((omegaNorm(2,0.02,0)-chainOmegaNorm(2))/(omegaNorm(2,0.002,0)-chainOmegaNorm(2)),100.0126301597978,1e-6,'a -> 0 approaches the chain as O(a^2): error ratio 100.01 (derive)');
+  rel(chainVgOverV(1.2),Math.cos(0.6),1e-15,'the chain\'s group speed cos(k dx/2)');
+  { let worst=0; for(let k=1;k<=200;k++){ const kap=Math.PI*k/200; worst=Math.max(worst,Math.abs(omegaNorm(kap,0.05,0)/chainOmegaNorm(kap)-1)); }
+    ok(worst<4.5e-4&&worst>3.5e-4,'the drawn bead chain (a = 0.05) is within a^2/6 = 0.04 % of the real chain\'s omega(k) ('+worst.toExponential(2)+')'); } ok(vgOverV(0.02,1,0.1)!==vgOverV(0.02,1,0.1),'no group speed where the mode is overdamped (NaN)');
+  { const k=kapFromOmega(1.3,0.7,0.01); rel(omegaNorm(k,0.7,0.01),1.3,1e-12,'kapFromOmega inverts omega(k)'); ok(!isFinite(kapFromOmega(4,1,0)),'and refuses a frequency above the zone'); }
+
+  /* ---------- F. the driven steady state ---------- */
+  for(const [end,f,A,b,T,mx,a10,a30,a59,a60,y30,nbf] of [
+      ['fixed',1.5,0.75,0.02,0.8,0.7499999999999999,0.4968740451320018,0.3601607805613768,0.08059463095797113,5.721958498152797e-17,[0.3384697245522583,0.1231017197934237],4000],
+      ['fixed',1.25,0.75,0.002,0.8,6.266601822410703,6.266601822410703,6.246629908390635,0.9755897045433245,0,[0.03948137798247582,6.246505137530345],0],
+      ['loose',7*VMAX/(4*LLOOSE),0.75,0.005,0.8,2.55665442969097,2.471594475305993,1.717515543437851,2.474310257787042,2.474310257787041,[0.2945658117761566,1.692066968084677],0],
+      ['none',1.5,0.75,0.02,0.8,0.7499999999999999,0.6142357642551871,0.4187707600906846,0.2307197252676191,0.2307197252676191,[0.3476178029002958,0.233518334641417],4000],
+      ['loose',2.37,1.1,0.013,0.53,1.1,0.8612916965524183,0.3711564082046246,0.8334317561615501,0.8334317561615501,[0.130744406964062,0.3473657717723116],8000],
+      ['fixed',0.6,0.5,0.1,0.2,0.5,0.2099297686643483,0.03711937375978781,0.001060161728679194,0,[0.01796545862495284,0.03248215209486482],0]]){
+    const tag='steady '+end+' f='+fmt(f,4)+' b='+b+' T='+T+': ', Sx=steadyClosed(f,A,b,T,end), Y=Sx.Y;
+    rel(steadyMax(Sx),mx,1e-10,tag+'max |Y| (derive)'); rel(cabs(Y[10]),a10,1e-10,tag+'|Y_10| (derive)'); rel(cabs(Y[30]),a30,1e-10,tag+'|Y_30| (derive)'); rel(cabs(Y[59]),a59,1e-10,tag+'|Y_59| (derive)');
+    if(a60>1e-12) rel(cabs(Y[60]),a60,1e-10,tag+'|Y_60| (derive)'); else ok(cabs(Y[60])<1e-12,tag+'Y_60 = 0 at the clamp');
+    rel(Y[30][0],y30[0],1e-9,tag+'Re Y_30 (derive)'); rel(Y[30][1],y30[1],1e-9,tag+'Im Y_30 (derive)');
+    const Z=steadyThomas(f,A,b,T,end); let d=0; for(let i=0;i<=NSEG;i++) d=Math.max(d,cabs(csub(Z[i],Y[i])));
+    ok(d<1e-9*Math.max(1,mx),tag+'the tridiagonal solve agrees with the closed form ('+d.toExponential(2)+')');
+    if(nbf){ const L=makeLat(NSEG), dt=dtOf(T); let ph=0;
+      for(let k=1;k<=nbf;k++){ ph=(ph+TAU*f*dt)%TAU; latStep(L,1,b,end,A*Math.sin(ph)); }
+      let e=0; for(let i=0;i<=NSEG;i++) e=Math.max(e,Math.abs(L.cur[i]-cmul(Y[i],[Math.cos(ph),Math.sin(ph)])[1]));
+      ok(e<1e-10,tag+'a '+nbf+'-step brute-force run settles onto it ('+e.toExponential(2)+'; derive 8e-13)'); }
+    ok(steadyMax(Sx)>=A*(1-1e-12),tag+'the drive point is on the string, so max |Y| >= A');
+  }
+  rel(resonances('fixed',0.8,3)[0],0.4166666666666667,1e-15,'fixed f_1 = v/2L at full tension (derive)'); rel(resonances('loose',0.8,3)[0],0.2100840336134454,1e-15,'loose f_1 = v/4L\' (derive)');
+  rel(resonances('fixed',0.2,3)[0],0.2083333333333333,1e-15,'fixed f_1 at T = 0.2 (derive)'); rel(resonances('loose',0.2,3)[0],0.1050420168067227,1e-15,'loose f_1 at T = 0.2 (derive)');
+  eq(resonances('fixed',0.8,3).length,7,'seven fixed-end resonances in PhET\'s 0-3 Hz at full tension'); eq(resonances('none',0.8,3).length,0,'none with no end');
+  { const h1=steadyMax(steadyClosed(1.25,0.75,1e-4,0.8,'fixed'))/0.75, h2=steadyMax(steadyClosed(1.25,0.75,1e-5,0.8,'fixed'))/0.75;
+    rel(h1,166.6677751882077,1e-8,'at f_3 with b = 1e-4 the peak is 166.67 A (derive)'); rel(h2,1666.666777536687,1e-7,'with b = 1e-5, 1666.7 A (derive)');
+    close(h1*NSEG*1e-4,1,1e-4,'the peak height is 1/(N b) as b -> 0'); close(h2*NSEG*1e-5,1,1e-6,'... to O(b)'); }
+  for(const [end,fpk,hpk,b] of [['fixed',1.249899492100326,8.355636552961057,0.002],['loose',1.469195697525992,3.41102984339649,0.005]]){
+    const g=f=>steadyMax(steadyClosed(f,0.75,b,0.8,end))/0.75;
+    rel(g(fpk),hpk,1e-9,end+' b='+b+': the height at scipy\'s peak (derive)'); ok(g(fpk*(1+2e-4))<g(fpk)&&g(fpk*(1-2e-4))<g(fpk),end+': and it is a maximum');
+    ok(Math.abs(fpk-resonances(end,0.8,3)[end==='fixed'?2:3])<2e-3,end+': sitting at the closed-form f_n'); }
+  { const S1=steadyClosed(1.5,0.75,0.02,0.8,'none'); const r=cabs(cdiv(S1.q,cmul(S1.p,(()=>{ let z=[1,0]; for(let i=0;i<NSEG;i++) z=cmul(z,S1.lam); return z; })())));
+    rel(r,0.05399408321884634,1e-10,'the no-end absorber sends back 5.4 % at 1.5 Hz, b = 0.02 (derive: the solve)'); rel(noEndReflection(1.5,0.02,0.8),0.05399408321884638,1e-10,'= the closed form (derive)');
+    ok(noEndReflection(1.5,0,0.8)<1e-12,'and exactly nothing at b = 0'); const th=steadyTheta(1.5,0.8); rel(noEndReflection(1.5,0.02,0.8),0.02/(2*Math.sin(th)),0.02,'about b/(2 sin theta)'); }
+  eq(JSON.stringify(withState({view:'stand',freq:1.25,damping:0.02},()=>buildModel()).nodes),'[20,40,60]','the third harmonic has its nodes at beads 20, 40 and the clamp');
+  eq(withState({view:'stand',end:'none'},()=>buildModel()).nodes.length,0,'a travelling wave has none');
+  eq(JSON.stringify(withState({view:'stand',freq:0.4166666666666667,damping:0.02},()=>buildModel()).nodes),'[60]','the first harmonic: one node, the clamp (three beads sit under 15 % beside it)');
+  eq(JSON.stringify(withState({view:'stand',freq:0.8333333333333334,damping:0.02},()=>buildModel()).nodes),'[30,60]','the second: the middle and the clamp');
+  { const R=withState({view:'stand'},()=>responseCurve(ST)); let lo=Infinity; for(const g of R.gb) lo=Math.min(lo,g);
+    ok(lo>=1-1e-12,'the response curve never dips below 1 (the driven bead is on the string)'); eq(R.fn.length,7,'and marks the seven resonances');
+    ok(R.g0.filter(g=>!isFinite(g)).length===7,'the undamped curve is left undrawn exactly at the seven f_n'); }
+  { const D=steadyClosed(0,0.6,0.02,0.8,'fixed'); ok(D.dc&&Math.abs(D.Y[30][0]-0.3)<1e-15,'f = 0: the frozen oscillator holds a straight line to the clamp'); }
+
+  /* ---------- G. the pulse on the long lattice (the dispersion view) ---------- */
+  for(const [a,T,ns,dev,mn,mx,y30] of [[1,0.8,57,6.661338147750939e-16,0,0.72,0],[0.5,0.8,115,0.05330418760197286,-0.02499099445571134,0.7003335327276475,-0.01543613403012915],
+      [0.5,0.2,102,0.07004500435025174,-0.03616083772769295,0.6624903538427503,-0.0004551962069355457],[0.05,0.8,1150,0.05211815381002127,-0.02706895059501099,0.6978818461899784,-0.02706895059501099]]){
+    const P=longPulse(a,0,0.75,0.5,T,0.75*LSTR), v=speedOf(T), tag='long pulse a='+a+' T='+T+': ';
+    eq(P.steps,ns,tag+'steps (derive)');
+    let d=0, lo=Infinity, hi=-Infinity; for(let i=0;i<=NSEG;i++){ d=Math.max(d,Math.abs(P.y[i]-0.75*tri((P.t-i*DX/v)/0.5))); lo=Math.min(lo,P.y[i]); hi=Math.max(hi,P.y[i]); }
+    if(a===1){ ok(d<1e-14,tag+'keeps its shape exactly ('+d.toExponential(2)+')'); eq(lo,0,tag+'no ripple at all (derive)'); }
+    else { rel(d,dev,1e-9,tag+'departs from the exact pulse (derive)'); rel(lo,mn,1e-9,tag+'the trailing ripple (derive)'); }
+    rel(hi,mx,1e-12,tag+'the peak (derive)'); if(y30!==0) rel(P.y[30],y30,1e-9,tag+'y[30] (derive)'); else eq(P.y[30],0,tag+'y[30] = 0 (derive)');
+  }
+  { const D=withState({view:'disp',alpha:0.5},()=>dispModel(ST)); ok(D.dev>0.01&&D.devC>0.01,'the dispersion view: at a = 0.5 and for the chain the pulse is visibly changed');
+    const D1=withState({view:'disp'},()=>dispModel(ST)); ok(D1.dev<1e-14,'at PhET\'s a = 1 it is not ('+D1.dev.toExponential(2)+')');
+    const D0=withState({view:'disp',damping:0},()=>dispModel(ST)); rel(D0.kOsc,TAU*1.5*DX/6.25,1e-12,'undamped, the oscillator\'s k dx = omega dx/v exactly on the a = 1 lattice');
+    const th=TAU*1.5*0.02, b=betaOf(0.2); rel(D1.kOsc,Math.acos(Math.sqrt(1-b*b)*Math.cos(th)),1e-9,'damped, k dx = acos(sqrt(1-b^2) cos omega dt): damping itself disperses');
+    ok(D1.kOsc>D0.kOsc,'so the damped wave is slightly shorter, v_p < v');
+    rel(D1.fChain,6.25/(Math.PI*DX),1e-15,'a bead chain tops out at v/(pi dx) = 15.9 Hz');
+    { const c=makeShot(820,520); withState({view:'disp'},()=>drawView(c,820,520,buildModel())); const tx=c.ops.filter(o=>o.op==='text').map(o=>o.t).join(' ');
+      ok(tx.indexOf('group')<0&&tx.indexOf('Right:')<0,'narrow: no word about the speeds panel it does not draw'); }
+    const Dh=withState({view:'disp',alpha:0.5},()=>dispModel(ST)); close(Dh.ba,0.01,1e-15,'at a = 0.5 the damping per step halves: the same PHYSICAL damping');
+    rel(Dh.om[120],omegaNorm(Dh.K[120],0.5,0.01),1e-15,'and the drawn curve carries it');
+    const Du=withState({view:'disp',alpha:0.5,damping:0},()=>dispModel(ST)); rel(omegaNorm(Du.kOsc,0.5,0),TAU*1.5*DX/6.25,1e-12,'the oscillator\'s k on the a = 0.5 lattice gives back its omega');
+    ok(Du.kOsc>TAU*1.5*DX/6.25,'and is longer than omega/v: the a < 1 lattice is slow'); rel(D1.fLat,25,1e-15,'the lattice Nyquist at a = 1: v/(2 dx) = 25 Hz'); }
+
+  /* ---------- H. the drivers and the live clock ---------- */
+  rel(tri(0.3),0.6,1e-15,'triangle at 0.3 (derive)'); eq(tri(0.5),1,'triangle apex (derive)'); rel(tri(0.8),0.3999999999999999,1e-15,'triangle at 0.8 (derive)'); ok(tri(-0.01)===0&&tri(1.01)===0,'zero outside [0, 1]');
+  withState({view:'str',mode:'osc'},()=>{ for(let k=0;k<7;k++) liveStepOnce(ST,1); rel(LIVE.lat.cur[0],0.7264373708464733,1e-12,'the oscillator after 7 steps: A sin(7 x 2 pi f dt) (derive)'); });
+  withState({view:'str',mode:'osc'},()=>{ const S=makeScene({getContext:()=>makeShot(1100,712)}); for(let k=0;k<60;k++) S.step(1/60);
+    eq(LIVE.lat.steps,50,'one second of frames = 50 lattice steps at full tension'); close(LIVE.t,1,1e-12,'and the lattice clock reads 1 s');
+    ST.speed='slow'; for(let k=0;k<240;k++) S.step(1/60); eq(LIVE.lat.steps,100,'slow motion: 240 frames = 1 simulated second = 50 more steps');
+    ST.running=false; ok(!S.step(1/60),'paused: the frame does nothing'); eq(LIVE.lat.steps,100,'and no step is taken'); });
+  withState({view:'str',mode:'osc',tension:0.2},()=>{ const S=makeScene({getContext:()=>makeShot(1100,712)}); for(let k=0;k<60;k++) S.step(1/60); eq(LIVE.lat.steps,25,'at T = 0.2 the clock runs at 25 steps/s: the tension sets the clock'); });
+  withState({view:'str',mode:'pulse'},()=>{
+    ok(sendPulse(ST),'the generator sends a pulse'); ok(!sendPulse(ST),'and is busy until it is done');
+    for(let k=0;k<24;k++) liveStepOnce(ST,1); ok(LIVE.pulseOn,'still sending at step 24 (w/dt = 25)'); liveStepOnce(ST,1); ok(!LIVE.pulseOn,'done after 25 steps'); ok(sendPulse(ST),'then ready again');
+    let first=-1; liveRestart(); sendPulse(ST); for(let n=1;n<=60&&first<0;n++){ liveStepOnce(ST,1); if(LIVE.lat.cur[40]!==0) first=n; } eq(first,41,'the live pulse reaches bead 40 at step 41'); });
+  withState({view:'str',mode:'pulse',_live:7},()=>{ LIVE.acc=0.013; ok(sendPulse(ST),'a pulse sent between lattice levels');
+    close(LIVE.pulseT0,LIVE.t+0.013,1e-15,'starts NOW, not at the last level'); liveStepOnce(ST,1);
+    rel(LIVE.lat.cur[0],0.75*tri(0.007/0.5),1e-9,'so bead 0 first samples the triangle 0.007 s in'); });
+  withState({view:'str'},()=>{ ok(!sendPulse(ST),'no pulse outside pulse mode'); LIVE.wrPrev=0; LIVE.wr=1; liveAdvance(ST,0.1);
+    eq(LIVE.lat.steps,5,'0.1 s at full tension is 5 steps'); const ys=LIVE.hist.map(r=>r[0]);
+    ok(ys.length===5&&[0.2,0.4,0.6,0.8,1].every((v,k)=>Math.abs(ys[k]-v)<1e-9),'the wrench is interpolated across the frame, as PhET\'s ticks do ('+ys.map(v=>fmt(v,3)).join(', ')+')');
+    eq(LIVE.wrPrev,1,'and the frame ends where the wrench is'); });
+  withState({view:'str',mode:'osc',_live:20},()=>{ const dt=dtOf(ST.tension); LIVE.acc=dt/2; const y=liveDraw(ST);
+    ok(Math.abs(LIVE.lat.prev[10]-LIVE.lat.cur[10])>0.01,'bead 10 is behind the front, so its last two levels differ (the probe can see interpolation: '+fmt(Math.abs(LIVE.lat.prev[10]-LIVE.lat.cur[10]),3)+' cm)');
+    close(y[10],(LIVE.lat.prev[10]+LIVE.lat.cur[10])/2,1e-15,'the drawn string is halfway between the last two levels (PhET\'s yDraw)');
+    rel(y[0],ST.amp*Math.sin(LIVE.phase+TAU*ST.freq*dt/2),1e-12,'while bead 0 sits where the driver is now'); });
+  withState({view:'str',mode:'osc',_live:500},()=>{ eq(LIVE.hist.length,HMAX,'the space-time record keeps '+HMAX+' levels'); let inc=true; for(let k=1;k<LIVE.histT.length;k++) if(!(LIVE.histT[k]>LIVE.histT[k-1])) inc=false; ok(inc,'in time order'); });
+  withState({view:'str',_live:3},()=>{ LIVE.swOn=true; const S=makeScene({getContext:()=>makeShot(1100,712)}); for(let k=0;k<30;k++) S.step(1/60); close(LIVE.sw,0.5,1e-12,'the stopwatch counts simulated seconds');
+    ST.speed='slow'; for(let k=0;k<30;k++) S.step(1/60); close(LIVE.sw,0.625,1e-12,'at a quarter speed in slow motion');
+    liveStepButton(ST); close(LIVE.sw,0.645,1e-12,'the step button advances it by one lattice step'); });
+  withState({view:'str',mode:'osc',end:'loose',_live:30},()=>{ liveStepButton(ST); eq(LIVE.lat.steps,31,'the step button takes exactly one lattice step'); eq(LIVE.acc,0,'from a clean phase'); });
+  withState({view:'stand',freq:1.25,damping:0.02},()=>{ for(let k=0;k<30000;k++) standStep(ST);
+    const Sx=steadyClosed(1.25,0.75,betaOf(0.02),0.8,'fixed'); let e=0; for(let i=0;i<=NSEG;i++) e=Math.max(e,Math.abs(STAND.lat.cur[i]-cmul(Sx.Y[i],[Math.cos(STAND.phase),Math.sin(STAND.phase)])[1]));
+    ok(e<1e-9,'the standing-wave run from rest settles onto the exact resonant steady state ('+e.toExponential(2)+')'); });
+
+  /* ---------- I. the models, the readouts ---------- */
+  const PRESETS={str:[{},{mode:'osc'},{mode:'pulse',_pulse:1,_live:10},{end:'loose'},{end:'none',mode:'osc',_live:80},{stopwatch:true,rulers:true,refline:true}],
+                 xt:[{},{mode:'osc',_live:400},{end:'none'}],refl:[{},{_refl:80},{amp:0}],
+                 stand:[{},{end:'loose'},{end:'none'},{damping:0},{freq:0}],disp:[{},{alpha:0.5},{alpha:0.05,tension:TMIN,freq:3},{damping:1}]};
+  for(const [v] of TABS) for(const over of PRESETS[v]){
+    const M=withState(Object.assign({view:v},over),()=>buildModel());
+    const html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+    ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0,'panels clean for '+v+' '+JSON.stringify(over));
+  }
+  ok(readoutHTML(withState({view:'str',tension:0.5},()=>buildModel())).indexOf('4.941 cm/s')>=0,'the readout prints v = 4.941 cm/s at T = 0.5 off the model');
+  ok(readoutHTML(withState({view:'stand',freq:1.25,damping:0.02},()=>buildModel())).indexOf('8.355')>=0,'the standing-wave readout prints the 8.355 A resonance');
+  ok(readoutHTML(withState({view:'refl'},()=>buildModel())).indexOf('-1.000')>=0,'the reflection readout prints r = -1.000 for the clamp');
+  ok(readoutHTML(withState({view:'str',end:'none',mode:'osc'},()=>buildModel())).indexOf('0.054')>=0,'the no-end readout prints the 5.4 % leak');
+  { const M=withState({view:'str',mode:'osc',freq:1.25,damping:0,_live:3000},()=>buildModel()); ok(M.offScale&&M.maxAbs>YHALF,'undamped at a resonance the string runs off the view, and the model says so ('+fmt(M.maxAbs,2)+' cm)'); }
+
+  /* ---------- J. the pointer ---------- */
+  { const shot=makeShot(1100,712), S=makeScene({getContext:()=>shot});
+    withState({view:'str',running:false},()=>{
+      const G=strGeo(shot,S.W,S.H,buildModel()), map=G.map;
+      ok(S.pointer('down',map.X(-0.7),map.Y(0)),'pointer-down on the wrench grabs it'); eq(DRAG.what,'wrench','it is the wrench');
+      S.pointer('move',map.X(-0.7),map.Y(0.8)); close(LIVE.wr,0.8,1e-9,'the wrench follows the pointer to 0.8 cm'); ok(ST.running,'and, as in PhET, presses play');
+      S.pointer('move',map.X(-0.7),map.Y(5)); eq(LIVE.wr,AMAX,'and stops at 1.3 cm'); ok(S.pointer('up',0,0),'pointer-up releases'); eq(DRAG.what,null,'nothing dragged');
+      ok(!S.pointer('down',map.X(4),map.Y(-2)),'a pointer-down on empty string grabs nothing');
+      ST.mode='pulse'; ok(S.pointer('down',map.X(-0.9),map.Y(0)),'clicking the generator'); ok(LIVE.pulseOn,'sends a pulse'); S.pointer('up',0,0); ok(!S.pointer('down',map.X(-0.9),map.Y(0)),'and it is busy while sending');
+      ST.mode='manual'; ST.rulers=true; ST.refline=true; ST.stopwatch=true;
+      ok(S.pointer('down',map.X(ST.rhX+5),map.Y(ST.rhY-0.25)),'grab the horizontal ruler'); eq(DRAG.what,'rh','the horizontal ruler');
+      const x0=ST.rhX; S.pointer('move',map.X(ST.rhX+5)+50,map.Y(ST.rhY-0.25)); rel(ST.rhX-x0,50/map.s,1e-9,'it moves with the pointer'); S.pointer('up',0,0);
+      ok(S.pointer('down',map.X(ST.rvX+0.25),map.Y(ST.rvY+2)),'grab the vertical ruler'); eq(DRAG.what,'rv','the vertical ruler');
+      const y0=ST.rvY; S.pointer('move',map.X(ST.rvX+0.25),map.Y(y0+2)-30); rel(ST.rvY-y0,30/map.s,1e-9,'it moves up with the pointer'); S.pointer('up',0,0);
+      ok(S.pointer('down',map.X(3),map.Y(ST.refY)+2),'grab the reference line'); eq(DRAG.what,'ref','the reference line');
+      S.pointer('move',map.X(3),map.Y(0.5)+2); close(ST.refY,0.5,1e-9,'it follows to 0.5 cm, keeping the grab offset'); S.pointer('up',0,0);
+      const r=swRect(map,ST,S.W,S.H); ok(S.pointer('down',r.x+20,r.y+20),'grab the stopwatch'); eq(DRAG.what,'sw','the stopwatch');
+      S.pointer('move',r.x+120,r.y+60); close(map.X(ST.swX),r.x+100,1e-6,'it follows the pointer'); S.pointer('up',0,0);
+    });
+    withState({view:'stand'},()=>{ const tb=standGeo(shot,S.W,S.H).tb;
+      ok(S.pointer('down',tb.x+tb.w*0.5,tb.y+tb.h*0.5),'pointer-down on the response panel'); close(ST.freq,1.5,1e-12,'sets f = 1.5 Hz at mid-panel');
+      S.pointer('move',tb.x+tb.w*(1.25/3),tb.y+10); close(ST.freq,1.25,1e-12,'dragging sets f_3 = 1.25 Hz'); S.pointer('up',0,0);
+      ok(!S.pointer('down',tb.x+10,tb.y1+40),'below the panel nothing is grabbed'); });
+    for(const v of ['xt','refl','disp']) withState({view:v},()=>ok(!S.pointer('down',300,300),'the '+v+' view ignores the pointer'));
+  }
+
+  /* ---------- K. layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['str manual',{view:'str'},4],['str kink',{view:'str',_wr:1.2,_live:25},4],['str osc',{view:'str',mode:'osc',_live:90,_acc:0.4},5],
+    ['str pulse flying',{view:'str',mode:'pulse',_pulse:1,_live:40},5],['str loose tools',{view:'str',mode:'osc',end:'loose',_live:70,rulers:true,stopwatch:true,refline:true,_sw:1.23},9],
+    ['str none',{view:'str',mode:'osc',end:'none',_live:120},4],['str offscale',{view:'str',mode:'osc',freq:1.25,damping:0,_live:3000},4],
+    ['str slow low T',{view:'str',mode:'osc',tension:TMIN,speed:'slow',_live:40},5],
+    ['xt empty',{view:'xt'},1],['xt osc',{view:'xt',mode:'osc',_live:400},6],['xt pulse fixed',{view:'xt',mode:'pulse',_pulse:1,_live:200},4],['xt none',{view:'xt',mode:'osc',end:'none',_live:300},6],
+    ['refl start',{view:'refl'},4],['refl 40',{view:'refl',_refl:40},6],['refl 75',{view:'refl',_refl:75},6],['refl 110',{view:'refl',_refl:110},6],['refl flat',{view:'refl',amp:0,_refl:50},4],['refl slow',{view:'refl',tension:TMIN,pw:1,_refl:30},6],
+    ['stand default',{view:'stand',_stand:200},4],['stand resonance',{view:'stand',freq:1.25,damping:0.02,_stand:400},4],['stand loose',{view:'stand',end:'loose',freq:1.47,_stand:300},4],
+    ['stand none',{view:'stand',end:'none',_stand:200},4],['stand undamped',{view:'stand',damping:0,freq:0.83,_stand:500},4],['stand f0',{view:'stand',freq:0},4],['stand low T',{view:'stand',tension:TMIN,freq:2.9,_stand:100},4],
+    ['disp default',{view:'disp'},3],['disp half',{view:'disp',alpha:0.5},3],['disp chain',{view:'disp',alpha:0.05,tension:TMIN,freq:3},3],['disp damped',{view:'disp',damping:1,alpha:0.7},3],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,minFills] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      ok(fills.length>=minFills&&texts.length>=1,nm+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      /* the house #hint (HTML, bottom:11px, 11px type) owns the bottom-left corner */
+      const inHint=texts.filter(t=>t.bb[0]<340&&t.bb[3]>H-27);
+      ok(!inHint.length,nm+' '+W+'x'+H+' no canvas text under the #hint line'+(inHint.length?' ("'+inHint[0].t.slice(0,30)+'" to y '+fmt(inHint[0].bb[3],0)+')':''));
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>3&&oy>3){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  Object.assign(ST,stSave); resetAll();
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

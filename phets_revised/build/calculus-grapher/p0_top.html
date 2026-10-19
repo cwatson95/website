@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calculus grapher &mdash; draw a function and watch its derivative, its integral and the corners where the derivative stops existing</title>
+<!--
+  ===================================================================
+  calculus-grapher.html — draw f by hand, and the slope of every cell,
+  the running area under it and the second difference follow; the two
+  operators are exact inverses of one another and the file proves it
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Calculus Grapher (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets.  The model, its constants and its controls follow
+  PhET's build 1.1.1 (docs/phets/calculus-grapher_en.html); every number
+  taken from that build is marked "PhET" in the code and is READ OUT of
+  it by build/calculus-grapher/derive.py rather than typed from memory.
+
+  Six views.  THE DERIVATIVE is PhET's Derivative screen (f above, f'
+  below, tangent tool and slope gauge).  THE INTEGRAL is its Integral
+  screen (the running integral above, f with its signed area below, the
+  net-signed-area gauge).  THE LAB is its Lab and Advanced screens (all
+  four curves, the reference line, Predict, the Lagrange/Leibniz and
+  x/t preferences).  THE CORNERS, THE THEOREM and THE GRID are this
+  file's own analysis views.
+
+  WHAT IS EXACT HERE
+  ------------------
+  This sim is pure mathematics, so the bar is machine precision, not
+  plausibility.  Every claim below is re-derived by derive.py in numpy
+  and scipy and re-asserted in selfTest.
+
+  * THE CURVE IS ITS POLYLINE.  f is stored at 1251 nodes (PhET's
+    numberOfPoints) and DRAWN as the straight segments between them, so
+    the object on screen is the piecewise-linear interpolant.  That is
+    not a detail: it is what makes the rest exact.
+  * The derivative shown is that curve's own derivative — constant on
+    each cell, plotted at the cell midpoints.  The integral shown is
+    that curve's own integral — the cumulative trapezium at the nodes.
+  * THE FUNDAMENTAL THEOREM HOLDS TO ROUNDING, not to a tolerance:
+        integrate(derivative(f))[i] = f[i] - f(0)
+        differentiate(integral(f))  = f at the cell midpoints
+    and for a straight segment the midpoint value is exactly the mean
+    of the two ends.  Measured over random curves on the shipped grid:
+    4.9e-15 and 1.6e-14 in Python, and selfTest re-measures both in JS.
+  * Against the CLOSED FORMS, at PhET's 1250 cells: the triangle's
+    derivative is exact to 1.1e-13 (a piecewise-linear curve) and the
+    parabola's to 1.7e-13 (a cell-centred difference is exact on any
+    quadratic).  For the smooth shapes the error is the Euler-Maclaurin
+    term and is measured, not assumed: hill 4.4e-5, sinusoid 2.7e-6,
+    pedestal 1.1e-3 for the derivative; 1.0e-5, 1.0e-5 and 2.4e-5 for
+    the integral.  Halving dx quarters every one of them (measured
+    ratios 4.000, 4.000, 3.999), which is the claim worth making.  The
+    parabola's trapezium error is the Euler-Maclaurin term EXACTLY
+    (7.1e-16 apart), because the expansion terminates on a quadratic.
+  * AT A CORNER the derivative does not exist and this file says so.
+    What it draws and asserts are the two one-sided limits, which on
+    this grid are read off cells lying wholly on one side and are
+    therefore EXACT for the triangle: +1 and -1 at the apex of the
+    default triangle, jump 2, and the integral of the second difference
+    over any window containing the apex is exactly that jump (it
+    telescopes).  The hill and the pedestal have no corner at all —
+    PhET calls them "smooth transitions", and the pedestal's quartic
+    edge is C3 where it meets the plateau.
+  * THE TOOLS ARE CROSS-CHECKED AGAINST THE CURVES, which is the whole
+    pedagogical point.  The tangent tool's slope is the derivative
+    curve's value at the same x (0.0 apart over ten probes) and the
+    line it draws passes through both nodes of its cell.  The area
+    tool splits every cell at its zero crossing and counts the halves
+    separately — a different algorithm from the running trapezium — and
+    its net still equals the integral curve to 2.8e-16.
+  * PhET's own operator pair is not exactly inverse, and THE THEOREM
+    view shows why rather than asserting it: its node-centred central
+    difference of its trapezium integral is identically the [1,2,1]/4
+    smoothing of f (6.2e-15), so it returns f + O(dx^2 f'').  This is
+    a difference between two reasonable choices, not an error in PhET.
+
+  WHAT IS MODELLED RATHER THAN EXACT
+  ----------------------------------
+  * The curve-manipulation shapes, the smoothing and the widths are
+    PhET's own parameters, reproduced: hill = exp(-((x-x0)/(w/2sqrt2))^2)
+    (a Gaussian of standard deviation w/4), triangle slope
+    TYPICAL_Y/(w/2), parabola curvature TYPICAL_Y(2/w)^2, pedestal
+    plateau w - 2 x edgeSlopeFactor with an exp(-u^4) edge, sinusoid of
+    period 2 pi w / 2 over seven half-periods with a cos^2 taper of an
+    eighth of a period.  Smoothing is PhET's Gaussian of sd 0.05
+    truncated at 3 sd, 18 taps each side on this grid, renormalised so
+    a constant survives exactly.
+  * The file opens with a hill and a triangle already drawn.  PhET
+    opens on a flat line; a flat line makes all six of these views
+    blank, which this collection treats as a defect.  "erase" gives
+    PhET's empty curve exactly.
+  * The second derivative at a corner is drawn as a spike.  It is not a
+    value — the second derivative of a corner is a delta — and the
+    canvas says so: the spike's height is the slope jump over dx and
+    grows without limit as the grid is refined, while its area does not.
+
+  WHAT IS NOT MODELLED
+  --------------------
+  * PhET's PhET-iO instrumentation, its labelled points and labelled
+    lines, its keyboard-only curve editing and its sonification.
+  * PhET's freeform mode can leave genuine jump discontinuities in f;
+    this file's freeform interpolates between successive pointer
+    samples, so f stays continuous and only its slope jumps.
+  * PhET's per-screen graph-visibility accordion: the views here fix
+    which graphs are shown.
+
+  DATA SOURCES
+  ------------
+  Every constant: PhET's build 1.1.1, read by derive.py's regexes out of
+  docs/phets/calculus-grapher_en.html (x range 0..10, 1251 points,
+  TYPICAL_Y = 1, smoothingStandardDeviation = 0.05, edgeSlopeFactor =
+  0.4, maxTilt = 25, curve-manipulation width 1..5 default 2,
+  y range -2..2, the tangent and area gauge ranges +-8, MAX_UNDO = 20,
+  the freeform click width 0.25, and the 1e-8 / 0.999 blend weights).
+  Everything else is mathematics, re-derived in
+  build/calculus-grapher/derive.py with numpy and scipy (erf, the
+  incomplete gamma for the pedestal's antiderivative, Gauss-Legendre
+  quadrature) and pinned into selfTest as (derive).
+-->

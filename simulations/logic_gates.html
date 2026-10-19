@@ -1,0 +1,2460 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logic Gates &mdash; the gates, switches, memory, an adder and a subtractor, gate by gate</title>
+<!--
+  ===================================================================
+  logic_gates.html — Boolean logic gates, what they are made of, how
+  a loop of them remembers, and how they add and subtract
+  ===================================================================
+
+  Six views.  THE GATES: NOT, AND, OR, NAND, NOR, XOR, XNOR, each
+  with its truth table, and the same rule built from NANDs alone.
+  SWITCHES: switches in series and parallel as AND and OR (Shannon
+  1938), static CMOS NOT, NAND and NOR as pull-up and pull-down
+  networks, and the transmission gate, a switch that holds a value.
+  MEMORY: the SR latch (two cross-coupled NORs; the forbidden state
+  and its oscillation), the gated D latch and the master-slave D
+  flip-flop, with timing diagrams.  THE ADDER: half adder, full
+  adder, an n-bit ripple-carry adder with the carry rippling and the
+  wrong sums read too early.  THE SUBTRACTOR: half and full
+  subtractors, an n-bit borrow chain, and A + not B + 1 on the adder
+  with the signed overflow flag.  THE ACCUMULATOR: a register of
+  flip-flops and an adder, R <- R + X at each clock edge, and the
+  shortest clock period at which every add lands.
+
+  Every circuit runs gate by gate in the page: a netlist of two-input
+  gates, each a unit delay, all updated together from the previous
+  step.  Nothing is measured; the one source is Shannon (1938).
+
+  Verification: build_logic/derive.py, an independent Python gate
+  simulator, checks every truth table, the NAND forms, the CMOS
+  networks, every sum and difference against integer arithmetic,
+  the overflow flag, the latch and flip-flop behaviour, the adders'
+  worst settling times and the accumulator's clock limit; selfTest()
+  pins the page to it; ui_body_lg.js drives the controls headlessly;
+  a mutation sweep; a display-list capture and audit.
+  ===================================================================
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed quantity (a weight, a curve, a coupling),
+       orange = a measured value, a reference or a warning, magenta = the live
+       selection, cyan = structure (axes, roots, the frame). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .btnrow button:disabled{opacity:.35; cursor:default; border-color:var(--edge2);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  .chip{padding:3px 9px;}
+  .chips.q .chip{min-width:34px; text-align:center; padding:3px 7px;}
+  .qrow{display:flex; align-items:flex-start; gap:8px; margin:5px 0;}
+  .qrow .qlab{font:italic 13px Georgia, serif; color:var(--dim); width:28px; flex-shrink:0; padding-top:4px;}
+  .btnrow.three button{font-size:12px;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Logic Gates</h1>
+  <span class="sub" id="sub">The gates and their truth tables, the switches they are made of, a loop of gates that remembers, then an adder, a subtractor and a clocked accumulator, run gate by gate</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+/* a true minus sign (U+2212), and a negative that rounds to zero printed as zero */
+function fmt(x,n){ if(!isFinite(x)) return '—'; const s=Number(x).toFixed(n===undefined?3:n); return /^-0(\.0*)?$/.test(s)?s.slice(1):s.replace('-','−'); }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  /* a power of ten in superscripts, never a caret: 1.768 × 10⁸, 2.5 × 10⁻⁵ */
+  if(a>=1e5||a<1e-4){ const s=x.toExponential(n-1), k=s.indexOf('e'), SUP='⁰¹²³⁴⁵⁶⁷⁸⁹';
+    return s.slice(0,k).replace('-','−')+' × 10'+String(+s.slice(k+1)).split('').map(c=>c==='-'?'⁻':SUP[+c]).join(''); }
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8)).replace('-','−');
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ',
+            /* standard_model.html: the group-theory symbols */
+            '&otimes;':'⊗','&oplus;':'⊕','&Xi;':'Ξ','&xi;':'ξ','&psi;':'ψ','&chi;':'χ','&zeta;':'ζ',
+            '&partial;':'∂','&sum;':'∑','&nabla;':'∇','&dagger;':'†','&frac14;':'¼','&frac34;':'¾',
+            '&sim;':'∼','&isin;':'∈','&bull;':'•','&harr;':'↔','&uarr;':'↑','&darr;':'↓','&Theta;':'Θ',
+            '&Psi;':'Ψ','&sup1;':'¹','&lang;':'⟨','&rang;':'⟩','&macr;':'¯',
+            /* amino_acids.html */
+            '&Aring;':'Å','&ldquo;':'“','&rdquo;':'”','&ucirc;':'û',
+            /* clebsch_gordan.html */
+            '&hbar;':'ℏ','&thinsp;':' ','&cap;':'∩','&sube;':'⊆','&lowast;':'∗'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  /* integer multiples of the step, never an accumulated sum: a running t += step printed 0 as −5.55e-17 */
+  for(let i=Math.ceil(lo/step-1e-9);i*step<=hi+step*1e-6;i++) out.push(i*step===0?0:i*step);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the engine: a netlist of gates, each one unit of delay             *
+ *  (build_logic/derive.py is an independent Python twin)              *
+ * ================================================================== */
+/* every gate's function, on a list of 0/1 inputs */
+const GATE_FN={
+  BUF:v=>v[0], NOT:v=>1-v[0],
+  AND:v=>v.every(x=>x===1)?1:0, OR:v=>v.some(x=>x===1)?1:0,
+  NAND:v=>v.every(x=>x===1)?0:1, NOR:v=>v.some(x=>x===1)?0:1,
+  XOR:v=>v.reduce((a,x)=>a^x,0), XNOR:v=>1-v.reduce((a,x)=>a^x,0)};
+function evalGate(t,v){ const f=GATE_FN[t]; if(!f) throw new Error('no gate '+t); return f(v); }
+
+/* a circuit: named nets, gates (type, input nets, output net, a place to draw it), forced inputs, a start state */
+function circuit(name){ return {name,nets:[],idx:{},gates:[],inputs:[],outputs:[],init:{},place:{}}; }
+function net(C,n){ if(C.idx[n]===undefined){ C.idx[n]=C.nets.length; C.nets.push(n); } return C.idx[n]; }
+function gate(C,t,ins,out,x,y){ C.gates.push({t,ins:ins.map(n=>net(C,n)),out:net(C,out),x,y}); return out; }
+function input(C,n,x,y){ net(C,n); C.inputs.push(n); C.place[n]=[x,y]; return n; }
+function output(C,n,x,y){ net(C,n); C.outputs.push(n); C.place['>'+n]=[x,y]; return n; }
+
+/* a state: one 0/1 per net.  The start: every net 0, but the circuit's own init (a latch powers up holding 0) */
+function startState(C){ const v=new Uint8Array(C.nets.length); for(const n in C.init) v[C.idx[n]]=C.init[n]; return v; }
+function force(C,v,ins){ for(const n in ins) v[C.idx[n]]=ins[n]?1:0; return v; }
+/* one tick: every gate reads the previous state, all at once; the forced inputs hold.  The gates are compiled once
+   to numeric codes (the accumulator runs 10⁶ gate updates to find its clock limit); evalGate is the reference the
+   selfTest holds the compiled form to. */
+const GCODE={BUF:0,NOT:1,AND:2,OR:3,NAND:4,NOR:5,XOR:6,XNOR:7};
+function compile(C){ if(C.cc&&C.cc.n===C.gates.length) return C.cc;
+  const n=C.gates.length, code=new Uint8Array(n), out=new Int32Array(n), i0=new Int32Array(n), i1=new Int32Array(n), ar=new Uint8Array(n);
+  C.gates.forEach((g,k)=>{ if(g.ins.length>2) throw new Error('a gate of more than two inputs'); code[k]=GCODE[g.t]; out[k]=g.out; i0[k]=g.ins[0]; i1[k]=g.ins.length>1?g.ins[1]:g.ins[0]; ar[k]=g.ins.length; });
+  return (C.cc={n,code,out,i0,i1,ar}); }
+function tick(C,v,ins){
+  const cc=compile(C), nv=Uint8Array.from(v);
+  for(let k=0;k<cc.n;k++){ const a=v[cc.i0[k]], b=v[cc.i1[k]]; let y;
+    switch(cc.code[k]){ case 0: y=a; break; case 1: y=1-a; break; case 2: y=(a&b); break; case 3: y=a|b; break;
+      case 4: y=1-(a&b); break; case 5: y=1-(a|b); break; case 6: y=cc.ar[k]===1?a:a^b; break; default: y=cc.ar[k]===1?1-a:1-(a^b); }
+    nv[cc.out[k]]=y; }
+  return force(C,nv,ins);
+}
+/* the reference tick, gate by gate through evalGate (the selfTest holds the compiled tick to it) */
+function tickRef(C,v,ins){
+  const nv=Uint8Array.from(v);
+  for(const g of C.gates){ const a=new Array(g.ins.length); for(let i=0;i<g.ins.length;i++) a[i]=v[g.ins[i]]; nv[g.out]=evalGate(g.t,a); }
+  return force(C,nv,ins);
+}
+function same(a,b){ for(let i=0;i<a.length;i++) if(a[i]!==b[i]) return false; return true; }
+/* run from v with the inputs held until a tick changes nothing: the trace of states and the ticks it took
+   (the last tick that changed anything); max ticks without settling is an oscillation */
+function settle(C,v0,ins,max){
+  const lim=max||400; let v=force(C,Uint8Array.from(v0),ins); const trace=[v];
+  for(let t=1;t<=lim;t++){ const nv=tick(C,v,ins); if(same(nv,v)) return {trace,ticks:t-1,osc:false,v}; trace.push(nv); v=nv; }
+  return {trace,ticks:lim,osc:true,v};
+}
+const val=(C,v,n)=>v[C.idx[n]];
+/* the settled state of a combinational circuit for given inputs, from the all-zero start */
+function settled(C,ins){ return settle(C,startState(C),ins).v; }
+/* a number's bits, low first, and back */
+function bitsOf(x,n){ const b=[]; for(let i=0;i<n;i++) b.push((x>>i)&1); return b; }
+function numOf(C,v,pfx,n){ let x=0; for(let i=0;i<n;i++) x|=val(C,v,pfx+i)<<i; return x; }
+function busIns(pfx,x,n){ const o={}; bitsOf(x,n).forEach((b,i)=>o[pfx+i]=b); return o; }
+
+/* ---------------- 1. the gates, alone and from NANDs only ---------------- */
+const GATES=['NOT','AND','OR','NAND','NOR','XOR','XNOR'];
+const ARITY={NOT:1,BUF:1};
+function oneGate(t){ const C=circuit(t); input(C,'A',0,ARITY[t]?0:-0.5); if(!ARITY[t]) input(C,'B',0,0.5);
+  gate(C,t,ARITY[t]?['A']:['A','B'],'Y',1.5,0); output(C,'Y',3,0); return C; }
+/* the same function from 2-input NANDs only (NAND is universal); x, y place each NAND for the drawing */
+function nandOnly(t){
+  const C=circuit(t+' from NANDs'); input(C,'A',0,-0.6); if(!ARITY[t]) input(C,'B',0,0.6);
+  const N=(a,b,o,x,y)=>gate(C,'NAND',[a,b],o,x,y);
+  if(t==='NOT') N('A','A','Y',1.5,-0.6);
+  else if(t==='NAND') N('A','B','Y',1.5,0);
+  else if(t==='AND'){ N('A','B','n',1.5,0); N('n','n','Y',3,0); }
+  else if(t==='OR'){ N('A','A','na',1.5,-0.6); N('B','B','nb',1.5,0.6); N('na','nb','Y',3,0); }
+  else if(t==='NOR'){ N('A','A','na',1.5,-0.6); N('B','B','nb',1.5,0.6); N('na','nb','o',3,0); N('o','o','Y',4.5,0); }
+  else if(t==='XOR'){ N('A','B','n',1.5,0); N('A','n','p',3,-0.6); N('B','n','q',3,0.6); N('p','q','Y',4.5,0); }
+  else if(t==='XNOR'){ N('A','B','n',1.5,0); N('A','n','p',3,-0.6); N('B','n','q',3,0.6); N('p','q','x',4.5,0); N('x','x','Y',6,0); }
+  else throw new Error('no NAND form for '+t);
+  const xs=C.gates.map(g=>g.x); output(C,'Y',Math.max(...xs)+1.5,C.gates[C.gates.length-1].y);
+  return C;
+}
+/* the function's truth table: rows of [inputs..., output] */
+function truthTable(t){ const n=ARITY[t]?1:2, rows=[]; for(let k=0;k<(1<<n);k++){ const ins=bitsOf(k,n).reverse(); rows.push([...ins,evalGate(t,ins)]); } return rows; }
+
+/* ---------------- 2. switches ---------------- */
+/* a switch network: a switch closed when its input is 1 (an nMOS, a relay contact) or 0 (a pMOS), in series or in
+   parallel.  Shannon (1938): series is AND, parallel is OR. */
+const SW=(inp,p)=>({k:'sw',inp,p:!!p}), SER=(...ch)=>({k:'ser',ch}), PAR=(...ch)=>({k:'par',ch});
+function closed(sw,vals){ const x=vals[sw.inp]; return sw.p?x===0:x===1; }
+function conducts(nw,vals){ if(nw.k==='sw') return closed(nw,vals); if(nw.k==='ser') return nw.ch.every(c=>conducts(c,vals)); return nw.ch.some(c=>conducts(c,vals)); }
+function countSw(nw){ return nw.k==='sw'?1:nw.ch.reduce((a,c)=>a+countSw(c),0); }
+/* static CMOS: a pull-up of pMOS to the supply and a pull-down of nMOS to ground, each the other's dual */
+const CMOS={
+  NOT:{ins:['A'],up:SW('A',1),down:SW('A')},
+  NAND:{ins:['A','B'],up:PAR(SW('A',1),SW('B',1)),down:SER(SW('A'),SW('B'))},
+  NOR:{ins:['A','B'],up:SER(SW('A',1),SW('B',1)),down:PAR(SW('A'),SW('B'))}};
+/* the output of a static CMOS gate: 1 through the pull-up, 0 through the pull-down; both on is a short, neither a float */
+function cmosOut(g,vals){ const u=conducts(g.up,vals), d=conducts(g.down,vals); return u&&!d?1:d&&!u?0:u&&d?'short':'float'; }
+/* the transmission gate: an nMOS and a pMOS side by side, driven by EN and its complement: a switch that passes D both
+   ways when EN = 1.  Off, the node keeps the charge it had (memory, until it leaks: leakage is not modelled). */
+function tgate(en,d,held){ return en?d:held; }
+
+/* ---------------- 3. memory ---------------- */
+/* the SR latch: two NORs, each one's output fed back to the other's input */
+function srLatch(){ const C=circuit('SR latch (NOR)'); input(C,'S',0,1); input(C,'R',0,-1);
+  /* each feedback enters the pin nearer the other gate, so the two loops cross once, in the classic X */
+  gate(C,'NOR',['R','QB'],'Q',2.2,-0.8); gate(C,'NOR',['Q','S'],'QB',2.2,0.8);
+  output(C,'Q',4,-0.8); output(C,'QB',4,0.8); C.init={Q:0,QB:1}; return C; }
+/* a gated D latch from NANDs: EN opens the gate, D sets or resets the SR pair inside */
+function addDLatch(C,p,D,EN,Q,QB,x,y){
+  gate(C,'NOT',[D],p+'nd',x,y+0.9);
+  gate(C,'NAND',[D,EN],p+'s',x+1.4,y-0.8); gate(C,'NAND',[p+'nd',EN],p+'r',x+1.4,y+0.8);
+  gate(C,'NAND',[p+'s',QB],Q,x+2.9,y-0.8); gate(C,'NAND',[Q,p+'r'],QB,x+2.9,y+0.8);
+  C.init[Q]=0; C.init[QB]=1; C.init[p+'nd']=1; C.init[p+'s']=1; C.init[p+'r']=1;
+}
+function dLatch(){ const C=circuit('gated D latch'); input(C,'D',0,-0.8); input(C,'EN',0,0.4);
+  addDLatch(C,'',  'D','EN','Q','QB',1.2,0); output(C,'Q',5.6,-0.8); output(C,'QB',5.6,0.8); return C; }
+/* the master–slave D flip-flop: a master latch open while CLK = 0, a slave open while CLK = 1; Q takes D at the
+   rising edge.  The master's enable is CLK through one inverter. */
+function addDFF(C,p,D,CLK,Q,QB,x,y,nclk){
+  const nc=nclk||(gate(C,'NOT',[CLK],p+'nclk',x,y+2.2),p+'nclk'); if(!nclk) C.init[nc]=1;
+  addDLatch(C,p+'m.',D,nc,p+'mq',p+'mqb',x+0.6,y);
+  addDLatch(C,p+'s.',p+'mq',CLK,Q,QB,x+5.0,y);
+}
+function dFlipFlop(){ const C=circuit('D flip-flop'); input(C,'D',0,-0.8); input(C,'CLK',0,1.6);
+  addDFF(C,'','D','CLK','Q','QB',0.6,0); output(C,'Q',10.0,-0.8); output(C,'QB',10.0,0.8); return C; }
+
+/* ---------------- 4. adding ---------------- */
+function addHalfAdder(C,p,a,b,s,c,x,y){ gate(C,'XOR',[a,b],s,x,y-0.5); gate(C,'AND',[a,b],c,x,y+0.5); }
+/* a full adder: s = a ⊕ b ⊕ cin, cout = ab + cin(a ⊕ b), five gates; the carry passes two of them */
+function addFullAdder(C,p,a,b,cin,s,cout,x,y){
+  gate(C,'XOR',[a,b],p+'x',x,y-0.9); gate(C,'XOR',[p+'x',cin],s,x+1.6,y-0.6);
+  gate(C,'AND',[a,b],p+'g',x,y+0.9); gate(C,'AND',[p+'x',cin],p+'t',x+1.6,y+0.5);
+  gate(C,'OR',[p+'g',p+'t'],cout,x+3.0,y+0.7);
+}
+function halfAdder(){ const C=circuit('half adder'); input(C,'A',0,-0.5); input(C,'B',0,0.5); addHalfAdder(C,'','A','B','S','C',1.6,0);
+  output(C,'S',3.2,-0.5); output(C,'C',3.2,0.5); return C; }
+function fullAdder(){ const C=circuit('full adder'); input(C,'A',0,-0.9); input(C,'B',0,-0.1); input(C,'Cin',0,0.9);
+  addFullAdder(C,'','A','B','Cin','S','Cout',1.4,0); output(C,'S',5.6,-0.6); output(C,'Cout',5.6,0.7); return C; }
+/* n full adders in a chain: bit i's carry out is bit i+1's carry in */
+function rippleAdder(n){ const C=circuit(n+'-bit ripple adder');
+  for(let i=0;i<n;i++){ input(C,'A'+i,0,i); input(C,'B'+i,0,i); }
+  input(C,'C0',0,0);
+  for(let i=0;i<n;i++) addFullAdder(C,'fa'+i+'.','A'+i,'B'+i,'C'+i,'S'+i,'C'+(i+1),0,i);
+  for(let i=0;i<n;i++) output(C,'S'+i,0,i); output(C,'C'+n,0,n); C.n=n; return C; }
+
+/* ---------------- 5. subtracting ---------------- */
+/* a half subtractor: d = a ⊕ b, borrow = ¬a·b */
+function addHalfSub(C,p,a,b,d,bo,x,y){ gate(C,'XOR',[a,b],d,x+1.2,y-0.5); gate(C,'NOT',[a],p+'na',x,y+0.3); gate(C,'AND',[p+'na',b],bo,x+1.2,y+0.6); }
+/* a full subtractor: d = a ⊕ b ⊕ bin, bout = ¬a·b + bin·¬(a ⊕ b) */
+function addFullSub(C,p,a,b,bin,d,bout,x,y){
+  gate(C,'XOR',[a,b],p+'x',x,y-0.9); gate(C,'XOR',[p+'x',bin],d,x+1.6,y-0.6);
+  gate(C,'NOT',[a],p+'na',x,y+0.2); gate(C,'AND',[p+'na',b],p+'g',x+1.6,y+0.4);
+  gate(C,'NOT',[p+'x'],p+'nx',x+1.6,y+1.3); gate(C,'AND',[p+'nx',bin],p+'t',x+3.0,y+1.2);
+  gate(C,'OR',[p+'g',p+'t'],bout,x+4.4,y+0.8);
+}
+function halfSub(){ const C=circuit('half subtractor'); input(C,'A',0,-0.5); input(C,'B',0,0.6); addHalfSub(C,'','A','B','D','Bo',1.2,0);
+  output(C,'D',4,-0.5); output(C,'Bo',4,0.6); return C; }
+function fullSub(){ const C=circuit('full subtractor'); input(C,'A',0,-0.9); input(C,'B',0,-0.1); input(C,'Bin',0,1.2);
+  addFullSub(C,'','A','B','Bin','D','Bout',1.4,0); output(C,'D',7,-0.6); output(C,'Bout',7,0.8); return C; }
+function rippleSub(n){ const C=circuit(n+'-bit ripple subtractor');
+  for(let i=0;i<n;i++){ input(C,'A'+i,0,i); input(C,'B'+i,0,i); }
+  input(C,'W0',0,0);
+  for(let i=0;i<n;i++) addFullSub(C,'fs'+i+'.','A'+i,'B'+i,'W'+i,'D'+i,'W'+(i+1),0,i);
+  for(let i=0;i<n;i++) output(C,'D'+i,0,i); output(C,'W'+n,0,n); C.n=n; return C; }
+/* the adder as a subtractor: B through XORs with SUB, and SUB as the carry in: A + ¬B + 1 = A − B (mod 2ⁿ).
+   V, the signed overflow, is the XOR of the last two carries. */
+function addSubUnit(n){ const C=circuit(n+'-bit adder–subtractor');
+  for(let i=0;i<n;i++){ input(C,'A'+i,0,i); input(C,'B'+i,0,i); }
+  input(C,'SUB',0,0);
+  gate(C,'BUF',['SUB'],'C0',0,0);
+  for(let i=0;i<n;i++){ gate(C,'XOR',['B'+i,'SUB'],'b'+i,0,i); addFullAdder(C,'fa'+i+'.','A'+i,'b'+i,'C'+i,'S'+i,'C'+(i+1),0,i); }
+  gate(C,'XOR',['C'+n,'C'+(n-1)],'V',0,n);
+  for(let i=0;i<n;i++) output(C,'S'+i,0,i); output(C,'C'+n,0,n); output(C,'V',0,n); C.n=n; return C; }
+const signedOf=(x,n)=>x>=(1<<(n-1))?x-(1<<n):x;
+
+/* ---------------- 6. the accumulator: a register of D flip-flops and an adder ---------------- */
+function accumulator(n){ const C=circuit(n+'-bit accumulator'); input(C,'CLK',0,0);
+  for(let i=0;i<n;i++) input(C,'X'+i,0,i);
+  gate(C,'NOT',['CLK'],'nclk',0,0); C.init.nclk=1;
+  input(C,'Z',0,0);                                           /* a held 0 for the first carry in */
+  for(let i=0;i<n;i++) addFullAdder(C,'fa'+i+'.','R'+i,'X'+i,i===0?'Z':'c'+i,'s'+i,'c'+(i+1),0,i);
+  for(let i=0;i<n;i++) addDFF(C,'ff'+i+'.','s'+i,'CLK','R'+i,'RB'+i,0,i,'nclk');
+  C.n=n; return C; }
+/* clearing the register (an asynchronous clear the drawing does not show): every latch holding 0, the adder settled */
+function accClear(C,ins){ const v=startState(C); for(let i=0;i<C.n;i++){ for(const p of ['ff'+i+'.m.','ff'+i+'.s.']){ v[C.idx[p+'nd']]=1; v[C.idx[p+'s']]=1; v[C.idx[p+'r']]=1; } }
+  return settle(C,v,ins).v; }
+/* run the clock: P ticks a period (CLK low for the first half, high for the second); the register read just
+   before each rising edge.  Returns the readings and every tick's state for the timing diagram. */
+function accRun(C,X,P,cycles,v0){
+  const n=C.n, half=Math.floor(P/2), ins=Object.assign({CLK:0,Z:0},busIns('X',X,n));
+  let v=v0||accClear(C,ins); const reads=[], states=[], clk=[];
+  for(let k=0;k<cycles;k++) for(let t=0;t<P;t++){
+    ins.CLK=t<half?0:1; if(t===half) reads.push(numOf(C,v,'R',n));
+    v=tick(C,v,ins); states.push(v); clk.push(ins.CLK); }
+  /* no reading after the last cycle: it would fall mid-transient, while the slave is still passing the new value */
+  return {reads,states,clk,v};
+}
+/* the shortest clock period at which every add lands (the readings at the rising edges go up by X each cycle,
+   mod 2ⁿ), for this X, over two full counts; pass and fail are monotone in P (checked for n = 2 to 6) */
+function accMinPeriod(n,X,cycles){ const C=accumulator(n), m=1<<n;
+  for(let P=2;P<=200;P+=2){ const r=accRun(C,X,P,cycles||(2*m+2)).reads; let good=true;
+    for(let k=1;k<r.length;k++) if(r[k]!==(r[0]+k*X)%m){ good=false; break; }
+    if(good) return P; }
+  return NaN;
+}
+
+/* ================================================================== *
+ *  state, the live circuits, the view models                          *
+ * ================================================================== */
+const TABS=[['gates','the gates'],['switch','switches'],['memory','memory'],['adder','the adder'],['sub','the subtractor'],['acc','the accumulator']];
+/* role colours: a 1 is green, a 0 is dim; orange = a reference or a warning, magenta = the live choice, cyan =
+   structure */
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6', text:'#cfd4de', faint:'#3a4256',
+           one:'#b8ec4c', zero:'#3d4560', body:'#aeb6c6', box:'#232838'};
+const RO_W=300;
+const GATE_LIST=GATES.map(t=>({id:t,name:t}));
+const CMOS_LIST=[{id:'NOT',name:'NOT'},{id:'NAND',name:'NAND'},{id:'NOR',name:'NOR'}];
+const MEM_LIST=[{id:'sr',name:'SR latch'},{id:'dlatch',name:'gated D latch'},{id:'dff',name:'D flip-flop'}];
+const ADD_LIST=[{id:'half',name:'half adder'},{id:'full',name:'full adder'},{id:'ripple',name:'n bits'}];
+const SUB_LIST=[{id:'half',name:'half subtractor'},{id:'full',name:'full subtractor'},{id:'ripple',name:'n bits'},{id:'twos',name:'A + ¬B + 1'}];
+const DEFAULTS={view:'gates',
+  /* the gates */ gT:'XOR', gA:1, gB:0, gSpd:4,
+  /* switches */ wT:'NAND', wA:1, wB:0, wD:1, wEN:1,
+  /* memory */ mC:'sr', mS:0, mR:0, mD:1, mEN:0, mP:16, mRun:true, mClk:0, mSpd:6,
+  /* the adder */ aMode:'ripple', aN:4, aA:7, aB:1, aC:0, aSpd:4, aBit:0,
+  /* the subtractor */ sMode:'twos', sN:4, sA:3, sB:5, sW:0, sSub:1, sSpd:4,
+  /* the accumulator */ cN:4, cX:3, cP:16, cRun:true, cSpd:12};
+const ST=Object.assign({},DEFAULTS);
+const LIM={gSpd:[1,20], mP:[4,40], mSpd:[1,30], aN:[1,8], aA:[0,255], aB:[0,255], aSpd:[1,20], aBit:[0,7],
+           sN:[2,8], sA:[0,255], sB:[0,255], sSpd:[1,20], cN:[2,8], cX:[0,255], cP:[4,40], cSpd:[1,60]};
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+/* the numbers' ranges follow the bit counts */
+function clampNums(st){ const ma=(1<<st.aN)-1, ms=(1<<st.sN)-1, mc=(1<<st.cN)-1;
+  st.aA=clamp(Math.round(st.aA),0,ma); st.aB=clamp(Math.round(st.aB),0,ma); st.aBit=clamp(Math.round(st.aBit),0,st.aN-1);
+  st.sA=clamp(Math.round(st.sA),0,ms); st.sB=clamp(Math.round(st.sB),0,ms); st.cX=clamp(Math.round(st.cX),0,mc); }
+
+/* ---- the live circuits: each view's circuit and its current state, stepped one gate delay at a time ---- */
+const LIVE={};
+const SIM={t:0, acc:{}};
+const FRAME=1/60;
+function simReset(){ SIM.t=0; SIM.acc={}; for(const k in LIVE) delete LIVE[k]; }
+/* each view's circuits and their inputs from the state */
+function viewCircuits(st){
+  const v=st.view;
+  if(v==='gates') return {key:'g'+st.gT, mk:()=>[oneGate(st.gT),nandOnly(st.gT)], ins:()=>[{A:st.gA,B:st.gB},{A:st.gA,B:st.gB}]};
+  if(v==='memory'){ const mk=st.mC==='sr'?srLatch:st.mC==='dlatch'?dLatch:dFlipFlop;
+    return {key:'m'+st.mC, mk:()=>[mk()], ins:()=>[st.mC==='sr'?{S:st.mS,R:st.mR}:st.mC==='dlatch'?{D:st.mD,EN:st.mEN}:{D:st.mD,CLK:memClock(st)}]}; }
+  if(v==='adder'){ const C=st.aMode==='half'?'h':st.aMode==='full'?'f':'r'+st.aN;
+    return {key:'a'+C, mk:()=>[st.aMode==='half'?halfAdder():st.aMode==='full'?fullAdder():rippleAdder(st.aN)], ins:()=>[adderIns(st)]}; }
+  if(v==='sub'){ const C=st.sMode==='half'?'h':st.sMode==='full'?'f':st.sMode==='ripple'?'r'+st.sN:'t'+st.sN;
+    return {key:'s'+C, mk:()=>[st.sMode==='half'?halfSub():st.sMode==='full'?fullSub():st.sMode==='ripple'?rippleSub(st.sN):addSubUnit(st.sN)], ins:()=>[subIns(st)]}; }
+  if(v==='acc') return {key:'c'+st.cN, mk:()=>[accumulator(st.cN)], ins:()=>{ const L=LIVE.acc;
+    return [Object.assign({CLK:accClock(st),Z:0},busIns('X',L&&st.cRun?L.Xcur:st.cX,st.cN))]; }};
+  return null;
+}
+function adderIns(st){ if(st.aMode==='half') return {A:st.aA&1,B:st.aB&1}; if(st.aMode==='full') return {A:st.aA&1,B:st.aB&1,Cin:st.aC};
+  return Object.assign(busIns('A',st.aA,st.aN),busIns('B',st.aB,st.aN),{C0:st.aC}); }
+function subIns(st){ if(st.sMode==='half') return {A:st.sA&1,B:st.sB&1}; if(st.sMode==='full') return {A:st.sA&1,B:st.sB&1,Bin:st.sW};
+  if(st.sMode==='ripple') return Object.assign(busIns('A',st.sA,st.sN),busIns('B',st.sB,st.sN),{W0:st.sW});
+  return Object.assign(busIns('A',st.sA,st.sN),busIns('B',st.sB,st.sN),{SUB:st.sSub}); }
+/* the clocks: low for the first half of each period, counted in gate delays since the view's circuit was made */
+function memClock(st){ if(st.mC!=='dff') return 0; if(!st.mRun) return st.mClk; const L=LIVE.memory; const t=L?L.ticks:0; return (t%st.mP)>=st.mP/2?1:0; }
+/* the accumulator's clock keeps its own phase: a new period starts at a cycle boundary, never mid-cycle (a cycle
+   cut short catches the master latch half-way; see X below) */
+function accClock(st){ const L=LIVE.acc; if(!L) return 0; return (L.phase>=L.Pcur/2)?1:0; }
+/* the live record of a view: made settled (from the circuit's start state) the first time, then stepped */
+function ensureLive(st){
+  const vc=viewCircuits(st); if(!vc) return null;
+  let L=LIVE[st.view];
+  if(!L||L.key!==vc.key){
+    const Cs=vc.mk(), ins=vc.ins();
+    const vs=Cs.map((C,i)=>st.view==='acc'?accClear(C,ins[i]):settle(C,startState(C),ins[i]).v);
+    /* the timing diagram starts full of the settled state, so a still circuit shows its levels, not nothing */
+    const hist=[]; for(let k=0;k<40;k++) hist.push({v:vs[0],ins:ins[0]});
+    L=LIVE[st.view]={key:vc.key,Cs,vs,ticks:0,since:0,hist,prev:vs.map(v=>Uint8Array.from(v)),ins};
+    if(st.view==='acc'){ L.reads=[]; L.expect=null; L.phase=0; L.Pcur=st.cP; L.Xcur=st.cX; L.eq=new Array(st.cN).fill(0); L.caught=false; }
+  }
+  return L;
+}
+/* one gate delay for the view's circuits; the history keeps the last 96 states for the timing diagrams */
+function liveTick(st){
+  const L=ensureLive(st); if(!L) return false;
+  const vc=viewCircuits(st), ins=vc.ins();
+  const before=L.vs;
+  if(st.view==='acc'){ const half=Math.floor(L.Pcur/2);
+    if(L.phase===half){ const r=numOf(L.Cs[0],L.vs[0],'R',st.cN); L.reads.push(r); if(L.reads.length>64) L.reads.shift();
+      L.expect=L.expect===null?r:(L.expect+L.Xcur)%(1<<st.cN); L.lastRead=r; } }
+  /* the inputs reach their wires at once (as settle() has it), and the gates answer one delay later */
+  L.vs=L.Cs.map((C,i)=>tick(C,force(C,Uint8Array.from(L.vs[i]),ins[i]),ins[i]));
+  L.ticks++; L.since++;
+  if(st.view==='acc'){ const C=L.Cs[0], v=L.vs[0];
+    /* X is taken as if from a register on the same clock: two delays after a rising edge, when the master has closed.
+       A new X changed at any moment could reach the master while it captures, and in this model of equal delays a
+       latch caught half-way rings for ever (metastability; a real one resolves, after a random time) */
+    L.phase++;
+    if(L.phase===Math.floor(L.Pcur/2)+2&&L.Xcur!==st.cX){ L.Xcur=st.cX; L.reads=[]; L.expect=null; }
+    if(L.phase>=L.Pcur){ L.phase=0; if(L.Pcur!==st.cP){ L.Pcur=st.cP; L.reads=[]; L.expect=null; } }
+    if(!st.cRun) L.Xcur=st.cX;
+    /* a bit whose Q and Q̄ agree for 4 delays running is caught: the period-2 ring */
+    for(let i=0;i<st.cN;i++){ L.eq[i]=val(C,v,'R'+i)===val(C,v,'RB'+i)?L.eq[i]+1:0; if(L.eq[i]>=4) L.caught=true; } }
+  const changed=L.vs.some((v,i)=>!same(v,before[i]));
+  L.hist.push({v:L.vs[0],ins:ins[0]}); if(L.hist.length>96) L.hist.shift();
+  return changed;
+}
+/* a change of inputs: the circuit is not re-settled; the next delays carry it through (since counts them) */
+function inputsChanged(){ const L=LIVE[ST.view]; if(L&&L.vs){ L.since=0; L.prev=L.vs.map(v=>Uint8Array.from(v)); } }
+/* does the view still move?  a combinational view until it settles; memory while its clock runs or it has not
+   settled; the accumulator while its clock runs */
+function pending(st){
+  const L=ensureLive(st); if(!L) return false;
+  if(st.view==='memory'&&st.mC==='dff'&&st.mRun) return true;
+  if(st.view==='acc') return st.cRun;
+  const ins=viewCircuits(st).ins();
+  return L.Cs.some((C,i)=>!same(tick(C,L.vs[i],ins[i]),L.vs[i]));
+}
+const SPD_KEY={gates:'gSpd',memory:'mSpd',adder:'aSpd',sub:'sSpd',acc:'cSpd'};
+function viewAnimates(st){ return !!SPD_KEY[st.view]&&pending(st); }
+/* the frame clock: gate delays at the view's rate (delays per second) */
+function runStep(st){
+  if(!viewAnimates(st)) return false;
+  SIM.t+=FRAME; const k=st.view, rate=st[SPD_KEY[k]];
+  SIM.acc[k]=(SIM.acc[k]||0)+FRAME*rate; let moved=false;
+  while(SIM.acc[k]>=1){ SIM.acc[k]-=1; liveTick(st); moved=true; }
+  return true;
+}
+/* settle the view's live circuits at once (the headless tests and the "skip" button) */
+function liveSettle(st,max){ let n=0; while(n<(max||400)&&pending(st)){ liveTick(st); n++; } return n; }
+
+/* ================================================================== */
+/*  the view models                                                    */
+/* ================================================================== */
+function gatesView(st){ const L=ensureLive(st), [C,N]=L.Cs, [v,w]=L.vs;
+  const ins=ARITY[st.gT]?[st.gA]:[st.gA,st.gB], y=evalGate(st.gT,ins);
+  /* how many delays the NAND form takes from the previous inputs to these */
+  const sN=settle(N,L.prev[1],{A:st.gA,B:st.gB});
+  return {t:st.gT,C,N,v,w,ins,y,shown:val(C,v,'Y'),shownN:val(N,w,'Y'),rows:truthTable(st.gT),nands:N.gates.length,delays:sN.ticks,since:L.since}; }
+function switchView(st){ const g=CMOS[st.wT], vals={A:st.wA,B:st.wB};
+  const up=conducts(g.up,vals), down=conducts(g.down,vals), out=cmosOut(g,vals);
+  const rows=[]; const n=g.ins.length; for(let k=0;k<(1<<n);k++){ const b=bitsOf(k,n).reverse(), vv=n===1?{A:b[0]}:{A:b[0],B:b[1]};
+    rows.push({ins:b,up:conducts(g.up,vv),down:conducts(g.down,vv),out:cmosOut(g,vv)}); }
+  /* the transmission gate's node: it follows D while the switch is closed and keeps its charge when it opens */
+  const L=LIVE.switch||(LIVE.switch={held:st.wD}); if(st.wEN) L.held=st.wD;
+  const q=tgate(st.wEN,st.wD,L.held);
+  return {t:st.wT,g,vals,up,down,out,rows,transistors:countSw(g.up)+countSw(g.down),q,held:L.held,series:conducts(SER(SW('A'),SW('B')),vals),parallel:conducts(PAR(SW('A'),SW('B')),vals)}; }
+function memoryView(st){ const L=ensureLive(st), C=L.Cs[0], v=L.vs[0];
+  const ins=viewCircuits(st).ins()[0];
+  const q=val(C,v,'Q'), qb=val(C,v,'QB');
+  const settled=!pending(st);
+  return {kind:st.mC,C,v,ins,q,qb,hist:L.hist,ticks:L.ticks,since:L.since,settled,forbidden:st.mC==='sr'&&q===qb&&ins.S===1&&ins.R===1,oscillating:st.mC==='sr'&&!settled&&ins.S===0&&ins.R===0}; }
+function adderView(st){ const L=ensureLive(st), C=L.Cs[0], v=L.vs[0], m=st.aMode;
+  const n=m==='ripple'?st.aN:1, A=m==='ripple'?st.aA:st.aA&1, B=m==='ripple'?st.aB:st.aB&1, c=m==='half'?0:st.aC;
+  const want=A+B+c;
+  const sum=m==='half'?val(C,v,'S')+2*val(C,v,'C'):m==='full'?val(C,v,'S')+2*val(C,v,'Cout'):numOf(C,v,'S',n)+(val(C,v,'C'+n)<<n);
+  const tr=settle(C,L.prev[0],adderIns(st));
+  const seen=tr.trace.map(s=>m==='half'?val(C,s,'S')+2*val(C,s,'C'):m==='full'?val(C,s,'S')+2*val(C,s,'Cout'):numOf(C,s,'S',n)+(val(C,s,'C'+n)<<n));
+  return {mode:m,C,v,n,A,B,c,want,sum,delays:tr.ticks,seen,since:L.since,worst:2*n+1,bit:Math.min(st.aBit,n-1)}; }
+function subView(st){ const L=ensureLive(st), C=L.Cs[0], v=L.vs[0], m=st.sMode;
+  const n=(m==='half'||m==='full')?1:st.sN, M=1<<n, A=n===1?st.sA&1:st.sA, B=n===1?st.sB&1:st.sB, w=m==='half'?0:m==='twos'?0:st.sW;
+  let diff, flag, wantDiff, wantFlag, V=null, wantV=null;
+  if(m==='half'){ diff=val(C,v,'D'); flag=val(C,v,'Bo'); wantDiff=(A-B+2)%2; wantFlag=A<B?1:0; }
+  else if(m==='full'){ diff=val(C,v,'D'); flag=val(C,v,'Bout'); wantDiff=((A-B-w)%2+2)%2; wantFlag=A-B-w<0?1:0; }
+  else if(m==='ripple'){ diff=numOf(C,v,'D',n); flag=val(C,v,'W'+n); wantDiff=((A-B-w)%M+M)%M; wantFlag=A-B-w<0?1:0; }
+  else { diff=numOf(C,v,'S',n); flag=val(C,v,'C'+n); V=val(C,v,'V');
+    const ex=st.sSub?signedOf(A,n)-signedOf(B,n):signedOf(A,n)+signedOf(B,n);
+    wantDiff=st.sSub?((A-B)%M+M)%M:(A+B)%M; wantFlag=st.sSub?(A>=B?1:0):(A+B>=M?1:0); wantV=(ex<-(M>>1)||ex>=(M>>1))?1:0; }
+  const tr=settle(C,L.prev[0],subIns(st));
+  return {mode:m,C,v,n,A,B,w,diff,flag,V,wantDiff,wantFlag,wantV,delays:tr.ticks,since:L.since,sub:st.sSub,
+          sA:signedOf(A,n),sB:signedOf(B,n),sD:signedOf(diff,n)}; }
+function accView(st){ const L=ensureLive(st), C=L.Cs[0], v=L.vs[0], n=st.cN, M=1<<n;
+  const X=st.cRun?L.Xcur:st.cX, P=L.Pcur;
+  const minP=memo('accMin',n+','+X,()=>accMinPeriod(n,X));
+  const ok=!L.caught&&(L.reads.length<2||L.reads.every((r,k)=>k===0||r===(L.reads[k-1]+X)%M));
+  return {C,v,n,X,P,Xnext:st.cX,Pnext:st.cP,R:numOf(C,v,'R',n),sum:numOf(C,v,'s',n),clk:val(C,v,'CLK'),reads:L.reads,expect:L.expect,ok,minP,
+          fast:P<minP,caught:L.caught,hist:L.hist,ticks:L.ticks}; }
+
+const MODELS={gates:st=>({G:gatesView(st)}),switch:st=>({W:switchView(st)}),memory:st=>({Mm:memoryView(st)}),
+              adder:st=>({A:adderView(st)}),sub:st=>({S:subView(st)}),acc:st=>({Ac:accView(st)})};
+function buildModel(){ const st=ST, v=st.view; clampNums(st); return Object.assign({view:v},MODELS[v]?MODELS[v](st):{}); }
+
+/* ================================================================== */
+/*  formatting                                                          */
+/* ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+/* a number in binary, n digits, high bit first */
+function bin(x,n){ let s=''; for(let i=n-1;i>=0;i--) s+=(x>>i)&1; return s; }
+const OKS=b=>b?'good':'bad';
+
+/* ================================================================== *
+ *  the readout, the equation bar and the tag                          *
+ * ================================================================== */
+const READOUTS={}, EQBARS={}, TAGS={};
+function readoutHTML(M){ return READOUTS[M.view]?READOUTS[M.view](M):''; }
+function eqbarHTML(M){ return EQBARS[M.view]?EQBARS[M.view](M):''; }
+function tagHTML(M){ return TAGS[M.view]?TAGS[M.view](M):''; }
+const EXPR={NOT:'Y = ¬A',AND:'Y = A · B',OR:'Y = A + B',NAND:'Y = ¬(A · B)',NOR:'Y = ¬(A + B)',XOR:'Y = A ⊕ B',XNOR:'Y = ¬(A ⊕ B)'};
+const SAYS={NOT:'1 when A is 0',AND:'1 only when both are 1',OR:'1 when either is 1',NAND:'0 only when both are 1',NOR:'1 only when both are 0',XOR:'1 when they differ',XNOR:'1 when they agree'};
+
+READOUTS.gates=M=>{ const G=M.G;
+  let h='<div class="rname">'+G.t+'<small>'+SAYS[G.t]+'</small></div><table>';
+  h+=hd('now')+rrow('inputs',ARITY[G.t]?'A = '+G.ins[0]:'A = '+G.ins[0]+', B = '+G.ins[1])+rrow('Y (the rule)',String(G.y))+rrow('on the gate’s output',String(G.shown),G.shown===G.y?'good':'bad')
+    +rrow('on the NAND form’s output',String(G.shownN),G.shownN===G.y?'good':'bad');
+  h+=hd('from NANDs')+rrow('NAND gates',String(G.nands))+rrow('delays after this change',String(G.delays))+rrow('delays since the change',String(G.since));
+  return h+'</table><div class="note">An orange value is a gate that has not answered yet: each gate takes one delay, and the NAND form is '+G.nands+' gate'+(G.nands>1?'s':'')+' deep at most.</div>'; };
+EQBARS.gates=M=>'<span class="lhs">'+EXPR[M.G.t]+'</span>&nbsp;&nbsp; <span class="hl">¬(A·B)</span> builds them all'
+  +'<span class="sm">NOT A = NAND(A, A); AND = NOT of NAND; OR = NAND of the two NOTs (De Morgan): every rule from one gate</span>';
+TAGS.gates=M=>'<b>the gates</b> &nbsp;seven rules, and one gate that makes them all';
+
+READOUTS.switch=M=>{ const Wv=M.W;
+  let h='<div class="rname">CMOS '+Wv.t+'<small>'+Wv.transistors+' transistors, out = '+Wv.out+'</small></div><table>';
+  h+=hd('the paths')+rrow('pull-up to the supply',Wv.up?'on':'off')+rrow('pull-down to ground',Wv.down?'on':'off')+rrow('never both, never neither',Wv.up!==Wv.down?'yes':'NO',Wv.up!==Wv.down?'good':'bad');
+  h+=hd('switches and a lamp')+rrow('series (AND)',Wv.series?'lit':'dark')+rrow('parallel (OR)',Wv.parallel?'lit':'dark');
+  h+=hd('the transmission gate')+rrow('EN',String(ST.wEN))+rrow('Q',String(Wv.q)+(ST.wEN?' (follows D)':' (held)'));
+  return h+'</table><div class="note">A pMOS switch closes on a 0 and an nMOS on a 1, and the pull-up is the pull-down’s dual: series where the other is parallel. So exactly one path conducts, and a static CMOS gate draws current only while it switches.</div>'; };
+EQBARS.switch=M=>'<span class="lhs">series</span> = AND, &nbsp; <span class="lhs">parallel</span> = OR, &nbsp; <span class="hl">pull-up = dual(pull-down)</span>'
+  +'<span class="sm">switches closed by 1 or by 0, in series or in parallel, are all a gate is made of</span>';
+TAGS.switch=M=>'<b>switches</b> &nbsp;what a gate is made of';
+
+READOUTS.memory=M=>{ const Mm=M.Mm, nm=MEM_LIST.find(o=>o.id===Mm.kind).name;
+  let h='<div class="rname">'+nm+'<small>Q = '+Mm.q+', Q̄ = '+Mm.qb+(Mm.forbidden?' (the forbidden state)':Mm.oscillating?' (oscillating)':'')+'</small></div><table>';
+  h+=hd('inputs')+Object.keys(Mm.ins).map(k=>rrow(k,String(Mm.ins[k]))).join('');
+  h+=hd('the clock of the drawing')+rrow('gate delays so far',String(Mm.ticks))+rrow('settled',Mm.settled?'yes':(Mm.kind==='dff'&&ST.mRun?'the clock runs':'not yet'));
+  return h+'</table><div class="note">'+(Mm.kind==='sr'?'The memory is the loop: each NOR’s output holds the other’s input. With S = R = 0 the loop keeps whichever of its two stable states it is in.':
+    Mm.kind==='dlatch'?'The latch is transparent while EN is 1, so a D that changes then goes straight through. That is why registers use edge-triggered flip-flops.':
+    'Master and slave are never open together for long, so D passes only once per clock: at the rising edge.')+'</div>'; };
+EQBARS.memory=M=>M.Mm.kind==='sr'?'<span class="lhs">Q</span> = ¬(R + <span class="hl">Q̄</span>), &nbsp; <span class="lhs">Q̄</span> = ¬(S + <span class="hl">Q</span>)<span class="sm">each output feeds the other gate: a loop with two stable states is one bit of memory</span>'
+  :M.Mm.kind==='dlatch'?'<span class="lhs">Q<sub>next</sub></span> = EN · D + <span class="hl">¬EN · Q</span><span class="sm">while EN is 1 the latch is transparent; at 0 it holds</span>'
+  :'<span class="lhs">Q</span> ← <span class="hl">D</span> at each rising edge of CLK<span class="sm">a master latch open while CLK is 0, a slave open while it is 1</span>';
+TAGS.memory=M=>'<b>memory</b> &nbsp;a loop that holds a bit';
+
+READOUTS.adder=M=>{ const A=M.A, n=A.n;
+  let h='<div class="rname">'+A.A+' + '+A.B+(A.mode!=='half'&&A.c?' + 1':'')+' = '+A.want+'<small>'+(A.mode==='ripple'?bin(A.A,n)+' + '+bin(A.B,n)+' = '+bin(A.want,n+1):A.mode+' adder')+'</small></div><table>';
+  h+=hd('on the outputs now')+rrow('the sum',String(A.sum),A.sum===A.want?'good':'bad')+(A.mode==='ripple'?rrow('in binary',bin(A.sum,n+1)):'');
+  h+=hd('time')+rrow('delays to settle, this change',String(A.delays))+rrow('the worst, 2n + 1',String(A.worst))+rrow('delays since the change',String(A.since));
+  return h+'</table><div class="note">'+(A.mode==='ripple'?'The worst case is a carry made in bit 0 that every bit passes on, as in 0…01 + 1…11: it crosses two gates per bit.':'Two bits sum to at most 2, so a second output, the carry, holds the 2s.')+'</div>'; };
+EQBARS.adder=M=>'<span class="lhs">S</span> = A ⊕ B ⊕ C<sub>in</sub>, &nbsp; <span class="lhs">C<sub>out</sub></span> = A·B + <span class="hl">C<sub>in</sub>·(A ⊕ B)</span>'
+  +'<span class="sm">the carry out is made here (A·B) or passed on (when A ⊕ B): passing it costs two gate delays a bit</span>';
+TAGS.adder=M=>'<b>the adder</b> &nbsp;bits to numbers, and the ripple of the carry';
+
+READOUTS.sub=M=>{ const S=M.S, n=S.n, tw=S.mode==='twos';
+  let h='<div class="rname">'+(tw&&!S.sub?S.A+' + '+S.B:S.A+' − '+S.B+(S.w?' − 1':''))+' → '+S.diff+'<small>'+(tw?'signed: '+sgn(S.sA)+(S.sub?' − ':' + ')+(S.sB<0?'('+sgn(S.sB)+')':S.sB)+' = '+sgn(S.sD)+(S.V?' (does not fit: V = 1)':''):'mod '+(1<<n)+(S.flag?', with a borrow':''))+'</small></div><table>';
+  h+=hd('on the outputs now')+rrow(tw?'S':'D',String(S.diff),S.diff===S.wantDiff?'good':'bad')+rrow(tw?'carry out':'borrow out',String(S.flag),S.flag===S.wantFlag?'good':'bad')
+    +(tw?rrow('V (signed overflow)',String(S.V),S.V===S.wantV?'good':'bad'):'')+(n>1?rrow('in binary',bin(S.diff,n)):'');
+  h+=hd('time')+rrow('delays to settle, this change',String(S.delays))+rrow('delays since the change',String(S.since));
+  return h+'</table><div class="note">'+(tw?'Two’s complement reads the top bit as −2ⁿ⁻¹, so '+n+' bits hold −'+(1<<(n-1))+' to '+((1<<(n-1))-1)+'. The carry out here is 1 when A ≥ B (no borrow); V is the XOR of the last two carries.':'A borrow out means B was the larger: the bits then hold A − B + 2ⁿ.')+'</div>'; };
+EQBARS.sub=M=>M.S.mode==='twos'?'<span class="lhs">A − B</span> = A + <span class="hl">¬B + 1</span> (mod 2ⁿ), &nbsp; V = C<sub>n</sub> ⊕ C<sub>n−1</sub><span class="sm">flip B with XORs, carry in a 1, and the adder subtracts</span>'
+  :'<span class="lhs">D</span> = A ⊕ B ⊕ W<sub>in</sub>, &nbsp; <span class="lhs">W<sub>out</sub></span> = ¬A·B + <span class="hl">W<sub>in</sub>·¬(A ⊕ B)</span><span class="sm">the borrow is the carry’s mirror: made when A is 0 and B is 1, passed on when they agree</span>';
+TAGS.sub=M=>'<b>the subtractor</b> &nbsp;borrows, and subtraction on an adder';
+
+READOUTS.acc=M=>{ const Ac=M.Ac;
+  let h='<div class="rname">R = '+Ac.R+'<small>'+Ac.n+' bits, adding X = '+Ac.X+' every '+Ac.P+' gate delays'+(Ac.Xnext!==Ac.X||Ac.Pnext!==Ac.P?' (your change takes effect at the next edge)':'')+'</small></div><table>';
+  h+=hd('the clock')+rrow('period',Ac.P+' delays')+rrow('the shortest that works, for this X',Ac.minP+' delays')+rrow('fast enough',Ac.fast?'no':'yes',OKS(!Ac.fast));
+  h+=hd('the edges so far')+rrow('readings',String(Ac.reads.length))+rrow('every one R + X',Ac.ok?'yes':'no',OKS(Ac.ok));
+  if(Ac.caught) h+=rrow('a latch caught between 0 and 1','ringing: clear the register','bad');
+  return h+'</table><div class="note">The add must finish between two rising edges: the register’s new value takes a few delays to leave the slave latch, the carry ripples 2n + 1 more, and the master must hold the sum before the edge. That sets the fastest clock.</div>'; };
+EQBARS.acc=M=>'<span class="lhs">R</span> ← R + X &nbsp; at each edge, &nbsp; <span class="hl">T<sub>clock</sub> ≥ T<sub>flip-flop</sub> + T<sub>adder</sub></span>'
+  +'<span class="sm">memory and arithmetic together: the heart of a processor, and why its clock has a limit</span>';
+TAGS.acc=M=>'<b>the accumulator</b> &nbsp;a register, an adder and a clock';
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — extracted from build_lagr/p4_views.js (lineage build_buoy); the camera block from     *
+ *  pulsar.html (v3, makeCamera, camBasis, project)                    *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,x:0,y:0,th:0,ph:0,snap:null};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+/* a world polyline from a list of points, clipped to the window in world space (segments that leave are cut) */
+function worldPath(ctx,map,pts,col,lw,dash,win){
+  ctx.beginPath(); let started=false, px=0,py=0, n=0;
+  for(let i=0;i<pts.length;i++){ const p=pts[i];
+    const inside=!win||(p[0]>=win.x0&&p[0]<=win.x1&&p[1]>=win.y0&&p[1]<=win.y1);
+    const X=map.X(p[0]), Y=map.Y(p[1]);
+    if(!inside){ started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); n++; }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  return n;
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+/* Liang-Barsky: the part of segment a-b inside the world window, or null */
+function clipToWin(a,b,win){ let t0=0,t1=1; const dx=b[0]-a[0], dy=b[1]-a[1];
+  const P=[-dx,dx,-dy,dy], Q=[a[0]-win.x0,win.x1-a[0],a[1]-win.y0,win.y1-a[1]];
+  for(let i=0;i<4;i++){ if(P[i]===0){ if(Q[i]<0) return null; } else { const t=Q[i]/P[i]; if(P[i]<0){ if(t>t1) return null; if(t>t0) t0=t; } else { if(t<t0) return null; if(t<t1) t1=t; } } }
+  return [[a[0]+t0*dx,a[1]+t0*dy],[a[0]+t1*dx,a[1]+t1*dy]]; }
+function segClip(ctx,map,a,b,win,col,lw,dash){ const c=clipToWin(a,b,win); if(c) seg(ctx,map,c[0],c[1],col,lw,dash); return !!c; }
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function diamond(ctx,x,y,r,fill,stroke){
+  ctx.beginPath(); ctx.moveTo(x,y-r); ctx.lineTo(x+r,y); ctx.lineTo(x,y+r); ctx.lineTo(x-r,y); ctx.closePath();
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=1.2; ctx.stroke(); }
+}
+function arrowPx(ctx,X0,Y0,X1,Y1,col,lw){
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+  POLY_SEGS.push(X0,Y0,X1,Y1);
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop.  Each entry also carries its text,
+   whether it has a plate and its place in the drawing order (DRAW_SEQ, shared with the marker lines) */
+let LABELS=[], DRAW_SEQ=0;
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+/* o.plate: a backing of that colour, so a line crossing the label cannot eat its decimal point (a dashed
+   orbit through '2.945' read as '2,945'); o.fixed: a label that names a line stays on it or is dropped,
+   never shifted 16 or 32 px off it */
+const PLATE={plate:'rgba(7,11,24,0.86)'}, PLATE_FIX={plate:'rgba(7,11,24,0.86)',fixed:true};
+function lab(ctx,W,H,x,y,txt,col,font,align,base,o){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of (o&&o.fixed)?[0]:[0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ bx.t=t; bx.plate=!!(o&&o.plate); bx.seq=++DRAW_SEQ; LABELS.push(bx);
+      if(o&&o.plate){ const mw=Math.max(w,ctx.measureText(t).width), px0=al==='center'?X-mw/2:(al==='right'?X-mw:X);
+        ctx.fillStyle=o.plate; ctx.fillRect(px0-2,ly,mw+4,hh); ctx.fillStyle=col||'#aeb6c6'; }
+      ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+/* legendAuto's candidates, but a candidate is also rejected over a registered label, and the box is registered */
+function legendR(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0; for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8, mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],[b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],[b.x+8,my],[b.x1-bw-8,my]];
+  let pick=null;
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){ const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue; hit=true; }
+    for(let i=0;i<LABELS.length&&!hit;i++){ const o=LABELS[i]; if(o[0]<cx+bw&&o[2]>cx&&o[1]<cy+bh&&o[3]>cy) hit=true; }
+    if(!hit){ pick=[cx,cy]; break; }
+  }
+  /* nothing clear: the legend is dropped rather than laid over a curve or a label (the captions
+     name the colours); clebsch_gordan: forcing it in a big box put it on the mean's label */
+  if(!pick){ KEY_DROPS+=items.length; return; }
+  legendBox(ctx,pick[0],pick[1],items);
+  const lb=[pick[0],pick[1],pick[0]+bw,pick[1]+bh]; lb.t='the legend'; lb.plate=true; lb.seq=++DRAW_SEQ; LABELS.push(lb);
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  /* a narrow stage draws at most one plot below the main one: it always takes the short caption, which names no plot
+     (a caption chosen by height alone named missing plots on tall narrow canvases: Known-bad 2026-09-27 e) */
+  const fit=fitCaption(ctx,W,H,narrow?capShort:capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=nB>0?avail:avail-40;     /* with no row below, the main plot still needs its tick labels and x title */
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-70;             /* 80 px to the bottom row: the main x title, then a key row and a title */
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ---- 3-vector helpers, orbit camera, perspective projection (z-up) — pulsar.html, unchanged ---- */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+/* a camera sized to a box: projected points land in the box's pixel frame */
+function boxCamera(b,theta,phi,dist,target){
+  const cam=makeCamera(theta,phi,dist,target); cam.W=b.w; cam.H=b.h;
+  const B=camBasis(cam);
+  const P=p=>{ const q=project(cam,B,p); return q?{x:b.x+q.x,y:b.y+q.y,z:q.z}:null; };
+  return {cam,B,P};
+}
+/* a 3-D polyline: projected, segments recorded, the parts behind the eye skipped */
+function poly3(ctx,C,pts,col,lw,dash,norec){
+  ctx.beginPath(); let prev=null, n=0;
+  for(const p of pts){ const q=C.P(p); if(!q){ prev=null; continue; }
+    if(prev){ ctx.lineTo(q.x,q.y); if(!norec) POLY_SEGS.push(prev.x,prev.y,q.x,q.y); n++; } else ctx.moveTo(q.x,q.y);
+    prev=q; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.4; ctx.lineJoin='round'; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  return n;
+}
+function seg3(ctx,C,a,b,col,lw,dash,norec){ return poly3(ctx,C,[a,b],col,lw,dash,norec); }
+/* a floor grid on z = 0 for depth: lines x = const and y = const */
+function floorGrid(ctx,C,ext,step,col){
+  for(let v=-ext;v<=ext+1e-9;v+=step){ seg3(ctx,C,[v,-ext,0],[v,ext,0],col,0.8,null,true); seg3(ctx,C,[-ext,v,0],[ext,v,0],col,0.8,null,true); }
+}
+
+/* axesR plus every visible tick label and both axis titles registered in LABELS, so lab() steps
+   round them (build_sm; the Known-bad entry on axesR not knowing where its ticks are) */
+function axesT(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=Object.assign({},opt||{});
+  const fs=10.5, hh=fs*1.15;
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  let yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  /* the corner: an x tick at the left edge and a y tick at the bottom edge put their labels on each other
+     (loop_quantum_gravity's Known-bad); the y tick gives way */
+  const Xof=t=>b.x+b.w*(t-xlo)/(xhi-xlo||1), Yof=t=>b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+  if(xt.some(t=>Math.abs(Xof(t)-b.x)<16)) yt=yt.filter(t=>Math.abs(Yof(t)-b.y1)>=7);
+  o.xticks=xt; o.yticks=yt;
+  axesR(ctx,b,xlo,xhi,ylo,yhi,o);
+  for(const t of xt){ const X=b.x+b.w*(t-xlo)/(xhi-xlo||1); if(X<b.x-0.5||X>b.x1+0.5) continue;
+    const w=plain(o.xfmt?o.xfmt(t):fmt(t,2)).length*fs*0.52; LABELS.push([X-w/2,b.y1+5,X+w/2,b.y1+5+hh]); }
+  for(const t of yt){ const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1); if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    const w=plain(o.yfmt?o.yfmt(t):fmt(t,2)).length*fs*0.52; LABELS.push([b.x-6-w,Y-hh/2,b.x-6,Y+hh/2]); }
+  if(o.xlab){ const w=plain(o.xlab).length*11*0.52; LABELS.push([b.x+b.w/2-w/2,b.y1+21,b.x+b.w/2+w/2,b.y1+21+11*1.15]); }
+  if(o.ylab){ const w=plain(o.ylab).length*11*0.52; LABELS.push([b.x-40-11*1.15,b.y+b.h/2-w/2,b.x-40,b.y+b.h/2+w/2]); }
+}
+
+/* ================================================================== *
+ *  plot helpers: log axes, keys, marker lines (build_div lineage)     *
+ * ================================================================== */
+let HIT=[], W_STAGE=1100, H_STAGE=712;
+let MARKS=[], KEY_DROPS=0;
+const nbNarrow=H=>H<520?0:1;
+/* as many y ticks as the plot's height holds without their labels touching */
+const nyFor=b=>clamp(Math.floor(b.h/32),2,5);
+function sLine(ctx,pts,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round'; ctx.lineCap='round';
+  if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+}
+/* decade ticks, or 1-2-5 ticks inside a span of less than three decades */
+function logTicks125(lo,hi){
+  if(!(lo>0)||!(hi>lo)) return [];
+  if(hi/lo>=1000) return logTicks(lo,hi);
+  const out=[];
+  for(let e=Math.floor(Math.log10(lo));e<=Math.ceil(Math.log10(hi));e++) for(const m of [1,2,5]){ const v=m*Math.pow(10,e); if(v>=lo*(1-1e-9)&&v<=hi*(1+1e-9)) out.push(v); }
+  return out;
+}
+/* a power of ten written with superscripts: 10⁻³ */
+const SUPD='⁰¹²³⁴⁵⁶⁷⁸⁹';
+function pow10(e){ return '10'+String(e).split('').map(c=>c==='-'?'⁻':SUPD[+c]).join(''); }
+/* a tick label on a log axis: decades as 10ⁿ outside 0.01..1000, plain numbers inside */
+function logLab(v){ const e=Math.round(Math.log10(v)); if(Math.abs(v-Math.pow(10,e))<1e-9*v&&(e<-2||e>3)) return pow10(e); return sigf(v,1); }
+/* a plot with a log x axis and a linear (or log, opt.ylog) y axis; returns the maps and a line drawer that clips */
+function logPlot(ctx,b,x0,x1,ylo,yhi,opt){
+  const o=opt||{}, lx0=Math.log10(x0), lx1=Math.log10(x1);
+  /* 1-2-5 ticks only where they fit: at least 60 px a tick across, 16 px up; else decades */
+  const fitTicks=(lo,hi,px,need)=>{ const t=logTicks125(lo,hi); if(t.length*need<=px) return t;
+    /* decades, every k-th so that they fit: a κ spanning 50 decades in a 200 px plot */
+    const e0=Math.ceil(Math.log10(lo)-1e-9), e1=Math.floor(Math.log10(hi)+1e-9), nd=e1-e0+1, k=Math.max(1,Math.ceil(nd*need/px)), out=[];
+    for(let e=e0;e<=e1;e++) if((e-e0)%k===0) out.push(Math.pow(10,e));
+    return out; };
+  const xt=(o.xticksV||fitTicks(x0,x1,b.w,45)).map(Math.log10);
+  const ylog=!!o.ylog, Ly=v=>ylog?Math.log10(v):v, y0=Ly(ylo), y1=Ly(yhi);
+  const ax=Object.assign({},o,{xticks:xt,xfmt:o.xfmt||(l=>logLab(Math.pow(10,l)))});
+  if(ylog){ ax.yticks=(o.yticksV||fitTicks(ylo,yhi,b.h,16)).map(Math.log10); ax.yfmt=o.yfmt||(l=>logLab(Math.pow(10,l))); }
+  axesT(ctx,b,lx0,lx1,y0,y1,ax);
+  const X=x=>b.x+b.w*(Math.log10(x)-lx0)/(lx1-lx0), Y=v=>b.y1-b.h*(Ly(v)-y0)/(y1-y0);
+  return {b,lx0,lx1,y0,y1,X,Y,ylog,
+    line:(xs,vs,col,lw,dash)=>polyline(ctx,b,xs.map(Math.log10),vs.map(v=>ylog?(v>0?Math.log10(v):NaN):v),lx0,lx1,y0,y1,col,lw,dash)};
+}
+/* an axis's tick labels with one number of decimals, the fewest that print every tick exactly (a step of 0.005 at
+   two decimals printed 0.01 twice: Known-bad 2026-09-27 f); zero is "0" and the minus sign is true */
+function decFmt(lo,hi,want){ const t=ticksFor(Math.min(lo,hi),Math.max(lo,hi),want); let d=0;
+  while(d<6&&!t.every(v=>Math.abs(+v.toFixed(d)-v)<=1e-9*Math.max(1,Math.abs(v)))) d++;
+  return v=>v===0?'0':v.toFixed(d).replace('-','−'); }
+function linPlot(ctx,b,x0,x1,ylo,yhi,opt){
+  const o=Object.assign({},opt||{});
+  if(!o.xfmt) o.xfmt=decFmt(x0,x1,o.nx||6);
+  if(!o.yfmt) o.yfmt=decFmt(ylo,yhi,o.ny||5);
+  axesT(ctx,b,x0,x1,ylo,yhi,o);
+  return {b,X:x=>b.x+b.w*(x-x0)/(x1-x0),Y:v=>b.y1-b.h*(v-ylo)/(yhi-ylo),
+    line:(xs,vs,col,lw,dash)=>polyline(ctx,b,xs,vs,x0,x1,ylo,yhi,col,lw,dash)};
+}
+/* a convex polygon clipped to a box (Sutherland–Hodgman, pixel space): what is drawn from data stays in its plot */
+function clipPolyBox(pts,b){
+  const edges=[[p=>p[0]>=b.x,(p,q)=>{ const t=(b.x-p[0])/(q[0]-p[0]); return [b.x,p[1]+t*(q[1]-p[1])]; }],
+               [p=>p[0]<=b.x1,(p,q)=>{ const t=(b.x1-p[0])/(q[0]-p[0]); return [b.x1,p[1]+t*(q[1]-p[1])]; }],
+               [p=>p[1]>=b.y,(p,q)=>{ const t=(b.y-p[1])/(q[1]-p[1]); return [p[0]+t*(q[0]-p[0]),b.y]; }],
+               [p=>p[1]<=b.y1,(p,q)=>{ const t=(b.y1-p[1])/(q[1]-p[1]); return [p[0]+t*(q[0]-p[0]),b.y1]; }]];
+  let out=pts;
+  for(const [inside,cut] of edges){ const src=out; out=[];
+    for(let i=0;i<src.length;i++){ const p=src[i], q=src[(i+1)%src.length];
+      if(inside(p)){ out.push(p); if(!inside(q)) out.push(cut(p,q)); } else if(inside(q)) out.push(cut(p,q)); }
+    if(!out.length) break; }
+  return out;
+}
+/* an arrow from P to Q clipped to a box: the shaft to the edge, the head only when Q is inside */
+function arrowClip(ctx,b,P,Q,col,lw){
+  const c=clipPolyBox([P,Q,Q],b);
+  if(c.length<2) return;
+  const inQ=Q[0]>=b.x&&Q[0]<=b.x1&&Q[1]>=b.y&&Q[1]<=b.y1;
+  if(inQ) arrowPx(ctx,P[0],P[1],Q[0],Q[1],col,lw); else sLine(ctx,[c[0],c[1]],col,lw);
+}
+/* a linear x axis and a log y axis (1-2-5 ticks where they fit, else decades) */
+function linLogPlot(ctx,b,x0,x1,ylo,yhi,opt){
+  const o=Object.assign({},opt||{}), ly0=Math.log10(ylo), ly1=Math.log10(yhi);
+  const t125=logTicks125(ylo,yhi), yt=(t125.length*16<=b.h?t125:logTicks(ylo,yhi)).map(Math.log10);
+  if(!o.xfmt) o.xfmt=decFmt(x0,x1,o.nx||6);
+  axesT(ctx,b,x0,x1,ly0,ly1,Object.assign(o,{yticks:yt,yfmt:o.yfmt||(l=>logLab(Math.pow(10,l)))}));
+  return {b,X:x=>b.x+b.w*(x-x0)/(x1-x0),Y:v=>b.y1-b.h*(Math.log10(v)-ly0)/(ly1-ly0),
+    line:(xs,vs,col,lw,dash)=>polyline(ctx,b,xs,vs.map(v=>v>0?Math.log10(v):NaN),x0,x1,ly0,ly1,col,lw,dash)};
+}
+/* a linear axis's scale: the power of ten that puts its largest value between 1 and 1000, and the title's suffix
+   (tick labels stay short: 0.00040 ran into the axis title) */
+/* a tick label with the fewest decimals (to n) and a true minus sign */
+function tickFmt(x,n){ return x===0?'0':String(+x.toFixed(n===undefined?2:n)).replace('-','−'); }
+function axScale(max){ if(!(max>0)||(max>=0.01&&max<1e4)) return {f:1,s:''}; const e=3*Math.floor(Math.log10(max)/3); return e===0?{f:1,s:''}:{f:Math.pow(10,e),s:' × '+pow10(e)}; }
+/* a legend as one line of swatches above a plot's title, registered; what does not fit is counted in KEY_DROPS */
+function keyRow(ctx,x,y,items,maxW){
+  ctx.font=SM_FONT; let X=x;
+  for(let i=0;i<items.length;i++){ const [col,txt,dash]=items[i], t=plain(txt), w=ctx.measureText(t).width+24;
+    if(X+w>x+maxW){ KEY_DROPS+=items.length-i; break; }
+    ctx.beginPath(); ctx.moveTo(X,y); ctx.lineTo(X+14,y); ctx.strokeStyle=col; ctx.lineWidth=2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#9aa2b4'; ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillText(t,X+18,y);
+    const bx=[X,y-7,X+w-6,y+7]; bx.t=t; bx.plate=true; bx.seq=++DRAW_SEQ; LABELS.push(bx);
+    X+=w; }
+}
+/* a vertical marker line across a plot, registered (a label drawn across one is a test failure) */
+function vMark(ctx,b,X,col,dash,lw){
+  if(!(X>=b.x-0.5&&X<=b.x1+0.5)) return false;
+  ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.strokeStyle=col; ctx.lineWidth=lw||1; ctx.setLineDash(dash||[]); ctx.stroke(); ctx.setLineDash([]);
+  MARKS.push({X,y0:b.y,y1:b.y1,seq:++DRAW_SEQ});
+  return true;
+}
+/* shade the part of a plot box right of X (a forbidden region), under everything else */
+function shadeRight(ctx,b,X,col){ const x0=clamp(X,b.x,b.x1); if(x0<b.x1){ ctx.fillStyle=col; ctx.fillRect(x0,b.y+0.5,b.x1-x0,b.h-1); } }
+/* an arc of the unit circle as an explicit polyline (the recorder keeps polylines, not arcs under a transform) */
+function arcPts(cx,cy,r,a0,a1,n){ const p=[]; for(let i=0;i<=n;i++){ const a=a0+(a1-a0)*i/n; p.push([cx+r*Math.cos(a),cy-r*Math.sin(a)]); } return p; }
+
+/* ================================================================== *
+ *  drawing logic: gate symbols, circuits from their netlists, switch  *
+ *  networks, timing diagrams, bit lamps                               *
+ * ================================================================== */
+const wcol=x=>x?COL.one:COL.zero;
+/* a quadratic Bézier as points (the recorder keeps polylines) */
+function qpts(p0,p1,p2,n){ const o=[]; for(let i=0;i<=n;i++){ const t=i/n, a=(1-t)*(1-t), b=2*(1-t)*t, c=t*t; o.push([a*p0[0]+b*p1[0]+c*p2[0],a*p0[1]+b*p1[1]+c*p2[1]]); } return o; }
+const BUBBLE={NOT:1,NAND:1,NOR:1,XNOR:1};
+/* a gate's outline in its own units: 1 wide (x from −0.5 to 0.5), 0.8 tall; the output pin's x */
+function gateShape(t){
+  const out=[]; let ox;
+  if(t==='NOT'||t==='BUF'){ out.push([[-0.45,-0.34],[0.32,0],[-0.45,0.34],[-0.45,-0.34]]); ox=0.32; }
+  else if(t==='AND'||t==='NAND'){ const p=[[-0.5,-0.4],[0,-0.4]]; for(let i=1;i<=24;i++){ const a=-PI/2+PI*i/24; p.push([0.4*Math.cos(a),0.4*Math.sin(a)]); }
+    p.push([-0.5,0.4],[-0.5,-0.4]); out.push(p); ox=0.4; }
+  else { const back=qpts([-0.5,-0.4],[-0.28,0],[-0.5,0.4],12), top=qpts([-0.5,-0.4],[0.12,-0.4],[0.5,0],14), bot=qpts([0.5,0],[0.12,0.4],[-0.5,0.4],14);
+    out.push(top.concat(bot.slice(1)).concat(back.slice().reverse().slice(1)));
+    if(t==='XOR'||t==='XNOR') out.push(qpts([-0.62,-0.4],[-0.4,0],[-0.62,0.4],12)); ox=0.5; }
+  if(BUBBLE[t]) ox+=0.14;
+  return {polys:out,ox,bubble:!!BUBBLE[t],bx:ox-0.07};
+}
+/* where a gate's pins are, in grid units */
+function gatePins(g,C){ const sh=gateShape(g.t), n=g.ins.length;
+  return {out:[g.x+sh.ox+0.08,g.y], ins:n===1?[[g.x-0.62,g.y]]:[[g.x-0.62,g.y-0.2],[g.x-0.62,g.y+0.2]]}; }
+function drawGateAt(ctx,t,X,Y,u,outVal,label){
+  const sh=gateShape(t);
+  for(const p of sh.polys){ ctx.beginPath(); p.forEach((q,i)=>{ const x=X+q[0]*u, y=Y+q[1]*u; if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y); });
+    if(p===sh.polys[0]){ ctx.closePath(); ctx.fillStyle='#10131b'; ctx.fill(); }
+    ctx.strokeStyle=COL.body; ctx.lineWidth=Math.max(1,u*0.035); ctx.stroke(); }
+  if(sh.bubble){ ctx.beginPath(); ctx.arc(X+sh.bx*u,Y,0.07*u,0,TAU); ctx.fillStyle='#10131b'; ctx.fill(); ctx.strokeStyle=COL.body; ctx.lineWidth=Math.max(1,u*0.035); ctx.stroke(); }
+  /* the stubs */
+  const n=t==='NOT'||t==='BUF'?1:2;
+  for(const dy of n===1?[0]:[-0.2,0.2]){ const x0=X-0.62*u, x1=X+(t==='OR'||t==='NOR'||t==='XOR'||t==='XNOR'?-0.38:-0.45)*u; sLine(ctx,[[x0,Y+dy*u],[x1,Y+dy*u]],COL.body,Math.max(1,u*0.03)); }
+  sLine(ctx,[[X+sh.ox*u,Y],[X+(sh.ox+0.08)*u,Y]],wcol(outVal),Math.max(1.4,u*0.05));
+  if(label&&u>=26){ ctx.font=Math.round(clamp(u*0.2,8,12))+'px -apple-system, sans-serif'; ctx.fillStyle='#8b93a6'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    const lx=t==='NOT'||t==='BUF'?X-0.12*u:X-0.05*u; ctx.fillText(t,lx,Y); }
+}
+/* the route of a wire from s to d (grid units): straight across with one vertical step, or, when it runs back
+   (a feedback loop), out to the right, along a lane and in from the left */
+function route(s,d,k,lane){
+  if(d[0]>s[0]+0.15){ const mx=Math.max(s[0]+0.08,d[0]-0.2-0.12*k); return [s,[mx,s[1]],[mx,d[1]],d]; }
+  /* each loop its own lanes, out and in (two loops on one vertical read as one wire) */
+  const ox=s[0]+0.18+0.1*(lane%3), ix=d[0]-0.2-0.12*k-0.1*(lane%2), ly=(s[1]+d[1])/2+(d[1]>s[1]?-0.14:0.14);
+  return [s,[ox,s[1]],[ox,ly],[ix,ly],[ix,d[1]],d];
+}
+/* a circuit drawn from its netlist into box b: every wire coloured by its net's value in state v.  o.toggles maps
+   an input net to a state key (a press flips it); o.rename maps a net to a label; o.title */
+function drawCircuit(ctx,W,H,b,C,v,o){
+  o=o||{};
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  const grow=(x,y)=>{ x0=Math.min(x0,x); x1=Math.max(x1,x); y0=Math.min(y0,y); y1=Math.max(y1,y); };
+  for(const g of C.gates){ grow(g.x-0.75,g.y-0.55); grow(g.x+0.85,g.y+0.55); }
+  for(const k in C.place){ const p=C.place[k]; grow(p[0]-0.35,p[1]-0.4); grow(p[0]+0.45,p[1]+0.4); }
+  const pad=0.25; x0-=pad; x1+=pad; y0-=pad; y1+=pad;
+  const u=Math.min(b.w/(x1-x0),b.h/(y1-y0),o.maxU||74);
+  const ox=b.x+(b.w-(x1-x0)*u)/2, oy=b.y+(b.h-(y1-y0)*u)/2;
+  const X=x=>ox+(x-x0)*u, Y=y=>oy+(y-y0)*u;
+  const lw=Math.max(1.4,u*0.045);
+  /* the driver of every net: a gate's output pin, or an input terminal */
+  const drv={};
+  for(const n of C.inputs){ const p=C.place[n]; drv[C.idx[n]]=[p[0]+0.3,p[1]]; }
+  const pins=C.gates.map(g=>gatePins(g,C));
+  C.gates.forEach((g,k)=>{ drv[g.out]=pins[k].out; });
+  /* the wires, 0s first so the 1s are drawn over them */
+  const wires=[];
+  C.gates.forEach((g,k)=>g.ins.forEach((ni,j)=>{ const s=drv[ni]; if(s) wires.push({pts:route(s,pins[k].ins[g.ins.length===1?0:j],j,ni),v:v[ni]}); }));
+  for(const n of C.outputs){ const ni=C.idx[n], s=drv[ni], p=C.place['>'+n]; if(s) wires.push({pts:route(s,[p[0]-0.3,p[1]],0,ni),v:v[ni]}); }
+  for(const pass of [0,1]) for(const w of wires) if(w.v===pass) sLine(ctx,w.pts.map(q=>[X(q[0]),Y(q[1])]),wcol(w.v),lw*(w.v?1.15:1));
+  C.gates.forEach(g=>drawGateAt(ctx,g.t,X(g.x),Y(g.y),u,v[g.out],o.gateLabels!==false));
+  /* the input terminals: a switch you can press, with its name and value */
+  ctx.font=Math.round(clamp(u*0.2,9,12))+'px -apple-system, sans-serif';
+  for(const n of C.inputs){ const p=C.place[n], cx=X(p[0]), cy=Y(p[1]), r=clamp(u*0.17,7,13), on=v[C.idx[n]];
+    ctx.fillStyle=on?'rgba(184,236,76,0.22)':'#10131b'; ctx.fillRect(cx-r,cy-r,2*r,2*r);
+    ctx.strokeStyle=on?COL.one:'#5a6378'; ctx.lineWidth=1.4; ctx.strokeRect(cx-r,cy-r,2*r,2*r);
+    ctx.fillStyle=on?COL.one:'#8b93a6'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(on),cx,cy);
+    lab(ctx,W,H,cx-r-4,cy,(o.rename&&o.rename[n])||n,'#aeb6c6',LAB_FONT,'right','middle',PLATE_FIX);
+    const tg=o.toggles&&o.toggles[n];   /* a state key flipped whole, or {key, bit}: one bit of a number */
+    if(tg) HIT.push(typeof tg==='string'?{kind:'toggle',key:tg,b:box(cx-r-2,cy-r-2,2*r+4,2*r+4)}:{kind:'bit',key:tg.key,bit:tg.bit,b:box(cx-r-2,cy-r-2,2*r+4,2*r+4)}); }
+  /* the output lamps */
+  for(const n of C.outputs){ const p=C.place['>'+n], cx=X(p[0]), cy=Y(p[1]), r=clamp(u*0.16,6,12), on=v[C.idx[n]];
+    dot(ctx,cx,cy,r,on?COL.one:'#1a1f2c',on?'#e8ffb0':'#5a6378',1.4);
+    lab(ctx,W,H,cx+r+5,cy,((o.rename&&o.rename[n])||n)+' = '+on,on?COL.one:'#aeb6c6',LAB_FONT,'left','middle',PLATE_FIX); }
+  return {u,X,Y};
+}
+/* bit lamps for a number: high bit at the left; a press flips a bit of st[key] */
+function drawBits(ctx,W,H,x,y,n,value,name,key,r){
+  const rr=r||10, gap=2*rr+6, out=[];
+  for(let i=n-1;i>=0;i--){ const cx=x+(n-1-i)*gap+rr, on=(value>>i)&1;
+    dot(ctx,cx,y,rr,on?COL.one:'#1a1f2c',on?'#e8ffb0':'#5a6378',1.3);
+    ctx.font='10.5px -apple-system, sans-serif'; ctx.fillStyle=on?'#0a0c12':'#8b93a6'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(String(on),cx,y);
+    if(key) HIT.push({kind:'bit',key,bit:i,b:box(cx-rr,y-rr,2*rr,2*rr)});
+    out.push(cx); }
+  if(name) lab(ctx,W,H,x-8,y,name,'#aeb6c6',LAB_FONT,'right','middle',PLATE_FIX);
+  return out;
+}
+/* a switch network between (cx, y) and (cx, y + h) in a cell w wide: series stacked, parallel side by side */
+function netSize(nw){ if(nw.k==='sw') return [1,1]; const s=nw.ch.map(netSize);
+  return nw.k==='ser'?[Math.max(...s.map(q=>q[0])),s.reduce((a,q)=>a+q[1],0)]:[s.reduce((a,q)=>a+q[0],0),Math.max(...s.map(q=>q[1]))]; }
+function drawNet(ctx,W,H,nw,x,y,w,h,vals,names){
+  const cx=x+w/2;
+  if(nw.k==='sw'){ const on=closed(nw,vals), a=y+h*0.3, c=y+h*0.7, col=on?COL.one:'#5a6378';
+    sLine(ctx,[[cx,y],[cx,a]],col,1.8); sLine(ctx,[[cx,c],[cx,y+h]],col,1.8);
+    dot(ctx,cx,a,2.4,col); dot(ctx,cx,c,2.4,col);
+    if(on) sLine(ctx,[[cx,c],[cx,a]],col,2.4); else sLine(ctx,[[cx,c],[cx+(c-a)*0.55,a+(c-a)*0.15]],col,2.2);
+    const t=(nw.p?'p: ':'n: ')+nw.inp+(names?' '+names[nw.inp]:'');
+    lab(ctx,W,H,cx-8,(a+c)/2,t,on?COL.one:'#8b93a6',SM_FONT,'right','middle',PLATE_FIX);
+    return; }
+  const sz=nw.ch.map(netSize);
+  if(nw.k==='ser'){ const tot=sz.reduce((a,q)=>a+q[1],0); let yy=y;
+    nw.ch.forEach((c,i)=>{ const hh=h*sz[i][1]/tot; drawNet(ctx,W,H,c,x,yy,w,hh,vals,names); yy+=hh; }); return; }
+  const tot=sz.reduce((a,q)=>a+q[0],0); let xx=x; const cs=[];
+  nw.ch.forEach((c,i)=>{ const ww=w*sz[i][0]/tot; cs.push(xx+ww/2); drawNet(ctx,W,H,c,xx,y+10,ww,h-20,vals,names); xx+=ww; });
+  const col='#8b93a6';
+  sLine(ctx,[[cs[0],y+10],[cs[cs.length-1],y+10]],col,1.6); sLine(ctx,[[cs[0],y+h-10],[cs[cs.length-1],y+h-10]],col,1.6);
+  for(const c of cs){ sLine(ctx,[[c,y+10],[c,y+10]],col,1.6); }
+  sLine(ctx,[[cx,y],[cx,y+10]],col,1.6); sLine(ctx,[[cx,y+h-10],[cx,y+h]],col,1.6);
+}
+/* a timing diagram: rows of 0/1 traces (or numbers, bus:true) over the history, the newest at the right */
+function drawTiming(ctx,W,H,b,rows,hist,title){
+  axesT(ctx,b,0,1,0,1,{xticks:[],yticks:[],title});
+  const n=Math.max(2,hist.length), rh=b.h/rows.length, dx=b.w/96, x0=b.x1-n*dx;
+  rows.forEach((r,j)=>{ const yt=b.y+j*rh+rh*0.25, yb=b.y+(j+1)*rh-rh*0.25;
+    lab(ctx,W,H,b.x-6,(yt+yb)/2,r.lab,'#aeb6c6',SM_FONT,'right','middle',PLATE_FIX);
+    if(!hist.length) return;
+    if(r.bus){ let start=0;
+      for(let i=1;i<=hist.length;i++){ if(i<hist.length&&r.f(hist[i])===r.f(hist[start])) continue;
+        const xa=x0+start*dx, xb=x0+i*dx, val0=r.f(hist[start]);
+        sLine(ctx,[[xa+1,(yt+yb)/2],[xa+3,yt],[xb-3,yt],[xb-1,(yt+yb)/2],[xb-3,yb],[xa+3,yb],[xa+1,(yt+yb)/2]],r.col||COL.struct,1.2);
+        if(xb-xa>22) lab(ctx,W,H,(xa+xb)/2,(yt+yb)/2,String(val0),r.col||COL.struct,SM_FONT,'center','middle',PLATE_FIX);
+        start=i; }
+      return; }
+    const pts=[]; hist.forEach((h,i)=>{ const y=r.f(h)?yt:yb; pts.push([x0+i*dx,y],[x0+(i+1)*dx,y]); });
+    sLine(ctx,pts,r.col||COL.one,1.6); });
+}
+
+/* ================================================================== *
+ *  the six views                                                      *
+ * ================================================================== */
+function panelTitle(ctx,b,t){ ctx.font='italic 13px Georgia, serif'; ctx.fillStyle='#aeb6c6'; ctx.textAlign='left'; ctx.textBaseline='bottom';
+  ctx.fillText(plain(t),b.x,b.y-9); LABELS.push([b.x,b.y-24,b.x+plain(t).length*6.8,b.y-9]); }
+/* a table: header row, rows of cells; the row `hi` lit; cells that are 1 green */
+function drawTable(ctx,W,H,b,head,rows,hi,title){
+  frame(ctx,b,'#242a3a'); if(title) panelTitle(ctx,b,titleFor(b,title,title.split(':')[0]));
+  /* the text follows the row height: nine rows in a short panel left 12-px rows under 13-px text */
+  const nr=rows.length+1, rh=Math.min(24,b.h/nr), cw=b.w/head.length, y0=b.y+(b.h-nr*rh)/2, fs=Math.max(6,Math.min(11.5,rh/1.25));
+  ctx.font=fs+'px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  head.forEach((h,j)=>{ ctx.fillStyle='#8b93a6'; ctx.fillText(plain(h),b.x+cw*(j+0.5),y0+rh/2); });
+  sLine(ctx,[[b.x+6,y0+rh],[b.x1-6,y0+rh]],'#2a2f3d',1);
+  rows.forEach((r,i)=>{ const y=y0+rh*(i+1.5);
+    if(i===hi){ ctx.fillStyle='rgba(205,53,196,0.16)'; ctx.fillRect(b.x+2,y-rh/2,b.w-4,rh); }
+    r.forEach((c,j)=>{ const s=String(c); ctx.fillStyle=i===hi?'#ffffff':s==='1'?COL.one:s==='0'?'#6f7789':COL.text; ctx.fillText(s,b.x+cw*(j+0.5),y); }); });
+}
+/* a sum read too early: the value on the output bits after each gate delay since the inputs changed */
+function drawSeen(ctx,W,H,b,seen,want,since,ttl,yl){
+  const n=Math.max(seen.length,2), hi=Math.max(want,...seen,1);
+  /* whole delays only: a short run’s 1-2-5 ticks at 0.5 printed 0 1 1 2 2 */
+  const xh=Math.max(n-1,1)+1, st=Math.max(1,Math.ceil(xh/8)), xt=[]; for(let k=0;k<=xh;k+=st) xt.push(k);
+  const P=linPlot(ctx,b,0,xh,0,hi*1.15+0.5,{title:titleFor(b,ttl,'too early'),xlab:'gate delays since the inputs changed',ylab:yl,ny:nyFor(b),xticks:xt,xfmt:v=>String(v)});
+  P.line([0,n],[want,want],COL.ref,1.2,[5,4]);
+  const xs=[], ys=[]; seen.forEach((s,i)=>{ xs.push(i,i+1); ys.push(s,s); }); P.line(xs,ys,COL.pos,2);
+  const k=Math.min(since,seen.length-1); marker(ctx,b,0,Math.max(n-1,1)+1,0,hi*1.15+0.5,k+0.5,seen[k],COL.live);
+  keyRow(ctx,b.x,b.y-30,[[COL.pos,'on the output bits'],[COL.ref,'the right answer',[5,4]]],b.w);
+}
+/* n boxes in a chain, bit 0 at the right as numbers are written: each takes two bits from above, gives one below,
+   and passes its carry (or borrow) to the left */
+function drawChain(ctx,W,H,b,n,o){
+  frame(ctx,b,'#242a3a'); panelTitle(ctx,b,o.title);
+  /* laid out from the box itself: inputs in the top 62 px, the outputs and their names in the bottom 50 */
+  const bw=Math.min(78,(b.w-90)/n-16), gap=(b.w-90-n*bw)/(n+1), bh=clamp(b.h-72-52,14,70), dy=Math.max(0,(b.h-(72+bh+52))/2), yb=b.y+72+dy;
+  const xOf=i=>b.x+60+gap+(n-1-i)*(bw+gap);
+  for(let i=0;i<n;i++){ const x=xOf(i), sel=o.sel===i;
+    ctx.fillStyle=sel?'rgba(205,53,196,0.12)':'#10131b'; ctx.fillRect(x,yb,bw,bh); ctx.strokeStyle=sel?COL.live:COL.body; ctx.lineWidth=1.4; ctx.strokeRect(x,yb,bw,bh);
+    if(bw>=26){ ctx.font='italic 12px Georgia, serif'; ctx.fillStyle='#aeb6c6'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(o.box(i),x+bw/2,yb+bh/2); }
+    if(o.pick) HIT.push({kind:'pick',key:o.pick,val:i,b:box(x,yb,bw,bh)});
+    /* the two inputs from above */
+    const ins=o.ins(i); ins.forEach((iv,j)=>{ const xx=x+bw*(j?0.68:0.32), yt=yb-42+j*22;
+      sLine(ctx,[[xx,yt+9],[xx,yb]],wcol(iv.v),2); dot(ctx,xx,yt,9,iv.v?COL.one:'#1a1f2c',iv.v?'#e8ffb0':'#5a6378',1.3);
+      ctx.font='10.5px -apple-system, sans-serif'; ctx.fillStyle=iv.v?'#0a0c12':'#8b93a6'; ctx.fillText(String(iv.v),xx,yt);
+      if(iv.hit) HIT.push({kind:'bit',key:iv.hit,bit:i,b:box(xx-9,yt-9,18,18)});
+      if(i===n-1) lab(ctx,W,H,x-12,yt,iv.name,'#aeb6c6',LAB_FONT,'right','middle',PLATE_FIX); });
+    /* the output below */
+    const ov=o.out(i), yo=yb+bh+22; sLine(ctx,[[x+bw/2,yb+bh],[x+bw/2,yo-10]],wcol(ov),2);
+    dot(ctx,x+bw/2,yo,10,ov?COL.one:'#1a1f2c',ov?'#e8ffb0':'#5a6378',1.3);
+    ctx.font='10.5px -apple-system, sans-serif'; ctx.fillStyle=ov?'#0a0c12':'#8b93a6'; ctx.fillText(String(ov),x+bw/2,yo);
+    if(i===n-1) lab(ctx,W,H,x-12,yo,o.outName,'#aeb6c6',LAB_FONT,'right','middle',PLATE_FIX);
+    lab(ctx,W,H,x+bw/2,yo+17,o.outName+subN(i),'#6f7789',SM_FONT,'center','middle',PLATE_FIX);
+    /* the chain into this box from its right */
+    const cv=o.chain(i), xr=i===0?b.x1-14:xOf(i-1), yc=yb+bh*0.62;
+    sLine(ctx,[[xr,yc],[x+bw,yc]],wcol(cv),2.4);
+    const ct=o.chainName+subN(i)+' = '+cv; if(xr-(x+bw)>ct.length*10.5*0.52+6) lab(ctx,W,H,(xr+x+bw)/2,yc-10,ct,cv?COL.one:'#6f7789',SM_FONT,'center','middle',PLATE_FIX); }
+  /* the chain out of the last box */
+  const cn=o.chain(n), x=xOf(n-1), yc=yb+bh*0.62, xe=b.x+16;
+  sLine(ctx,[[x,yc],[xe+10,yc]],wcol(cn),2.4); dot(ctx,xe+10,yc,8,cn?COL.one:'#1a1f2c',cn?'#e8ffb0':'#5a6378',1.3);
+  lab(ctx,W,H,xe+10,yc+20,o.chainName+subN(n)+' = '+cn,cn?COL.one:'#aeb6c6',SM_FONT,'center','middle',PLATE_FIX);
+}
+function subN(i){ return String(i).replace(/\d/g,d=>'₀₁₂₃₄₅₆₇₈₉'[+d]); }
+/* a layout with the main box split in two side by side (when wide enough) */
+function splitMain(L){ const m=L.main; if(m.w<620) return [m,null]; const g=40, w=(m.w-g)/2; return [box(m.x,m.y,w,m.h),box(m.x+w+g,m.y,w,m.h)]; }
+
+/* ---------------- 1. the gates ---------------- */
+function gatesCaption(G,which){
+  const head='A gate is a rule from inputs to an output, each 0 or 1. Press A or B to flip them; every wire shows its value (green 1, dark 0), and each gate takes one step of time, a gate delay, to answer. ';
+  if(which==='short') return head;
+  return head+'Right, the same rule from NAND gates alone ('+G.nands+'), because NAND is universal; below, the truth table and all seven gates for these inputs.';
+}
+function drawGates(ctx,W,H,M){
+  const G=M.G, Lay=stageLayout(ctx,W,H,gatesCaption(G,'full'),gatesCaption(G,'short'),2,0.34,nbNarrow(H));
+  drawCaption(ctx,Lay);
+  const [m1,m2]=splitMain(Lay);
+  frame(ctx,m1,'#242a3a'); panelTitle(ctx,m1,titleFor(m1,'the gate: '+G.t,G.t));
+  drawCircuit(ctx,W,H,box(m1.x+40,m1.y+10,m1.w-120,m1.h-20),G.C,G.v,{toggles:{A:'gA',B:'gB'},maxU:110});
+  if(m2){ frame(ctx,m2,'#242a3a'); panelTitle(ctx,m2,titleFor(m2,'the same from '+G.nands+' NAND'+(G.nands>1?'s':''),'from NANDs'));
+    drawCircuit(ctx,W,H,box(m2.x+36,m2.y+10,m2.w-110,m2.h-20),G.N,G.w,{toggles:{A:'gA',B:'gB'},maxU:70}); }
+  if(Lay.bottom[0]){ const one=ARITY[G.t]; const hi=one?G.ins[0]:G.ins[0]*2+G.ins[1];
+    drawTable(ctx,W,H,Lay.bottom[0],one?['A','Y']:['A','B','Y'],G.rows,hi,'the truth table of '+G.t); }
+  if(Lay.bottom[1]){ const b=Lay.bottom[1]; frame(ctx,b,'#242a3a'); panelTitle(ctx,b,titleFor(b,'all seven at A = '+G.ins[0]+(ARITY[G.t]?'':', B = '+G.ins[1]),'all seven'));
+    const A=ST.gA, B=ST.gB, cw=b.w/GATES.length;
+    GATES.forEach((t,j)=>{ const y=evalGate(t,ARITY[t]?[A]:[A,B]), cx=b.x+cw*(j+0.5), u=Math.min(cw*0.62,b.h*0.42);
+      drawGateAt(ctx,t,cx,b.y+b.h*0.38,u,y,false);
+      dot(ctx,cx,b.y+b.h*0.78,7,y?COL.one:'#1a1f2c',y?'#e8ffb0':'#5a6378',1.2);
+      lab(ctx,W,H,cx,b.y+b.h*0.92,t,t===G.t?COL.live:'#8b93a6',SM_FONT,'center','middle',PLATE_FIX); }); }
+}
+
+/* ---------------- 2. switches ---------------- */
+function switchCaption(Wv,which){
+  const head='A gate is built of switches. Left: two switches in series light the lamp only when both are closed (AND), in parallel when either is (OR), which is how Shannon (1938) tied relay circuits to Boolean algebra. Right: a CMOS '+Wv.t+', its pMOS switches (closed by a 0) to the supply and its nMOS switches (closed by a 1) to ground, never both paths at once. ';
+  if(which==='short') return head;
+  return head+'Below, its table of paths, and a transmission gate: a switch that passes D while EN is 1 and, opened, keeps the charge it had, the simplest memory.';
+}
+function drawSwitch(ctx,W,H,M){
+  const Wv=M.W, Lay=stageLayout(ctx,W,H,switchCaption(Wv,'full'),switchCaption(Wv,'short'),2,0.36,nbNarrow(H));
+  drawCaption(ctx,Lay);
+  const [m1,m2]=splitMain(Lay);
+  drawRelays(ctx,W,H,m1,Wv);
+  if(m2) drawCMOS(ctx,W,H,m2,Wv);
+  if(Lay.bottom[0]){ const g=Wv.g, one=g.ins.length===1, hi=one?Wv.vals.A:Wv.vals.A*2+Wv.vals.B;
+    drawTable(ctx,W,H,Lay.bottom[0],one?['A','pull-up','pull-down','out']:['A','B','pull-up','pull-down','out'],
+      Wv.rows.map(r=>[...r.ins,r.up?'on':'off',r.down?'on':'off',String(r.out)]),hi,'the paths of the '+Wv.t); }
+  if(Lay.bottom[1]) drawTGate(ctx,W,H,Lay.bottom[1],Wv);
+}
+function drawRelays(ctx,W,H,b,Wv){
+  frame(ctx,b,'#242a3a'); panelTitle(ctx,b,titleFor(b,'switches and a lamp: series and parallel','series, parallel'));
+  const vals=Wv.vals, half=b.w/2;
+  [[SER(SW('A'),SW('B')),'series: A AND B',Wv.series],[PAR(SW('A'),SW('B')),'parallel: A OR B',Wv.parallel]].forEach(([nw,t,on],k)=>{
+    const x=b.x+k*half, cx=x+half/2, top=b.y+46, bot=b.y1-60;
+    lab(ctx,W,H,cx,b.y+20,t,on?COL.one:'#aeb6c6',LAB_FONT,'center','middle',PLATE_FIX);
+    sLine(ctx,[[cx,top-10],[cx,top]],on?COL.one:'#8b93a6',1.8);
+    lab(ctx,W,H,cx+10,top-8,'+',COL.ref,LAB_FONT,'left','middle',PLATE_FIX);
+    drawNet(ctx,W,H,nw,x+half*0.2,top,half*0.6,bot-top-30,vals);
+    const ly=bot-6; sLine(ctx,[[cx,bot-30],[cx,ly-10]],on?COL.one:'#5a6378',1.8);
+    dot(ctx,cx,ly,10,on?'#fff3b0':'#1a1f2c',on?'#ffe066':'#5a6378',1.6);
+    lab(ctx,W,H,cx+16,ly,on?'lit':'dark',on?'#ffe066':'#6f7789',SM_FONT,'left','middle',PLATE_FIX); });
+  for(const [n,dy] of [['A',0],['B',26]]){ const x=b.x+14, y=b.y1-36+dy*0.6, on=vals[n];
+    HIT.push({kind:'toggle',key:n==='A'?'wA':'wB',b:box(x,y-9,40,18)});
+    lab(ctx,W,H,x,y,n+' = '+on+' (press)',on?COL.one:'#8b93a6',SM_FONT,'left','middle',PLATE_FIX); }
+}
+function drawCMOS(ctx,W,H,b,Wv){
+  frame(ctx,b,'#242a3a'); panelTitle(ctx,b,titleFor(b,'CMOS '+Wv.t+': '+Wv.transistors+' transistors','CMOS '+Wv.t));
+  const g=Wv.g, cx=b.x+b.w*0.42, top=b.y+30, bot=b.y1-24, mid=(top+bot)/2, w=Math.min(b.w*0.5,220), out=Wv.out;
+  sLine(ctx,[[cx-60,top],[cx+60,top]],COL.ref,2.4); lab(ctx,W,H,cx+66,top,'supply (1)',COL.ref,SM_FONT,'left','middle',PLATE_FIX);
+  sLine(ctx,[[cx-60,bot],[cx+60,bot]],'#8b93a6',2.4); lab(ctx,W,H,cx+66,bot,'ground (0)','#8b93a6',SM_FONT,'left','middle',PLATE_FIX);
+  drawNet(ctx,W,H,g.up,cx-w/2,top,w,mid-top-12,Wv.vals);
+  drawNet(ctx,W,H,g.down,cx-w/2,mid+12,w,bot-mid-12,Wv.vals);
+  sLine(ctx,[[cx,mid-12],[cx,mid+12]],wcol(out===1),2.4);
+  const ox=b.x1-34; sLine(ctx,[[cx,mid],[ox-10,mid]],wcol(out===1),2.4);
+  dot(ctx,ox,mid,10,out===1?COL.one:'#1a1f2c',out===1?'#e8ffb0':'#5a6378',1.4);
+  lab(ctx,W,H,ox,mid-20,'out = '+out,out===1?COL.one:'#aeb6c6',LAB_FONT,'center','middle',PLATE_FIX);
+  lab(ctx,W,H,b.x+10,mid-16,'pull-up: '+(Wv.up?'on':'off'),Wv.up?COL.one:'#8b93a6',SM_FONT,'left','middle',PLATE_FIX);
+  lab(ctx,W,H,b.x+10,mid+16,'pull-down: '+(Wv.down?'on':'off'),Wv.down?COL.one:'#8b93a6',SM_FONT,'left','middle',PLATE_FIX);
+}
+function drawTGate(ctx,W,H,b,Wv){
+  frame(ctx,b,'#242a3a'); panelTitle(ctx,b,titleFor(b,'a transmission gate: a switch that remembers','a switch gate'));
+  const y=b.y+b.h*0.45, x0=b.x+40, xs=b.x+b.w*0.42, xn=b.x+b.w*0.68, xq=b.x1-40, en=ST.wEN, d=ST.wD;
+  dot(ctx,x0,y,10,d?COL.one:'#1a1f2c',d?'#e8ffb0':'#5a6378',1.3); lab(ctx,W,H,x0,y-20,'D = '+d+' (press)',d?COL.one:'#aeb6c6',SM_FONT,'center','middle',PLATE_FIX);
+  HIT.push({kind:'toggle',key:'wD',b:box(x0-10,y-10,20,20)});
+  sLine(ctx,[[x0+10,y],[xs-18,y]],wcol(d),2.2);
+  /* the switch: closed while EN = 1 */
+  dot(ctx,xs-18,y,2.6,COL.body); dot(ctx,xs+18,y,2.6,COL.body);
+  if(en) sLine(ctx,[[xs-18,y],[xs+18,y]],wcol(d),2.4); else sLine(ctx,[[xs-18,y],[xs+14,y-16]],'#5a6378',2.2);
+  lab(ctx,W,H,xs,y+26,'EN = '+en+' (press)',en?COL.one:'#aeb6c6',SM_FONT,'center','middle',PLATE_FIX);
+  HIT.push({kind:'toggle',key:'wEN',b:box(xs-24,y-22,48,58)});
+  sLine(ctx,[[xs+18,y],[xq-10,y]],wcol(Wv.q),2.2);
+  /* the node's capacitance */
+  sLine(ctx,[[xn,y],[xn,y+14]],wcol(Wv.q),1.8); sLine(ctx,[[xn-12,y+14],[xn+12,y+14]],COL.body,2); sLine(ctx,[[xn-12,y+20],[xn+12,y+20]],COL.body,2); sLine(ctx,[[xn,y+20],[xn,y+30]],COL.body,1.8);
+  dot(ctx,xq,y,10,Wv.q?COL.one:'#1a1f2c',Wv.q?'#e8ffb0':'#5a6378',1.3);
+  lab(ctx,W,H,xq,y-20,'Q = '+Wv.q,Wv.q?COL.one:'#aeb6c6',LAB_FONT,'center','middle',PLATE_FIX);
+  lab(ctx,W,H,(xs+xq)/2,b.y1-14,en?'closed: Q follows D':'open: Q keeps the charge it had',en?COL.one:COL.ref,SM_FONT,'center','middle',PLATE_FIX);
+}
+
+/* ---------------- 3. memory ---------------- */
+const MEM_ROWS={
+  sr:{head:['S','R','Q next'],rows:[['0','0','Q (holds)'],['0','1','0'],['1','0','1'],['1','1','forbidden']],row:(i)=>i.S*2+i.R},
+  dlatch:{head:['EN','D','Q next'],rows:[['0','0','Q (holds)'],['0','1','Q (holds)'],['1','0','0'],['1','1','1']],row:(i)=>i.EN*2+i.D},
+  dff:{head:['CLK','D','Q next'],rows:[['rising','0','0'],['rising','1','1'],['otherwise','x','Q (holds)']],row:(i)=>-1}};
+function memoryCaption(Mm,which){
+  const head=Mm.kind==='sr'?'Feed two gates’ outputs back into each other and the pair can hold a bit: S sets Q to 1, R resets it to 0, and with both at 0 it keeps what it was. Press S, R. ':
+    Mm.kind==='dlatch'?'Put two gates in front of the SR pair and EN becomes a gate on the memory: while EN is 1, Q follows D; when EN drops, Q holds the last D. Press D, EN. ':
+    'Two latches, the second open only while CLK is 1 and the first only while it is 0: Q takes D at the clock’s rising edge and at no other time. This is a flip-flop, the bit of a register. ';
+  if(which==='short') return head;
+  return head+'Below, the signals against time (each step a gate delay), and the table of what Q does next.'+(Mm.kind==='sr'?' Set both and release them together: with equal delays the pair oscillates for ever, which is why S = R = 1 is forbidden.':'');
+}
+function drawMemory(ctx,W,H,M){
+  const Mm=M.Mm, Lay=stageLayout(ctx,W,H,memoryCaption(Mm,'full'),memoryCaption(Mm,'short'),2,0.36,nbNarrow(H));
+  drawCaption(ctx,Lay);
+  const b=Lay.main; frame(ctx,b,'#242a3a'); panelTitle(ctx,b,titleFor(b,'the '+MEM_LIST.find(o=>o.id===Mm.kind).name+(Mm.forbidden?': Q = Q̄, the forbidden state':Mm.oscillating?': released together, it oscillates':''),MEM_LIST.find(o=>o.id===Mm.kind).name));
+  const tg=Mm.kind==='sr'?{S:'mS',R:'mR'}:Mm.kind==='dlatch'?{D:'mD',EN:'mEN'}:(ST.mRun?{D:'mD'}:{D:'mD',CLK:'mClk'});
+  drawCircuit(ctx,W,H,box(b.x+40,b.y+8,b.w-120,b.h-16),Mm.C,Mm.v,{toggles:tg,rename:{QB:'Q̄'},maxU:Mm.kind==='dff'?60:80});
+  if(Lay.bottom[0]){ const C=Mm.C, rows=Mm.kind==='sr'?[['S','S'],['R','R'],['Q','Q'],['Q̄','QB']]:Mm.kind==='dlatch'?[['D','D'],['EN','EN'],['Q','Q']]:[['D','D'],['CLK','CLK'],['Q','Q']];
+    drawTiming(ctx,W,H,Lay.bottom[0],rows.map(([l,n])=>({lab:l,f:h=>h.v[C.idx[n]],col:n==='CLK'?COL.struct:n.charAt(0)==='Q'?COL.one:COL.ref})),Mm.hist,titleFor(Lay.bottom[0],'the signals, one step a gate delay','signals')); }
+  if(Lay.bottom[1]){ const T=MEM_ROWS[Mm.kind]; drawTable(ctx,W,H,Lay.bottom[1],T.head,T.rows,T.row(Mm.ins),'what Q does next'); }
+}
+
+/* ---------------- 4. the adder ---------------- */
+/* "an 8-bit", "an 11-bit", "a 4-bit"; a negative with a true minus */
+const anA=n=>(n===8||n===11||n===18||n>=80&&n<90)?'an':'a';
+const sgn=x=>String(x).replace('-','−');
+/* the full adder template's nets, as bit i of a ripple adder names them */
+function faMap(i,pfx){ return {A:'A'+i,B:(pfx==='fa'&&ST.view==='sub')?'b'+i:'B'+i,Cin:'C'+i,S:'S'+i,Cout:'C'+(i+1),x:pfx+i+'.x',g:pfx+i+'.g',t:pfx+i+'.t'}; }
+/* a template circuit drawn with the values another circuit's nets carry */
+function mappedState(T,C,v,map){ const w=new Uint8Array(T.nets.length); T.nets.forEach((n,k)=>{ const m=map[n]; w[k]=m!==undefined&&C.idx[m]!==undefined?v[C.idx[m]]:0; }); return w; }
+const FA_T=fullAdder(), FS_T=fullSub();
+function adderCaption(A,which){
+  const head=A.mode==='half'?'A half adder adds two bits: the sum is their XOR, the carry their AND. ':
+    A.mode==='full'?'A full adder adds three bits, two and a carry in: two half adders and an OR. The carry passes two gates. ':
+    'Chain '+A.n+' full adders and each one’s carry feeds the next: a ripple-carry adder. Press the bits of A and B, or a box to see its gates; the carry ripples left, two gate delays a bit, so the answer is ready only after 2n + 1 = '+A.worst+' delays at worst. ';
+  if(which==='short') return head;
+  return head+'Lower right, the number on the outputs after each gate delay since the last change: read it too early and it is wrong.';
+}
+function drawAdder(ctx,W,H,M){
+  const A=M.A, Lay=stageLayout(ctx,W,H,adderCaption(A,'full'),adderCaption(A,'short'),2,0.36,nbNarrow(H));
+  drawCaption(ctx,Lay);
+  const b=Lay.main;
+  if(A.mode==='ripple'){
+    const C=A.C, v=A.v, n=A.n, V=nm=>val(C,v,nm);
+    drawChain(ctx,W,H,b,n,{title:titleFor(b,anA(n)+' '+n+'-bit ripple-carry adder: '+A.A+' + '+A.B+(A.c?' + 1':'')+' = '+A.sum,n+'-bit adder'),
+      box:i=>'FA'+subN(i), ins:i=>[{v:V('A'+i),name:'A',hit:'aA'},{v:V('B'+i),name:'B',hit:'aB'}], out:i=>V('S'+i), outName:'S',
+      chain:i=>V('C'+i), chainName:'C', sel:A.bit, pick:'aBit'});
+    if(Lay.bottom[0]){ const bb=Lay.bottom[0]; frame(ctx,bb,'#242a3a'); panelTitle(ctx,bb,titleFor(bb,'inside FA'+subN(A.bit)+': five gates','inside FA'+subN(A.bit)));
+      drawCircuit(ctx,W,H,box(bb.x+30,bb.y+6,bb.w-90,bb.h-12),FA_T,mappedState(FA_T,C,v,faMap(A.bit,'fa')),{maxU:46,rename:{Cin:'C'+subN(A.bit),Cout:'C'+subN(A.bit+1),S:'S'+subN(A.bit)}}); }
+  } else {
+    frame(ctx,b,'#242a3a'); panelTitle(ctx,b,titleFor(b,'the '+A.mode+' adder: '+A.A+' + '+A.B+(A.mode==='full'?' + '+A.c:'')+' = '+A.sum,A.mode+' adder'));
+    drawCircuit(ctx,W,H,box(b.x+40,b.y+8,b.w-130,b.h-16),A.C,A.v,{toggles:{A:{key:'aA',bit:0},B:{key:'aB',bit:0},Cin:'aC'},maxU:84});
+    if(Lay.bottom[0]){ const rows=[]; const k=A.mode==='half'?2:3;
+      for(let r=0;r<(1<<k);r++){ const b3=bitsOf(r,k).reverse(), s=b3.reduce((a,x)=>a+x,0); rows.push([...b3,s&1,s>>1]); }
+      drawTable(ctx,W,H,Lay.bottom[0],A.mode==='half'?['A','B','S','C']:['A','B','Cin','S','Cout'],rows,A.mode==='half'?A.A*2+A.B:A.A*4+A.B*2+A.c,'the '+A.mode+' adder’s table'); }
+  }
+  if(Lay.bottom[1]) drawSeen(ctx,W,H,Lay.bottom[1],A.seen,A.want,A.since,'the sum on the outputs, read too early','sum');
+}
+
+/* ---------------- 5. the subtractor ---------------- */
+function subCaption(S,which){
+  const head=S.mode==='half'?'A half subtractor takes B from A: the difference is again their XOR, and A − B needs a borrow when A is 0 and B is 1. ':
+    S.mode==='full'?'A full subtractor also pays a borrow in: d = A ⊕ B ⊕ W, and it borrows when ¬A·B or when the borrow in meets equal bits. ':
+    S.mode==='ripple'?'Chain full subtractors and the borrow ripples left as the carry did: A − B for n bits, with a borrow out when B is the larger. ':
+    'No subtractor is needed: in two’s complement −B = ¬B + 1, so XOR gates flip B when SUB is 1 and SUB is also the carry in. The same adder then subtracts; its carry out is 1 when no borrow was needed, and V flags a signed result that does not fit. ';
+  if(which==='short') return head;
+  return head+'Lower right, the result on the outputs after each gate delay since the last change.';
+}
+function drawSub(ctx,W,H,M){
+  const S=M.S, Lay=stageLayout(ctx,W,H,subCaption(S,'full'),subCaption(S,'short'),2,0.36,nbNarrow(H));
+  drawCaption(ctx,Lay);
+  const b=Lay.main, C=S.C, v=S.v, n=S.n, V=nm=>val(C,v,nm);
+  if(S.mode==='ripple'){
+    drawChain(ctx,W,H,b,n,{title:titleFor(b,anA(n)+' '+n+'-bit ripple subtractor: '+S.A+' − '+S.B+(S.w?' − 1':'')+' = '+S.diff+(S.flag?' with a borrow':''),n+'-bit subtractor'),
+      box:i=>'FS'+subN(i), ins:i=>[{v:V('A'+i),name:'A',hit:'sA'},{v:V('B'+i),name:'B',hit:'sB'}], out:i=>V('D'+i), outName:'D', chain:i=>V('W'+i), chainName:'W'});
+  } else if(S.mode==='twos'){
+    drawChain(ctx,W,H,box(b.x,b.y,b.w,b.h-40),n,{title:titleFor(b,(S.sub?'A + ¬B + 1: '+S.A+' − '+S.B:'A + B: '+S.A+' + '+S.B)+' = '+S.diff+' (signed '+sgn(S.sA)+(S.sub?' − ':' + ')+(S.sB<0?'('+sgn(S.sB)+')':S.sB)+' = '+sgn(S.sD)+(S.V?', overflow':'')+')','adder–subtractor'),
+      box:i=>'FA'+subN(i), ins:i=>[{v:V('A'+i),name:'A',hit:'sA'},{v:V('b'+i),name:'B ⊕ SUB',hit:null}], out:i=>V('S'+i), outName:'S', chain:i=>V('C'+i), chainName:'C'});
+    /* below the chain: B's own bits (where there is room), the SUB switch and the V lamp */
+    const sy=b.y1-18; if(b.w>=500) drawBits(ctx,W,H,b.x+70,sy,n,S.B,'B','sB',8);
+    const sx=b.x1-150; HIT.push({kind:'toggle',key:'sSub',b:box(sx-12,sy-12,24,24)});
+    dot(ctx,sx,sy,10,S.sub?COL.one:'#1a1f2c',S.sub?'#e8ffb0':'#5a6378',1.3); lab(ctx,W,H,sx-16,sy,'SUB = '+S.sub,S.sub?COL.one:'#aeb6c6',LAB_FONT,'right','middle',PLATE_FIX);
+    dot(ctx,b.x1-40,sy,10,S.V?COL.ref:'#1a1f2c',S.V?'#ffd0a0':'#5a6378',1.3); lab(ctx,W,H,b.x1-56,sy,'V = '+S.V,S.V?COL.ref:'#aeb6c6',LAB_FONT,'right','middle',PLATE_FIX);
+  } else {
+    frame(ctx,b,'#242a3a'); panelTitle(ctx,b,titleFor(b,'the '+S.mode+' subtractor: '+S.A+' − '+S.B+(S.mode==='full'?' − '+S.w:'')+' → d = '+S.diff+', borrow = '+S.flag,S.mode+' subtractor'));
+    drawCircuit(ctx,W,H,box(b.x+40,b.y+8,b.w-130,b.h-16),C,v,{toggles:{A:{key:'sA',bit:0},B:{key:'sB',bit:0},Bin:'sW'},maxU:76});
+  }
+  if(Lay.bottom[0]){ const bb=Lay.bottom[0];
+    if(S.mode==='half'||S.mode==='full'){ const k=S.mode==='half'?2:3, rows=[];
+      for(let r=0;r<(1<<k);r++){ const t=bitsOf(r,k).reverse(), e=t[0]-t[1]-(k===3?t[2]:0); rows.push([...t,((e%2)+2)%2,e<0?1:0]); }
+      drawTable(ctx,W,H,bb,k===2?['A','B','D','Bo']:['A','B','Bin','D','Bout'],rows,k===2?S.A*2+S.B:S.A*4+S.B*2+S.w,'the '+S.mode+' subtractor’s table'); }
+    else { const T=S.mode==='twos'?FA_T:FS_T, pf=S.mode==='twos'?'fa':'fs';
+      const map=S.mode==='twos'?faMap(0,'fa'):{A:'A0',B:'B0',Bin:'W0',D:'D0',Bout:'W1',x:'fs0.x',na:'fs0.na',g:'fs0.g',nx:'fs0.nx',t:'fs0.t'};
+      frame(ctx,bb,'#242a3a'); panelTitle(ctx,bb,titleFor(bb,'inside the lowest bit: '+(S.mode==='twos'?'a full adder (B through the XOR)':'a full subtractor'),'the lowest bit'));
+      drawCircuit(ctx,W,H,box(bb.x+30,bb.y+6,bb.w-90,bb.h-12),T,mappedState(T,C,v,map),{maxU:44}); } }
+  if(Lay.bottom[1]){ const M2=1<<n, tr=settle(C,LIVE.sub.prev[0],subIns(ST));
+    const seen=tr.trace.map(s=>S.mode==='half'?val(C,s,'D'):S.mode==='full'?val(C,s,'D'):S.mode==='ripple'?numOf(C,s,'D',n):numOf(C,s,'S',n));
+    drawSeen(ctx,W,H,Lay.bottom[1],seen,S.wantDiff,S.since,'the result on the outputs, read too early','result'); }
+}
+
+/* ---------------- 6. the accumulator ---------------- */
+function accCaption(Ac,which){
+  const head='Put a register of '+Ac.n+' D flip-flops after an adder and feed it back: at every rising clock edge the register takes its own value plus X. With X = 1 it counts. The adder needs time to settle, so the clock may tick no faster than its slowest add: here one period must be at least '+Ac.minP+' gate delays. ';
+  if(which==='short') return head;
+  return head+'Below, the clock, the register and the adder’s sum against time, and the register at each rising edge'+(Ac.fast?': this clock is too fast, and some adds go wrong.':'.');
+}
+function drawAcc(ctx,W,H,M){
+  const Ac=M.Ac, Lay=stageLayout(ctx,W,H,accCaption(Ac,'full'),accCaption(Ac,'short'),2,0.4,nbNarrow(H));
+  drawCaption(ctx,Lay);
+  const b=Lay.main, C=Ac.C, v=Ac.v, n=Ac.n, V=nm=>val(C,v,nm);
+  drawChain(ctx,W,H,box(b.x,b.y,b.w,b.h-40),n,{title:titleFor(b,'R ← R + X at each rising edge: R = '+Ac.R+', X = '+Ac.X+(Ac.caught?' (a latch is caught, ringing)':Ac.fast?' (the clock is too fast)':''),'the accumulator'),
+    box:i=>'FA'+subN(i), ins:i=>[{v:V('R'+i),name:'R'},{v:V('X'+i),name:'X',hit:'cX'}], out:i=>V('s'+i), outName:'s', chain:i=>i===0?0:V('c'+i), chainName:'c'});
+  /* the register row: the sum goes into the flip-flops and back up as R */
+  const y=b.y1-18; drawBits(ctx,W,H,b.x+90,y,n,Ac.R,'register R',null,n>6&&b.w<520?7:9);
+  const clk=Ac.clk, cx=b.x1-60; dot(ctx,cx,y,9,clk?COL.struct:'#1a1f2c',clk?'#d0f6ff':'#5a6378',1.3);
+  lab(ctx,W,H,cx-16,y,'CLK = '+clk,clk?COL.struct:'#aeb6c6',LAB_FONT,'right','middle',PLATE_FIX);
+  if(Lay.bottom[0]){ const bb=Lay.bottom[0];
+    drawTiming(ctx,W,H,bb,[{lab:'CLK',f:h=>h.v[C.idx.CLK],col:COL.struct},{lab:'R',f:h=>numOf(C,h.v,'R',n),bus:true,col:COL.one},{lab:'sum',f:h=>numOf(C,h.v,'s',n),bus:true,col:COL.ref}],
+      Ac.hist,titleFor(bb,'the clock, the register and the sum, one step a gate delay','signals')); }
+  if(Lay.bottom[1]){ const bb=Lay.bottom[1], r=Ac.reads, M2=1<<n;
+    const P=linPlot(ctx,bb,0,Math.max(r.length,8),0,M2,{title:titleFor(bb,'R at each rising edge'+(Ac.ok?'':': a missed add'),'R at the edges'),xlab:'clock edges (latest '+Math.max(r.length,0)+')',ylab:'R',ny:nyFor(bb),xfmt:v=>String(Math.round(v))});
+    r.forEach((x,k)=>{ const good=k===0||x===(r[k-1]+Ac.X)%M2; dot(ctx,P.X(k+0.5),P.Y(x),3.6,good?COL.one:COL.ref); }); }
+}
+
+/* ================================================================== *
+ *  dispatch and the pointer                                           *
+ * ================================================================== */
+const DRAWERS={gates:drawGates,switch:drawSwitch,memory:drawMemory,adder:drawAdder,sub:drawSub,acc:drawAcc};
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[]; HIT=[]; MARKS=[]; KEY_DROPS=0; W_STAGE=W; H_STAGE=H; DRAW_SEQ=0;
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(DRAWERS[M.view]) DRAWERS[M.view](ctx,W,H,M);
+}
+function hitAt(x,y){ for(let i=HIT.length-1;i>=0;i--){ const h=HIT[i]; if(x>=h.b.x&&x<=h.b.x+h.b.w&&y>=h.b.y&&y<=h.b.y+h.b.h) return h; } return null; }
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  S.step=function(){ return runStep(ST); };
+  S.pointer=function(type,x,y){
+    if(type!=='down') return false;
+    const h=hitAt(x,y); if(!h) return false;
+    if(h.kind==='toggle'){ ST[h.key]=ST[h.key]?0:1; inputsChanged(); return true; }
+    if(h.kind==='bit'){ ST[h.key]=ST[h.key]^(1<<h.bit); inputsChanged(); return true; }
+    if(h.kind==='pick'){ ST[h.key]=h.val; return true; }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop (build_kardashev lineage) *
+ * ================================================================== */
+/* the keys that are a circuit's inputs: changing one starts a propagation (the circuit is not re-settled) */
+const INPUT_KEYS={gA:1,gB:1,mS:1,mR:1,mD:1,mEN:1,mClk:1,aA:1,aB:1,aC:1,sA:1,sB:1,sW:1,sSub:1,cX:1,cP:1};
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+  const changed=key=>{ if(INPUT_KEYS[key]) inputsChanged(); };
+
+  function setView(k){
+    st.view=k;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); refresh();
+  }
+  TABS.forEach(([k,lab])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k),html:lab})); });
+
+  const rows={};
+  function slider(key,lab,lo,hi,step2,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val0=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab),inp,val0);
+    const sync=()=>{ inp.value=st[key]; val0.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value); changed(key);   /* buildModel clamps the numbers to the bits */ syncChips(); syncPanel(); refresh(); });
+    rows[key]={row:rowEl,sync,inp}; return rowEl;
+  }
+  const linSlider=(key,step2,lab,fmtf)=>slider(key,lab,LIM[key][0],LIM[key][1],step2,fmtf);
+  function checkbox(key,lab){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked; changed(key); syncPanel(); refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; },inp};
+    return el;
+  }
+  const CHIPROWS=[];
+  function chipRow(list,key){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{ wrapEl.appendChild(h('button',{class:'chip'+(st[key]===o.id?' on':''),html:o.name,onclick:()=>{
+      st[key]=o.id; clampNums(st); syncChips(); syncPanel(); refresh(); }})); });
+    CHIPROWS.push({wrapEl,list,key});
+    return wrapEl;
+  }
+  function syncChips(){ for(const c of CHIPROWS) [].forEach.call(c.wrapEl.children,(b,i)=>b.className='chip'+(c.list[i].id===st[c.key]?' on':'')); }
+  /* a button that flips a 0/1 input; its label shows the value */
+  const FLIPS=[];
+  function flip(key,name){ const b=h('button',{onclick:()=>{ st[key]=st[key]?0:1; changed(key); syncPanel(); refresh(); }},name);
+    FLIPS.push([b,key,name]); return b; }
+  const btn=(lab,fn)=>h('button',{onclick:()=>{ fn(); syncChips(); syncPanel(); refresh(); }},lab);
+  const settleNow=()=>btn('settle now',()=>{ liveSettle(st); });
+  const i0=v=>fmt(v,0), per=v=>fmt(v,0)+' /s';
+
+  /* ---- 1. the gates ---- */
+  const gG=h('div',{class:'grp'},h('h3',null,'the gates'));
+  gG.appendChild(chipRow(GATE_LIST,'gT'));
+  gG.appendChild(h('div',{class:'btnrow'},flip('gA','A'),flip('gB','B'),settleNow()));
+  gG.appendChild(linSlider('gSpd',1,'gate delays a second',per));
+  const gTag=h('div',{class:'tag'}); gG.appendChild(gTag);
+
+  /* ---- 2. switches ---- */
+  const gW=h('div',{class:'grp'},h('h3',null,'switches'));
+  gW.appendChild(chipRow(CMOS_LIST,'wT'));
+  gW.appendChild(h('div',{class:'btnrow'},flip('wA','A'),flip('wB','B')));
+  gW.appendChild(h('div',{class:'btnrow'},flip('wD','D'),flip('wEN','EN')));
+  const wTag=h('div',{class:'tag'}); gW.appendChild(wTag);
+
+  /* ---- 3. memory ---- */
+  const gM=h('div',{class:'grp'},h('h3',null,'memory'));
+  gM.appendChild(chipRow(MEM_LIST,'mC'));
+  const mSR=h('div',{class:'btnrow'},flip('mS','S'),flip('mR','R'),btn('release S and R together',()=>{ st.mS=0; st.mR=0; changed('mS'); }));
+  /* one D for both the latch and the flip-flop (two controls on one key with one label break every lookup) */
+  const mDL=h('div',{class:'btnrow'},flip('mD','D'),flip('mEN','EN'),flip('mClk','CLK'));
+  const mClock=h('div',{class:'checks'},checkbox('mRun','the clock runs'));
+  gM.appendChild(mSR); gM.appendChild(mDL); gM.appendChild(mClock);
+  gM.appendChild(linSlider('mP',2,'clock period (delays)',i0));
+  gM.appendChild(linSlider('mSpd',1,'gate delays a second',per));
+  const mTag=h('div',{class:'tag'}); gM.appendChild(mTag);
+
+  /* ---- 4. the adder ---- */
+  const gA=h('div',{class:'grp'},h('h3',null,'the adder'));
+  gA.appendChild(chipRow(ADD_LIST,'aMode'));
+  gA.appendChild(linSlider('aN',1,'bits n',i0));
+  gA.appendChild(linSlider('aA',1,'A',i0)); gA.appendChild(linSlider('aB',1,'B',i0));
+  gA.appendChild(h('div',{class:'btnrow'},flip('aC','carry in'),settleNow()));
+  gA.appendChild(linSlider('aSpd',1,'gate delays a second',per));
+  const aTag=h('div',{class:'tag'}); gA.appendChild(aTag);
+
+  /* ---- 5. the subtractor ---- */
+  const gS=h('div',{class:'grp'},h('h3',null,'the subtractor'));
+  gS.appendChild(chipRow(SUB_LIST,'sMode'));
+  gS.appendChild(linSlider('sN',1,'bits n',i0));
+  gS.appendChild(linSlider('sA',1,'A',i0)); gS.appendChild(linSlider('sB',1,'B',i0));
+  gS.appendChild(h('div',{class:'btnrow'},flip('sW','borrow in'),flip('sSub','SUB'),settleNow()));
+  gS.appendChild(linSlider('sSpd',1,'gate delays a second',per));
+  const sTag=h('div',{class:'tag'}); gS.appendChild(sTag);
+
+  /* ---- 6. the accumulator ---- */
+  const gC=h('div',{class:'grp'},h('h3',null,'the accumulator'));
+  gC.appendChild(linSlider('cN',1,'bits n',i0));
+  gC.appendChild(linSlider('cX',1,'X, added each edge',i0));
+  gC.appendChild(linSlider('cP',2,'clock period (delays)',i0));
+  gC.appendChild(linSlider('cSpd',1,'gate delays a second',per));
+  gC.appendChild(h('div',{class:'checks'},checkbox('cRun','the clock runs')));
+  gC.appendChild(h('div',{class:'btnrow'},btn('clear the register',()=>{ delete LIVE.acc; }),btn('the slowest safe clock',()=>{ st.cP=accMinPeriod(st.cN,st.cX); changed('cP'); })));
+  const cTag=h('div',{class:'tag'}); gC.appendChild(cTag);
+
+  const gReset=h('div',{class:'grp'},h('div',{class:'btnrow'},
+    h('button',{onclick:()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; simReset();
+      syncChips(); syncPanel(); refresh(); }},'reset all')));
+  const keysTag=h('div',{class:'tag'}); gReset.appendChild(keysTag);
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),h('div',{id:'info'}),h('div',{class:'src',html:SRC_LINE}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the calculation'),h('div',{id:'phys'}));
+  const groups=[gG,gW,gM,gA,gS,gC];
+  [...groups,gReset,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function syncPanel(){
+    const v=st.view, ids=TABS.map(t=>t[0]);
+    groups.forEach((g,i)=>{ g.hidden=v!==ids[i]; });
+    mSR.hidden=st.mC!=='sr'; mDL.hidden=st.mC==='sr'; mClock.hidden=st.mC!=='dff';
+    rows.mP.inp.disabled=st.mC!=='dff'||!st.mRun;
+    for(const [b,key,name] of FLIPS) b.textContent=name+' = '+st[key];
+    for(const [b,key] of FLIPS){ if(key==='mClk') b.disabled=st.mC!=='dff'||st.mRun; if(key==='mEN') b.disabled=st.mC!=='dlatch'; }
+    rows.aN.inp.disabled=st.aMode!=='ripple'; rows.sN.inp.disabled=st.sMode==='half'||st.sMode==='full';
+    rows.aA.inp.max=st.aMode==='ripple'?(1<<st.aN)-1:1; rows.aB.inp.max=rows.aA.inp.max;
+    rows.sA.inp.max=(st.sMode==='half'||st.sMode==='full')?1:(1<<st.sN)-1; rows.sB.inp.max=rows.sA.inp.max;
+    rows.cX.inp.max=(1<<st.cN)-1;
+    for(const [b,key] of FLIPS){ if(key==='sW') b.disabled=st.sMode==='half'||st.sMode==='twos'; if(key==='sSub') b.disabled=st.sMode!=='twos'; if(key==='aC') b.disabled=st.aMode==='half'; }
+    for(const k in rows) rows[k].sync();
+    gTag.innerHTML='press A or B on the drawing too; watch each gate answer one delay after its inputs';
+    wTag.innerHTML='press the switches’ A and B, D and EN on the drawing too';
+    mTag.innerHTML=st.mC==='sr'?'set both, then release them together, and the latch oscillates':st.mC==='dlatch'?'with EN at 1 the latch is transparent; drop it and Q holds':'Q changes only at the rising edges of CLK';
+    aTag.innerHTML=st.aMode==='ripple'?'press a bit to flip it, a box to look inside it':'press A, B and the carry on the drawing too';
+    sTag.innerHTML=st.sMode==='twos'?'SUB = 1 subtracts, SUB = 0 adds, on the same adder':'press the bits on the drawing too';
+    cTag.innerHTML='a period below the slowest safe one makes adds go wrong; X = 1 counts';
+    keysTag.innerHTML='1&ndash;6 switch views &nbsp; space starts or stops a clock';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      const v=st.view;
+      hintEl.textContent=(v==='memory'||v==='acc')?'space starts or stops the clock · 1–6 switch views':'press an input on the drawing · 1–6 switch views';
+      infoEl.innerHTML=INFO[v]||'';
+      physEl.innerHTML=DERIV[v]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ clampNums(st); syncChips(); syncPanel(); refresh(); }
+  });
+
+  const CLOCK={memory:'mRun',acc:'cRun'};
+  window.addEventListener('keydown',e=>{
+    const tg=e.target&&e.target.tagName;
+    if(e.key===' '&&!(tg==='INPUT'&&e.target.type==='range')){ const k=CLOCK[st.view]; if(k){ e.preventDefault(); st[k]=!st[k]; syncPanel(); refresh(); } }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); refresh(); });
+
+  /* every change repaints at once (refresh); the frame loop steps the live circuit one gate delay at a time while it
+     is still moving, and repaints the drawing and the readout with it */
+  function frameLoop(){
+    if(S.step()){ try{ S.draw(); roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); } }
+    requestAnimationFrame(frameLoop);
+  }
+  simReset(); resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+/* ---- the prose: every number in it is computed here and pinned in selfTest ---- */
+const SRC_LINE='Shannon, “A symbolic analysis of relay and switching circuits”, Trans. AIEE 57 (12), 713–723 (1938), for switches in series and parallel as AND and OR. Everything else on the page is exact logic: every circuit runs gate by gate in the page, each gate one unit of delay, and build_logic/derive.py, an independent Python gate simulator, checks every truth table, every sum and difference against arithmetic, and every timing the page prints.';
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const INFO={}, DERIV={};
+const PROSE={nands:Object.fromEntries(GATES.map(t=>[t,nandOnly(t).gates.length])),
+  cmos:Object.fromEntries(Object.keys(CMOS).map(t=>[t,countSw(CMOS[t].up)+countSw(CMOS[t].down)])),
+  fa:fullAdder().gates.length, fs:fullSub().gates.length, ff:dFlipFlop().gates.length, dl:dLatch().gates.length,
+  minP4:accMinPeriod(4,1), minP8:accMinPeriod(8,1)};
+INFO.gates='A digital circuit works with two values, 0 and 1, and a <b>gate</b> is a fixed rule that turns its inputs into an output. NOT turns a 1 into a 0. AND gives 1 only when both inputs are 1, OR when either is, and XOR when they differ; NAND, NOR and XNOR are the same three with the answer turned over. Each rule is its <b>truth table</b>: one row for every way the inputs can be set. A real gate also takes time to answer, and the page gives every gate the same delay, one step, so you can watch a change travel through a circuit gate by gate. NAND alone is enough to build every other rule: NOT from one ('+PROSE.nands.NOT+'), AND from '+PROSE.nands.AND+', OR from '+PROSE.nands.OR+' by De Morgan’s law, XOR from '+PROSE.nands.XOR+'. That is why a chip can be made from one kind of gate, and why the NAND form, a few gates deep, answers a few delays later.';
+DERIV.gates='<h4>the rules</h4>'
+  +EQ(1,'¬A, &nbsp; A·B, &nbsp; A + B, &nbsp; A ⊕ B = A·¬B + ¬A·B')
+  +'<h4>De Morgan, and NAND for everything</h4>'
+  +EQ(2,'¬(A·B) = ¬A + ¬B, &nbsp; ¬(A + B) = ¬A·¬B')
+  +'<p>NOT A = NAND(A, A); A·B = NOT(NAND(A, B)); A + B = NAND(¬A, ¬B). XOR takes four: n = NAND(A, B), then NAND(NAND(A, n), NAND(B, n)). The page builds each from NANDs and checks it against the rule for every row.</p>'
+  +'<h4>time</h4><p>Every gate reads its inputs as they were one step ago, all at once. A circuit has <b>settled</b> when a step changes nothing; the number of steps it took is its delay for that change.</p>';
+INFO.switch='Underneath, a gate is <b>switches</b>. Two switches in series pass current only if both are closed, so a lamp behind them computes AND; in parallel either will do, which is OR. Claude Shannon showed in 1938 that relay circuits obey Boolean algebra, and design became algebra. A chip’s switches are transistors. An nMOS transistor closes when its input is 1, a pMOS when it is 0, and a static CMOS gate puts a network of pMOS between the output and the supply (it pulls the output up to 1) and the dual network of nMOS between the output and ground (it pulls down to 0). For a NAND the pull-down is two nMOS in series and the pull-up two pMOS in parallel: '+PROSE.cmos.NAND+' transistors, and NOT takes '+PROSE.cmos.NOT+'. For every input exactly one network conducts, so the output is always driven and no current flows once it has switched. The <b>transmission gate</b>, an nMOS and a pMOS side by side, is a plain switch for a signal: closed, it passes D; opened, it leaves the node beyond it holding its charge. A switch that can hold a value is the first step to memory.';
+DERIV.switch='<h4>switches as logic</h4>'
+  +EQ(1,'series: A·B, &nbsp; parallel: A + B, &nbsp; a pMOS: ¬A')
+  +'<h4>static CMOS</h4>'
+  +EQ(2,'out = 1 ⇔ pull-up conducts, &nbsp; out = 0 ⇔ pull-down conducts')
+  +'<p>The pull-down of NAND is A·B in series (it conducts when the output should be 0), the pull-up ¬A + ¬B in parallel, which is the same function’s complement by De Morgan. The page checks for every input row that exactly one of the two conducts.</p>';
+INFO.memory='Feed the outputs of two gates back into each other’s inputs and the loop can hold a value: the <b>SR latch</b>. With S = R = 0 each NOR keeps the other where it is, so the pair stays at Q = 1 or at Q = 0, whichever it was put in. S sets it to 1 and R resets it to 0. Asking for both makes Q and Q̄ both 0, and releasing both at once leaves a perfectly balanced loop: with equal delays it oscillates for ever (in a real circuit it hangs and then falls either way, metastability). Put two gates in front of the latch, opened by EN, and you have a <b>gated D latch</b>: while EN is 1 it is transparent and Q follows D; when EN drops it holds the last D ('+PROSE.dl+' gates). Chain two latches opened by opposite halves of a clock, a master and a slave, and D can pass only at the moment the clock rises: an edge-triggered <b>D flip-flop</b> ('+PROSE.ff+' gates here). Flip-flops sampled by one clock are a register, the memory every processor computes in.';
+DERIV.memory='<h4>the SR latch</h4>'
+  +EQ(1,'Q = ¬(R + Q̄), &nbsp; Q̄ = ¬(S + Q)')
+  +'<p>S = R = 0 has two solutions, (Q, Q̄) = (1, 0) and (0, 1): the two stored values. S = 1 forces Q̄ = 0 and then Q = 1. Released from (0, 0) together, both gates see 0 and 0 and both answer 1, then both answer 0: a cycle of two delays.</p>'
+  +'<h4>the gated D latch, from NANDs</h4>'
+  +EQ(2,'s = ¬(D·EN), &nbsp; r = ¬(¬D·EN), &nbsp; Q = ¬(s·Q̄), &nbsp; Q̄ = ¬(r·Q)')
+  +'<h4>master and slave</h4><p>The master is open while CLK is 0 (its enable is CLK through an inverter), the slave while CLK is 1. At the rising edge the master closes on the D it had, and the slave passes that value to Q. The page checks the flip-flop against “Q takes D at each rising edge” over hundreds of random clocked cycles.</p>';
+INFO.adder='Adding two bits gives at most 2, written 10: the low bit is the <b>sum</b>, A XOR B, and the high bit the <b>carry</b>, A AND B. That pair of gates is a <b>half adder</b>. Adding a column of a longer number also takes the carry from the column to the right, so a <b>full adder</b> adds three bits: two half adders and an OR, '+PROSE.fa+' gates. Line up n full adders, each carry out feeding the next carry in, and the chain adds two n-bit numbers: a <b>ripple-carry adder</b>. It is correct but slow, because a carry made in the lowest bit may have to pass through every bit above it, two gate delays each. The worst case, from 0 + 0 to 0…01 + 1…11, takes 2n + 1 delays, and until then the outputs show wrong sums that change as the carry goes by. Faster adders work the carries out ahead (carry look-ahead), at the price of more gates.';
+DERIV.adder='<h4>a full adder</h4>'
+  +EQ(1,'S = A ⊕ B ⊕ C<sub>in</sub>, &nbsp; C<sub>out</sub> = A·B + C<sub>in</sub>·(A ⊕ B)')
+  +'<p>A·B <i>generates</i> a carry, A ⊕ B <i>propagates</i> one. The carry in reaches the carry out through one AND and one OR: two delays a bit.</p>'
+  +'<h4>the ripple</h4>'
+  +EQ(2,'T<sub>worst</sub> = 2n + 1 gate delays')
+  +'<p>Bit 0’s carry out is ready after 3 delays (an XOR, then an AND, then the OR); every bit after adds 2. The page and derive.py both find 2n + 1 as the worst over every change of inputs (exhaustively to 4 bits) and at the worst pair to 8 bits.</p>';
+INFO.sub='Subtraction has its own circuits. A <b>half subtractor</b> gives A − B in one bit: the difference is again A XOR B, and a <b>borrow</b> is needed when A is 0 and B is 1. A <b>full subtractor</b> also pays a borrow from the column to the right, and a chain of them subtracts n-bit numbers, the borrow rippling as the carry did. But a computer rarely builds one. In <b>two’s complement</b> the negative of B is ¬B + 1 (flip every bit and add one), so A − B = A + ¬B + 1: put an XOR on each bit of B, so that a SUB line flips them, and let SUB be the carry in too. One adder now adds or subtracts. Read as signed numbers, n bits hold −2ⁿ⁻¹ to 2ⁿ⁻¹ − 1, and a result outside that range wraps round: the <b>overflow</b> flag V, the XOR of the last two carries, catches it.';
+DERIV.sub='<h4>a full subtractor</h4>'
+  +EQ(1,'D = A ⊕ B ⊕ W<sub>in</sub>, &nbsp; W<sub>out</sub> = ¬A·B + W<sub>in</sub>·¬(A ⊕ B)')
+  +'<h4>two’s complement</h4>'
+  +EQ(2,'−B ≡ 2ⁿ − B = (2ⁿ − 1 − B) + 1 = ¬B + 1 &nbsp;(mod 2ⁿ)')
+  +'<p>2ⁿ − 1 is all ones, and subtracting B from it flips every bit. The carry out of A + ¬B + 1 is 1 exactly when A ≥ B. V = C<sub>n</sub> ⊕ C<sub>n−1</sub> is 1 exactly when the true signed answer does not fit in n bits; the page and derive.py check it for every pair of operands up to 5 bits.</p>';
+INFO.acc='Put the two together. An adder’s output goes into a register of D flip-flops, and the register’s output comes back to the adder’s input: at every rising edge of the clock the register takes its own value plus X. With X = 1 it is a <b>counter</b>; it wraps from 2ⁿ − 1 to 0. This loop of memory and arithmetic is the heart of a processor. It also shows why a processor has a clock speed. Between two rising edges the new value must leave the flip-flops, ripple through the adder and settle at the master latch’s input before the next edge. Clock it faster and the register catches a half-finished sum. For the 4-bit counter the page finds the shortest safe period to be '+PROSE.minP4+' gate delays; for 8 bits, '+PROSE.minP8+'. Try a period below it and watch adds go wrong. One more thing a real design must respect: the inputs change in step with the clock. Here a new X takes effect two delays after a rising edge, as if it came from another register on the same clock, and a new period starts at the end of a cycle. Changed at an arbitrary moment, X could reach the master latch while it is closing and catch it half-way between 0 and 1. In this model, where every delay is exactly equal, a caught latch then rings for ever, its two outputs flipping together every delay: <b>metastability</b>. A real latch also hangs there, and falls one way or the other after a random time. A clock that is too fast can catch a latch the same way; the page says when one is caught, and clearing the register frees it.';
+DERIV.acc='<h4>the loop</h4>'
+  +EQ(1,'R<sub>k+1</sub> = R<sub>k</sub> + X &nbsp;(mod 2ⁿ)')
+  +'<h4>the clock’s limit</h4>'
+  +EQ(2,'T<sub>clock</sub> ≥ T<sub>flip-flop</sub> + T<sub>adder</sub> + T<sub>setup</sub>')
+  +'<p>The page does not assume the terms: it runs the circuit gate by gate at each even period from 2 delays up, over two full counts, and takes the shortest at which every reading at a rising edge is the last plus X. derive.py does the same in Python for 2 to 6 bits. Whether a period works does not depend on it beyond that threshold (checked).</p>';
+
+
+/* ================================================================== *
+ *  selfTest — headless verification.  REF is build_cg/refvals.json,   *
+ *  the printed output of derive.py (sympy, numpy, mpmath), read in    *
+ *  full.  makeShot: the recording context (build_aa lineage).          *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null, nf=0, nfEx=null, path=[], cur=null;       /* a stroke keeps its path, in canvas pixels */
+  /* a canvas ignores a non-finite coordinate without a word, so the recorder counts them */
+  const chk=(nm,a)=>{ for(const v of a) if(typeof v==='number'&&!isFinite(v)){ nf++; if(!nfEx) nfEx=nm+'('+Array.prototype.join.call(a,', ')+')'; return; } };
+  const ctx={ops, nonFinite:()=>({n:nf,ex:nfEx}),
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; path=[]; cur=null; }, moveTo(...a){ chk('moveTo',a); cur=[app(a[0],a[1])]; path.push(cur); },
+    lineTo(...a){ chk('lineTo',a); if(!pend) pend={n:0}; if(!cur){ cur=[]; path.push(cur); } cur.push(app(a[0],a[1])); }, closePath(){},
+    rect(...a){ chk('rect',a); if(!pend) pend={n:0}; pend.n++; }, arc(...a){ chk('arc',a); if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1,style:''+ctx.fillStyle}); },
+    stroke(){ ops.push({op:'stroke',style:''+ctx.strokeStyle,paths:path.map(p=>p.slice())}); }, clip(){},
+    fillRect(x,y,w,hh){ chk('fillRect',[x,y,w,hh]); ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      chk('fillText',[x,y]);
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+
+/* derive.py's reference values (build_logic/refvals.json): an independent Python gate simulator
+   checked against integer arithmetic and behavioural models.  The selfTest below pins the page to them. */
+const REF={
+"acc_min_period": {
+"2,1": 8,
+"2,3": 10,
+"3,1": 10,
+"3,7": 10,
+"4,1": 12,
+"4,15": 12,
+"5,1": 14,
+"5,31": 14,
+"6,1": 16,
+"6,63": 16
+},
+"adder_settle_0_to_all_ones_plus_carry": {
+"1": 3,
+"2": 5,
+"3": 7,
+"4": 9,
+"5": 11,
+"6": 13,
+"7": 15,
+"8": 17
+},
+"adder_worst_pair": {
+"1": [
+[
+0,
+0,
+0
+],
+[
+0,
+1,
+1
+]
+],
+"2": [
+[
+0,
+0,
+0
+],
+[
+0,
+3,
+1
+]
+],
+"3": [
+[
+0,
+0,
+0
+],
+[
+0,
+7,
+1
+]
+],
+"4": [
+[
+0,
+0,
+0
+],
+[
+0,
+15,
+1
+]
+]
+},
+"adder_worst_settle": {
+"1": 3,
+"2": 5,
+"3": 7,
+"4": 9
+},
+"addsub_overflow_count": {
+"2": 8,
+"3": 32,
+"4": 128,
+"5": 512
+},
+"cmos_transistors": {
+"NAND": 4,
+"NOR": 4,
+"NOT": 2
+},
+"dff_random_300": true,
+"dlatch_random_400": true,
+"nand_count": {
+"AND": 2,
+"NAND": 1,
+"NOR": 4,
+"NOT": 1,
+"OR": 3,
+"XNOR": 5,
+"XOR": 4
+},
+"nand_settle_from_zero": {
+"AND": 2,
+"NAND": 1,
+"NOR": 3,
+"NOT": 1,
+"OR": 2,
+"XNOR": 4,
+"XOR": 3
+},
+"sr_sequence": [
+[
+"hold",
+0,
+1,
+0
+],
+[
+"set",
+1,
+0,
+2
+],
+[
+"hold",
+1,
+0,
+0
+],
+[
+"reset",
+0,
+1,
+2
+],
+[
+"both",
+0,
+0,
+1
+],
+[
+"release",
+0,
+0,
+-1
+]
+],
+"sub_settle_borrow_through": {
+"1": 2,
+"2": 4,
+"3": 6,
+"4": 8,
+"5": 10,
+"6": 12
+},
+"truth": {
+"AND": [
+0,
+0,
+0,
+1
+],
+"NAND": [
+1,
+1,
+1,
+0
+],
+"NOR": [
+1,
+0,
+0,
+0
+],
+"NOT": [
+1,
+0
+],
+"OR": [
+0,
+1,
+1,
+1
+],
+"XNOR": [
+1,
+0,
+0,
+1
+],
+"XOR": [
+0,
+1,
+1,
+0
+]
+}
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  REF is build_logic/refvals.json,*
+ *  the output of derive.py, an independent Python gate simulator.     *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const T0=Date.now();
+  const stSave=Object.assign({},ST);
+  /* a state, the live circuits made afresh for it, and an optional script run before the test (an input changed,
+     some delays stepped) */
+  function withState(over,fn,pre){ Object.assign(ST,DEFAULTS,over); simReset(); for(const k in MEMO) delete MEMO[k];
+    try{ clampNums(ST); ensureLive(ST); if(pre) pre(ST); return fn(); } finally{ Object.assign(ST,stSave); simReset(); } }
+  const J=x=>JSON.stringify(x&&typeof x==='object'&&!Array.isArray(x)?Object.keys(x).sort().reduce((o,k)=>(o[k]=x[k],o),{}):x);
+
+  /* ---------- 0. the shared helpers ---------- */
+  ok(plain('&Delta;V &#955;')==='ΔV λ','plain() decodes'); eq(bin(5,4),'0101','bin'); eq(numOf({idx:{S0:0,S1:1,S2:2}},[1,0,1],'S',3),5,'numOf');
+  eq(J(bitsOf(6,3)),'[0,1,1]','bitsOf, low bit first'); eq(signedOf(13,4),-3,'two’s complement 1101 = −3'); eq(signedOf(7,4),7,'0111 = 7');
+
+  /* ---------- 1. the gates ---------- */
+  for(const t of GATES){ const tt=REF.truth[t]; eq(J(truthTable(t).map(r=>r[r.length-1])),J(tt),t+': the truth table (derive.py)'); }
+  eq(J(Object.fromEntries(GATES.map(t=>[t,nandOnly(t).gates.length]))),J(REF.nand_count),'the NAND forms’ gate counts');
+  for(const t of GATES){ const N=nandOnly(t), n=ARITY[t]?1:2; let d=0, good=true;
+    for(let k=0;k<(1<<n);k++){ const b=bitsOf(k,n).reverse(), ins=n===1?{A:b[0]}:{A:b[0],B:b[1]}, r=settle(N,startState(N),ins);
+      good=good&&val(N,r.v,'Y')===evalGate(t,b)&&!r.osc; d=Math.max(d,r.ticks); }
+    ok(good,t+' from NANDs gives the rule on every row'); eq(d,REF.nand_settle_from_zero[t],t+' from NANDs: the delays from the all-zero start'); }
+  ok(N_INPUT_GATE_CHECK(),'n-input AND/OR/XOR follow their definitions');
+  function N_INPUT_GATE_CHECK(){ for(let k=0;k<8;k++){ const v=bitsOf(k,3); if(evalGate('AND',v)!==(k===7?1:0)||evalGate('OR',v)!==(k?1:0)||evalGate('XOR',v)!==(v[0]^v[1]^v[2])) return false; } return true; }
+
+  /* ---------- 2. switches ---------- */
+  eq(J(Object.fromEntries(Object.keys(CMOS).map(t=>[t,countSw(CMOS[t].up)+countSw(CMOS[t].down)]))),J(REF.cmos_transistors),'CMOS transistor counts');
+  for(const t in CMOS) for(let k=0;k<4;k++){ const a=k>>1, b=k&1, v={A:a,B:b}, g=CMOS[t];
+    ok(conducts(g.up,v)!==conducts(g.down,v),t+' at '+a+b+': exactly one network conducts'); eq(cmosOut(g,v),evalGate(t,t==='NOT'?[a]:[a,b]),t+' at '+a+b+': CMOS gives the rule'); }
+  eq(cmosOut({up:SW('A',1),down:SER(SW('A'),SW('B'))},{A:0,B:0}),1,'a test of the four cases: pulled up');
+  eq(cmosOut({up:SW('A',1),down:SW('B')},{A:0,B:1}),'short','both on is a short'); eq(cmosOut({up:SW('A',1),down:SW('B')},{A:1,B:0}),'float','neither is a float');
+  for(let k=0;k<4;k++){ const v={A:k>>1,B:k&1}; eq(conducts(SER(SW('A'),SW('B')),v)?1:0,v.A&v.B,'series is AND'); eq(conducts(PAR(SW('A'),SW('B')),v)?1:0,v.A|v.B,'parallel is OR'); }
+  eq(tgate(1,0,1),0,'the transmission gate passes D when closed'); eq(tgate(0,0,1),1,'and holds when open');
+  withState({view:'switch',wD:1,wEN:1},()=>{ buildModel(); ST.wEN=0; ST.wD=0; const W1=buildModel().W; eq(W1.q,1,'opened, the node keeps the 1 it had while D goes to 0'); ST.wEN=1; eq(buildModel().W.q,0,'closed again, it follows'); });
+
+  /* ---------- the engine ---------- */
+  { const Cs=[oneGate('XNOR'),nandOnly('XOR'),srLatch(),dLatch(),dFlipFlop(),rippleAdder(3),rippleSub(3),addSubUnit(3),accumulator(3),halfAdder(),fullSub()];
+    let seed=11; const rnd=()=>{ seed=(seed*1103515245+12345)&0x7fffffff; return seed/0x7fffffff; };
+    for(const C of Cs){ let good=true; for(let k=0;k<40;k++){ const v=new Uint8Array(C.nets.length).map(()=>rnd()<0.5?1:0), ins={};
+        for(const n of C.inputs) ins[n]=rnd()<0.5?1:0; if(!same(tick(C,v,ins),tickRef(C,v,ins))) good=false; }
+      ok(good,C.name+': the compiled tick equals the gate-by-gate reference on 40 random states'); } }
+
+  /* ---------- 3. memory ---------- */
+  { const C=srLatch(); let v=startState(C); const seq=[];
+    for(const [lab,ins] of [['hold',{S:0,R:0}],['set',{S:1,R:0}],['hold',{S:0,R:0}],['reset',{S:0,R:1}],['both',{S:1,R:1}],['release',{S:0,R:0}]]){
+      const r=settle(C,v,ins,60); v=r.v; seq.push([lab,val(C,v,'Q'),val(C,v,'QB'),r.osc?-1:r.ticks]); }
+    eq(J(seq),J(REF.sr_sequence),'the SR latch: hold, set, hold, reset, both, release (derive.py)'); }
+  { const C=srLatch(); let v=settle(C,startState(C),{S:1,R:1}).v; const a=[]; v=force(C,v,{S:0,R:0}); for(let k=0;k<6;k++){ v=tick(C,v,{S:0,R:0}); a.push(''+val(C,v,'Q')+val(C,v,'QB')); }
+    eq(a.join(' '),'11 00 11 00 11 00','released together, Q and Q̄ flip together every delay'); }
+  { const C=dLatch(); let v=startState(C), q=0, good=true, seed=5; const rnd=()=>{ seed=(seed*69069+1)%4294967296; return seed/4294967296; };
+    for(let k=0;k<400;k++){ const D=rnd()<0.5?1:0, EN=rnd()<0.5?1:0, r=settle(C,v,{D,EN}); v=r.v; if(EN) q=D; good=good&&val(C,v,'Q')===q&&val(C,v,'QB')===1-q&&!r.osc; }
+    ok(good&&REF.dlatch_random_400,'the D latch: Q = D while EN, held otherwise, over 400 random settings'); }
+  { const C=dFlipFlop(); let v=startState(C), q=0, D=0, good=true, seed=9; const rnd=()=>{ seed=(seed*69069+1)%4294967296; return seed/4294967296; }; const P=16;
+    for(let k=0;k<300;k++){ for(let t=0;t<P;t++){ if(t===3) D=rnd()<0.5?1:0; const clk=t<P/2?0:1; if(t===P/2) q=D; v=tick(C,v,{D,CLK:clk}); } good=good&&val(C,v,'Q')===q; }
+    ok(good&&REF.dff_random_300,'the D flip-flop: Q takes D at each rising edge, over 300 random cycles'); }
+  { const C=dFlipFlop(); let v=settle(C,startState(C),{D:0,CLK:0}).v; v=settle(C,v,{D:1,CLK:0}).v;
+    eq(val(C,v,'Q'),0,'with CLK low a new D does not reach Q'); v=settle(C,v,{D:1,CLK:1}).v; eq(val(C,v,'Q'),1,'the rising edge takes it'); v=settle(C,v,{D:0,CLK:1}).v; eq(val(C,v,'Q'),1,'and with CLK high a new D does not either'); }
+
+  /* ---------- 4. adding ---------- */
+  for(let n=1;n<=5;n++){ const C=rippleAdder(n), m=1<<n; let good=true;
+    for(let a=0;a<m;a++) for(let b=0;b<m;b++) for(let c=0;c<2;c++){ const v=settled(C,Object.assign(busIns('A',a,n),busIns('B',b,n),{C0:c})); if(numOf(C,v,'S',n)+(val(C,v,'C'+n)<<n)!==a+b+c) good=false; }
+    ok(good,n+'-bit ripple adder: every a + b + c'); }
+  for(let n=1;n<=3;n++){ const C=rippleAdder(n), m=1<<n, ss=[];
+    for(let a=0;a<m;a++) for(let b=0;b<m;b++) for(let c=0;c<2;c++){ const ins=Object.assign(busIns('A',a,n),busIns('B',b,n),{C0:c}); ss.push([settled(C,ins),ins]); }
+    let w=0; for(const s1 of ss) for(const s2 of ss) w=Math.max(w,settle(C,s1[0],s2[1]).ticks);
+    eq(w,REF.adder_worst_settle[n],n+' bits: the worst settling over every change of inputs (derive.py)'); eq(w,2*n+1,'= 2n + 1'); }
+  for(let n=1;n<=8;n++){ const C=rippleAdder(n), z=Object.assign(busIns('A',0,n),busIns('B',0,n),{C0:0}), s0=settled(C,z);
+    eq(settle(C,s0,Object.assign(busIns('A',0,n),busIns('B',(1<<n)-1,n),{C0:1})).ticks,REF.adder_settle_0_to_all_ones_plus_carry[n],n+' bits: 0 + 0 → 0 + 1…1 + 1'); }
+  { const C=halfAdder(); for(let k=0;k<4;k++){ const a=k>>1,b=k&1,v=settled(C,{A:a,B:b}); eq(val(C,v,'S')+2*val(C,v,'C'),a+b,'half adder '+a+' + '+b); } }
+  { const C=fullAdder(); for(let k=0;k<8;k++){ const a=k>>2,b=(k>>1)&1,c=k&1,v=settled(C,{A:a,B:b,Cin:c}); eq(val(C,v,'S')+2*val(C,v,'Cout'),a+b+c,'full adder '+a+b+c); } }
+
+  /* ---------- 5. subtracting ---------- */
+  for(let n=1;n<=5;n++){ const C=rippleSub(n), m=1<<n; let good=true;
+    for(let a=0;a<m;a++) for(let b=0;b<m;b++) for(let w=0;w<2;w++){ const v=settled(C,Object.assign(busIns('A',a,n),busIns('B',b,n),{W0:w}));
+      if(numOf(C,v,'D',n)!==((a-b-w)%m+m)%m||val(C,v,'W'+n)!==(a-b-w<0?1:0)) good=false; }
+    ok(good,n+'-bit ripple subtractor: every a − b − w, with the borrow'); }
+  for(let n=1;n<=6;n++){ const C=rippleSub(n), z=Object.assign(busIns('A',0,n),busIns('B',0,n),{W0:0}), s0=settled(C,z);
+    eq(settle(C,s0,Object.assign({},z,{W0:1})).ticks,REF.sub_settle_borrow_through[n],n+' bits: a borrow through every bit (derive.py)'); }
+  { const C=halfSub(); for(let k=0;k<4;k++){ const a=k>>1,b=k&1,v=settled(C,{A:a,B:b}); eq(val(C,v,'D'),(a-b+2)%2,'half subtractor d, '+a+' − '+b); eq(val(C,v,'Bo'),a<b?1:0,'and its borrow'); } }
+  for(let n=2;n<=5;n++){ const C=addSubUnit(n), m=1<<n; let good=true, vc=0;
+    for(let a=0;a<m;a++) for(let b=0;b<m;b++) for(let sub=0;sub<2;sub++){ const v=settled(C,Object.assign(busIns('A',a,n),busIns('B',b,n),{SUB:sub}));
+      const want=sub?((a-b)%m+m)%m:(a+b)%m, ex=sub?signedOf(a,n)-signedOf(b,n):signedOf(a,n)+signedOf(b,n), ovf=(ex<-(m>>1)||ex>=(m>>1))?1:0;
+      if(numOf(C,v,'S',n)!==want||val(C,v,'C'+n)!==(sub?(a>=b?1:0):(a+b>=m?1:0))||val(C,v,'V')!==ovf) good=false; vc+=val(C,v,'V'); }
+    ok(good,n+' bits: A + ¬B + 1 = A − B, the carry is “no borrow”, V is signed overflow, for every pair'); eq(vc,REF.addsub_overflow_count[n],n+' bits: the overflow count (derive.py)'); }
+
+  /* ---------- 6. the accumulator ---------- */
+  for(let n=2;n<=6;n++) for(const X of [1,(1<<n)-1]){ const p=accMinPeriod(n,X); eq(p,REF.acc_min_period[n+','+X],n+' bits, X = '+X+': the shortest clock period (derive.py)');
+    const C=accumulator(n), m=1<<n; for(const P of [p-2,p+2,p+6]){ const r=accRun(C,X,P,2*m+2).reads; const good=r.every((x,k)=>k===0||x===(r[k-1]+X)%m); ok(good===(P>=p),n+' bits, X = '+X+', period '+P+(P>=p?' works':' fails')); } }
+  { const C=accumulator(4), r=accRun(C,3,16,9).reads; eq(r.join(','),'0,3,6,9,12,15,2,5,8','a 4-bit accumulator adding 3 wraps at 16'); }
+
+  /* ---------- the live circuits ---------- */
+  withState({view:'adder',aN:4,aA:7,aB:1,aC:0},()=>{ const A0=buildModel().A; eq(A0.sum,8,'the live adder starts settled at 7 + 1');
+    ST.aA=0; ST.aB=15; ST.aC=1; inputsChanged(); const A1=buildModel().A; eq(A1.delays,9,'0 + 15 + 1 from 7 + 1 settles in 9 delays');
+    ok(A1.sum!==A1.want,'and the outputs are wrong before any delay'); const n=liveSettle(ST); eq(n,A1.delays,'stepping the live circuit takes those delays'); eq(buildModel().A.sum,16,'and then shows 16'); });
+  withState({view:'memory',mC:'dff',mRun:true,mP:16,mD:1},()=>{ liveSettle(ST,40); eq(buildModel().Mm.q,1,'the live flip-flop takes D = 1 at its first edge'); });
+  withState({view:'acc',cN:4,cX:3,cP:16},()=>{ liveSettle(ST,16*6+9); const Ac=buildModel().Ac; ok(Ac.reads.length>=5&&Ac.ok,'the live accumulator adds 3 at every edge ('+Ac.reads.join(',')+')'); });
+  /* X changed at every phase of the clock: synchronised to the edge, no latch is ever caught and every add lands */
+  { const P=Math.max(accMinPeriod(4,3),accMinPeriod(4,5)); let good=true, worst='';
+    for(let ph=0;ph<P;ph++) withState({view:'acc',cN:4,cX:3,cP:P},()=>{ for(let k=0;k<3*P+ph;k++) liveTick(ST); ST.cX=5; inputsChanged();
+      for(let k=0;k<20*P;k++) liveTick(ST); const Ac=buildModel().Ac; if(!(Ac.ok&&!Ac.caught&&Ac.reads.length>=15&&Ac.X===5)){ good=false; worst='phase '+ph+': '+Ac.reads.join(','); } });
+    ok(good,'X changed at any phase of the clock: never caught, every add of 5 lands'+(worst?' ('+worst+')':'')); }
+  { const P=accMinPeriod(4,3); let good=true;
+    for(const P2 of [P+6,P+2]) for(let ph=0;ph<P;ph+=3) withState({view:'acc',cN:4,cX:3,cP:P},()=>{ for(let k=0;k<2*P+ph;k++) liveTick(ST); ST.cP=P2; inputsChanged();
+      for(let k=0;k<12*P2;k++) liveTick(ST); const Ac=buildModel().Ac; if(!(Ac.ok&&!Ac.caught&&Ac.P===P2)) good=false; });
+    ok(good,'a new period, set at any phase, starts at a cycle boundary and every add lands'); }
+  withState({view:'acc',cN:4,cX:3,cP:16},()=>{ const L=LIVE.acc, C=L.Cs[0];
+    for(const n of ['R0','RB0','ff0.s.s','ff0.s.r']) L.vs[0][C.idx[n]]=1;   /* bit 0's slave latch, both outputs 1, both inputs 1 */
+    ST.cRun=false; for(let k=0;k<8;k++) liveTick(ST); const Ac=buildModel().Ac; ok(Ac.caught&&!Ac.ok,'a latch with Q = Q̄ released together rings, and the page says it is caught'); });
+  withState({view:'acc',cN:4,cX:1,cP:8},()=>{ liveSettle(ST,8*40); const Ac=buildModel().Ac; ok(Ac.fast&&!Ac.ok,'a clock below the limit misses adds ('+Ac.reads.slice(-8).join(',')+')'); });
+
+  /* ---------- the prose ---------- */
+  eq(PROSE.minP4,accMinPeriod(4,1),'prose: the 4-bit counter’s period'); eq(PROSE.fa,5,'prose: a full adder is five gates'); eq(J(PROSE.nands),J(REF.nand_count),'prose: the NAND counts');
+  ok(INFO.acc.indexOf(PROSE.minP4+' gate delays')>=0,'the accumulator prose prints the computed period');
+
+  /* ---------- 9. every view: panels and drawings ---------- */
+  const SIZES=[[1400,820],[1100,700],[899,700],[820,520],[560,380]];
+  const chg=f=>st=>{ f(st); inputsChanged(); liveTick(st); liveTick(st); };
+  const CONFIGS=[...GATES.map(t=>['gates '+t,{view:'gates',gT:t}]),['gates mid-change',{view:'gates',gT:'XNOR'},chg(st=>{ st.gA=0; })],
+    ...CMOS_LIST.map(o=>['switch '+o.id,{view:'switch',wT:o.id}]),['switch open',{view:'switch',wEN:0,wA:0,wB:0}],
+    ['memory sr',{view:'memory'}],['memory sr set',{view:'memory',mS:1}],['memory sr forbidden',{view:'memory',mS:1,mR:1}],
+    ['memory sr oscillating',{view:'memory',mS:1,mR:1},chg(st=>{ st.mS=0; st.mR=0; })],['memory dlatch',{view:'memory',mC:'dlatch',mEN:1}],
+    ['memory dff running',{view:'memory',mC:'dff'},st=>{ for(let k=0;k<40;k++) liveTick(st); }],['memory dff stopped',{view:'memory',mC:'dff',mRun:false,mClk:1}],
+    ['adder half',{view:'adder',aMode:'half',aA:1,aB:1}],['adder full',{view:'adder',aMode:'full',aA:1,aB:0,aC:1}],['adder ripple',{view:'adder'}],
+    ['adder 8 bits mid-ripple',{view:'adder',aN:8,aA:255,aB:0},chg(st=>{ st.aC=1; })],['adder 1 bit',{view:'adder',aN:1,aA:1,aB:1}],['adder bit 3',{view:'adder',aBit:3}],
+    ['sub half',{view:'sub',sMode:'half',sA:0,sB:1}],['sub full',{view:'sub',sMode:'full',sA:0,sB:1,sW:1}],['sub ripple',{view:'sub',sMode:'ripple',sA:3,sB:9}],
+    ['sub twos',{view:'sub'}],['sub twos overflow',{view:'sub',sN:4,sA:7,sB:9}],['sub twos add',{view:'sub',sSub:0,sA:12,sB:9}],['sub 8 bits',{view:'sub',sN:8,sA:200,sB:77}],
+    ['acc',{view:'acc'},st=>{ for(let k=0;k<70;k++) liveTick(st); }],['acc 8 bits fast',{view:'acc',cN:8,cX:255,cP:4},st=>{ for(let k=0;k<90;k++) liveTick(st); }],['acc fresh',{view:'acc',cN:2,cX:0}]];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over,pre] of CONFIGS) withState(over,()=>{ const M=buildModel(), v=M.view;
+    const txt=[readoutHTML(M),eqbarHTML(M),tagHTML(M),INFO[v],DERIV[v]].join(' ').replace(/<[^>]*>/g,' ').replace(/&[a-zA-Z]+;|&#[0-9]+;/g,' ').replace(/[\w.\/]+\.(py|js|json|md|html)\b/g,' ');
+    const bad=(txt.match(/\S_\S|[\^{}]|NaN|undefined|Infinity/)||[])[0];
+    ok(!bad,nm+': the panels’ text is clean'+(bad?' ("'+bad+'")':'')); },pre);
+  const tDraw={};
+  for(const [nm,over,pre] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null; const t1=Date.now();
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      tDraw[over.view]=Math.max(tDraw[over.view]||0,Date.now()-t1);
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), strokes=c.ops.filter(o=>o.op==='stroke');
+      ok(strokes.length>=(H<520?4:10)&&texts.length>=(H<520?4:10),nm+' '+W+'x'+H+' draws substance ('+strokes.length+' strokes, '+texts.length+' texts)');
+      { const nf=c.nonFinite(); ok(nf.n===0,nm+' '+W+'x'+H+' every coordinate is finite ('+(nf.ex||'ok')+')'); }
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN|null|Infinity/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(/[\^{}]/.test(t.t)){ bad='a caret or brace: "'+t.t.slice(0,40)+'"'; break; }
+        if(/\S_\S/.test(t.t)){ bad='underscore subscript: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; }
+        if(W<900&&/lower (left|right)|below|Below/.test(t.t)){ bad='a narrow stage’s caption names a plot it does not draw: "'+t.t.slice(0,50)+'"'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null;
+      for(let i2=0;i2<texts.length&&!hit;i2++) for(let j2=i2+1;j2<texts.length;j2++){
+        const a=texts[i2].bb,b=texts[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>0.5&&oy>0.5){ hit='"'+texts[i2].t.slice(0,22)+'" vs "'+texts[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      if(W>=1100) ok(KEY_DROPS===0,nm+' '+W+'x'+H+' every key fits ('+KEY_DROPS+' dropped)');
+    },pre);
+  }
+  console.log('slowest draw per view (ms): '+JSON.stringify(tDraw));
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  /* the mutation runner's UI suite sets SKIP_SELFTEST: it has already run this selfTest under jsc, the same engine */
+  if(typeof SKIP_SELFTEST==='undefined') selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

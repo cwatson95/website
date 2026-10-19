@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Write mutants.json for gravity-force-lab.html: [label, old, new, suite].
+Every `old` must occur exactly once in the assembled script (checked here, so
+the sweep never skips a mutant we believe we ran).  'p' = physics selfTest,
+'u' = selfTest + the UI drive."""
+import io, json, os
+here = os.path.dirname(os.path.abspath(__file__))
+js = io.open(os.path.join(here, '_out', 'run.js'), encoding='utf-8').read()
+M = []
+def p(label, old, new): M.append([label, old, new, 'p'])
+def u(label, old, new): M.append([label, old, new, 'u'])
+
+# ---- the constants ----
+p('G is PhET\'s CODATA 2014 value', 'const G_N=6.6743e-11;', 'const G_N=6.67408e-11;')
+p('density 160 kg/m^3', 'const RHO_S=150;', 'const RHO_S=160;')
+p('constant radius 0.55 m', 'const R_CONST=0.5;', 'const R_CONST=0.55;')
+p('gap between surfaces 0.05 m', 'sep:0.1, C:-G_N};', 'sep:0.05, C:-G_N};')
+p('masses attract with the wrong sign', 'sep:0.1, C:-G_N};', 'sep:0.1, C:G_N};')
+p('standard gravity 9.8', 'const G0=9.80665;', 'const G0=9.8;')
+p('a run is 300 frames', 'const FALL_FRAMES=600;', 'const FALL_FRAMES=300;')
+p('PhET\'s G mistyped', 'const G_PHET=6.67408e-11;', 'const G_PHET=6.674e-11;')
+# ---- the grid and the no-overlap rule ----
+p('symRound rounds -2.5 to -2', 'function symRound(y){ return y<0?-Math.round(-y):Math.round(y); }', 'function symRound(y){ return Math.round(y); }')
+p('the closest distance forgets the gap', 'return symRound((r1+r2+T.sep)/T.q);', 'return symRound((r1+r2)/T.q);')
+p('the closest distance truncates', 'return symRound((r1+r2+T.sep)/T.q);', 'return Math.floor((r1+r2+T.sep)/T.q);')
+p('a grown m1 pushes itself, not m2', 'if(k===1){ if(i2<iR) i2=Math.min(i1+n,iR); if(i2-i1<n) i1=i2-n; }',
+  'if(k===1){ if(i1>iL) i1=Math.max(i2-n,iL); if(i2-i1<n) i2=i1+n; }')
+p('against the right end, the grown body is not moved', 'if(k===1){ if(i2<iR) i2=Math.min(i1+n,iR); if(i2-i1<n) i1=i2-n; }',
+  'if(k===1){ if(i2<iR) i2=Math.min(i1+n,iR); }')
+p('against the left end, the grown body is not moved', 'else     { if(i1>iL) i1=Math.max(i2-n,iL); if(i2-i1<n) i2=i1+n; }',
+  'else     { if(i1>iL) i1=Math.max(i2-n,iL); }')
+p('a drag lets m1 one step too close', 'return k===1?clamp(i,T.iL,i2-n):clamp(i,i1+n,T.iR);', 'return k===1?clamp(i,T.iL,i2-n+1):clamp(i,i1+n,T.iR);')
+p('a drag lets m2 one step too close', 'return k===1?clamp(i,T.iL,i2-n):clamp(i,i1+n,T.iR);', 'return k===1?clamp(i,T.iL,i2-n):clamp(i,i1+n-1,T.iR);')
+p('a drag truncates instead of snapping', 'const i=symRound(x*T.perM);', 'const i=Math.floor(x*T.perM);')
+p('the size mode pushes as if m1 changed last', 'const n=pairSteps(st.m1,st.m2,st.cs), p=settlePair(st.i1,st.i2,n,TRACK.iL,TRACK.iR,2);',
+  'const n=pairSteps(st.m1,st.m2,st.cs), p=settlePair(st.i1,st.i2,n,TRACK.iL,TRACK.iR,1);')
+p('masses floor to 10 kg', 'const v=clamp(Math.round(m/M_STEP)*M_STEP,M_MIN,M_MAX);', 'const v=clamp(Math.floor(m/M_STEP)*M_STEP,M_MIN,M_MAX);')
+# ---- the force ----
+p('forceOn: an inverse-first-power law', 'return C*v1*v2*d/(Math.abs(d)*d*d);', 'return C*v1*v2*d/(Math.abs(d)*d);')
+p('forceOn: body 2 uses body 1\'s direction', 'const d=on===1?x1-x2:x2-x1;', 'const d=on===1?x1-x2:x1-x2;')
+p('forceMag: an inverse cube', 'function forceMag(C,v1,v2,r){ return Math.abs(C*v1*v2)/(r*r); }', 'function forceMag(C,v1,v2,r){ return Math.abs(C*v1*v2)/(r*r*r); }')
+p('the radius with 2 pi', 'function scaledRadius(m,rho){ return Math.pow(3*m/rho/(4*PI),1/3); }', 'function scaledRadius(m,rho){ return Math.pow(3*m/rho/(2*PI),1/3); }')
+p('the radius as a square root', 'function scaledRadius(m,rho){ return Math.pow(3*m/rho/(4*PI),1/3); }', 'function scaledRadius(m,rho){ return Math.pow(3*m/rho/(4*PI),1/2); }')
+p('the weight uses g = 9.8 inline', 'wtKg:Fmag/G0,', 'wtKg:Fmag/9.8,')
+# ---- the readouts PhET prints ----
+p('decimal grouping starts a digit early', 'let out=s.slice(0,i+4);', 'let out=s.slice(0,i+3);')
+p('scientific mantissa with three decimals', "return (mode==='sci'&&a!==0)?sciText(a,2):decGrouped(a,places);", "return (mode==='sci'&&a!==0)?sciText(a,3):decGrouped(a,places);")
+p('a zero force goes scientific', "return (mode==='sci'&&a!==0)?sciText(a,2):decGrouped(a,places);", "return (mode==='sci')?sciText(a,2):decGrouped(a,places);")
+p('the arrow ladder is 1-2.5-5', 'function arrowStep(k,e0){ return [1,2,5][((k%3)+3)%3]*Math.pow(10,Math.floor(k/3)+e0); }',
+  'function arrowStep(k,e0){ return [1,2.5,5][((k%3)+3)%3]*Math.pow(10,Math.floor(k/3)+e0); }')
+p('the readout threshold for powers of ten', 'if(a>=1e-3&&a<1e5) return sigf(x,n);\n  const s=x.toExponential(n-1), k=s.indexOf(\'e\');\n  return s.slice(0,k)+\' &times; 10<sup>\'',
+  'if(a>=1e-8&&a<1e5) return sigf(x,n);\n  const s=x.toExponential(n-1), k=s.indexOf(\'e\');\n  return s.slice(0,k)+\' &times; 10<sup>\'')
+# ---- the inverse square ----
+p('the slope measured with a naive denominator', '/(Math.log(1+e)-Math.log(1-e));', '/(2*e);')
+p('the inverse-cube comparison is an inverse square', 'lin.F3r2.push(Fnow*r*r*r/x);', 'lin.F3r2.push(Fnow*r*r/x);')
+p('the log-log window opens at a quarter', 'const lo=0.5*rTouch, hi=2*rTrack, n=120', 'const lo=0.25*rTouch, hi=2*rTrack, n=120')
+# ---- the mass product ----
+p('the strongest pull at touching, not PhET\'s spacing', 'function fmaxEqual(m,cs){ return forceMag(TRACK.C,m,m,pairSteps(m,m,cs)/TRACK.perM); }',
+  'function fmaxEqual(m,cs){ return forceMag(TRACK.C,m,m,2*sphereRadius(m,cs)); }')
+p('the strongest-pull slope over three decades', 'const slopeSc=Math.log10(fsc[fsc.length-1]/fsc[0])/Math.log10(M_MAX/M_MIN);',
+  'const slopeSc=Math.log10(fsc[fsc.length-1]/fsc[0])/Math.log10(M_MAX);')
+p('a pair at exactly the closest distance counts as blocked', 'if(pairSteps(m1,m2,L.cs)>steps){ e=m2; break; }', 'if(pairSteps(m1,m2,L.cs)>=steps){ e=m2; break; }')
+# ---- the fall ----
+p('fall time with acos', 'return Math.sqrt(r0*r0*r0/(2*GM))*(Math.sqrt(x*u)+Math.asin(Math.sqrt(u)));', 'return Math.sqrt(r0*r0*r0/(2*GM))*(Math.sqrt(x*u)+Math.acos(Math.sqrt(u)));')
+p('fall time without the 2', 'return Math.sqrt(r0*r0*r0/(2*GM))*(Math.sqrt(x*u)+Math.asin(Math.sqrt(u)));', 'return Math.sqrt(r0*r0*r0/(GM))*(Math.sqrt(x*u)+Math.asin(Math.sqrt(u)));')
+p('the bisection keeps the wrong half', 'if(fallTime(m,r0,GM)>t) lo=m; else hi=m;', 'if(fallTime(m,r0,GM)<t) lo=m; else hi=m;')
+p('contact at the larger radius', 'rc=sphereRadius(m1,cs)+sphereRadius(m2,cs);', 'rc=Math.max(sphereRadius(m1,cs),sphereRadius(m2,cs));')
+p('the centre of mass with swapped weights', 'xcm:(m1*x1+m2*x2)/M,', 'xcm:(m2*x1+m1*x2)/M,')
+p('the lighter body moves less', 'const x1=F.xcm-F.m2/F.M*r, x2=F.xcm+F.m1/F.M*r;', 'const x1=F.xcm-F.m1/F.M*r, x2=F.xcm+F.m2/F.M*r;')
+p('the closing speed loses its 2', 'const rdot=-Math.sqrt(Math.max(0,2*F.GM*(1/r-1/F.r0)));', 'const rdot=-Math.sqrt(Math.max(0,F.GM*(1/r-1/F.r0)));')
+p('velocity split by the wrong mass', 'v1:-F.m2/F.M*rdot,v2:F.m1/F.M*rdot,', 'v1:-F.m1/F.M*rdot,v2:F.m2/F.M*rdot,')
+p('the run never stops at contact', 'if(!RUN.active||RUN.frame>=FALL_FRAMES) return false;', 'if(!RUN.active) return false;')
+p('hms truncates the minutes', 'const Tm=Math.round(t/60), hh=Math.floor(Tm/60)', 'const Tm=Math.floor(t/60), hh=Math.floor(Tm/60)')
+p('the fall ladder for forces is one rung low', 'M.perF=ladderFor(Math.abs(s1.F1),4.5,-12);', 'M.perF=ladderFor(Math.abs(s1.F1),9,-12);')
+# ---- the pointer and the ruler (selfTest drives the scene too) ----
+p('the sphere hit radius shrinks to a fifth', 'R=Math.max(8,b2.r*G.s)+4;', 'R=Math.max(8,b2.r*G.s)*0.2;')
+p('ruler to m1 goes to m2', 'function rulerToM1(st){ st.rulerI=st.i1; st.rulerY=0; }', 'function rulerToM1(st){ st.rulerI=st.i2; st.rulerY=0; }')
+p('the ruler cannot slide left of the track', 'st.rulerI=clamp(symRound(x0*TRACK.perM),TRACK.iL-(TRACK.iR-TRACK.iL)/2,TRACK.iR);', 'st.rulerI=clamp(symRound(x0*TRACK.perM),TRACK.iL,TRACK.iR);')
+p('the hint\'s corner is not reserved', 'const HINT_H=18;', 'const HINT_H=0;')
+p('the log ticks ignore the panel height', 'if(hpx&&hpx*Math.log10(2)/Math.log10(hi/lo)<14)', 'if(false)')
+
+# ---- UI mutants ----
+u('a drag does not set the dirty flag', "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel();", "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ syncPanel();")
+u('the ruler drag is ignored', "if(DRAG.what==='ruler'){ const y0=clamp(y-DRAG.offY,G.ruler.ryLo,G.ruler.ryHi); setRuler(ST,G.wx(x)-DRAG.off,G.wy(y0)); return true; }",
+  "if(DRAG.what==='ruler'){ return true; }")
+u('the ruler height is frozen', 'setRuler(ST,G.wx(x)-DRAG.off,G.wy(y0));', 'setRuler(ST,G.wx(x)-DRAG.off);')
+u('the ruler slide is frozen', 'setRuler(ST,G.wx(x)-DRAG.off,G.wy(y0));', 'setRuler(ST,LS.ruler.x0,G.wy(y0));')
+u('a slider skips the redraw', "inp.addEventListener('input',()=>{ set(parseFloat(inp.value)); syncPanel(); dirty=true; refresh(); });",
+  "inp.addEventListener('input',()=>{ set(parseFloat(inp.value)); syncPanel(); dirty=true; });")
+u('a chip skips the redraw', 'st[key]=o.id; syncChips(); syncPanel(); dirty=true; refresh(); }},o.name));', 'st[key]=o.id; syncChips(); syncPanel(); dirty=true; }},o.name));')
+u('switching views leaves the run going', 'if(st.view!==k){ st.view=k; simReset(); }', 'if(st.view!==k){ st.view=k; }')
+u('space cannot pause', "if(e.key===' '){ e.preventDefault(); st.running=!st.running;", "if(e.key===' '){ e.preventDefault(); st.running=true;")
+u('the frame loop ignores "time runs"', "S.step=function(){ if(!ST.running||ST.view!=='fall') return false; return runStep(); };",
+  "S.step=function(){ if(ST.view!=='fall') return false; return runStep(); };")
+u('the readout is not told the run ended', 'if(advanced&&(frameN%10===0||S.ended())){', 'if(advanced&&frameN%10===0){')
+u('release does not start a run', "h('button',{onclick:()=>{ startRun(st); dirty=true; refresh(); }},'release'),", "h('button',{onclick:()=>{ dirty=true; refresh(); }},'release'),")
+u('reset all keeps the ruler', 'Object.assign(st,DEFAULTS); st.view=v; simReset();', 'Object.assign(st,DEFAULTS,{rulerI:st.rulerI}); st.view=v; simReset();')
+u('the size checkbox skips the push rule', "checkbox('cs','constant size (0.5 m)',v=>setConstSize(st,v))", "checkbox('cs','constant size (0.5 m)')")
+u('the x1 slider bypasses the rule', '{get:()=>st.i1/TRACK.perM,set:v=>setPos(st,1,v)}', '{get:()=>st.i1/TRACK.perM,set:v=>{ st.i1=Math.round(v*10); }}')
+u('the other views accept the pointer', "if(ST.view!=='lab') return false;\n    const ctx=canvas.getContext('2d'), LS=labSpec(buildModel())",
+  "const ctx=canvas.getContext('2d'), LS=labSpec(buildModel())")
+u('ruler home forgets the height', 'function rulerHome(st){ st.rulerI=TRACK.iL; st.rulerY=null; }', 'function rulerHome(st){ st.rulerI=TRACK.iL; }')
+
+bad = [(m[0], js.count(m[1])) for m in M if js.count(m[1]) != 1]
+for lab, n in bad:
+    print('PATTERN COUNT %d: %s' % (n, lab))
+assert not bad, 'fix the patterns above'
+io.open(os.path.join(here, 'mutants.json'), 'w', encoding='utf-8').write(json.dumps(M, indent=1, ensure_ascii=False))
+print('%d mutants (%d physics, %d UI) -> mutants.json' % (len(M), sum(m[3] == 'p' for m in M), sum(m[3] == 'u' for m in M)))

@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pH Scale: Basics &mdash; one beaker, twelve liquids, and the exact dilution law</title>
+<!--
+  ===================================================================
+  ph-scale-basics.html — a remake of PhET's pH Scale: Basics: PhET's
+  Macro screen as its own sim, with the dilution law done exactly
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' pH Scale: Basics (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets.  Built against PhET's ph-scale-basics 1.7.5, whose
+  ONE screen is the Macro screen of pH Scale: pick one of twelve
+  everyday liquids, pour it from the dropper, dip the pH meter, run the
+  tap to dilute it, open the drain.  PhET's Basics sim shows a pH and a
+  volume and nothing else — no concentrations, no moles, no particle
+  counts — and this remake keeps that in the beaker view.
+
+  THE SAME ENGINE AS ph-scale.html.  The chemistry, the beaker's state
+  and clock, the readout and three of the four views are the very same
+  part files, taken by path and pinned by SHA-256 in
+  build/ph-scale-basics/assemble.py: build/ph-scale/p2_chem.js,
+  p3_state.js, p4_views.js and p7_refs.js.  What differs is this head,
+  the sim's identity (four tabs, and no concentrations in the beaker
+  readout), one extra view, the control panel and the test suite.  The
+  full sim's other three screens — the particle picture, the
+  concentration graph and My Solution — are simply absent, which is
+  PhET's own difference between the two sims.
+
+  Four views.  THE BEAKER is PhET's Macro screen.  THE LIQUIDS is this
+  file's own: PhET's twelve as a table, with the measured range where
+  one could be sourced and what a full beaker of water does to each.
+  DILUTION and THE SCALE are the two analysis views ph-scale carries,
+  unchanged.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The chemistry, as exact arithmetic, with Kw = 1.000e-14 mol^2/L^2
+  (pKw = 14.000) — the conventional value at 25 C, and the one PhET's
+  hard-coded 14 encodes.  Neutral is therefore pH 7.000 exactly.
+
+      [H3O+] = 10^-pH,   [OH-] = Kw/[H3O+],   n = cV,   N = n N_A
+
+  with N_A the exact SI 2019 value 6.02214076e23.  Every concentration
+  is asserted against 50-digit `decimal` evaluation in
+  build/ph-scale/derive.py over the whole scale INCLUDING its ends.
+  [OH-] is written as a division on purpose: PhET's spelling
+  10^-(14-pH) is out by up to 2.1e-15 because pH - 14 is inexact in a
+  double whenever pH < 7, while the division is out by 2.1e-16 and
+  keeps [H3O+][OH-] = Kw to a rounding.
+
+  DILUTION is where a sloppy model shows, so it is done properly.  What
+  dilutes is not the pH and not either ion but the NET STRONG ACID
+
+      C = [H3O+] - [OH-] = -2 sqrt(Kw) sinh( ln10 (pH - 7) ),
+
+  a difference of ANALYTICAL concentrations — the spectator ions cancel
+  out of the charge balance — whose moles are therefore conserved on
+  mixing.  Water carries C = 0 exactly.  So mixing V1 of pH1 with V2 of
+  pH2 is
+
+      C = (C1 V1 + C2 V2)/(V1 + V2),  then re-solve [H3O+] - Kw/[H3O+] = C,
+      pH = 7 - asinh( C / (2 sqrt(Kw)) ) / ln10.
+
+  That re-solve is the water autoionisation PhET's rule leaves out.  It
+  is implemented twice (the asinh closed form and the stable branch of
+  the quadratic root) and asserted against a Decimal mole ledger plus a
+  scipy brentq root of the charge balance.  The stable branch is
+  load-bearing: the textbook root (C + sqrt(C^2 + 4Kw))/2 is out by
+  3.6e-5 at pH 13, 8.0e-4 at pH 14 and 11 % at pH 15, all of which
+  PhET's range reaches, and derive.py asserts it is STILL that bad so
+  the branch cannot be deleted.  Two structural facts fall out and are
+  asserted: diluting f-fold divides C by exactly f, and C is an ODD
+  function about pH 7, so pH 2 and pH 12 are exactly as strong as each
+  other and equal volumes of them are exactly neutral.
+
+  WHAT IS PhET'S RULE, AND WHERE IT DIFFERS
+  -----------------------------------------
+  PhET mixes the MAJORITY ion linearly and takes a log (doc/model.md
+  and PHModel.computePH), never re-solving, so water's own
+  autoionisation is counted on the majority side and ignored on the
+  minority side.  Both laws are implemented and a chip switches between
+  them.  Over everything this beaker can reach (pH -1..15,
+  0.015..1.2 L of liquid in 1.2 L) the two never differ by more than
+  0.0948 pH, at pH 4.91 with 0.015 L in the beaker; at PhET's own
+  liquids the worst is 0.0815 pH (chicken soup, 0.1 L in 1.2 L).  It is
+  a small error and a real one, it vanishes undiluted and at infinite
+  dilution, and it is an odd function about pH 7.  Volume-averaging the
+  pH — the mistake the dilution view exists to rule out — is wrong by
+  up to 4.42 pH.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  Every liquid is treated as a STRONG acid or base of the stated pH:
+  fully dissociated, with a spectator counter-ion and no buffering.
+  That is PhET's model too, and for blood it is a fiction — blood is a
+  bicarbonate buffer and diluting it does not move its pH the way this
+  shows.  The sim says so on the canvas.  Temperature is fixed: pKw is
+  14.000 and does not move.  Activity coefficients are ignored, which
+  is why battery acid can be called pH 1 at all.  The solute colour is
+  PhET's own law (water colour to the colour-stop colour over the first
+  quarter of the mixture, then to the stock colour), reimplemented from
+  its arithmetic.  The clock runs at a fixed 1/60 s per frame so the
+  headless suites are deterministic, and the dropper and faucets run at
+  PhET's rates (0.05 and 0.25 L/s).
+
+  NOT MODELLED
+  ------------
+  Weak acids and bases, buffers, ionic strength and activity, carbonate
+  equilibria, temperature, mixing kinetics, and any solute chemistry at
+  all: two liquids mixed here interact only through H3O+ and OH-.  Also
+  absent, being PhET's interface rather than its physics: the sounds,
+  the voicing and alt-text layers, the artwork and the combo box.  Two
+  things differ from PhET's: the dropper starts loaded with orange juice
+  rather than water, so the beaker shows something the moment it opens,
+  and the beaker starts autofilled with PhET's 0.5 L.
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's values, read from docs/phets/ph-scale-basics_en.html (1.7.5)
+  and its shared PH_SCALE code: the twelve liquids' names, pH values and
+  colours (battery acid 1, blood 7.4, chicken soup 5.8, coffee 5, drain
+  cleaner 13, hand soap 10, milk 6.5, orange juice 3.5, soda pop 2.5,
+  spit 7.4, vomit 2, water 7); the beaker's 1.2 L and its 0.015 L
+  minimum; the pH range -1 to 15 and its two decimal places; the
+  dropper's 0.05 L/s, the faucets' 0.25 L/s and the autofill's 0.5 L at
+  0.45 L/s; water at 55 mol/L; the colour law's 0.25 stop.  Chemistry:
+  Kw = 1e-14 at 25 C by convention, N_A = 6.02214076e23 (SI 2019,
+  exact).  Measured pH ranges, four of the twelve, quoted to their
+  sources' own precision: BLOOD 7.37-7.43 (Merck Manual Professional,
+  "Acid-Base Regulation", J. L. Lewis III: "a pH of 7.43 to 7.37");
+  ORANGE JUICE 3.30-4.19 and MILK 6.40-6.80 and CHICKEN BROTH 5.80
+  (FDA, "Approximate pH of Foods and Food Products").  PhET's value
+  lies inside every one of those four.  No measured range could be
+  sourced here for the other eight, and the canvas says which is which
+  rather than inventing one.  Every reference value the suite asserts
+  is a line of build/ph-scale/refvals.txt, the output of derive.py.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the exact pH and the hydronium it
+       comes from), orange = the reference (PhET's own rule, the measured ranges),
+       magenta = the live marker (where the beaker is now), cyan = structure (the
+       glass, the axes, the hydroxide). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the derivation
+     for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:118px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:74px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>pH scale: basics</h1>
+  <span class="sub" id="sub">A remake of PhET&rsquo;s pH Scale: Basics &mdash; PhET&rsquo;s Macro screen on its own: pour out one of twelve everyday liquids, dip the meter, add water, and see how little the number moves &mdash; because what dilutes is C = [H<sub>3</sub>O<sup>+</sup>] &minus; [OH<sup>&minus;</sup>], not the pH</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';

@@ -1,0 +1,2461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quantum coin toss &mdash; a classical coin has a face before you look, a quantum one has amplitudes</title>
+<!--
+  ===================================================================
+  quantum-coin-toss.html — a classical coin against a quantum "coin":
+  prepared, flipped or reprepared, hidden, revealed or observed, one at
+  a time or 10, 100 or 10 000 at once, against the binomial; and the one
+  measurement that tells a hidden face from a superposition
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Quantum Coin Toss (University of
+  Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or
+  assets.  PhET's Quantum Coin Toss is the Coins screen of its Quantum
+  Measurement; this file runs on the same engine as the remake of that sim
+  (build/quantum-measurement/: p2_engine.js, p4_coins.js, p5_binom.js, read
+  by build/quantum-coin-toss/assemble.py, so the two cannot drift).  The
+  screens, controls and constants follow PhET's build 1.0.4
+  (docs/phets/quantum-coin-toss_en.html) and quantum-measurement's
+  doc/model.md; every number taken from a PhET build is marked "PhET's value"
+  in the code.
+
+  Four views.  THE CLASSICAL COIN and THE QUANTUM COIN are PhET's two scenes,
+  each with its own state: prepare the coin (heads or tails; up, down or a
+  superposition with P(up) = |alpha|^2 in steps of 0.05), send it to be
+  measured, then flip, hide and reveal it (classical) or reprepare and
+  observe it (quantum), one coin at a time or 10, 100 or 10 000 identical
+  coins at once, with the counts against the binomial's Np +- sqrt(Np(1-p)).
+  THE BINOMIAL repeats the N-coin experiment and sets the histogram against
+  the exact binomial, the spread of the fraction against sqrt(p(1-p)/N), and
+  one long run's fraction inside its +-2 sigma funnel.  THE HIDDEN DIFFERENCE
+  asks what makes the quantum coin quantum: face-on, a hidden classical face
+  and a superposition give exactly the same odds, but turned sideways (a
+  measurement along x) the hidden face gives 1/2 and the superposition
+  (1 + 2 sqrt(p(1-p)))/2, because one is a mixture and the other is not.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The Born rule, P(up along n) = (1 + r.n)/2.  The binomial pmf (Stirling
+  lnFact against math.lgamma, the pmf against scipy to 1e-10).  The mixture
+  and the superposition as density matrices: the same diagonal, and an
+  off-diagonal sqrt(p(1-p)) that only the superposition has; purity
+  p^2 + (1-p)^2 against 1; P(+x) = 1/2 against (1 + 2 sqrt(p(1-p)))/2.
+  Every random draw comes from one seeded PRNG (mulberry32), mirrored bit
+  for bit in the Python twins (build/quantum-measurement/derive.py and
+  build/quantum-coin-toss/derive.py), so every seeded count in selfTest is an
+  integer pinned exactly AND tested against its law with a tolerance taken
+  from its own variance (4 sigma, a chi-square below scipy's 99.9 % quantile).
+
+  WHAT IS MODELLED / CHOSEN (where this differs from PhET)
+  ---------------------------------------------------------
+  PhET's values: a flip takes 1 s; 10, 100 or 10 000 identical coins; bias
+  steps of 0.05; classical coins arrive showing the prepared face (or hidden,
+  with PhET's "classical coins start hidden" preference); quantum coins
+  arrive unobserved.  The coins do not fly across the screen when they are
+  sent to be measured (PhET animates them); the test boxes simply fill.  The
+  classical and quantum scenes are two tabs rather than a switch.  The
+  sideways measurement of the fourth view is not in PhET's screen.
+
+  WHAT IS NOT MODELLED
+  --------------------
+  Real coins: no physics of the toss (the classical coin is a biased random
+  draw, exactly as in PhET), no entanglement between coins, no decoherence;
+  measurement is projective and instantaneous; no sounds and no
+  screen-reader descriptions.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed or measured thing (the counts, the
+       outcome +, the state vector), orange = the reference/analytic law (the
+       Born rule, the binomial) or a warning, magenta = the live marker (the
+       particle in flight, the angle cursor), cyan = structure (apparatus,
+       axes, the sphere).  The second outcome (tails, down, H) is violet. */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Quantum coin toss</h1>
+  <span class="sub" id="sub">A classical coin against a quantum &ldquo;coin&rdquo; &mdash; one has a face before you look, the other has amplitudes, and only a sideways measurement tells a hidden face from a superposition</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html, via                 *
+ *  build_lagr/p1_utils.js, verbatim)                                  *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the engine: one PRNG, the binomial, the qubit algebra, and PhET's  *
+ *  four experiments (coins, photons, Stern-Gerlach, Bloch sphere).    *
+ *  Shared by quantum-measurement.html and quantum-coin-toss.html.     *
+ * ================================================================== */
+const DEG=Math.PI/180;          /* multiply degrees by DEG to get radians (90*DEG = pi/2, asserted) */
+
+/* ---- the PRNG: mulberry32.  Every random draw in the file comes from one of
+   these, and build/quantum-measurement/derive.py mirrors it with explicit
+   32-bit arithmetic, so a seeded count is pinned exactly, not statistically.
+   The state is plain data ({s}) so a scene can be saved, copied and reset. */
+function rngMake(seed){ return {s:seed|0}; }
+function rngNext(R){
+  R.s=(R.s+0x6D2B79F5)|0;
+  let t=Math.imul(R.s^(R.s>>>15),1|R.s);
+  t=(t+Math.imul(t^(t>>>7),61|t))^t;
+  return ((t^(t>>>14))>>>0)/4294967296;
+}
+
+/* ---- the binomial.  ln n! from a 0..30 table of summed logs, Stirling with
+   four correction terms above (truncation < 1/(1188 n^9) < 1e-16 there);
+   derive.py checks it against math.lgamma and the pmf against scipy. */
+const LNF=(function(){ const t=[0]; let s=0; for(let i=1;i<=30;i++){ s+=Math.log(i); t.push(s); } return t; })();
+function lnFactStirling(x){
+  return x*Math.log(x)-x+0.5*Math.log(2*Math.PI*x)+1/(12*x)-1/(360*x*x*x)+1/(1260*Math.pow(x,5))-1/(1680*Math.pow(x,7));
+}
+function lnFact(n){ return n<=30?LNF[n]:lnFactStirling(n); }
+function binomPmf(N,k,p){
+  if(k<0||k>N) return 0;
+  if(p<=0) return k===0?1:0;
+  if(p>=1) return k===N?1:0;
+  return Math.exp(lnFact(N)-lnFact(k)-lnFact(N-k)+k*Math.log(p)+(N-k)*Math.log1p(-p));
+}
+function binomSD(N,p){ return Math.sqrt(N*p*(1-p)); }
+/* chi-square of observed counts against M x pmf: merge k = 0..N left to right
+   until a bin expects at least 5; a short tail joins the last bin (derive.py
+   does exactly this, in this order) */
+function chi2Binned(obs,N,p,M){
+  const bins=[]; let co=0, ce=0;
+  for(let k=0;k<=N;k++){ co+=obs[k]||0; ce+=M*binomPmf(N,k,p); if(ce>=5){ bins.push([co,ce]); co=0; ce=0; } }
+  if((ce>0||co>0)&&bins.length){ bins[bins.length-1][0]+=co; bins[bins.length-1][1]+=ce; }
+  let chi=0; for(const [o,e] of bins) chi+=(o-e)*(o-e)/e;
+  return {chi,dof:bins.length-1,bins};
+}
+/* one set of N coins: k = number of u < p (heads, up), exactly as a coin set draws */
+function coinCount(R,N,p){ let k=0; for(let i=0;i<N;i++) if(rngNext(R)<p) k++; return k; }
+/* M sets of N coins from one seed: the histogram, the sample mean and the
+   unbiased sample variance, and the binned chi-square */
+function repeatsRun(seed,N,p,M){
+  const R=rngMake(seed), obs=new Float64Array(N+1), ks=new Int32Array(M);
+  let sum=0;
+  for(let j=0;j<M;j++){ const k=coinCount(R,N,p); ks[j]=k; obs[k]++; sum+=k; }
+  const mean=sum/M; let ss=0; for(let j=0;j<M;j++) ss+=(ks[j]-mean)*(ks[j]-mean);
+  const c=chi2Binned(obs,N,p,M);
+  return {N,p,M,seed,obs,ks,mean,v:M>1?ss/(M-1):0,chi:c.chi,dof:c.dof};
+}
+
+/* ---- the qubit: 2x2 complex matrices and kets as flat real arrays
+   (taken from bloch_sphere.html, which checks the arithmetic by hand first)
+   A 2x2 is [a.re,a.im, b.re,b.im, c.re,c.im, d.re,d.im] for [[a,b],[c,d]];
+   a ket is [a.re,a.im, b.re,b.im]. */
+const M_I=[1,0, 0,0, 0,0, 1,0], M_SX=[0,0, 1,0, 1,0, 0,0], M_SY=[0,0, 0,-1, 0,1, 0,0], M_SZ=[1,0, 0,0, 0,0, -1,0];
+const PAULI=[M_SX,M_SY,M_SZ];
+function mAdd(A,B){ const o=new Array(8); for(let i=0;i<8;i++) o[i]=A[i]+B[i]; return o; }
+function mScale(A,s){ const o=new Array(8); for(let i=0;i<8;i++) o[i]=A[i]*s; return o; }
+function mScaleC(A,x,y){ const o=new Array(8); for(let i=0;i<8;i+=2){ o[i]=A[i]*x-A[i+1]*y; o[i+1]=A[i]*y+A[i+1]*x; } return o; }
+function mMul(A,B){
+  const o=new Array(8);
+  for(let r=0;r<2;r++) for(let c=0;c<2;c++){
+    let re=0,im=0;
+    for(let k=0;k<2;k++){ const ar=A[4*r+2*k], ai=A[4*r+2*k+1], br=B[4*k+2*c], bi=B[4*k+2*c+1]; re+=ar*br-ai*bi; im+=ar*bi+ai*br; }
+    o[4*r+2*c]=re; o[4*r+2*c+1]=im;
+  }
+  return o;
+}
+function mDag(A){ return [A[0],-A[1],A[4],-A[5],A[2],-A[3],A[6],-A[7]]; }
+function mMaxAbsDiff(A,B){ let m=0; for(let i=0;i<A.length;i++) m=Math.max(m,Math.abs(A[i]-B[i])); return m; }
+/* |psi> = cos(th/2)|0> + e^{i ph} sin(th/2)|1>: the HALF angle is why
+   orthogonal states are antipodal on the sphere */
+function ketOf(th,ph){ const c=Math.cos(th/2), s=Math.sin(th/2); return [c,0,s*Math.cos(ph),s*Math.sin(ph)]; }
+function ketNorm(k){ return Math.sqrt(k[0]*k[0]+k[1]*k[1]+k[2]*k[2]+k[3]*k[3]); }
+function braket(a,b){ return [a[0]*b[0]+a[1]*b[1]+a[2]*b[2]+a[3]*b[3], a[0]*b[1]-a[1]*b[0]+a[2]*b[3]-a[3]*b[2]]; }
+function mApply(A,k){
+  const o=new Array(4);
+  for(let r=0;r<2;r++){ let re=0,im=0;
+    for(let c=0;c<2;c++){ const ar=A[4*r+2*c], ai=A[4*r+2*c+1], kr=k[2*c], ki=k[2*c+1]; re+=ar*kr-ai*ki; im+=ar*ki+ai*kr; }
+    o[2*r]=re; o[2*r+1]=im; }
+  return o;
+}
+/* r_i = <psi|sigma_i|psi> */
+function blochOfKet(k){ const o=[0,0,0]; for(let i=0;i<3;i++) o[i]=braket(k,mApply(PAULI[i],k))[0]; return o; }
+function blochOfAngles(th,ph){ return [Math.sin(th)*Math.cos(ph),Math.sin(th)*Math.sin(ph),Math.cos(th)]; }
+function anglesOfBloch(r){
+  const n=Math.hypot(r[0],r[1],r[2]);
+  let ph=Math.atan2(r[1],r[0]); if(ph<0) ph+=2*Math.PI;
+  return {th:Math.acos(clamp(n>0?r[2]/n:1,-1,1)),ph,len:n};
+}
+function dot3v(a,b){ return a[0]*b[0]+a[1]*b[1]+a[2]*b[2]; }
+/* THE BORN RULE: P(up along n) = Tr(rho P_n) = (1 + r.n)/2 = cos^2(Theta/2) */
+function bornP(r,n){ return 0.5*(1+dot3v(r,n)); }
+/* the one measurement primitive every spin view calls: one draw, u < P(up)
+   is up, and the state collapses onto +n or -n (PhET's rule, both screens) */
+function measureAlong(R,r,n){
+  const up=rngNext(R)<bornP(r,n);
+  return {up, r:up?[n[0],n[1],n[2]]:[-n[0],-n[1],-n[2]]};
+}
+/* U(n,a) = exp(-i a n.sigma/2) turns the Bloch vector by a about n */
+function unitary(n,a){
+  let m=mScale(M_I,Math.cos(a/2)); const s=-Math.sin(a/2);
+  for(let i=0;i<3;i++) m=mAdd(m,mScaleC(PAULI[i],0,s*n[i]));
+  return m;
+}
+/* Rodrigues: r turned by a about the unit axis n */
+function rotate3(r,n,a){
+  const c=Math.cos(a), s=Math.sin(a), d=dot3v(n,r);
+  const cr=[n[1]*r[2]-n[2]*r[1], n[2]*r[0]-n[0]*r[2], n[0]*r[1]-n[1]*r[0]];
+  return [r[0]*c+cr[0]*s+n[0]*d*(1-c), r[1]*c+cr[1]*s+n[1]*d*(1-c), r[2]*c+cr[2]*s+n[2]*d*(1-c)];
+}
+/* the three measurement bases: |up_n>, |down_n> (standard kets; |up_y> =
+   (|0> + i|1>)/sqrt2 is the state at azimuth pi/2, the sphere's +Y) */
+const BASIS={Z:{up:[1,0,0,0],dn:[0,0,1,0],n:[0,0,1]},
+             X:{up:[Math.SQRT1_2,0,Math.SQRT1_2,0],dn:[Math.SQRT1_2,0,-Math.SQRT1_2,0],n:[1,0,0]},
+             Y:{up:[Math.SQRT1_2,0,0,Math.SQRT1_2],dn:[Math.SQRT1_2,0,0,-Math.SQRT1_2],n:[0,1,0]}};
+function wrap2(x){ x=x%2; return x<0?x+2:x; }
+/* the state written in basis b: |psi> = e^{i g pi}(a|up> + c e^{i chi pi}|down>),
+   a, c >= 0; chi and g in units of pi, in [0, 2) */
+function ketInBasis(k,b){
+  const B=BASIS[b], au=braket(B.up,k), ad=braket(B.dn,k);
+  const a=Math.hypot(au[0],au[1]), c=Math.hypot(ad[0],ad[1]);
+  const gu=Math.atan2(au[1],au[0])/Math.PI, gd=Math.atan2(ad[1],ad[0])/Math.PI;
+  const g=a>1e-12?gu:gd;
+  const chi=(a>1e-12&&c>1e-12)?wrap2(gd-gu):0;
+  return {a,c,chi,g:wrap2(g)};
+}
+/* ... and the equation rebuilt into a ket, for the round trip */
+function ketFromBasis(E,b){
+  const B=BASIS[b], cg=Math.cos(Math.PI*E.g), sg=Math.sin(Math.PI*E.g);
+  const cx=Math.cos(Math.PI*(E.g+E.chi)), sx=Math.sin(Math.PI*(E.g+E.chi));
+  const o=[0,0,0,0];
+  for(let i=0;i<2;i++){
+    const ur=B.up[2*i], ui=B.up[2*i+1], dr=B.dn[2*i], di=B.dn[2*i+1];
+    o[2*i]=E.a*(ur*cg-ui*sg)+E.c*(dr*cx-di*sx);
+    o[2*i+1]=E.a*(ur*sg+ui*cg)+E.c*(dr*sx+di*cx);
+  }
+  return o;
+}
+
+/* ================================================================== *
+ *  THE COINS (PhET's Coins screen)                                    *
+ * ================================================================== */
+const FLIP_T=1.0;               /* s: a flip or a repreparation takes 1 s (PhET's value) */
+const COIN_NS=[10,100,10000];   /* identical coins (PhET's value) */
+const BIAS_STEP=0.05;           /* the bias sliders snap to 0.05 (PhET's value) */
+const HIST_KEEP=48;             /* the single coin's strip of recent outcomes (house) */
+/* k/20 is correctly rounded where k x 0.05 is not (7 x 0.05 = 0.35000000000000003) */
+function snapBias(p){ const n=Math.round(1/BIAS_STEP); return clamp(Math.round(p*n)/n,0,1); }
+/* states: 'preparing' (flipping / being reprepared), 'ready' (a quantum coin
+   nobody has looked at: no face exists yet), 'hidden' (a face exists, under the
+   cup), 'revealed' */
+function makeCoin(n){ return {n, state:'revealed', t:0, then:null, vals:new Uint8Array(10000), kUp:0, hist:[], nObs:0, nUp:0}; }
+function makeCoinScene(type,seed){
+  const q=type==='quantum';
+  const sc={type, quantum:q, p:0.5, init:q?'up':'heads', preparing:true, startsHidden:false,
+            single:makeCoin(1), set:makeCoin(100), R:rngMake(seed), seed};
+  return sc;
+}
+/* the quantum coin's state follows its bias (PhET): 1 is up, 0 down, else a superposition */
+function quantumInit(p){ return p>=1?'up':(p<=0?'down':'superposition'); }
+function coinFace1(sc){ return (sc.init==='heads'||sc.init==='up'||sc.init==='superposition')?1:0; }
+/* the draw: u < p is heads / up, exactly as PhET's seeded sets decide */
+function coinDraw(sc,c){
+  let k=0; for(let i=0;i<c.n;i++){ const v=rngNext(sc.R)<sc.p?1:0; c.vals[i]=v; k+=v; }
+  c.kUp=k;
+}
+function coinPrepare(sc,c,reveal){ c.state='preparing'; c.t=0; c.then=reveal?'reveal':null; }
+/* the end of a flip: a classical coin now HAS a face (under the cup); a quantum
+   coin is ready, with no face until it is observed */
+function coinPrepareNow(sc,c){ if(sc.quantum) c.state='ready'; else { coinDraw(sc,c); c.state='hidden'; } }
+function coinReveal(sc,c){
+  if(c.state==='preparing') return false;
+  if(c.state==='ready') coinDraw(sc,c);         /* the collapse: the face is drawn now */
+  const was=c.state; c.state='revealed';
+  if(was!=='revealed'){ c.nObs+=c.n; c.nUp+=c.kUp;
+    if(c.n===1){ c.hist.push(c.vals[0]); if(c.hist.length>HIST_KEEP) c.hist.shift(); } }
+  return true;
+}
+function coinHide(sc,c){ if(c.state==='revealed'){ c.state='hidden'; return true; } return false; }
+/* PhET's reveal/hide (observe/hide) button */
+function coinToggle(sc,c){ if(c.state==='revealed') return coinHide(sc,c); return coinReveal(sc,c); }
+function coinStep(sc,c,dt){
+  if(c.state!=='preparing') return false;
+  c.t+=dt;
+  if(c.t>=FLIP_T){ c.t=FLIP_T; coinPrepareNow(sc,c); if(c.then==='reveal') coinReveal(sc,c); c.then=null; }
+  return true;
+}
+/* the arrow: the prepared coins go to be measured.  Classical coins arrive
+   showing the prepared face (hidden if the preference says so); quantum coins
+   arrive ready, faceless (PhET's setMeasurementValuesImmediate) */
+function sceneStart(sc){
+  sc.preparing=false;
+  for(const c of [sc.single,sc.set]){
+    const v=coinFace1(sc);
+    for(let i=0;i<c.n;i++) c.vals[i]=v;
+    c.kUp=v*c.n; c.t=0; c.then=null; c.hist=[]; c.nObs=0; c.nUp=0;
+    c.state=sc.quantum?'ready':(sc.startsHidden?'hidden':'revealed');
+  }
+}
+function sceneNewCoin(sc){ sc.preparing=true; for(const c of [sc.single,sc.set]){ c.state='revealed'; c.t=0; c.then=null; } }
+function setCoinCount(sc,N){ if(sc.preparing&&COIN_NS.indexOf(N)>=0) sc.set.n=N; }
+function sceneAnimating(sc){ return !sc.preparing&&(sc.single.state==='preparing'||sc.set.state==='preparing'); }
+
+/* ================================================================== *
+ *  THE PHOTONS (PhET's Photons screen)                                *
+ * ================================================================== */
+/* PhET's values: model units (PhET's metres), seconds */
+const PH={X0:-0.15, V:0.3, BEAM_W:0.04, PBS:0.035, MX:0.11, DV:0.2, DH:-0.09, AP:0.07, ABS:0.05,
+          RATE_MAX:200, SLOW:0.4, CAP:999, AVG_T:1, AVG_S:0.5, STEP_DT:2/60, CUSTOM_STEP:5};
+const PRESET_ANG={vertical:90, horizontal:0, fortyFive:45};
+/* the beam splitter reflects (to the V detector) with probability sin^2(theta),
+   theta measured from horizontal: Malus's law with the analyser at 0 and 90 deg */
+function pV(angDeg){ const s=Math.sin(angDeg*DEG); return s*s; }
+function expectP(angDeg){ return pV(angDeg)-(1-pV(angDeg)); }   /* V = +1, H = -1: -cos 2 theta */
+/* the one decision every photon makes, classical (at the splitter) or quantum
+   (at the detectors): one draw, u < sin^2 theta is V */
+function photonDecide(R,angDeg){ return rngNext(R)<pV(angDeg)?'V':'H'; }
+/* the path: along the beam at height y0 to the splitter's diagonal (x = y0),
+   then up to y = 0.2 (V), or on to the mirror x + y = 0.11 and down to
+   y = -0.09 (H).  Both arms are 0.2 - y0 long, so every photon arrives
+   (0.2 - X0)/v = 1.1667 s after it left x = X0, whatever its height. */
+function photonLegs(y0){ return {d1:y0-PH.X0, arm:PH.DV-y0, dArr:PH.DV-PH.X0}; }
+function photonPos(ph,d,route){
+  const y0=ph.y0, L=photonLegs(y0);
+  if(d<=L.d1) return [PH.X0+d,y0];
+  const e=d-L.d1;
+  if(route==='V') return [y0,y0+e];
+  const toMirror=PH.MX-2*y0;
+  if(e<=toMirror) return [y0+e,y0];
+  return [PH.MX-y0,y0-(e-toMirror)];
+}
+/* PhET's averaging counter: count events, sample every 0.5 s, and report the
+   count over the most recent samples covering at least the averaging period */
+function makeAvg(total,sample){ return {total,sample,cur:0,tsl:0,hist:[],value:0}; }
+function avgCount(A){ A.cur++; }
+function avgStep(A,dt){
+  A.tsl+=dt;
+  if(A.tsl>=A.sample){
+    A.hist.push([A.tsl,A.cur]);
+    let e=0,t=0,i=0;
+    for(let n=A.hist.length-1;n>=0;n--){ e+=A.hist[n][0]; t+=A.hist[n][1]; i++; if(e>=A.total) break; }
+    A.value=e>0?Math.round(t/e*1e12)/1e12:0;
+    A.hist.splice(0,A.hist.length-i);
+    A.cur=0; A.tsl=0;
+  }
+}
+function avgReset(A){ A.cur=0; A.tsl=0; A.hist=[]; A.value=0; }
+function makePhotonScene(mode,seed){
+  return {mode, R:rngMake(seed), seed, t:0, photons:[], nV:0, nH:0, acc:0,
+          avgV:makeAvg(PH.AVG_T,PH.AVG_S), avgH:makeAvg(PH.AVG_T,PH.AVG_S), lastFrame:null};
+}
+function photonAngle(st){ return st.phPreset==='custom'?st.phCustom:(st.phPreset==='unpolarized'?null:PRESET_ANG[st.phPreset]); }
+/* one photon from the laser (PhET's emitAPhoton): a height across the 0.04
+   beam, a start up to one frame's travel ahead, an angle (random for the
+   unpolarized source) */
+function photonEmit(sc,st,dtFrame){
+  const y0=PH.BEAM_W/2*(1-2*rngNext(sc.R));
+  const ahead=(dtFrame||0)*rngNext(sc.R)*PH.V;
+  const a0=photonAngle(st);
+  const ang=a0===null?360*rngNext(sc.R):a0;
+  sc.photons.push({t0:sc.t-ahead/PH.V, y0, ang, route:null});
+}
+function photonClear(sc){ sc.photons=[]; }
+function photonCounts(sc){ sc.nV=0; sc.nH=0; avgReset(sc.avgV); avgReset(sc.avgH); }
+/* advance the scene by dt: emit (many-photon mode, PhET's fractional
+   accumulator), decide at the splitter (classical) or at the detectors
+   (quantum), count, and retire photons 0.05 past the detector line */
+function photonAdvance(sc,st,dt){
+  if(!(dt>0)) return;
+  if(sc.mode==='many'){
+    const n=st.phRate*dt, nf=Math.floor(n);
+    for(let i=0;i<nf;i++) photonEmit(sc,st,dt);
+    sc.acc+=n-nf;
+    while(sc.acc>=1){ photonEmit(sc,st,dt); sc.acc-=1; }
+  }
+  sc.t+=dt;
+  const keep=[];
+  for(const ph of sc.photons){
+    const d=PH.V*(sc.t-ph.t0), L=photonLegs(ph.y0);
+    if(st.phBehavior==='classical'&&ph.route===null&&d>=L.d1) ph.route=photonDecide(sc.R,ph.ang);
+    if(d>=L.dArr&&!ph.counted){
+      if(ph.route===null) ph.route=photonDecide(sc.R,ph.ang);      /* quantum: the collapse, at the detector */
+      ph.counted=true;
+      if(ph.route==='V'){ sc.nV=Math.min(sc.nV+1,PH.CAP); avgCount(sc.avgV); } else { sc.nH=Math.min(sc.nH+1,PH.CAP); avgCount(sc.avgH); }
+    }
+    if(d<L.dArr+PH.ABS) keep.push(ph);
+  }
+  sc.photons=keep;
+  avgStep(sc.avgV,dt); avgStep(sc.avgH,dt);
+}
+/* a seeded batch through photonDecide: the V count of n photons */
+function photonBatch(seed,angDeg,n){ const R=rngMake(seed); let v=0; for(let i=0;i<n;i++) if(photonDecide(R,angDeg)==='V') v++; return v; }
+function photonBatchUnpol(seed,n){ const R=rngMake(seed); let v=0; for(let i=0;i<n;i++){ const a=360*rngNext(R); if(photonDecide(R,a)==='V') v++; } return v; }
+
+/* ================================================================== *
+ *  THE SPINS (PhET's Spin screen: Stern-Gerlach)                      *
+ * ================================================================== */
+const AXV={z:[0,0,1], x:[1,0,0]};
+/* PhET's six experiments and its custom layout: magnet 1, then the magnet on
+   magnet 1's UP beam, then the one on its DOWN beam (PhET's value) */
+const SG_EXPS=[{id:'e1',name:'1 [SGz]',axes:['z']},{id:'e2',name:'2 [SGx]',axes:['x']},
+               {id:'e3',name:'3 [SGz, SGx]',axes:['z','x','x']},{id:'e4',name:'4 [SGz, SGz]',axes:['z','z','z']},
+               {id:'e5',name:'5 [SGx, SGz]',axes:['x','z','z']},{id:'e6',name:'6 [SGx, SGx]',axes:['x','x','x']},
+               {id:'custom',name:'custom',axes:['x','z','z']}];
+const SG_RATE=300;              /* particles a second per unit amount: PhET's 5 x amount per 60-Hz frame */
+const SG_MAXP=1250, SG_MAXP1=50;/* PhET's caps on particles in flight (continuous, single) */
+const SG_AVG_T=3;               /* the magnets' counters average over 3 s in 0.5-s samples (PhET's value) */
+const SG_SPEED=1.5;             /* apparatus units per second (the remake's layout) */
+/* the custom source state, EXACTLY: theta = 2 arccos|alpha| so that
+   P(up_z) = cos^2(theta/2) = |alpha|^2.  (PhET uses theta = pi(1 - |alpha|^2).) */
+function customTheta(a2){ return 2*Math.acos(Math.sqrt(clamp(a2,0,1))); }
+function phetCustomTheta(a2){ return Math.PI*(1-a2); }
+const SG_SOURCES={'+Z':[0,0,1],'+X':[1,0,0],'-Z':[0,0,-1]};
+function sgSource(st){ if(st.sgExp==='custom'){ const t=customTheta(st.sgA2); return [Math.sin(t),0,Math.cos(t)]; } return SG_SOURCES[st.sgSrc].slice(); }
+function sgAxes(st){
+  const e=SG_EXPS.find(x=>x.id===st.sgExp);
+  if(e.id==='custom') return [st.sgC1,st.sgC2,st.sgC2];
+  return e.axes.slice();
+}
+/* one particle through the apparatus: PhET's measureParticle at each magnet */
+function sgRun(R,r0,axes){
+  const m1=measureAlong(R,r0,AXV[axes[0]]);
+  if(axes.length===1) return {up1:m1.up, r1:m1.r, up2:null, r2:null};
+  const n2=m1.up?AXV[axes[1]]:AXV[axes[2]];
+  const m2=measureAlong(R,m1.r,n2);
+  return {up1:m1.up, r1:m1.r, up2:m2.up, r2:m2.r};
+}
+/* products of projections: [P(up,up), P(up,down), P(down,up), P(down,down)] */
+function sgProbs(r0,axes){
+  const n1=AXV[axes[0]], p1=bornP(r0,n1);
+  if(axes.length===1) return [p1,1-p1];
+  const pu=bornP(n1,AXV[axes[1]]), pd=bornP([-n1[0],-n1[1],-n1[2]],AXV[axes[2]]);
+  return [p1*pu,p1*(1-pu),(1-p1)*pd,(1-p1)*(1-pd)];
+}
+function sgBatch(seed,r0,axes,n){
+  const R=rngMake(seed), c=[0,0,0,0];
+  for(let i=0;i<n;i++){ const o=sgRun(R,r0,axes); if(axes.length===1) c[o.up1?0:1]++; else c[(o.up1?0:2)+(o.up2?0:1)]++; }
+  return c;
+}
+/* the apparatus layout (the remake's): source exit at x = 0, magnet 1 from 1
+   to 2 (the particle is measured at its middle and bends to an exit), the
+   second stage from 3 to 4 at y = +-0.62, the counters at x = 5 */
+const SGL={S1:[1,2], S2:[3,4], Y2:0.62, EXIT:0.16, END:5.05};
+function sgWaypoints(p){
+  const pts=[[0,p.jy]], y=p.jy;
+  pts.push([1.5,y]);
+  if(p.up1===null) return pts;
+  const s1=p.up1?1:-1;
+  pts.push([2,s1*SGL.EXIT+y*0.5]);
+  if(!p.two){ pts.push([SGL.END,s1*SGL.Y2]); return pts; }
+  pts.push([3,s1*SGL.Y2+y*0.5]); pts.push([3.5,s1*SGL.Y2+y*0.5]);
+  if(p.up2===null) return pts;
+  const s2=p.up2?1:-1;
+  pts.push([4,s1*SGL.Y2+s2*SGL.EXIT]); pts.push([SGL.END,s1*SGL.Y2+s2*SGL.EXIT*2.2]);
+  return pts;
+}
+function polyAt(pts,d){
+  for(let i=1;i<pts.length;i++){
+    const a=pts[i-1], b=pts[i], L=Math.hypot(b[0]-a[0],b[1]-a[1]);
+    if(d<=L||i===pts.length-1){ const f=L>0?Math.min(1,Math.max(0,d/L)):0; return [a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f]; }
+    d-=L;
+  }
+  return pts[pts.length-1].slice();
+}
+function polyLen(pts){ let s=0; for(let i=1;i<pts.length;i++) s+=Math.hypot(pts[i][0]-pts[i-1][0],pts[i][1]-pts[i-1][1]); return s; }
+function makeSgScene(seed){
+  return {R:rngMake(seed), seed, t:0, parts:[], acc:0, last:null,
+          c:[{up:makeAvg(SG_AVG_T,0.5),dn:makeAvg(SG_AVG_T,0.5),nU:0,nD:0},
+             {up:makeAvg(SG_AVG_T,0.5),dn:makeAvg(SG_AVG_T,0.5),nU:0,nD:0},
+             {up:makeAvg(SG_AVG_T,0.5),dn:makeAvg(SG_AVG_T,0.5),nU:0,nD:0}]};
+}
+function sgResetCounts(sc){ for(const c of sc.c){ avgReset(c.up); avgReset(c.dn); c.nU=0; c.nD=0; } }
+function sgClear(sc){ sc.parts=[]; sc.last=null; }
+function sgBlock(st){ return (st.sgMode==='continuous'&&sgAxes(st).length>1)?st.sgBlock:'none'; }
+function sgShoot(sc,st){
+  const two=sgAxes(st).length>1, cap=st.sgMode==='single'?SG_MAXP1:SG_MAXP;
+  if(sc.parts.length>=cap) return false;
+  const p={t0:sc.t, r0:sgSource(st), jy:0.05*(2*rngNext(sc.R)-1), up1:null, up2:null, r1:null, r2:null, two, dead:false};
+  sc.parts.push(p); if(st.sgMode==='single') sc.last=p;
+  return true;
+}
+/* advance: measure at each magnet's middle, stop blocked particles at the
+   blocker on magnet 1's exit, count, and retire particles at the end of their
+   path (a single particle rests there 1.5 s so it can be read) */
+const SG_BLOCK_D=2.35;          /* path length at which the blocker catches a particle (x = 2.30) */
+function sgCount(sc,k,up){ if(up){ sc.c[k].nU++; avgCount(sc.c[k].up); } else { sc.c[k].nD++; avgCount(sc.c[k].dn); } }
+function sgAdvance(sc,st,dt){
+  if(!(dt>0)) return;
+  const axes=sgAxes(st), block=sgBlock(st), hold=st.sgMode==='single'?1.5:0.05;
+  if(st.sgMode==='continuous'){
+    const n=SG_RATE*st.sgAmount*dt, nf=Math.floor(n);
+    for(let i=0;i<nf;i++) sgShoot(sc,st);
+    sc.acc+=n-nf; while(sc.acc>=1){ sgShoot(sc,st); sc.acc-=1; }
+  }
+  sc.t+=dt;
+  const keep=[];
+  for(const p of sc.parts){
+    const d=SG_SPEED*(sc.t-p.t0);
+    if(p.up1===null&&d>=1.5){ const m=measureAlong(sc.R,p.r0,AXV[axes[0]]); p.up1=m.up; p.r1=m.r; sgCount(sc,0,m.up); }
+    if(p.up1!==null&&block!=='none'&&(block==='up')===p.up1&&d>=SG_BLOCK_D) p.dead=true;
+    if(p.two&&!p.dead&&p.up1!==null&&p.up2===null&&d>=polyLen(sgWaypoints(p))){
+      const k=p.up1?1:2, m=measureAlong(sc.R,p.r1,AXV[axes[k]]); p.up2=m.up; p.r2=m.r; sgCount(sc,k,m.up); }
+    const done=p.up1!==null&&(!p.two||p.up2!==null)&&d>=polyLen(sgWaypoints(p))+hold;
+    if(!p.dead&&!done) keep.push(p);
+  }
+  sc.parts=keep;
+  for(const c of sc.c){ avgStep(c.up,dt); avgStep(c.dn,dt); }
+}
+
+/* ================================================================== *
+ *  THE BLOCH SPHERE (PhET's Bloch Sphere screen)                      *
+ * ================================================================== */
+const BL={STEP:Math.PI/12, DELAY:0.75, DELAY_MAX:1, NS_PER_S:0.25, ATOMS:10};   /* PhET's values */
+/* The field: PhET's strength s in [-1, 1] turns the state once per ns at
+   |s| = 1.  The remake makes it an electron in B = s B0 along +z:
+   f = (gamma_e/2pi) B, and B0 is the field that gives 1 GHz.  CODATA 2022
+   gamma_e/2pi = 28 024.951 3861 MHz/T (bloch_sphere.html; = |g_e| mu_B/h). */
+const GAMMA_E_MHZ_T=28024.9513861, G_E=-2.00231930436092, MUB_HZ_T=13996244917.1;
+const B0_T=1e3/GAMMA_E_MHZ_T;   /* tesla: 1000 MHz / (MHz/T) */
+/* the azimuth advances by w t with w = 2 pi s per ns: counterclockwise about
+   +z for s > 0, the electron's sense (and PhET's).  EXACT: a rotation of the
+   prepared vector, never an integrated one */
+function larmorAngle(s,tauNs){ return 2*Math.PI*s*tauNs; }
+function precess(r0,s,tauNs){ return rotate3(r0,[0,0,1],larmorAngle(s,tauNs)); }
+/* the same thing on the ket: U = exp(-i w t sigma_z / 2) */
+function precessU(s,tauNs){ return unitary([0,0,1],larmorAngle(s,tauNs)); }
+const BL_PRESETS={'+X':[Math.PI/2,0],'-X':[Math.PI/2,Math.PI],'+Y':[Math.PI/2,Math.PI/2],'-Y':[Math.PI/2,3*Math.PI/2],
+                  '+Z':[0,0],'-Z':[Math.PI,0]};
+function makeBlochScene(seed){ return {R:rngMake(seed), seed, phase:'prepared', tau:0, r:[], up:0, dn:0, lastUp:null}; }
+function blochPrep(st){ return blochOfAngles(st.bTheta,st.bPhi); }
+function blochNAtoms(st){ return st.bAtoms===10?10:1; }
+function blochReprepare(sc,st){ const r0=blochPrep(st); sc.r=[]; for(let i=0;i<BL.ATOMS;i++) sc.r.push(r0.slice()); sc.tau=0; sc.phase='prepared'; sc.lastUp=null; }
+function blochResetCounts(sc){ sc.up=0; sc.dn=0; }
+function blochObserve(sc,st){
+  const n=BASIS[st.bAxis].n, na=blochNAtoms(st);
+  let u=0;
+  for(let i=0;i<na;i++){ const m=measureAlong(sc.R,sc.r[i],n); sc.r[i]=m.r; if(m.up) u++; }
+  sc.up+=u; sc.dn+=na-u; sc.lastUp=u; sc.phase='observed';
+}
+/* PhET's single button: Observe (no field) or Start (field on), then Reprepare */
+function blochButton(sc,st){
+  if(sc.phase==='observed'){ blochReprepare(sc,st); return 'reprepared'; }
+  if(sc.phase==='timing') return 'busy';
+  if(st.bField){ sc.phase='timing'; sc.tau=0; return 'timing'; }
+  blochObserve(sc,st); return 'observed';
+}
+function blochAdvance(sc,st,dtWall){
+  if(sc.phase!=='timing'||!(dtWall>0)) return false;
+  sc.tau=Math.min(sc.tau+dtWall*BL.NS_PER_S,st.bDelay);
+  const r0=blochPrep(st), s=st.bField?st.bStrength:0;
+  for(let i=0;i<BL.ATOMS;i++) sc.r[i]=precess(r0,s,sc.tau);
+  if(sc.tau>=st.bDelay) blochObserve(sc,st);
+  return true;
+}
+/* what the measurement will see: P(up along n) at the moment of observation */
+function blochPUp(st){
+  const r=st.bField?precess(blochPrep(st),st.bStrength,st.bDelay):blochPrep(st);
+  return bornP(r,BASIS[st.bAxis].n);
+}
+
+/* ================================================================== *
+ *  THE BORN RULE view: the half-angle, and measurement in sequence    *
+ * ================================================================== */
+function bornSpin(ThDeg){ const c=Math.cos(ThDeg*DEG/2); return c*c; }      /* cos^2(Theta/2) */
+function bornPhoton(thDeg){ const c=Math.cos(thDeg*DEG); return c*c; }     /* cos^2(theta): Malus */
+/* a chain of N magnets from +z to -z in equal steps: every stage passes its
+   up beam with cos^2(pi/2N), so T(N) = cos^(2N)(pi/2N) -> 1 as N -> infinity */
+function chainT(N){ return Math.pow(Math.cos(Math.PI/(2*N)),2*N); }
+function middleSpin(alDeg){ const s=Math.sin(alDeg*DEG); return s*s/4; }       /* z -> alpha -> -z */
+function middlePhoton(alDeg){ const s=Math.sin(2*alDeg*DEG); return s*s/4; }   /* H -> alpha -> V */
+function chainMC(seed,N,n){
+  const R=rngMake(seed); let ok=0;
+  for(let i=0;i<n;i++){
+    let r=[0,0,1], alive=true;
+    for(let k=1;k<=N;k++){ const a=Math.PI*k/N, m=measureAlong(R,r,[Math.sin(a),0,Math.cos(a)]); if(m.up) r=m.r; else { alive=false; break; } }
+    if(alive) ok++;
+  }
+  return ok;
+}
+function middleSpinMC(seed,alDeg,n){
+  const R=rngMake(seed), a=alDeg*DEG, nn=[Math.sin(a),0,Math.cos(a)]; let ok=0;
+  for(let i=0;i<n;i++){ const m=measureAlong(R,[0,0,1],nn); if(m.up){ const m2=measureAlong(R,m.r,[0,0,1]); if(!m2.up) ok++; } }
+  return ok;
+}
+function middlePhotonMC(seed,alDeg,n){
+  const R=rngMake(seed); let ok=0;
+  /* through a polariser at alpha: pass with cos^2(alpha) (the H component of
+     the analyser frame is the photon's own V at 90 - alpha); then V passes sin^2 */
+  for(let i=0;i<n;i++) if(photonDecide(R,90-alDeg)==='V'&&photonDecide(R,alDeg)==='V') ok++;
+  return ok;
+}
+function bornSpinMC(seed,ThDeg,n){ const R=rngMake(seed), t=ThDeg*DEG, r=[Math.sin(t),0,Math.cos(t)]; let up=0; for(let i=0;i<n;i++) if(measureAlong(R,r,[0,0,1]).up) up++; return up; }
+function bornPhotonMC(seed,thDeg,n){ return n-photonBatch(seed,thDeg,n); }   /* the H (transmitted) count */
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — from build_cycloid via build_buoy/p4_views.js, unchanged              *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  common drawing: role colours, the hint reservation, ticks, rich    *
+ *  text (sup/sub on a canvas), coin faces, bars (shared by the family) *
+ * ================================================================== */
+/* green = the + outcome / the measured thing, violet = the - outcome, orange =
+   the law (reference), magenta = the live marker, cyan = structure */
+const COL={pos:'#b8ec4c', neg:'#9a7fd1', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0',
+           dim:'#8b93a6', text:'#aeb6c6', edge:'#242a3a', faint:'#4a5165', bg:'#070b18'};
+const RO_W=300;
+/* the house #hint (HTML, bottom:11px, 11px type) sits on the last line of a
+   caption anchored at H - 12, and the canvas capture cannot see it: every
+   caption here ends HINT_H higher, and selfTest asserts the corner is clear */
+const HINT_H=18;
+/* fmt() without the negative zero: toFixed prints -6e-17 (-cos 90 deg in
+   floating point) and a measured -0.0002 as "-0.000"; a value that rounds to
+   zero prints unsigned.  p1_utils.js is a verbatim house extract, so the fix
+   lives here, and selfTest's layout and panel sweeps reject any "-0.000". */
+function fmt0(x,n){ const s=fmt(x,n); return /^-0(\.0*)?$/.test(s)?s.slice(1):s; }
+/* tick labels follow the tick SPACING (Known-bad: a fixed decimal count
+   collides in a narrow panel) */
+function tickFmt(ticks){
+  let g=Infinity; for(let i=1;i<ticks.length;i++) g=Math.min(g,Math.abs(ticks[i]-ticks[i-1]));
+  if(!isFinite(g)||g<=0) return v=>sigf(v,3);
+  let d=0; while(d<6&&Math.abs(Math.round(g*Math.pow(10,d))-g*Math.pow(10,d))>1e-6*Math.max(1,g*Math.pow(10,d))) d++;
+  return v=>fmt(Math.abs(v)<1e-12?0:v,d);
+}
+function axesT(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=Object.assign({},opt||{});
+  if(o.xticks===undefined) o.xticks=ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  if(o.yticks===undefined) o.yticks=ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  if(!o.xfmt) o.xfmt=tickFmt(o.xticks);
+  if(!o.yfmt) o.yfmt=tickFmt(o.yticks);
+  axesR(ctx,b,xlo,xhi,ylo,yhi,o);
+}
+function px(b,x,xlo,xhi){ return b.x+b.w*(x-xlo)/(xhi-xlo||1); }
+function py(b,y,ylo,yhi){ return b.y1-b.h*(y-ylo)/(yhi-ylo||1); }
+/* rich text on a canvas: runs of [text, 'sup'|'sub'|null]; returns the width.
+   Registered with the label registry as one box. */
+function richW(ctx,runs,fs){
+  let w=0;
+  for(const [t,k] of runs){ ctx.font=(k?(fs*0.72):fs)+'px Georgia, serif'; w+=ctx.measureText(plain(t)).width; }
+  return w;
+}
+function rich(ctx,x,y,runs,fs,col,align,reg){
+  const w=richW(ctx,runs,fs);
+  let X=align==='center'?x-w/2:(align==='right'?x-w:x);
+  if(reg) LABELS.push([X,y-fs*0.9,X+w,y+fs*0.35]);
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  for(const [t,k] of runs){
+    const f=k?fs*0.72:fs; ctx.font='italic '+f+'px Georgia, serif'; ctx.fillStyle=col||COL.text;
+    const dy=k==='sup'?-fs*0.38:(k==='sub'?fs*0.22:0);
+    ctx.fillText(plain(t),X,y+dy); X+=ctx.measureText(plain(t)).width;
+  }
+  return w;
+}
+/* an ellipse as an explicit polygon in device coordinates (Known-bad: the
+   recorder has no ellipse() and does not carry a scaled arc through restore) */
+function ellipsePath(ctx,cx,cy,rx,ry,n){
+  n=n||40; ctx.beginPath();
+  for(let i=0;i<=n;i++){ const a=TAU*i/n, x=cx+rx*Math.cos(a), y=cy+ry*Math.sin(a); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+  ctx.closePath();
+}
+/* an arrow glyph (up or down) as a polygon, h tall, centred on (cx, cy) */
+function arrowGlyph(ctx,cx,cy,h,up,col,sx){
+  const s=sx===undefined?1:sx, d=up?-1:1, hw=h*0.30*s, tw=h*0.10*s, hh=h*0.42;
+  const tip=cy+d*h/2, base=cy-d*h/2, neck=tip-d*hh;
+  ctx.beginPath();
+  ctx.moveTo(cx,tip); ctx.lineTo(cx+hw,neck); ctx.lineTo(cx+tw,neck); ctx.lineTo(cx+tw,base);
+  ctx.lineTo(cx-tw,base); ctx.lineTo(cx-tw,neck); ctx.lineTo(cx-hw,neck); ctx.closePath();
+  ctx.fillStyle=col; ctx.fill();
+}
+/* a coin face.  kind: 'H'/'T' (classical), 'U'/'D' (quantum), 'S' a quantum
+   superposition with P(up) = p (both arrows, each in proportion), 'hidden'
+   (the cup), 'flip' (mid-flip: squashed by sx and showing side f).  The
+   heads and up faces are green, tails and down violet (premixed, opaque). */
+function coinFace(ctx,cx,cy,r,kind,o){
+  o=o||{};
+  const sx=o.sx===undefined?1:Math.max(0.06,Math.abs(o.sx));
+  if(kind==='hidden'){
+    ellipsePath(ctx,cx,cy,r,r,36); ctx.fillStyle='#1a1f2c'; ctx.fill();
+    ctx.strokeStyle='#5d6780'; ctx.lineWidth=Math.max(1.5,r*0.12); ctx.stroke();
+    ctx.fillStyle='#8b93a6'; ctx.font='italic '+Math.round(r*1.05)+'px Georgia, serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle'; if(r>=7) ctx.fillText('?',cx,cy+r*0.04);
+    return;
+  }
+  const up=(kind==='H'||kind==='U');
+  const base=kind==='S'?mix(COL.neg,COL.pos,o.p):(up?COL.pos:COL.neg);
+  ellipsePath(ctx,cx,cy,r*sx,r,36); ctx.fillStyle=shade(base,0.28); ctx.fill();
+  ctx.strokeStyle=shade(base,0.85); ctx.lineWidth=Math.max(1,r*0.09); ctx.stroke();
+  if(r<7) return;
+  if(kind==='H'||kind==='T'){
+    ctx.fillStyle=up?COL.pos:COL.neg; ctx.font='italic bold '+Math.round(r*1.1)+'px Georgia, serif';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    if(sx>0.55) ctx.fillText(up?'H':'T',cx,cy+r*0.05);
+  } else if(kind==='U'||kind==='D') arrowGlyph(ctx,cx,cy,r*1.25,up,up?COL.pos:COL.neg,sx);
+  else {
+    /* a superposition: the up arrow at weight p and the down arrow at 1 - p,
+       side by side, each premixed toward the coin's own fill */
+    const bg=shade(base,0.28);
+    arrowGlyph(ctx,cx-r*0.28*sx,cy,r*1.1,true,mix(bg,COL.pos,0.15+0.85*o.p),sx);
+    arrowGlyph(ctx,cx+r*0.28*sx,cy,r*1.1,false,mix(bg,COL.neg,0.15+0.85*(1-o.p)),sx);
+  }
+}
+/* a vertical error bar at data (x, y +- e), clipped to the box */
+function errBar(ctx,b,x,y,e,xlo,xhi,ylo,yhi,col){
+  const X=px(b,x,xlo,xhi); if(X<b.x-0.5||X>b.x1+0.5) return;
+  const y0=clamp(py(b,y-e,ylo,yhi),b.y,b.y1), y1=clamp(py(b,y+e,ylo,yhi),b.y,b.y1);
+  ctx.beginPath(); ctx.moveTo(X,y0); ctx.lineTo(X,y1); ctx.moveTo(X-3,y0); ctx.lineTo(X+3,y0); ctx.moveTo(X-3,y1); ctx.lineTo(X+3,y1);
+  ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.stroke();
+}
+/* a point marker: 'o' filled circle or 'd' diamond (a second shape, never a
+   hollow marker: Known-bad, one hollow convention per file) */
+function mark(ctx,X,Y,shape,col,r){
+  r=r||4; ctx.beginPath();
+  if(shape==='d'){ ctx.moveTo(X,Y-r*1.2); ctx.lineTo(X+r*1.2,Y); ctx.lineTo(X,Y+r*1.2); ctx.lineTo(X-r*1.2,Y); ctx.closePath(); }
+  else ctx.arc(X,Y,r,0,TAU);
+  ctx.fillStyle=col; ctx.fill();
+}
+/* the magenta cursor on a plot, clipped to its box */
+function vCursor(ctx,b,x,xlo,xhi,col){
+  const X=px(b,x,xlo,xhi); if(X<b.x-0.5||X>b.x1+0.5) return;
+  ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.strokeStyle=col||COL.live; ctx.lineWidth=1.3; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+}
+/* a bar's value, clear of the bar AND of the law's mark (yMark: the mark's
+   pixel y; omit it when no mark is drawn).  Above the bar; else above the
+   mark when the mark is the higher; else INSIDE the bar at its top, dark; else
+   inside, under the mark.  A full bar hid its own green-on-green count, and a
+   label set above its bar alone sat on the 0.5 mark when the bar stopped just
+   short of it (28.1/s on a 0.47 bar): both looked at. */
+const BAR_CLEAR=8;   /* > 7.14: half a 10.5px label box (6.04) plus half the 2.2px mark */
+function barValY(yTop,yMark,b){
+  const hasM=yMark!==null&&yMark!==undefined&&isFinite(yMark), gap=y=>hasM?Math.abs(y-yMark):Infinity;
+  /* the places in order: above the bar, above a higher mark, inside the bar
+     at its top, inside under the mark -- each only where it fits its box */
+  const C=[[yTop-9,false],[hasM&&yMark<yTop?yMark-9:NaN,false],[yTop+10,true],[hasM?yMark+10:NaN,true]]
+    .filter(([y,ins])=>isFinite(y)&&y>=b.y+8&&y<=b.y1-6&&(!ins||y>=yTop+6));
+  for(const [y,ins] of C) if(gap(y)>=BAR_CLEAR) return {y,inside:ins};
+  if(!C.length) return {y:yTop+10,inside:true};
+  let best=C[0]; for(const c of C) if(gap(c[0])>gap(best[0])) best=c;     /* none clears: the widest gap */
+  return {y:best[0],inside:best[1]};
+}
+function barVal(ctx,W,H,x,yTop,b,txt,col,yMark){
+  const p=barValY(yTop,yMark,b);
+  lab(ctx,W,H,x,p.y,txt,p.inside?'#0b0e16':col,SM_FONT,'center','middle');
+}
+/* a y for a one-line note ('nothing yet') in an empty bar box that clears
+   every mark (pixel ys) by BAR_CLEAR: the top, then the middle, then the first
+   clear line scanning down.  At the top alone it sat on a high mark (a custom
+   spin state), caught by the layout check. */
+function freeY(b,marks){
+  const ok=y=>marks.every(m=>!isFinite(m)||Math.abs(y-m)>=BAR_CLEAR);
+  if(ok(b.y+12)) return b.y+12;
+  if(ok(b.y+b.h/2)) return b.y+b.h/2;
+  for(let y=b.y+8;y<=b.y1-8;y++) if(ok(y)) return y;
+  return b.y+12;
+}
+/* counts as people write them: 10 000, not 10000 */
+function fmtN(n){ return n>=10000?String(n).replace(/(\d)(?=(\d{3})+$)/g,'$1 '):String(n); }
+/* a panel title that fits its own panel (Known-bad: long titles overran) */
+function fitTitle(b,longT,shortT){ return plain(longT).length*13*0.52+10>b.w?shortT:longT; }
+/* the bottom-anchored caption, measured first, clear of the #hint line */
+function capLayout(ctx,W,H,full,short,left,right,minTop){
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  return fitCaption(ctx,W,H-HINT_H,full,short,capW,minTop);
+}
+function drawCap(ctx,left,fit){ caption(ctx,left,fit.capY,fit.txt,fit.capW,'#767e92',CAP_FONT); }
+/* a caption names only the panels that are drawn.  Lay out with the caption
+   that names the optional panel (capOf(true)); when the panel then does not
+   fit, lay out again with the one that does not name it and keep the panel
+   OFF, even if the shorter caption frees the room (the text already said
+   nothing of it).  The Bloch caption named its fringe panel where 820 x 520
+   skips it, looked at. */
+function layoutNamed(capOf,geoOf,fits){
+  let Cap=capOf(true), G=geoOf(Cap);
+  if(!fits(G)){ Cap=capOf(false); G=geoOf(Cap); G.panelOff=true; }
+  return {Cap,G};
+}
+/* a percentage bar pair: two vertical bars (+ outcome, - outcome) in box b,
+   values as fractions of 1, labels under the bars, optional expected marks */
+function barPair(ctx,b,f1,f2,lab1,lab2,expect1,opts){
+  opts=opts||{};
+  frame(ctx,b,COL.edge);
+  const bw=Math.min(46,b.w*0.26), x1=b.x+b.w*0.30, x2=b.x+b.w*0.70;
+  const H=b.h, y0=b.y1;
+  const bar=(xc,f,col)=>{ if(!(f>0)) return; const hh=Math.min(1,f)*H; ctx.fillStyle=col; ctx.fillRect(xc-bw/2,y0-hh,bw,hh); };
+  bar(x1,f1,COL.pos); bar(x2,f2,COL.neg);
+  if(expect1!==null&&expect1!==undefined&&isFinite(expect1)){
+    ctx.beginPath(); const e1=y0-expect1*H, e2=y0-(1-expect1)*H;
+    ctx.moveTo(x1-bw/2-6,e1); ctx.lineTo(x1+bw/2+6,e1); ctx.moveTo(x2-bw/2-6,e2); ctx.lineTo(x2+bw/2+6,e2);
+    ctx.strokeStyle=COL.ref; ctx.lineWidth=2.2; ctx.stroke();
+  }
+  ctx.font='italic 12px Georgia, serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillStyle=COL.pos; ctx.fillText(plain(lab1),x1,b.y1+4); ctx.fillStyle=COL.neg; ctx.fillText(plain(lab2),x2,b.y1+4);
+  if(opts.values){ ctx.font='10.5px -apple-system, sans-serif'; ctx.fillStyle=COL.text; ctx.textBaseline='bottom';
+    ctx.fillText(opts.values[0],x1,Math.max(b.y+12,y0-Math.min(1,f1||0)*H-3)); ctx.fillText(opts.values[1],x2,Math.max(b.y+12,y0-Math.min(1,f2||0)*H-3)); }
+  return {x1,x2,bw};
+}
+
+/* ================================================================== *
+ *  state: the tabs, PhET's defaults, the two coin scenes, the model   *
+ * ================================================================== */
+const TABS=[['classical','the classical coin'],['quantum','the quantum coin'],['binom','the binomial'],['mix','the hidden difference']];
+const SIM_NAME='quantum coin toss';
+/* PhET's Coins screen: the classical scene first, each scene with its own
+   state (heads up at bias 0.5; the quantum coin at 0.5, a superposition);
+   the analysis views' settings are the remake's */
+const DEFAULTS={view:'classical', binN:100, binP:0.5, binM:1000, binSeed:5, mixP:0.7, mixShots:1000, mixSeed:7};
+const ST=Object.assign({},DEFAULTS);
+const SEEDS={classical:101, quantum:202};
+let COINS;
+function resetScenes(){ COINS={classical:makeCoinScene('classical',SEEDS.classical), quantum:makeCoinScene('quantum',SEEDS.quantum)}; }
+resetScenes();
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+let T_NOW=0;
+function sceneOf(v){ return v==='quantum'?COINS.quantum:COINS.classical; }
+function isCoinView(v){ return v==='classical'||v==='quantum'; }
+function buildModel(){
+  const st=Object.assign({},ST), v=st.view, M={view:v, st, tNow:T_NOW};
+  if(isCoinView(v)) M.C=coinsModel(sceneOf(v));
+  else if(v==='binom') M.N=binomModel(st);
+  else M.X=mixModel(st);
+  return M;
+}
+function readoutHTML(M){
+  const name=TABS.find(t=>t[0]===M.view)[1];
+  const body=isCoinView(M.view)?coinsReadout(M):(M.view==='binom'?binomReadout(M):mixReadout(M));
+  return '<div class="rname">'+SIM_NAME+'<small>'+name+'</small></div><table>'+body+'</table>'
+    +'<div class="note">PhET&rsquo;s values are from its build 1.0.4; the Born rule and the binomial are exact, and every seeded count is '
+    +'pinned bit for bit to the Python twins.</div>';
+}
+function eqbarHTML(M){
+  const e=isCoinView(M.view)?coinsEq(M):(M.view==='binom'?binomEq(M):mixEq(M));
+  return '<span class="lhs">'+e[0]+'</span><span class="sm">'+e[1]+'</span>';
+}
+function tagHTML(M){ return isCoinView(M.view)?coinsTag(M):(M.view==='binom'?binomTag(M):mixTag(M)); }
+
+/* ================================================================== *
+ *  THE COINS view (PhET's Coins screen) — shared by the family        *
+ * ================================================================== */
+function coinWord(sc,v){ return sc.quantum?(v?'up':'down'):(v?'heads':'tails'); }
+function coinGlyph(sc,v){ return sc.quantum?(v?'↑':'↓'):(v?'heads':'tails'); }
+function stateWord(s){ return {preparing:'being flipped',ready:'ready, unobserved',hidden:'hidden',revealed:'revealed'}[s]||s; }
+/* a snapshot of one scene for the drawing and the readout */
+function coinsModel(sc){
+  const p=sc.p, N=sc.set.n, sd=binomSD(N,p);
+  const m={sc, quantum:sc.quantum, p, q:1-p, N, alpha:Math.sqrt(p), beta:Math.sqrt(1-p),
+           init:sc.quantum?quantumInit(p):sc.init, preparing:sc.preparing,
+           sState:sc.single.state, setState:sc.set.state, kUp:sc.set.kUp, sd, mean:N*p};
+  m.setShown=!sc.preparing&&sc.set.state==='revealed';
+  m.z=m.setShown&&sd>0?(sc.set.kUp-N*p)/sd:NaN;
+  m.exact=m.setShown&&sd===0;                 /* p = 0 or 1: every coin must agree */
+  const h=sc.single; m.nObs=h.nObs; m.nUp=h.nUp; m.frac=h.nObs>0?h.nUp/h.nObs:NaN;
+  m.fracSd=h.nObs>0?Math.sqrt(p*(1-p)/h.nObs):NaN;
+  return m;
+}
+/* the stage: the prepared coin, one coin under test, N identical coins, and
+   below them the counts.  Returned so the pointer and the tests use the SAME
+   boxes the drawing uses. */
+function coinsGeo(ctx,W,H,C){
+  const narrow=isNarrow(W), top=stageTop()+30, left=narrow?18:56;
+  const rightTop=narrow?W-18:W-RO_W-44;
+  const fit=capLayout(ctx,W,H,C.full,C.short,left,narrow?W-18:W-26,top+300);
+  const avail=fit.capY-16-top;
+  /* no floor on the lower row: when it does not fit it is not drawn, rather
+     than drawn under the caption and the #hint (found at 560 x 380) */
+  const upH=Math.max(150,Math.min(narrow?200:330,avail*0.56));
+  const span=rightTop-left, gap=narrow?16:28;
+  const wA=narrow?Math.max(150,span*0.26):Math.max(200,Math.min(250,span*0.24));
+  const wB=narrow?Math.max(150,span*0.30):Math.max(220,Math.min(300,span*0.30));
+  const A=box(left,top,wA,upH), B=box(A.x1+gap,top,wB,upH), Cb=box(B.x1+gap,top,Math.max(120,rightTop-(B.x1+gap)),upH);
+  const lowTop=top+upH+44, lowH=fit.capY-16-lowTop-20;
+  const hist=box(left+34,lowTop,Math.min(narrow?W-18-left-34:560,(narrow?W-18:W-26)-left-34),lowH);
+  /* the strip starts below the floating readout's zone (y < 480 on the right) */
+  const sTop=Math.max(lowTop,486);
+  const strip=narrow?null:box(hist.x1+60,sTop,Math.min(520,Math.max(0,(W-26)-(hist.x1+60))),lowH-(sTop-lowTop));
+  const rS=Math.min(B.w,B.h-40)*0.30;
+  const single={cx:B.x+B.w/2, cy:B.y+22+(B.h-40)/2, r:rS};
+  return {narrow,top,left,fit,A,B,C:Cb,hist,strip:strip&&strip.w>150?strip:null,single};
+}
+/* where each of the N coins sits inside the set's box */
+function coinGrid(Cb,N){
+  const cols=N===10?5:(N===100?10:100), rows=N/cols;
+  const inner=box(Cb.x+10,Cb.y+26,Cb.w-20,Cb.h-36);
+  const cell=Math.min(inner.w/cols,inner.h/rows);
+  const x0=inner.x+(inner.w-cell*cols)/2, y0=inner.y+(inner.h-cell*rows)/2;
+  return {cols,rows,cell,x0,y0,box:box(x0,y0,cell*cols,cell*rows)};
+}
+/* hist: whether the histogram is drawn (the caption names it only then) */
+function coinsCaption(M,hist){
+  const m=M.C, sc=m.sc, q=sc.quantum, h=hist!==false;
+  const what=q?'A quantum “coin” is prepared as |ψ⟩ = α|↑⟩ + β|↓⟩ with |α|² = '+fmt(m.p,2)+'. Until it is observed it has no face at all — drawn here as both arrows, each as bright as its probability — and observing it gives ↑ with probability |α|²: that is the Born rule, and the face appears only then.'
+                :'A classical coin always has a face: flipping it hides a definite heads or tails under the cup, with P(heads) = '+fmt(m.p,2)+' set by the bias, and revealing it only shows you what was already there.';
+  const set=m.N===10000?' The 10 000 coins are drawn as a 100 × 100 grid of squares, one square per coin.':'';
+  return {full:what+(h?' The histogram counts the '+fmtN(m.N)+' identical coins against the binomial’s Np ± √(Np(1−p)) in orange.':'')+set,
+          short:(q?'Quantum coin: no face until observed; P(↑) = |α|² = ':'Classical coin: a hidden face; P(heads) = ')+fmt(m.p,2)+'.'+(h?' Orange: Np ± √(Np(1−p)).':'')};
+}
+/* the caption and the geometry together: the histogram is optional */
+function coinsLayout(ctx,W,H,M){ return layoutNamed(h=>coinsCaption(M,h),Cap=>coinsGeo(ctx,W,H,Cap),G=>G.hist.h>=50); }
+function drawCoinSet(ctx,Cb,sc,t){
+  const c=sc.set, N=c.n, G=coinGrid(Cb,N);
+  if(N<=100){
+    const r=G.cell*0.40;
+    for(let i=0;i<N;i++){
+      const cx=G.x0+(i%G.cols+0.5)*G.cell, cy=G.y0+(Math.floor(i/G.cols)+0.5)*G.cell;
+      coinFace(ctx,cx,cy,r,coinKind(sc,c,c.vals[i],t,i),coinOpts(sc,c,t,i));
+    }
+    return G;
+  }
+  /* 10 000: three batched fills (+, -, and the undecided/hidden colour) */
+  const s=G.cell, pad=s>3?0.6:0.25, paths={pos:[],neg:[],other:[]};
+  for(let i=0;i<N;i++){
+    const x=G.x0+(i%G.cols)*s, y=G.y0+Math.floor(i/G.cols)*s;
+    let k='other';
+    if(c.state==='revealed') k=c.vals[i]?'pos':'neg';
+    else if(c.state==='preparing'&&!sc.quantum) k=((i*7+Math.floor(t*14))%3===0)?'pos':(((i*5+Math.floor(t*11))%3===0)?'neg':'other');
+    paths[k].push(x,y);
+  }
+  const other=c.state==='ready'?shade(mix(COL.neg,COL.pos,sc.p),0.55):(c.state==='hidden'?'#39404f':'#2b3140');
+  for(const [k,col] of [['pos',COL.pos],['neg',COL.neg],['other',other]]){
+    const a=paths[k]; if(!a.length) continue;
+    ctx.beginPath(); for(let j=0;j<a.length;j+=2) ctx.rect(a[j],a[j+1],s-pad,s-pad);
+    ctx.fillStyle=k==='other'?other:shade(col,0.85); ctx.fill();
+  }
+  return G;
+}
+function coinKind(sc,c,v,t,i){
+  if(c.state==='hidden') return 'hidden';
+  if(c.state==='ready') return 'S';
+  if(c.state==='preparing'){ if(sc.quantum) return 'S'; const ph=Math.cos(TAU*3*t+(i||0)*0.37); return ph>=0?'H':'T'; }
+  return sc.quantum?(v?'U':'D'):(v?'H':'T');
+}
+function coinOpts(sc,c,t,i){
+  const o={p:sc.p};
+  if(c.state==='preparing') o.sx=sc.quantum?0.25+0.75*Math.min(1,t/FLIP_T):Math.cos(TAU*3*t+(i||0)*0.37);
+  return o;
+}
+function drawCoins(ctx,W,H,M){
+  const m=M.C, sc=m.sc, q=sc.quantum, LY=coinsLayout(ctx,W,H,M), Cap=LY.Cap, G=LY.G;
+  const A=G.A, B=G.B, Cb=G.C, t=M.tNow||0;
+  /* titles sit above their boxes, like the plot titles (they sat on the frame) */
+  const title=(b,txt)=>{ lab(ctx,W,H,b.x,b.y-10,txt,COL.text,'italic 13px Georgia, serif','left','middle'); };
+  /* A: the prepared coin */
+  frame(ctx,A,COL.edge);
+  title(A,sc.preparing?(q?'the “coin” to prepare':'the coin to prepare'):(q?'the prepared state':'the coin'));
+  const rA=Math.max(20,Math.min(A.w*0.24,58,A.h*0.17)), cxA=A.x+A.w/2, cyA=A.y+18+rA;
+  coinFace(ctx,cxA,cyA,rA,q?(m.p>=1?'U':(m.p<=0?'D':'S')):(sc.init==='heads'?'H':'T'),{p:m.p});
+  let yy=cyA+rA+22;
+  if(q){ rich(ctx,cxA,yy,[['|ψ⟩ = '+fmt(m.alpha,3)+'|↑⟩ + '+fmt(m.beta,3)+'|↓⟩',null]],13.5,'#e9e9f0','center',true); yy+=22;
+         lab(ctx,W,H,cxA,yy,'P(↑) = |α|² = '+fmt(m.p,2),COL.pos,SM_FONT,'center','middle'); yy+=16;
+         lab(ctx,W,H,cxA,yy,'P(↓) = |β|² = '+fmt(m.q,2),COL.neg,SM_FONT,'center','middle'); yy+=16;
+         lab(ctx,W,H,cxA,yy,m.init==='superposition'?'a superposition':('the basis state '+(m.init==='up'?'↑':'↓')),COL.dim,SM_FONT,'center','middle'); }
+  else { lab(ctx,W,H,cxA,yy,'starts '+sc.init+' up',COL.text,LAB_FONT,'center','middle'); yy+=18;
+         lab(ctx,W,H,cxA,yy,'P(heads) = '+fmt(m.p,2),COL.pos,SM_FONT,'center','middle'); yy+=16;
+         lab(ctx,W,H,cxA,yy,'P(tails) = '+fmt(m.q,2),COL.neg,SM_FONT,'center','middle'); }
+  if(!sc.preparing&&yy+22<A.y1-12) lab(ctx,W,H,cxA,A.y1-12,'sent to be measured',COL.faint,SM_FONT,'center','middle');
+  /* B: one coin under test */
+  const idle=sc.preparing;
+  ctx.setLineDash(idle?[5,4]:[]); frame(ctx,B,idle?COL.faint:COL.struct); ctx.setLineDash([]);
+  title(B,'one coin');
+  if(idle) lab(ctx,W,H,B.x+B.w/2,B.y+B.h/2,'empty: send the coin to be measured',COL.dim,SM_FONT,'center','middle');
+  else {
+    const c=sc.single;
+    coinFace(ctx,G.single.cx,G.single.cy,G.single.r,coinKind(sc,c,c.vals[0],c.t),coinOpts(sc,c,c.t));
+    const st=c.state==='revealed'?coinWord(sc,c.vals[0]):stateWord(c.state);
+    lab(ctx,W,H,B.x+B.w/2,B.y1-12,st,c.state==='revealed'?(c.vals[0]?COL.pos:COL.neg):COL.dim,LAB_FONT,'center','middle');
+  }
+  /* C: N identical coins */
+  ctx.setLineDash(idle?[5,4]:[]); frame(ctx,Cb,idle?COL.faint:COL.struct); ctx.setLineDash([]);
+  title(Cb,'N = '+fmtN(m.N)+' identical coins');
+  if(idle) lab(ctx,W,H,Cb.x+Cb.w/2,Cb.y+Cb.h/2,'empty',COL.dim,SM_FONT,'center','middle');
+  else drawCoinSet(ctx,Cb,sc,sc.set.t);
+  /* the counts of the set against the binomial */
+  const hb=G.hist, N=m.N;
+  if(!G.panelOff&&hb.h>=50){
+    axesT(ctx,hb,0,2,0,N,{xticks:[],yticks:ticksFor(0,N,hb.h<110?2:4),yfmt:v=>fmtN(Math.round(v)),title:fitTitle(hb,'the '+fmtN(m.N)+' coins: counted, against Np ± √(Np(1−p))','counts against the binomial')});
+    if(m.setShown){
+      const k1=sc.set.kUp, k2=N-k1, bw=Math.min(60,hb.w*0.18);
+      const x1=px(hb,0.6,0,2), x2=px(hb,1.4,0,2);
+      ctx.fillStyle=COL.pos; ctx.fillRect(x1-bw/2,py(hb,k1,0,N),bw,hb.y1-py(hb,k1,0,N));
+      ctx.fillStyle=COL.neg; ctx.fillRect(x2-bw/2,py(hb,k2,0,N),bw,hb.y1-py(hb,k2,0,N));
+      /* the law: Np and N(1-p), each with +-1 sd */
+      for(const [xc,mu] of [[x1,m.mean],[x2,N-m.mean]]){
+        const Y=py(hb,mu,0,N), Ya=py(hb,Math.min(N,mu+m.sd),0,N), Yb=py(hb,Math.max(0,mu-m.sd),0,N);
+        ctx.beginPath(); ctx.moveTo(xc-bw/2-8,Y); ctx.lineTo(xc+bw/2+8,Y); ctx.strokeStyle=COL.ref; ctx.lineWidth=2.2; ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(xc+bw/2+4,Ya); ctx.lineTo(xc+bw/2+4,Yb); ctx.moveTo(xc+bw/2+1,Ya); ctx.lineTo(xc+bw/2+7,Ya); ctx.moveTo(xc+bw/2+1,Yb); ctx.lineTo(xc+bw/2+7,Yb);
+        ctx.strokeStyle=COL.ref; ctx.lineWidth=1.2; ctx.stroke();
+      }
+      barVal(ctx,W,H,x1,py(hb,k1,0,N),hb,fmtN(k1),COL.pos,py(hb,m.mean,0,N));
+      barVal(ctx,W,H,x2,py(hb,k2,0,N),hb,fmtN(k2),COL.neg,py(hb,N-m.mean,0,N));
+    } else lab(ctx,W,H,hb.x+hb.w/2,hb.y+hb.h/2,sc.preparing?'nothing measured yet':(sc.set.state==='preparing'?'being '+(q?'reprepared':'flipped'):(sc.set.state==='ready'?'not observed yet: no faces to count':'hidden: reveal to count')),COL.dim,SM_FONT,'center','middle');
+    ctx.font='italic 12px Georgia, serif'; ctx.textAlign='center'; ctx.textBaseline='top';
+    ctx.fillStyle=COL.pos; ctx.fillText(q?'↑':'heads',px(hb,0.6,0,2),hb.y1+4); ctx.fillStyle=COL.neg; ctx.fillText(q?'↓':'tails',px(hb,1.4,0,2),hb.y1+4);
+  }
+  /* the single coin's record: its last outcomes and its running fraction */
+  const sb=G.strip;
+  if(sb&&sb.h>=50){
+    const hs=sc.single.hist, n=hs.length;
+    axesT(ctx,sb,0,HIST_KEEP,-1.3,1.3,{xticks:[],yticks:[],title:fitTitle(sb,'one coin, its last '+HIST_KEEP+' outcomes','its last outcomes')});
+    const mid=py(sb,0,-1.3,1.3), cw=sb.w/HIST_KEEP;
+    ctx.beginPath(); ctx.moveTo(sb.x,mid); ctx.lineTo(sb.x1,mid); ctx.strokeStyle=COL.faint; ctx.lineWidth=1; ctx.stroke();
+    for(let i=0;i<n;i++){ const x=sb.x+i*cw+1, v=hs[i], hh=sb.h*0.34;
+      ctx.fillStyle=v?COL.pos:COL.neg; if(v) ctx.fillRect(x,mid-hh,Math.max(1,cw-2),hh); else ctx.fillRect(x,mid+1,Math.max(1,cw-2),hh); }
+    if(!n) lab(ctx,W,H,sb.x+sb.w/2,sb.y+14,'none yet: '+(q?'observe':'reveal')+' the coin',COL.dim,SM_FONT,'center','middle');
+    else lab(ctx,W,H,sb.x+4,sb.y1+12,m.nUp+' '+(q?'up':'heads')+' of '+m.nObs+' = '+fmt(m.frac,3)+'  (p = '+fmt(m.p,2)+' ± '+fmt(m.fracSd,3)+')',COL.text,SM_FONT,'left','middle');
+  }
+  drawCap(ctx,G.left,G.fit);
+  return G;
+}
+/* ---- readout, equation bar, tag ---- */
+function coinsReadout(M){
+  const m=M.C, sc=m.sc, q=sc.quantum, c1=sc.single, cs=sc.set;
+  let s=hd(q?'the prepared state':'the prepared coin');
+  if(q) s+=rrow('|&psi;&rang; = &alpha;|&uarr;&rang; + &beta;|&darr;&rang;',fmt(m.alpha,3)+', '+fmt(m.beta,3))
+          +rrow('P(&uarr;) = |&alpha;|&sup2;',fmt(m.p,2),'good')+rrow('P(&darr;) = |&beta;|&sup2;',fmt(m.q,2))
+          +rrow('|&alpha;|&sup2; + |&beta;|&sup2;',fmt(m.alpha*m.alpha+m.beta*m.beta,12))+rrow('state',m.init);
+  else s+=rrow('starts',sc.init+' up')+rrow('P(heads), the bias',fmt(m.p,2),'good')+rrow('P(tails)',fmt(m.q,2));
+  s+=hd('one coin')+rrow('state',sc.preparing?'&mdash; (preparing)':stateWord(c1.state));
+  if(!sc.preparing&&c1.state==='revealed') s+=rrow('face',coinWord(sc,c1.vals[0]),c1.vals[0]?'good':'');
+  s+=rrow((q?'observed':'revealed')+', '+(q?'up':'heads'),m.nObs+', '+m.nUp)
+    +rrow('fraction &plusmn; &radic;(p(1&minus;p)/n)',m.nObs?fmt(m.frac,3)+' &plusmn; '+fmt(m.fracSd,3):'&mdash;');
+  s+=hd('N identical coins')+rrow('N',String(cs.n))+rrow('state',sc.preparing?'&mdash; (preparing)':stateWord(cs.state));
+  s+=rrow('expected Np &plusmn; &radic;(Np(1&minus;p))',fmt(m.mean,m.N>=1000?0:1)+' &plusmn; '+sigf(m.sd,3));
+  if(m.setShown) s+=rrow((q?'up':'heads')+', '+(q?'down':'tails'),cs.kUp+', '+(cs.n-cs.kUp),'good')
+    +rrow('z = (k &minus; Np)/&sigma;',m.exact?'exact':fmt(m.z,2),Math.abs(m.z)>3?'bad':'');
+  return s;
+}
+function coinsEq(M){
+  const q=M.C.quantum;
+  if(q) return ['<span class="hl">|&psi;&rang; = &alpha;|&uarr;&rang; + &beta;|&darr;&rang;</span>, &nbsp; P(&uarr;) = |&alpha;|&sup2;, &nbsp; P(&darr;) = |&beta;|&sup2;, &nbsp; |&alpha;|&sup2; + |&beta;|&sup2; = 1 &nbsp;&middot;&nbsp; P(k of N) = C(N,k) p<sup>k</sup>(1&minus;p)<sup>N&minus;k</sup>',
+                'the Born rule: the amplitudes become odds only when the coin is observed, and N identical coins then count like a binomial'];
+  return ['<span class="hl">P(heads) = p, &nbsp; P(tails) = 1 &minus; p</span> &nbsp;&middot;&nbsp; P(k of N) = C(N,k) p<sup>k</sup>(1&minus;p)<sup>N&minus;k</sup>, &nbsp; k = Np &plusmn; &radic;(Np(1&minus;p))',
+          'a classical coin has a face before you look: flipping hides it, revealing shows it, and N coins count like a binomial'];
+}
+function coinsTag(M){ const m=M.C; return '<b>the coins</b> — '+(m.quantum?'a quantum “coin”':'a classical coin')+', P('+(m.quantum?'&uarr;':'heads')+') = '+fmt(m.p,2)+', N = '+m.N+(m.preparing?' · preparing':''); }
+const INFO_COINS='PhET&rsquo;s Coins screen sets a classical coin beside a quantum &ldquo;coin&rdquo;. The classical coin always has a face. '
+  +'Flipping it takes a second and leaves a definite heads or tails under the cup, with the probability of heads set by the bias; revealing it only '
+  +'shows you what was already there, and hiding it again changes nothing. The quantum coin is prepared in a state &alpha;|&uarr;&rang; + &beta;|&darr;&rang;. '
+  +'Until it is observed it has no face at all &mdash; the picture draws both arrows, each as bright as its probability &mdash; and observing it gives '
+  +'&uarr; with probability |&alpha;|&sup2;, the Born rule. After that it is up (or down), and hiding and revealing it shows the same face every time: '
+  +'only a repreparation brings the superposition back. Ten, a hundred or ten thousand identical coins then count like a binomial, '
+  +'Np &plusmn; &radic;(Np(1&minus;p)), which is why ten thousand of them look almost deterministic and ten look like noise. Set a bias, press '
+  +'&ldquo;send to measure&rdquo;, then flip, reveal and observe; click a coin on the canvas to reveal or hide it.';
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV_COINS='<h4>two coins</h4>'
+  +EQ(1,'<span class="rm">classical:</span> P(heads) = p, &nbsp; P(tails) = 1 &minus; p &nbsp; <span class="rm">(a face exists, hidden or not)</span>')
+  +EQ(2,'<span class="rm">quantum:</span> |&psi;&rang; = &alpha;|&uarr;&rang; + &beta;|&darr;&rang;, &nbsp; &alpha; = &radic;p, &beta; = &radic;(1&minus;p)')
+  +EQ(3,'P(&uarr;) = |&lang;&uarr;|&psi;&rang;|&sup2; = |&alpha;|&sup2;, &nbsp; <span class="rm">then</span> |&psi;&rang; &rarr; |&uarr;&rang;')
+  +EQ(4,'P(k of N) = C(N,k) p<sup>k</sup>(1&minus;p)<sup>N&minus;k</sup>, &nbsp; &lang;k&rang; = Np, &nbsp; &sigma;<sub>k</sub> = &radic;(Np(1&minus;p))')
+  +'<p>Both coins give the same odds when they are looked at face-on: nothing measured along the up&ndash;down axis can tell a hidden '
+  +'classical face from a superposition. PhET&rsquo;s seeded sets draw u &lt; p for heads (or up) one coin at a time; this remake does '
+  +'the same from one mulberry32 stream.</p>'
+  +'<div class="cite">pins: the stream against derive.py bit for bit; one coin flipped 10 000 times (3011 heads at p = 0.3, 4&sigma; = 183); '
+  +'10 000 coins (3490 at p = 0.35); 2000 sets of 100 against the binomial, &chi;&sup2; = 20.36 on 28 dof (scipy&rsquo;s 99.9 % point 56.9)</div>';
+
+/* ================================================================== *
+ *  THE BINOMIAL view: N identical coins, over and over — shared       *
+ * ================================================================== */
+const BIN_DRAWS=2e6;            /* cap on M x N so a slider move stays interactive */
+const RUN_LEN=10000;            /* the long run in the bottom panel */
+const SPREAD_NS=[10,100,1000,10000], SPREAD_M=200;
+/* Wilson-Hilferty: the chi-square quantile for display (pinned against scipy) */
+function chi2Quantile(nu,z){ const a=2/(9*nu); return nu*Math.pow(1-a+z*Math.sqrt(a),3); }
+const Z999=3.090232306167813;   /* the standard normal's 99.9 % point (scipy.stats.norm.ppf(0.999)) */
+function binEffM(N,M){ return Math.max(1,Math.min(M,Math.floor(BIN_DRAWS/N))); }
+/* the histogram window: +-5 sd around Np, binned to at most ~40 bars */
+function binWindow(N,p){
+  const sd=binomSD(N,p), mu=N*p;
+  let lo=Math.max(0,Math.floor(mu-5*sd)-1), hi=Math.min(N,Math.ceil(mu+5*sd)+1);
+  if(sd===0){ lo=Math.max(0,mu-2); hi=Math.min(N,mu+2); }
+  const w=Math.max(1,Math.ceil((hi-lo+1)/40));
+  return {lo,hi,w,nb:Math.ceil((hi-lo+1)/w)};
+}
+function binSpread(p,seed){
+  return memo('binSpread',p+':'+seed,()=>SPREAD_NS.map((N,i)=>{ const r=repeatsRun(seed+1000+i,N,p,Math.min(SPREAD_M,Math.floor(1e6/N)));
+    return {N, sd:Math.sqrt(r.v)/N, law:Math.sqrt(p*(1-p)/N), M:r.M}; }));
+}
+function binRun(p,seed){
+  return memo('binRun',p+':'+seed,()=>{ const R=rngMake(seed+7777), f=new Float64Array(RUN_LEN); let k=0;
+    for(let i=0;i<RUN_LEN;i++){ if(rngNext(R)<p) k++; f[i]=k/(i+1); } return f; });
+}
+function binomModel(st){
+  const N=st.binN, p=st.binP, M=binEffM(N,st.binM), seed=st.binSeed;
+  const r=memo('binRep',[N,p,M,seed].join(':'),()=>repeatsRun(seed,N,p,M));
+  const m={N,p,M,Mask:st.binM,capped:M<st.binM,seed,r,mu:N*p,sd:binomSD(N,p)};
+  m.sdMean=m.sd/Math.sqrt(M); m.zMean=m.sdMean>0?(r.mean-m.mu)/m.sdMean:NaN;
+  m.q999=r.dof>0?chi2Quantile(r.dof,Z999):NaN;
+  const W=binWindow(N,p); m.win=W;
+  m.hObs=new Float64Array(W.nb); m.hPmf=new Float64Array(W.nb);
+  for(let k=W.lo;k<=W.hi;k++){ const b=Math.floor((k-W.lo)/W.w); m.hObs[b]+=r.obs[k]/M; m.hPmf[b]+=binomPmf(N,k,p); }
+  m.outside=0; for(let k=0;k<=N;k++) if(k<W.lo||k>W.hi) m.outside+=r.obs[k];
+  m.spread=binSpread(p,seed); m.run=binRun(p,seed);
+  return m;
+}
+function binomGeo(ctx,W,H,Cap){
+  const narrow=isNarrow(W), top=stageTop()+30, left=narrow?48:66;
+  const rightTop=narrow?W-18:W-RO_W-44;
+  const fit=capLayout(ctx,W,H,Cap.full,Cap.short,left,narrow?W-18:W-26,top+300);
+  const avail=fit.capY-16-top;
+  const upH=Math.max(140,Math.min(narrow?220:330,avail*0.56));
+  const wA=narrow?(rightTop-left)*0.56:Math.min(520,(rightTop-left)*0.55);
+  const A=box(left,top+12,wA,upH-40);
+  const B=box(A.x1+(narrow?50:76),top+12,Math.max(100,rightTop-(A.x1+(narrow?50:76))),upH-40);
+  /* no floor: the long-run panel is skipped when it does not fit */
+  const lowTop=top+upH+30, C=box(left,lowTop,Math.min(narrow?W-18-left:760,(narrow?W-18:W-26)-left),fit.capY-16-lowTop-26);
+  return {narrow,top,left,fit,A,B,C};
+}
+/* run: whether the long-run panel is drawn (the caption names it only then) */
+function binomCaption(M,run){
+  const r=run!==false;
+  const m=M.N, W=m.win;
+  return {full:'Left: '+m.M+' sets of '+fmtN(m.N)+' coins at p = '+fmt(m.p,2)+', each set counted, against the exact binomial (orange)'+(W.w>1?'; bars are '+W.w+' counts wide':'')+'. Right: the spread of the fraction k/N falls as √(p(1−p)/N) — log–log axes, slope −½.'+(r?' Below: one run of '+fmtN(RUN_LEN)+' flips, its running fraction inside p ± 2σ (log n axis).':''),
+          short:m.M+' sets of '+fmtN(m.N)+' against the binomial; the spread √(p(1−p)/N) (log–log)'+(r?'; one long run.':'.')};
+}
+/* the caption and the geometry together: the long-run panel is optional */
+function binomLayout(ctx,W,H,M){ return layoutNamed(r=>binomCaption(M,r),Cap=>binomGeo(ctx,W,H,Cap),G=>G.C.h>=55); }
+function drawBinom(ctx,W,H,M){
+  const m=M.N, LY=binomLayout(ctx,W,H,M), Cap=LY.Cap, G=LY.G, A=G.A, B=G.B, C=G.C, Wn=m.win;
+  /* the histogram against the pmf */
+  let ymax=0; for(let i=0;i<Wn.nb;i++) ymax=Math.max(ymax,m.hObs[i],m.hPmf[i]); ymax=ymax>0?ymax*1.18:1;
+  const xlo=Wn.lo-0.5, xhi=Wn.lo+Wn.nb*Wn.w-0.5;
+  /* k is a count: integer ticks only, never a label on the corner at a half */
+  const kt=ticksFor(Wn.lo,Wn.lo+Wn.nb*Wn.w-1,A.w<300?4:6).filter(v=>Math.abs(v-Math.round(v))<1e-9);
+  axesT(ctx,A,xlo,xhi,0,ymax,{xticks:kt,xfmt:v=>String(Math.round(v)),yticks:ticksFor(0,ymax,A.h<120?2:4),xlab:'k, the number of '+(M.coinWordUp||'heads')+' in a set of '+fmtN(m.N),
+    title:fitTitle(A,m.M+' sets of '+fmtN(m.N)+': counted, against the binomial','sets against the binomial')});
+  const bw=A.w/Wn.nb;
+  ctx.beginPath(); for(let i=0;i<Wn.nb;i++){ const h=m.hObs[i]; if(h>0){ const X=A.x+i*bw, Y=py(A,h,0,ymax); ctx.rect(X+bw*0.12,Y,bw*0.76,A.y1-Y); } }
+  ctx.fillStyle=shade(COL.pos,0.8); ctx.fill();
+  const cx=[], cy=[]; for(let i=0;i<Wn.nb;i++){ cx.push(Wn.lo+(i+0.5)*Wn.w-0.5); cy.push(m.hPmf[i]); }
+  polyline(ctx,A,cx,cy,xlo,xhi,0,ymax,COL.ref,2);
+  for(let i=0;i<Wn.nb;i++) mark(ctx,px(A,cx[i],xlo,xhi),py(A,cy[i],0,ymax),'o',COL.ref,2.4);
+  vCursor(ctx,A,m.mu,xlo,xhi,COL.ref);
+  legendAuto(ctx,A,[[COL.pos,'the sets, counted'],[COL.ref,'the exact binomial']]);
+  if(m.outside>0) lab(ctx,W,H,A.x+4,A.y+10,m.outside+' sets fell outside ±5σ',COL.ref,SM_FONT,'left','middle');
+  /* the spread law, log-log */
+  const sp=m.spread, deg=m.p<=0||m.p>=1;
+  if(deg){ frame(ctx,B,COL.edge); lab(ctx,W,H,B.x+B.w/2,B.y+B.h/2,'p = '+fmt(m.p,2)+': every set is the same, the spread is exactly 0',COL.dim,SM_FONT,'center','middle'); }
+  else {
+    const lo=Math.log10(Math.sqrt(m.p*(1-m.p)/10000))-0.4, hi=Math.log10(Math.sqrt(m.p*(1-m.p)/10))+0.35;
+    axesT(ctx,B,1,4,lo,hi,{xticks:[1,2,3,4],xfmt:v=>'10'+['','¹','²','³','⁴'][v],yticks:ticksFor(Math.ceil(lo),Math.floor(hi),3).filter(v=>Math.abs(v-Math.round(v))<1e-9),yfmt:v=>'10'+(v<0?'⁻':'')+['⁰','¹','²','³','⁴','⁵'][Math.abs(Math.round(v))],
+      xlab:'N (log)',title:fitTitle(B,'the spread of k/N: √(p(1−p)/N), slope −½','the spread, log–log')});
+    polyline(ctx,B,[1,4],[Math.log10(Math.sqrt(m.p*(1-m.p)/10)),Math.log10(Math.sqrt(m.p*(1-m.p)/10000))],1,4,lo,hi,COL.ref,2);
+    for(const s of sp) if(s.sd>0) mark(ctx,px(B,Math.log10(s.N),1,4),clamp(py(B,Math.log10(s.sd),lo,hi),B.y,B.y1),'o',COL.pos,4);
+    lab(ctx,W,H,B.x+6,B.y1-12,'log–log',COL.faint,SM_FONT,'left','middle');
+  }
+  /* one long run */
+  if(!G.panelOff&&C.h>=55){
+    const n0=Math.log10(1), n1=Math.log10(RUN_LEN);
+    axesT(ctx,C,n0,n1,0,1,{xticks:[0,1,2,3,4],xfmt:v=>['1','10','100','1000','10⁴'][v],yticks:C.h<100?[0,0.5,1]:[0,0.25,0.5,0.75,1],xlab:C.h>=95?'flips so far, n (log)':'',
+      title:fitTitle(C,'one coin flipped '+fmtN(RUN_LEN)+' times: the running fraction, inside p ± 2√(p(1−p)/n)','one long run')});
+    const xs=[], ys=[], fu=[], fd=[], fp=[];
+    for(let i=0;i<RUN_LEN;i=i<100?i+1:Math.ceil(i*1.02)){ const n=i+1, sd=Math.sqrt(m.p*(1-m.p)/n); xs.push(Math.log10(n)); ys.push(m.run[i]); fu.push(m.p+2*sd); fd.push(m.p-2*sd); fp.push(m.p); }
+    xs.push(n1); ys.push(m.run[RUN_LEN-1]); const sdE=Math.sqrt(m.p*(1-m.p)/RUN_LEN); fu.push(m.p+2*sdE); fd.push(m.p-2*sdE); fp.push(m.p);
+    polyline(ctx,C,xs,fu,n0,n1,0,1,COL.ref,1.2,[5,4]); polyline(ctx,C,xs,fd,n0,n1,0,1,COL.ref,1.2,[5,4]); polyline(ctx,C,xs,fp,n0,n1,0,1,COL.ref,1.4);
+    polyline(ctx,C,xs,ys,n0,n1,0,1,COL.pos,1.8);
+    legendAuto(ctx,C,[[COL.pos,'the running fraction k/n'],[COL.ref,'p, and p ± 2σ (dashed)']]);
+  }
+  drawCap(ctx,G.left,G.fit);
+  return G;
+}
+function binomReadout(M){
+  const m=M.N, r=m.r;
+  return hd('the experiment')+rrow('N coins, bias p',fmtN(m.N)+', '+fmt(m.p,2))+rrow('sets M',m.M+(m.capped?' (capped at '+Math.floor(BIN_DRAWS/m.N)+')':''))+rrow('seed',String(m.seed))
+    +hd('the law')+rrow('mean Np',sigf(m.mu,5))+rrow('sd &radic;(Np(1&minus;p))',sigf(m.sd,5))+rrow('sd of k/N',sigf(m.sd/m.N,4))
+    +hd('the sets')+rrow('sample mean',sigf(r.mean,6),'good')+rrow('&nbsp;&nbsp;(mean &minus; Np)/(&sigma;/&radic;M)',isFinite(m.zMean)?fmt(m.zMean,2):'exact',Math.abs(m.zMean)>4?'bad':'')
+    +rrow('sample variance',sigf(r.v,5))+rrow('&chi;&sup2; / dof',r.dof>0?fmt(r.chi,2)+' / '+r.dof:'&mdash;',r.dof>0&&r.chi>m.q999?'bad':'good')
+    +rrow('99.9 % point (Wilson&ndash;Hilferty)',isFinite(m.q999)?fmt(m.q999,1):'&mdash;')
+    +hd('one run of '+fmtN(RUN_LEN))+rrow('final fraction',fmt(m.run[RUN_LEN-1],4))+rrow('p &plusmn; 2&sigma;',fmt(m.p,2)+' &plusmn; '+fmt(2*Math.sqrt(m.p*(1-m.p)/RUN_LEN),4));
+}
+function binomEq(M){ return ['<span class="hl">P(k) = C(N,k) p<sup>k</sup>(1&minus;p)<sup>N&minus;k</sup></span> &nbsp;&middot;&nbsp; &lang;k&rang; = Np, &nbsp; &sigma;<sub>k</sub> = &radic;(Np(1&minus;p)), &nbsp; &sigma;<sub>k/N</sub> = &radic;(p(1&minus;p)/N)',
+  'the fraction of heads settles on p, and its spread shrinks as one over the square root of the number of coins']; }
+function binomTag(M){ const m=M.N; return '<b>the binomial</b> — '+m.M+' sets of N = '+fmtN(m.N)+' at p = '+fmt(m.p,2); }
+const INFO_BINOM='Flip N identical coins and count the heads, k. Do it again and k changes; do it many times and the counts pile up into the binomial '
+  +'distribution, C(N,k) p<sup>k</sup>(1&minus;p)<sup>N&minus;k</sup>, centred on Np with a spread &radic;(Np(1&minus;p)). The spread grows with N, but '
+  +'more slowly than N does, so the FRACTION k/N tightens as &radic;(p(1&minus;p)/N): ten coins give a fraction good to about &plusmn;0.16, ten '
+  +'thousand to &plusmn;0.005. That is why PhET&rsquo;s ten thousand coins look deterministic and its ten look like noise, and it is the same law '
+  +'whether the coins are classical or quantum. The sets here are seeded, so every number is reproducible; the &chi;&sup2; against the exact '
+  +'binomial should sit near its degrees of freedom. The bottom panel follows one long run of flips and watches its fraction wander '
+  +'into the funnel p &plusmn; 2&radic;(p(1&minus;p)/n).';
+const DERIV_BINOM='<h4>counting identical coins</h4>'
+  +EQ(1,'P(k) = C(N,k) p<sup>k</sup>(1&minus;p)<sup>N&minus;k</sup>, &nbsp; ln n! = n ln n &minus; n + &frac12;ln 2&pi;n + '+FR('1','12n')+' &minus; &hellip;')
+  +EQ(2,'&lang;k&rang; = Np, &nbsp; Var k = Np(1&minus;p), &nbsp; &sigma;<sub>k/N</sub> = &radic;(p(1&minus;p)/N)')
+  +EQ(3,'&chi;&sup2; = &Sigma; (O<sub>b</sub> &minus; E<sub>b</sub>)&sup2;/E<sub>b</sub>, &nbsp; <span class="rm">bins merged until</span> E<sub>b</sub> &ge; 5')
+  +'<p>ln n! is a table of summed logs to 30 and Stirling above it (truncation below 10<sup>&minus;16</sup>); it matches math.lgamma to 1 part in 10<sup>16</sup>, '
+  +'and the pmf matches scipy to 10<sup>&minus;10</sup>. The tolerances in selfTest come from the variances: a sample mean within 4&sigma;/&radic;M, a '
+  +'&chi;&sup2; below scipy&rsquo;s 99.9 % point.</p>'
+  +'<div class="cite">pins: 1000 sets of 100 at p = 0.3, mean 29.951, &chi;&sup2; 34.07 / 23; 200 sets of 10 000 at 0.5, mean 4997.815, &chi;&sup2; 36.41 / 34; '
+  +'3000 sets of 10 at 0.65, &chi;&sup2; 4.22 / 8 &mdash; derive.py</div>';
+
+/* ================================================================== *
+ *  THE HIDDEN DIFFERENCE view: a hidden face against a superposition, *
+ *  face-on and sideways                                               *
+ * ================================================================== */
+/* the two coins at bias p, as Bloch vectors: the hidden classical face is a
+   MIXTURE (0, 0, 2p-1), inside the ball; the quantum coin is the pure state
+   sqrt(p)|up> + sqrt(1-p)|down>, on the sphere at (2 sqrt(p(1-p)), 0, 2p-1) */
+function mixBloch(p){ return [0,0,2*p-1]; }
+function pureBloch(p){ return [2*Math.sqrt(p*(1-p)),0,2*p-1]; }
+function mixPx(p){ return bornP(mixBloch(p),[1,0,0]); }        /* 1/2, whatever p */
+function purePx(p){ return bornP(pureBloch(p),[1,0,0]); }      /* (1 + 2 sqrt(p(1-p)))/2 */
+function mixPurity(p){ return p*p+(1-p)*(1-p); }
+/* seeded runs through the engine's own draws: n classical faces (u < p, as a
+   coin set draws), n hidden faces turned sideways (the face, then a Born draw
+   along x), n quantum coins face-on and n sideways (measureAlong) */
+function mixRun(seed,p,n){
+  const R=rngMake(seed), rq=pureBloch(p); let cz=0,cx=0,qz=0,qx=0;
+  for(let i=0;i<n;i++) if(rngNext(R)<p) cz++;
+  for(let i=0;i<n;i++){ const face=rngNext(R)<p; if(measureAlong(R,face?[0,0,1]:[0,0,-1],[1,0,0]).up) cx++; }
+  for(let i=0;i<n;i++) if(measureAlong(R,rq,[0,0,1]).up) qz++;
+  for(let i=0;i<n;i++) if(measureAlong(R,rq,[1,0,0]).up) qx++;
+  return {cz,cx,qz,qx,n};
+}
+function mixModel(st){
+  const p=st.mixP, n=st.mixShots, seed=st.mixSeed;
+  const run=memo('mixRun',[p,n,seed].join(':'),()=>mixRun(seed,p,n));
+  const sd=q=>Math.sqrt(q*(1-q)/n);
+  return {p,n,seed,run, pz:p, pxC:mixPx(p), pxQ:purePx(p), coh:Math.sqrt(p*(1-p)), purC:mixPurity(p),
+          f:{cz:run.cz/n,cx:run.cx/n,qz:run.qz/n,qx:run.qx/n}, sd:{z:sd(p),xc:sd(mixPx(p)),xq:sd(purePx(p))}};
+}
+function mixGeo(ctx,W,H,Cap){
+  const narrow=isNarrow(W), top=stageTop()+30, left=narrow?48:66;
+  const rightTop=narrow?W-18:W-RO_W-44;
+  const fit=capLayout(ctx,W,H,Cap.full,Cap.short,left,narrow?W-18:W-26,top+300);
+  const avail=fit.capY-16-top;
+  const upH=Math.max(140,Math.min(narrow?220:330,avail*0.56));
+  const wA=narrow?(rightTop-left)*0.58:Math.min(520,(rightTop-left)*0.56);
+  const A=box(left,top+12,wA,upH-40);
+  const discR=Math.max(30,Math.min((upH-80)/2,(rightTop-A.x1-90)/2.4));
+  const disc={cx:A.x1+60+discR*1.2,cy:A.y+(upH-40)/2,r:discR};
+  const lowTop=top+upH+30, C=box(left,lowTop,Math.min(narrow?W-18-left:720,(narrow?W-18:W-26)-left),fit.capY-16-lowTop-26);
+  return {narrow,top,left,fit,A,disc,C};
+}
+/* below: whether the P(+x)-against-p panel is drawn (the caption names it only then) */
+function mixCaption(M,below){
+  const m=M.X;
+  return {full:'Left: '+m.n+' seeded coins of each kind at p = '+fmt(m.p,2)+', measured face-on (up or down) and sideways (along x). Face-on the two coins are indistinguishable: P(up) = p for both. Sideways, a hidden face is a coin already up or down, and gives ½; the superposition gives (1 + 2√(p(1−p)))/2. Right: the two states on the Bloch disc — the mixture inside, the superposition on the edge.'+(below!==false?' Below: P(+x) against p.':''),
+          short:'Face-on the coins agree; sideways the hidden face gives ½ and the superposition (1 + 2√(p(1−p)))/2.'};
+}
+/* the caption and the geometry together: the lower panel is optional */
+function mixLayout(ctx,W,H,M){ return layoutNamed(b=>mixCaption(M,b),Cap=>mixGeo(ctx,W,H,Cap),G=>G.C.h>=55); }
+function drawMix(ctx,W,H,M){
+  const m=M.X, LY=mixLayout(ctx,W,H,M), Cap=LY.Cap, G=LY.G, A=G.A, C=G.C, D=G.disc;
+  /* the four measurements against their laws */
+  axesT(ctx,A,0,5,0,1.1,{xticks:[],yticks:[0,0.25,0.5,0.75,1],title:fitTitle(A,'face-on and sideways: measured (green) against the law (orange)','face-on and sideways')});
+  const bars=[[0.7,m.f.cz,m.pz,m.sd.z,'classical'],[1.7,m.f.qz,m.pz,m.sd.z,'quantum'],[3.3,m.f.cx,m.pxC,m.sd.xc,'classical'],[4.3,m.f.qx,m.pxQ,m.sd.xq,'quantum']];
+  const bw=Math.min(46,A.w*0.12);
+  for(const [x,f,law,s,labt] of bars){
+    const X=px(A,x,0,5), Y=py(A,f,0,1.1);
+    ctx.fillStyle=shade(COL.pos,0.85); ctx.fillRect(X-bw/2,Y,bw,A.y1-Y);
+    ctx.beginPath(); ctx.moveTo(X-bw/2-6,py(A,law,0,1.1)); ctx.lineTo(X+bw/2+6,py(A,law,0,1.1)); ctx.strokeStyle=COL.ref; ctx.lineWidth=2.2; ctx.stroke();
+    errBar(ctx,A,x,f,s,0,5,0,1.1,'#e9f5c8');
+    lab(ctx,W,H,X,A.y1+10,labt,COL.text,SM_FONT,'center','middle');
+  }
+  lab(ctx,W,H,px(A,1.2,0,5),A.y1+26,'face-on: P(up)',COL.dim,SM_FONT,'center','middle');
+  lab(ctx,W,H,px(A,3.8,0,5),A.y1+26,'sideways: P(+x)',COL.dim,SM_FONT,'center','middle');
+  /* the Bloch disc (the x-z plane of the ball) */
+  ctx.beginPath(); ctx.arc(D.cx,D.cy,D.r,0,TAU); ctx.strokeStyle=COL.struct; ctx.lineWidth=1.2; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(D.cx-D.r-8,D.cy); ctx.lineTo(D.cx+D.r+8,D.cy); ctx.moveTo(D.cx,D.cy-D.r-8); ctx.lineTo(D.cx,D.cy+D.r+8);
+  ctx.setLineDash([4,3]); ctx.strokeStyle='#3d465e'; ctx.lineWidth=1; ctx.stroke(); ctx.setLineDash([]);
+  lab(ctx,W,H,D.cx+6,D.cy-D.r-10,'z: face-on',COL.dim,SM_FONT,'left','middle');
+  lab(ctx,W,H,D.cx+D.r+10,D.cy,'x: sideways',COL.dim,SM_FONT,'left','middle');
+  const rp=pureBloch(m.p), rc=mixBloch(m.p);
+  const Xp=D.cx+rp[0]*D.r, Yp=D.cy-rp[2]*D.r, Xc=D.cx+rc[0]*D.r, Yc=D.cy-rc[2]*D.r;
+  ctx.beginPath(); ctx.moveTo(D.cx,D.cy); ctx.lineTo(Xp,Yp); ctx.strokeStyle=COL.pos; ctx.lineWidth=2.6; ctx.stroke(); mark(ctx,Xp,Yp,'o',COL.pos,4.2);
+  ctx.beginPath(); ctx.moveTo(Xp,Yp); ctx.lineTo(Xp,D.cy); ctx.setLineDash([3,3]); ctx.strokeStyle=COL.pos; ctx.lineWidth=1; ctx.stroke(); ctx.setLineDash([]);
+  mark(ctx,Xc,Yc,'d',COL.neg,5);
+  lab(ctx,W,H,Xp+8,Yp-6,'quantum: pure',COL.pos,SM_FONT,'left','middle');
+  /* lifted off its own height: the mixture sits ON the z axis (r = (0,0,2p-1)),
+     so at p = 1/2 it is at the centre and the label sat on the x axis (looked at) */
+  lab(ctx,W,H,Xc-8,Yc-10,'classical: mixed',COL.neg,SM_FONT,'right','middle');
+  lab(ctx,W,H,D.cx,D.cy+D.r+18,'the Bloch disc (x–z)',COL.text,'italic 12.5px Georgia, serif','center','middle');
+  /* P(+x) against p */
+  if(!G.panelOff&&C.h>=55){
+    axesT(ctx,C,0,1,0,1.1,{xticks:[0,0.25,0.5,0.75,1],yticks:C.h<100?[0,0.5,1]:[0,0.25,0.5,0.75,1],xlab:C.h>=95?'the bias p = P(up)':'',
+      xfmt:v=>v===0?'0':fmt(v,2),yfmt:v=>v===0?'0':fmt(v,2),          /* a bare 0 keeps the corner ticks apart */
+      title:fitTitle(C,'sideways: P(+x) = ½ for a hidden face, (1 + 2√(p(1−p)))/2 for the superposition','P(+x) against the bias')});
+    const xs=[], yq=[], yc=[]; for(let i=0;i<=200;i++){ const p=i/200; xs.push(p); yq.push(purePx(p)); yc.push(mixPx(p)); }
+    polyline(ctx,C,xs,yq,0,1,0,1.1,COL.ref,2.2); polyline(ctx,C,xs,yc,0,1,0,1.1,COL.ref,1.5,[6,4]);
+    vCursor(ctx,C,m.p,0,1);
+    errBar(ctx,C,m.p,m.f.qx,m.sd.xq,0,1,0,1.1,COL.pos); mark(ctx,px(C,m.p,0,1),py(C,m.f.qx,0,1.1),'o',COL.pos,4.2);
+    errBar(ctx,C,m.p,m.f.cx,m.sd.xc,0,1,0,1.1,COL.neg); mark(ctx,px(C,m.p,0,1),py(C,m.f.cx,0,1.1),'d',COL.neg,4.2);
+    legendAuto(ctx,C,[[COL.ref,'superposition (solid)'],[mix(COL.bg,COL.ref,0.75),'hidden face (dashed)'],[COL.pos,'quantum, seeded'],[COL.neg,'classical, seeded (diamond)']]);
+  }
+  drawCap(ctx,G.left,G.fit);
+  return G;
+}
+function mixReadout(M){
+  const m=M.X, f=m.f;
+  return hd('at p = '+fmt(m.p,2))
+    +rrow('&rho; hidden face',"diag("+fmt(m.p,3)+', '+fmt(1-m.p,3)+')')
+    +rrow('&rho; superposition, off-diagonal',fmt(m.coh,4),'good')
+    +rrow('purity Tr&rho;&sup2;: hidden, superposition',fmt(m.purC,3)+', 1')
+    +hd('face-on: P(up)')+rrow('both, exactly',fmt(m.pz,4))+rrow('measured: hidden, superposition',fmt(f.cz,3)+', '+fmt(f.qz,3))
+    +hd('sideways: P(+x)')+rrow('hidden face: &frac12;',fmt(m.pxC,4))+rrow('superposition: (1 + 2&radic;(p(1&minus;p)))/2',fmt(m.pxQ,4),'good')
+    +rrow('measured: hidden, superposition',fmt(f.cx,3)+', '+fmt(f.qx,3))+rrow('shots of each, seed',m.n+', '+m.seed);
+}
+function mixEq(M){ return ['<span class="hl">&rho;<sub>hidden</sub> = diag(p, 1&minus;p)</span>, &nbsp; &rho;<sub>quantum</sub> = |&psi;&rang;&lang;&psi;| <span class="rm">with off-diagonal</span> &radic;(p(1&minus;p)) &nbsp;&middot;&nbsp; P(+x) = &frac12; <span class="rm">against</span> (1 + 2&radic;(p(1&minus;p)))/2',
+  'the same odds face-on; only a measurement along another axis sees the coherence that makes the coin quantum']; }
+function mixTag(M){ return '<b>the hidden difference</b> — p = '+fmt(M.X.p,2)+', '+M.X.n+' coins of each kind'; }
+const INFO_MIX='Face-on, the two coins cannot be told apart. A classical coin that was flipped and hidden comes up heads with probability p. '
+  +'A quantum coin prepared as &radic;p|&uarr;&rang; + &radic;(1&minus;p)|&darr;&rang; comes up with probability p. No number of face-on '
+  +'measurements will ever separate them. The difference is in the density matrix. The hidden face is a mixture, diag(p, 1&minus;p): the coin '
+  +'is up or it is down and you do not know which. The quantum coin has off-diagonal terms &radic;(p(1&minus;p)) as well. Those terms '
+  +'are invisible face-on and decisive sideways. Measure along x and a hidden face, being already up or down, splits evenly: &frac12;, '
+  +'whatever p is. The superposition goes +x with probability (1 + 2&radic;(p(1&minus;p)))/2, which reaches 1 at p = &frac12;. On the Bloch '
+  +'disc the mixture sits inside the ball, on the axis; the superposition sits on the edge, tilted toward x by exactly that coherence.';
+const DERIV_MIX='<h4>a mixture against a superposition</h4>'
+  +EQ(1,'&rho;<sub>hidden</sub> = p|&uarr;&rang;&lang;&uarr;| + (1&minus;p)|&darr;&rang;&lang;&darr;|, &nbsp; r = (0, 0, 2p&minus;1)')
+  +EQ(2,'&rho;<sub>quantum</sub> = |&psi;&rang;&lang;&psi;|, &nbsp; |&psi;&rang; = &radic;p|&uarr;&rang; + &radic;(1&minus;p)|&darr;&rang;, &nbsp; r = (2&radic;(p(1&minus;p)), 0, 2p&minus;1)')
+  +EQ(3,'P(&uarr;) = &frac12;(1 + r<sub>z</sub>) = p <span class="rm">for both;</span> &nbsp; P(+x) = &frac12;(1 + r<sub>x</sub>)')
+  +EQ(4,'Tr&rho;&sup2; = p&sup2; + (1&minus;p)&sup2; <span class="rm">(mixture)</span> <span class="rm">against</span> 1 <span class="rm">(pure)</span>')
+  +'<p>The seeded runs go through the engine&rsquo;s own draws: the hidden face is drawn as a coin draws it, u &lt; p, and then '
+  +'measured along x from &plusmn;z; the superposition is measured with measureAlong. derive.py builds both density matrices in numpy '
+  +'and takes Tr(&rho;P<sub>+x</sub>) independently.</p>'
+  +'<div class="cite">pins: P(z), P(+x), purity and the coherence at seven biases (numpy); four seeded runs, e.g. p = 0.7, 1000 of each: '
+  +'[674, 507, 721, 961]; at p = &frac12; the superposition goes +x 2000 times in 2000 &mdash; derive.py</div>';
+
+/* ================================================================== *
+ *  dispatch, the frame step, the pointer                              *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LABELS=[]; POLY_SEGS=[]; LEGEND_RECTS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(isCoinView(M.view)) return drawCoins(ctx,W,H,M);
+  if(M.view==='binom') return drawBinom(ctx,W,H,M);
+  return drawMix(ctx,W,H,M);
+}
+function viewGeo(ctx,W,H,M){
+  if(isCoinView(M.view)) return coinsLayout(ctx,W,H,M).G;
+  if(M.view==='binom') return binomLayout(ctx,W,H,M).G;
+  return mixLayout(ctx,W,H,M).G;
+}
+function inBox(x,y,b,pad){ pad=pad||0; return x>=b.x-pad&&x<=b.x1+pad&&y>=b.y-pad&&y<=b.y1+pad; }
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); return drawView(ctx,S.W,S.H,buildModel()); };
+  /* one frame: only a flip moves anything in this sim */
+  S.step=function(dtWall){
+    const dt=Math.max(0,dtWall||0); if(!(dt>0)) return false;
+    T_NOW+=dt;
+    if(!isCoinView(ST.view)) return false;
+    const sc=sceneOf(ST.view); const a=coinStep(sc,sc.single,dt), b=coinStep(sc,sc.set,dt); return a||b;
+  };
+  /* the pointer: clicking a coin (or the set) reveals or hides it, as PhET's button does */
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    if(type!=='down'||!isCoinView(ST.view)) return false;
+    const sc=sceneOf(ST.view); if(sc.preparing) return false;
+    const G=viewGeo(canvas.getContext('2d'),S.W,S.H,buildModel());
+    if(inBox(x,y,G.B)) return coinToggle(sc,sc.single);
+    if(inBox(x,y,G.C)) return coinToggle(sc,sc.set);
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+const INFO_CLASSICAL='PhET&rsquo;s classical coin always has a face. Prepare it heads or tails and send it to be measured: it arrives showing that '
+  +'face. Flip it and, a second later, it has a new one, heads with probability p, hidden under the cup. It is heads or tails from that moment, '
+  +'whether anyone looks or not. Revealing it only shows you what was already there, and hiding and revealing it again changes nothing. '
+  +'Ten, a hundred or ten thousand identical coins then count like a binomial, Np &plusmn; &radic;(Np(1&minus;p)): ten look like noise, ten '
+  +'thousand almost like a law. Click a coin on the canvas to reveal or hide it.';
+const INFO_QUANTUM='PhET&rsquo;s quantum &ldquo;coin&rdquo; is prepared, not flipped, in a state &alpha;|&uarr;&rang; + &beta;|&darr;&rang;. Until it is '
+  +'observed it has no face at all, and the picture draws both arrows, each as bright as its probability. Observing it gives &uarr; with '
+  +'probability |&alpha;|&sup2;: that is the Born rule, and the face comes into existence only then. After that the coin IS up, or down, and '
+  +'hiding and observing it again shows the same face every time; only a repreparation brings the superposition back. Set |&alpha;|&sup2; '
+  +'with the slider, or choose a basis state and the coin is certain. Its odds face-on are exactly a biased classical coin&rsquo;s. The '
+  +'last tab shows the measurement that tells them apart.';
+const INFO={classical:INFO_CLASSICAL,quantum:INFO_QUANTUM,binom:INFO_BINOM,mix:INFO_MIX};
+const DERIV={classical:DERIV_COINS,quantum:DERIV_COINS,binom:DERIV_BINOM,mix:DERIV_MIX};
+const CREDIT='Remake of PhET Interactive Simulations&rsquo; Quantum Coin Toss (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). '
+  +'New code; no PhET code or assets. PhET&rsquo;s values (the 1-s flip, 10/100/10 000 identical coins, bias steps of 0.05, the arrival '
+  +'states and the start-hidden preference) are read from its build 1.0.4 and quantum-measurement&rsquo;s doc/model.md. Everything else is '
+  +'exact and pinned in selfTest to build/quantum-measurement/derive.py and build/quantum-coin-toss/derive.py (a bit-exact PRNG twin, '
+  +'scipy&rsquo;s binomial and &chi;&sup2;, numpy density matrices).';
+const HINTS={classical:'click a coin to reveal or hide it · 1–4 switch views',quantum:'click a coin to observe or hide it · 1–4 switch views',
+  binom:'change the seed for a fresh set of runs',mix:'the runs are seeded: change the seed for fresh coins'};
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=ST;
+  let dirty=false;
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+  function setView(k){
+    st.view=k;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab2)));
+  const rows={}, syncers=[];
+  function sliderF(id,lab2,lo,hi,step2,get,set,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:get()});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=get(); val.textContent=fmtf(get()); };
+    inp.addEventListener('input',()=>{ set(parseFloat(inp.value)); val.textContent=fmtf(get()); syncPanel(); dirty=true; refresh(); });
+    rows[id]={row:rowEl,sync}; sync(); return rowEl;
+  }
+  function slider(key,lab2,lo,hi,step2,fmtf){ return sliderF(key,lab2,lo,hi,step2,()=>st[key],v=>{ st[key]=v; },fmtf); }
+  function checkbox(id,lab2,get,set){
+    const inp=h('input',{type:'checkbox'}); inp.checked=get();
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ set(inp.checked); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+id]={row:el,sync:()=>{ inp.checked=get(); }};
+    return el;
+  }
+  function chipRow(list,get,set){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>wrapEl.appendChild(h('button',{class:'chip',onclick:()=>{ set(o.id); syncPanel(); dirty=true; refresh(); }},o.name)));
+    syncers.push(()=>[].forEach.call(wrapEl.children,(b,i)=>b.className='chip'+(list[i].id===get()?' on':'')));
+    return wrapEl;
+  }
+  function btn(label,fn){ return h('button',{onclick:()=>{ fn(); syncPanel(); dirty=true; refresh(); }},label); }
+  function grp(title){ return h('div',{class:'grp'},h('h3',null,title)); }
+  const sc=()=>sceneOf(st.view);
+
+  const gCoin=grp('prepare the coin');
+  const initC=chipRow([{id:'heads',name:'heads'},{id:'tails',name:'tails'}],()=>COINS.classical.init,v=>{ COINS.classical.init=v; });
+  const initQ=chipRow([{id:'up',name:'↑'},{id:'down',name:'↓'}],()=>quantumInit(COINS.quantum.p),v=>{ COINS.quantum.p=v==='up'?1:0; });
+  gCoin.appendChild(initC); gCoin.appendChild(initQ);
+  gCoin.appendChild(sliderF('bias','P(heads) / P(↑)',0,1,BIAS_STEP,()=>sc().p,v=>{ sc().p=snapBias(v); },v=>fmt(v,2)));
+  const goBtn=btn('send to measure',()=>sceneStart(sc())), newBtn=btn('new coin',()=>sceneNewCoin(sc()));
+  gCoin.appendChild(h('div',{class:'btnrow'},goBtn,newBtn));
+  const hiddenRow=h('div',{class:'checks'},checkbox('hidden','classical coins start hidden',()=>COINS.classical.startsHidden,v=>{ COINS.classical.startsHidden=v; }));
+  gCoin.appendChild(hiddenRow);
+  const coinTag=h('div',{class:'tag'}); gCoin.appendChild(coinTag);
+  const gOne=grp('one coin'), gSet=grp('N identical coins');
+  const oneTog=btn('reveal',()=>coinToggle(sc(),sc().single)), oneFlip=btn('flip',()=>coinPrepare(sc(),sc().single,false)), oneFR=btn('flip and reveal',()=>coinPrepare(sc(),sc().single,true));
+  gOne.appendChild(h('div',{class:'btnrow'},oneTog,oneFlip)); gOne.appendChild(h('div',{class:'btnrow'},oneFR));
+  const nChips=chipRow(COIN_NS.map(n=>({id:n,name:n===10000?'10 000':String(n)})),()=>sc().set.n,v=>setCoinCount(sc(),v));
+  gSet.appendChild(nChips);
+  const setTog=btn('reveal all',()=>coinToggle(sc(),sc().set)), setFlip=btn('flip all',()=>coinPrepare(sc(),sc().set,false)), setFR=btn('flip and reveal all',()=>coinPrepare(sc(),sc().set,true));
+  gSet.appendChild(h('div',{class:'btnrow'},setTog,setFlip)); gSet.appendChild(h('div',{class:'btnrow'},setFR));
+  const gBin=grp('the binomial');
+  gBin.appendChild(chipRow(COIN_NS.map(n=>({id:n,name:'N = '+(n===10000?'10 000':n)})),()=>st.binN,v=>{ st.binN=v; }));
+  gBin.appendChild(slider('binP','bias p',0,1,BIAS_STEP,v=>fmt(v,2)));
+  gBin.appendChild(slider('binM','sets M',100,5000,100,v=>fmt(v,0)));
+  gBin.appendChild(slider('binSeed','seed ',1,99,1,v=>fmt(v,0)));
+  const gMix=grp('the two coins');
+  gMix.appendChild(slider('mixP','bias p = P(up)',0,1,BIAS_STEP,v=>fmt(v,2)));
+  gMix.appendChild(slider('mixShots','coins of each kind',100,5000,100,v=>fmt(v,0)));
+  gMix.appendChild(slider('mixSeed','seed',1,99,1,v=>fmt(v,0)));
+  const gInfo=grp('what you are looking at');
+  gInfo.appendChild(h('div',{id:'info'}));
+  gInfo.appendChild(h('div',{class:'btnrow'},btn('reset all',()=>resetAll())));
+  gInfo.appendChild(h('div',{class:'src',html:CREDIT}));
+  const gPhys=grp('the physics'); gPhys.appendChild(h('div',{id:'phys'}));
+  const GROUPS=[gCoin,gOne,gSet,gBin,gMix,gInfo,gPhys];
+  GROUPS.forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+  function resetAll(){ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; resetScenes(); for(const k in MEMO) delete MEMO[k]; }
+  /* a control the view ignores is hidden, never live and inert */
+  function syncPanel(){
+    const v=st.view, coinV=isCoinView(v), c=sc(), q=c.quantum, prep=c.preparing;
+    gCoin.hidden=!coinV; initC.hidden=!coinV||q; initQ.hidden=!coinV||!q; hiddenRow.hidden=!coinV||q;
+    goBtn.hidden=!prep; newBtn.hidden=prep;
+    rows.bias.row.children[0].textContent=q?'P(↑) = |α|²':'P(heads)';
+    oneTog.textContent=c.single.state==='revealed'?'hide':(q?'observe':'reveal');
+    oneFlip.textContent=q?'reprepare':'flip'; oneFR.textContent=q?'reprepare and observe':'flip and reveal';
+    setTog.textContent=c.set.state==='revealed'?'hide all':(q?'observe all':'reveal all');
+    setFlip.textContent=q?'reprepare all':'flip all'; setFR.textContent=q?'reprepare and observe all':'flip and reveal all';
+    gOne.hidden=!coinV||prep; gSet.hidden=!coinV; nChips.hidden=!prep;
+    [oneTog,oneFlip,oneFR].forEach(b=>b.disabled=c.single.state==='preparing');
+    [setTog,setFlip,setFR].forEach(b=>{ b.disabled=c.set.state==='preparing'; b.hidden=prep; });
+    coinTag.innerHTML=prep?'prepare the coin, then send it to be measured':(q?'reprepare makes a fresh superposition; observe collapses it':'flip hides a new face; reveal shows it');
+    gBin.hidden=v!=='binom'; gMix.hidden=v!=='mix';
+    for(const k in rows) rows[k].sync();
+    for(const f of syncers) f();
+  }
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M); eqEl.innerHTML=eqbarHTML(M); tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=HINTS[st.view]||'';
+      infoEl.innerHTML=INFO[st.view]||''; physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+  canvas.addEventListener('pointerdown',e=>{
+    if(canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncPanel(); roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  canvas.addEventListener('pointerup',()=>{ S.pointer('up',0,0); });
+  window.addEventListener('keydown',e=>{ if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]); });
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+  let frameN=0, last=0, wasBusy=false;
+  function frameLoop(tm){
+    frameN++;
+    const dtw=last?Math.min((tm-last)/1000,0.05):0; last=tm;
+    const advanced=S.step(dtw);
+    if(advanced||dirty){ dirty=false; try{ S.draw(); if(advanced&&frameN%8===0) roEl.innerHTML=readoutHTML(S.model()); }catch(e){ fail(e); } }
+    /* a flip that has just finished changes the buttons: resync once */
+    const busy=isCoinView(st.view)&&sceneAnimating(sc());
+    if(wasBusy&&!busy){ syncPanel(); roEl.innerHTML=readoutHTML(S.model()); }
+    wasBusy=busy;
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+/* ================================================================== *
+ *  test library (shared by the family): a text-and-fill recorder, the *
+ *  layout checker, and the engine's pins.  Reference values labelled  *
+ *  (derive) are lines of build/quantum-measurement/refvals.txt, the   *
+ *  printed output of derive.py, read in full; (scipy) marks scipy.    *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null, nanPath=false, segs=[], cur=null;
+  const fin=(...a)=>{ for(const v of a) if(!isFinite(v)) nanPath=true; };
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); }, rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    /* line segments are kept per path (in canvas pixels) so the layout check
+       can see a stroke: the law's marks on the bars */
+    beginPath(){ pend=null; segs=[]; cur=null; }, moveTo(x,y){ fin(x,y); cur=app(x,y); },
+    lineTo(x,y){ fin(x,y); if(!pend) pend={n:0}; const p=app(x,y); if(cur) segs.push([cur[0],cur[1],p[0],p[1]]); cur=p; }, closePath(){},
+    rect(x,y,w,hh){ fin(x,y,w,hh); if(!pend) pend={n:0}; pend.n++; }, arc(x,y,r){ fin(x,y,r); if(!pend) pend={n:0}; pend.n++; cur=null; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); }, stroke(){ ops.push({op:'stroke',style:ctx.strokeStyle,lw:ctx.lineWidth,segs:segs.slice()}); }, clip(){},
+    fillRect(x,y,w,hh){ fin(x,y,w,hh); ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){ fin(x,y);
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+    nan(){ return nanPath; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>{ _fill=''+v; if(/NaN|undefined/.test(_fill)) nanPath=true; }});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+/* a negative zero on screen: toFixed prints cos 90 deg = -6e-17 as "-0.000"
+   (the photon view's "expected" at 45 deg, found in the capture).  A minus
+   glued to a zero that no other digit follows, and not a subtraction (no digit,
+   dot or letter before it). */
+const NEGZERO_RE=/(^|[^\d.\w])[-−]0(\.0+)?(?![\d.])/;
+function negZeroIn(s){ const p=plain(s), m=NEGZERO_RE.exec(p); return m?'"'+p.slice(Math.max(0,m.index-14),m.index+m[0].length+3)+'"':null; }
+/* one drawing, every layout rule: no throw, substance, clean text (no entity,
+   tag, NaN, negative zero), nothing off the canvas, nothing in the #hint's corner (the HTML
+   hint is 11px at bottom:11px, so it owns y > H - 27 on the left), no two
+   texts overlapping, no data curve through a legend, no non-finite geometry */
+function layoutCheck(T,name,draw,W,H,minFills){
+  const c=makeShot(W,H); let err=null;
+  try{ draw(c,W,H); }catch(e){ err=e; }
+  T.ok(!err,name+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+  if(err) return null;
+  const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+  T.ok(fills.length>=minFills&&texts.length>=1,name+' '+W+'x'+H+' draws substance ('+fills.length+' fills, floor '+minFills+')');
+  T.ok(!c.nan(),name+' '+W+'x'+H+' no non-finite coordinate or colour');
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  let bad=null;
+  for(const t of texts){
+    if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+    if(/undefined|NaN|Infinity/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+    if(NEGZERO_RE.test(t.t)){ bad='negative zero: "'+t.t.slice(0,48)+'"'; break; }
+    if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+  T.ok(!bad,name+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+  const inHint=texts.filter(t=>t.bb[0]<340&&t.bb[3]>H-27);
+  T.ok(!inHint.length,name+' '+W+'x'+H+' no canvas text under the #hint line'+(inHint.length?' ("'+inHint[0].t.slice(0,30)+'" to y '+fmt(inHint[0].bb[3],0)+')':''));
+  let hit=null;
+  for(let i=0;i<texts.length&&!hit;i++) for(let j=i+1;j<texts.length;j++){
+    const a=texts[i].bb,b=texts[j].bb, ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+    if(ox>0.5&&oy>0.5){ hit='"'+texts[i].t.slice(0,22)+'" vs "'+texts[j].t.slice(0,22)+'"'; break; } }
+  T.ok(!hit,name+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+  /* no text on a law mark (a short horizontal orange stroke, 2 px or wider:
+     the expected value on a bar).  A label set above its bar alone sat on the
+     0.5 mark when the bar stopped just short of it (28.1/s, looked at). */
+  let onMark=null;
+  { const marks=[];
+    for(const o of c.ops) if(o.op==='stroke'&&o.style===COL.ref&&o.lw>=2) for(const s of o.segs) if(Math.abs(s[1]-s[3])<0.5&&Math.abs(s[2]-s[0])<=90) marks.push(s);
+    for(const t of texts){ for(const s of marks){ const y=(s[1]+s[3])/2, xa=Math.min(s[0],s[2]), xb=Math.max(s[0],s[2]);
+        if(t.bb[0]<xb-0.5&&t.bb[2]>xa+0.5&&t.bb[1]<y+1.1&&t.bb[3]>y-1.1){ onMark='"'+t.t.slice(0,20)+'" on the mark at y '+fmt(y,0); break; } }
+      if(onMark) break; } }
+  T.ok(!onMark,name+' '+W+'x'+H+' no text on a law mark ('+(onMark||'ok')+')');
+  let leg=null;
+  for(const r of LEGEND_RECTS) for(let i=0;i<POLY_SEGS.length;i+=4){
+    const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+    if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+    leg='a curve crosses a legend'; break; }
+  T.ok(!leg,name+' '+W+'x'+H+' legend clear');
+  return c;
+}
+/* the engine's pins: the PRNG, the binomial, the coins */
+function engineTests(T){
+  const {ok,eq,close,rel}=T;
+  /* the shared-helper fixes cannot rot */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  ok(mix('#070b18',mix('#b8ec4c','#cd35c4',0.5),1)!=='rgb(0,0,0)','mix() output is a legal mix() input (not black)');
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  eq(tickFmt([0,0.25,0.5])(0.25),'0.25','tick labels follow the spacing (0.25 needs two decimals)'); eq(tickFmt([0,2,4])(4),'4','and 2 needs none');
+  close(90*DEG,Math.PI/2,1e-15,'DEG converts degrees INTO radians: 90 DEG = pi/2 (Known-bad: which way a unit constant converts)');
+  ok(NEGZERO_RE.test('(expected -0.000)')&&NEGZERO_RE.test('−0')&&NEGZERO_RE.test('x = −0.00 s')&&!!negZeroIn('P = &minus;0.000'),'the negative-zero rule catches -0.000, −0, −0.00 and &minus;0.000');
+  ok(!NEGZERO_RE.test('-0.5')&&!NEGZERO_RE.test('−0.05')&&!NEGZERO_RE.test('1−0.000')&&!NEGZERO_RE.test('1e-05')&&!NEGZERO_RE.test('-0.0001')&&!NEGZERO_RE.test('0.000'),'and passes -0.5, −0.05, a subtraction 1−0.000, 1e-05, -0.0001 and 0.000');
+  eq(fmt(-Math.cos(Math.PI/2),3),'-0.000','the trap: -cos 90 deg is -6e-17 in floating point and toFixed prints it -0.000');
+  eq(fmt0(-Math.cos(Math.PI/2),3),'0.000','fmt0 prints it 0.000');
+  eq(fmt0(-0.25,2),'-0.25','and keeps a real sign'); eq(fmt0(-0.0004,0),'0','and a negative that rounds to zero at any precision');
+  /* a bar's value against the law's mark (box y 100..300) */
+  { const b=box(0,100,100,200), at=(yt,ym)=>barValY(yt,ym,b);
+    ok(at(206,200).y===191&&!at(206,200).inside,'a 0.47 bar under the 0.5 mark: its value goes above the MARK, y 191 (it sat on the mark, looked at)');
+    ok(at(194,200).y===185&&at(206,undefined).y===197,'a 0.53 bar over the mark, and a bar with no mark: 9 px above the bar');
+    ok(at(100,150).y===110&&at(100,150).inside,'a full bar: inside it at the top, dark');
+    ok(at(100,106).y===116&&at(100,106).inside,'a full bar with the mark 6 px down: inside, under the mark');
+    ok(at(280,110).y===271,'a short bar under a high mark: just above the bar');
+    let worst=Infinity, outside=0;
+    for(const hb of [200,80,50]){ const bb=box(0,100,100,hb);
+      for(let i=0;i<=100;i++) for(let j=0;j<=20;j++){ const yt=bb.y1-hb*i/100, ym=bb.y1-hb*j/20, p=barValY(yt,ym,bb);
+        worst=Math.min(worst,Math.abs(p.y-ym)); if(p.y<bb.y+8||p.y>bb.y1-6||(p.inside&&p.y<yt+6)) outside++; } }
+    ok(worst>=BAR_CLEAR&&outside===0,'every bar height x every mark (3 boxes, 6363 pairs): the value clears the mark by '+fmt(worst,1)+' px (>= '+BAR_CLEAR+') and stays in its box ('+outside+' outside)');
+    let worstF=Infinity, outF=0;
+    for(const hb of [200,80,50]){ const bb=box(0,100,100,hb);
+      for(let i=0;i<=200;i++){ const p=i/200, ms=[py(bb,p,0,1),py(bb,1-p,0,1)], y=freeY(bb,ms);
+        worstF=Math.min(worstF,Math.abs(y-ms[0]),Math.abs(y-ms[1])); if(y<bb.y+8||y>bb.y1-8) outF++; } }
+    ok(worstF>=BAR_CLEAR&&outF===0,'the empty-box note clears both marks p and 1-p for every p (3 boxes, 603 cases) by '+fmt(worstF,1)+' px and stays in its box ('+outF+' outside)');
+    ok(freeY(b,[py(b,0.5,0,1)])===112&&freeY(b,[py(b,0.97,0,1),py(b,0.03,0,1)])===200,'the note: at the top (y 112) unless a mark is there, then the middle (y 200)'); }
+  { const F=[]; layoutCheck({ok:(c,msg)=>{ if(!c) F.push(msg); }},'probe',(ctx,W,H)=>{ LABELS=[]; POLY_SEGS=[]; LEGEND_RECTS=[];
+      ctx.fillStyle='#fff'; ctx.fillRect(10,10,20,20);
+      ctx.beginPath(); ctx.moveTo(40,100); ctx.lineTo(90,100); ctx.strokeStyle=COL.ref; ctx.lineWidth=2.2; ctx.stroke();
+      ctx.font=SM_FONT; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('28.1/s',65,97); },400,300,1);
+    ok(F.length===1&&/law mark/.test(F[0]),'the layout check flags a value label on a law mark, and only that ('+F.join('; ')+')'); }
+  /* ---- the PRNG, bit for bit ---- */
+  for(const [seed,want] of [[1,[0.6270739405881613,0.002735721180215478,0.5274470399599522,0.9810509674716741,0.9683778982143849]],
+      [42,[0.6011037519201636,0.44829055899754167,0.8524657934904099,0.6697340414393693,0.17481389874592423]],
+      [20260918,[0.2512540686875582,0.11133433040231466,0.9283873115200549,0.4453971297480166,0.5996743175201118]],
+      [2147483653,[0.5801103678531945,0.08632027637213469,0.9113832253497094,0.7611181102693081,0.923633924452588]]]){
+    const R=rngMake(seed), got=[]; for(let i=0;i<5;i++) got.push(rngNext(R));
+    ok(got.every((v,i)=>v===want[i]),'mulberry32 seed '+seed+': the first five draws, bit for bit (derive)');
+  }
+  { const R=rngMake(7); let v; for(let i=0;i<1000;i++) v=rngNext(R); eq(v,0.5222152776550502,'seed 7: the 1000th draw (derive)'); }
+  { const R=rngMake(3); let s=0, mn=1, mx=0; for(let i=0;i<100000;i++){ const u=rngNext(R); s+=u; if(u<mn) mn=u; if(u>mx) mx=u; }
+    rel(s/100000,0.5008785905108624,1e-12,'seed 3: the mean of 100 000 draws (derive)'); ok(Math.abs(s/100000-0.5)<4*0.0009128709291752768,'and within 4 sigma of 1/2 (sd sqrt(1/12/n) = 0.000913, derive)');
+    eq(mn,1.2770527973771095e-05,'its smallest draw (derive)'); eq(mx,0.9999905922450125,'its largest, below 1 (derive)'); }
+  { const a=rngMake(5), b={s:a.s}; rngNext(a); ok(b.s!==a.s,'the state is plain data: a copy does not advance with the original'); }
+  /* ---- ln n! and the binomial ---- */
+  for(const [n,lg] of [[5,4.787491742782047],[20,42.335616460753485],[30,74.65823634883016],[31,78.0922235533153],[100,363.73937555556347],[1000,5912.128178488163],[10000,82108.92783681436]])
+    rel(lnFact(n),lg,2e-15,'ln '+n+'! against math.lgamma (derive)');
+  { /* both branches across the join at 30: the table and the engine's own Stirling series (not a re-typed copy) */
+    rel(lnFactStirling(30),lnFact(30),2e-15,'at the join the Stirling series and the summed-log table agree (both branches pinned)');
+    rel(lnFactStirling(25),LNF[25],2e-15,'and below it, where the table rules');
+    let s=0; for(let i=1;i<=31;i++) s+=Math.log(i); rel(lnFact(31),s,2e-15,'ln 31! from Stirling = the brute-force sum of logs'); }
+  for(const [N,k,p,want] of [[10,3,0.3,0.2668279319999998],[100,50,0.5,0.07958923738717871],[10000,5000,0.5,0.007978646139382161],[10000,3500,0.35,0.008363866192253181],
+      [100,0,0.05,0.005920529220334024],[100,100,0.95,0.0059205292203339975],[10,10,0.5,0.0009765625],[1000,312,0.3,0.019369138407836956]])
+    rel(binomPmf(N,k,p),want,1e-10,'binomial pmf('+k+'; '+N+', '+p+') against scipy (scipy)');
+  { let s=0; for(let k=0;k<=10000;k++) s+=binomPmf(10000,k,0.35); close(s,1,1e-9,'the N = 10 000 pmf sums to 1 (derive: 1 + 2.5e-12)'); }
+  { const C=(n,k)=>{ let c=1; for(let i=1;i<=k;i++) c=c*(n-k+i)/i; return c; };
+    let w=0; for(let k=0;k<=10;k++) w=Math.max(w,Math.abs(binomPmf(10,k,0.3)-C(10,k)*Math.pow(0.3,k)*Math.pow(0.7,10-k)));
+    ok(w<1e-15,'the pmf at N = 10 equals the direct C(n,k) p^k q^(n-k) to '+w.toExponential(1)+' (brute force)'); }
+  eq(binomPmf(5,-1,0.4),0,'pmf outside 0..N is 0'); eq(binomPmf(7,0,0),1,'p = 0 puts everything on k = 0'); eq(binomPmf(7,7,1),1,'p = 1 on k = N');
+  rel(binomSD(10000,0.35),47.69696007084728,1e-15,'sd of 10 000 coins at 0.35 (derive)');
+  /* ---- the coins: the state machine through the SAME code the view runs ---- */
+  { const sc=makeCoinScene('classical',20260918); sc.p=0.3; sceneStart(sc);
+    eq(sc.single.state,'revealed','classical coins arrive showing the prepared face (PhET)'); eq(sc.single.vals[0],1,'heads, the prepared face');
+    const s0=sc.R.s; let first='';
+    for(let i=0;i<10000;i++){ coinPrepare(sc,sc.single,false); coinStep(sc,sc.single,0.5); coinStep(sc,sc.single,0.5); coinReveal(sc,sc.single); if(i<20) first+=sc.single.vals[0]; }
+    eq(first,'11000110000100000000','one coin flipped: its first 20 faces, bit for bit (derive)');
+    eq(sc.single.nUp,3011,'one coin flipped 10 000 times at p = 0.3: 3011 heads (derive)');
+    ok(Math.abs(3011-3000)<4*45.8257569495584,'within 4 sigma of Np = 3000 (sd 45.8, derive)');
+    eq(sc.single.nObs,10000,'and every flip was revealed once'); eq(sc.single.hist.length,HIST_KEEP,'the strip keeps the last '+HIST_KEEP);
+    ok(s0!==sc.R.s,'the flips consumed the stream'); }
+  { const sc=makeCoinScene('classical',11); sc.p=0.35; setCoinCount(sc,10000); eq(sc.set.n,10000,'the set takes 10 000 coins while preparing');
+    sceneStart(sc); eq(sc.set.kUp,10000,'all heads on arrival'); coinPrepare(sc,sc.set,false);
+    eq(sc.set.state,'preparing','a flip is under way'); coinStep(sc,sc.set,0.999); eq(sc.set.state,'preparing','still flipping at 0.999 s (PhET flips for 1 s)');
+    coinStep(sc,sc.set,0.002); eq(sc.set.state,'hidden','after 1 s the faces exist, under the cup');
+    const s1=sc.R.s, k=sc.set.kUp; coinReveal(sc,sc.set); eq(sc.R.s,s1,'revealing a classical coin draws NOTHING: the face was already there');
+    eq(sc.set.kUp,k,'and shows the face it had'); eq(sc.set.kUp,3490,'10 000 coins at p = 0.35: 3490 heads (derive)');
+    ok(Math.abs(3490-3500)<4*47.69696007084728,'within 4 sigma of Np'); coinHide(sc,sc.set); coinReveal(sc,sc.set); eq(sc.set.kUp,3490,'hide and reveal again: the same faces');
+    setCoinCount(sc,10); eq(sc.set.n,10000,'but not once the coins are being measured (PhET)'); }
+  { const sc=makeCoinScene('classical',3); setCoinCount(sc,10); sceneStart(sc); coinPrepare(sc,sc.set,true); coinStep(sc,sc.set,1);
+    eq(sc.set.state,'revealed','flip and reveal ends revealed'); eq(Array.from(sc.set.vals.slice(0,10)).join(''),'0111011110','ten coins at p = 0.5: the faces (derive)'); }
+  { const sc=makeCoinScene('quantum',99); sc.p=0.3; sceneStart(sc);
+    eq(sc.single.state,'ready','a quantum coin arrives READY: no face exists (PhET)'); const s0=sc.R.s;
+    coinHide(sc,sc.single); eq(sc.single.state,'ready','there is nothing to hide before it is observed'); eq(sc.R.s,s0,'and nothing was drawn');
+    coinReveal(sc,sc.single); ok(sc.R.s!==s0,'observing it draws: the collapse'); const v=sc.single.vals[0], s1=sc.R.s;
+    coinHide(sc,sc.single); coinReveal(sc,sc.single); eq(sc.single.vals[0],v,'hidden and observed again, it shows the same face'); eq(sc.R.s,s1,'without a new draw');
+    coinPrepare(sc,sc.single,false); coinStep(sc,sc.single,1); eq(sc.single.state,'ready','reprepared: ready again, faceless');
+    sc.p=1; for(let i=0;i<200;i++){ coinPrepare(sc,sc.single,true); coinStep(sc,sc.single,1); }
+    eq(sc.single.hist.slice(-HIST_KEEP).join(''),'1'.repeat(HIST_KEEP),'P(up) = |alpha|^2 = 1: always up');
+    sc.p=0; for(let i=0;i<60;i++){ coinPrepare(sc,sc.single,true); coinStep(sc,sc.single,1); } eq(sc.single.hist.join(''),'0'.repeat(HIST_KEEP),'= 0: always down');
+    sc.p=0.3; setCoinCount(sc,10000); }
+  { const sc=makeCoinScene('quantum',11); sc.p=0.35; sceneNewCoin(sc); setCoinCount(sc,10000); sceneStart(sc); coinReveal(sc,sc.set);
+    eq(sc.set.kUp,3490,'a quantum set observed from the same seed collapses to the same faces: the Born rule draws u < |alpha|^2 exactly as a bias does (derive)'); }
+  eq(quantumInit(1),'up','bias 1 is the basis state up'); eq(quantumInit(0),'down','0 is down'); eq(quantumInit(0.5),'superposition','between, a superposition');
+  eq(quantumInit(0.999),'superposition','and ANY bias short of 1 is a superposition (the contract, off the 0.05 grid)'); eq(quantumInit(0.001),'superposition','or above 0');
+  close(snapBias(0.33),0.35,1e-15,'the bias snaps to 0.05 (PhET)'); close(snapBias(0.31),0.3,1e-15,'both ways');
+  eq(snapBias(0.33),0.35,'and lands EXACTLY on the double nearest 0.35 (k/20, not k x 0.05 = 0.35000000000000003)');
+  { /* the collapse: after a measurement the state IS +n or -n, exactly (a sim
+       that only ever measures once cannot see this, so it is pinned here) */
+    const R=rngMake(1); let nUp=0, nDn=0, bad=0;
+    for(let i=0;i<60;i++){ const n=[Math.sin(i),0,Math.cos(i)], m=measureAlong(R,[0.6,0,0.8],n), s=m.up?1:-1;
+      if(m.up) nUp++; else nDn++; if(!(m.r[0]===s*n[0]&&m.r[1]===s*n[1]&&m.r[2]===s*n[2])) bad++; }
+    ok(bad===0&&nUp>5&&nDn>5,'measureAlong leaves the state at +n on up and -n on down, exactly ('+nUp+' up, '+nDn+' down)'); }
+  { const sc=makeCoinScene('classical',1); sc.startsHidden=true; sceneStart(sc); eq(sc.single.state,'hidden','with "classical coins start hidden" they arrive under the cup (PhET preference)'); }
+  { const sc=makeCoinScene('classical',1); sc.init='tails'; sceneStart(sc); eq(sc.set.kUp,0,'prepared tails, they arrive tails'); sceneNewCoin(sc); ok(sc.preparing,'new coin returns to preparing'); }
+  { const sc=makeCoinScene('classical',5); sc.p=0.5; setCoinCount(sc,100); sceneStart(sc); coinPrepare(sc,sc.set,true); coinStep(sc,sc.set,1);
+    const m=coinsModel(sc); close(m.z,(sc.set.kUp-50)/5,1e-12,'the set z-score is (k - Np)/sqrt(Np(1-p)) off the model'); ok(m.setShown,'and it is shown only when revealed'); }
+  /* ---- M sets of N coins ---- */
+  { const r=repeatsRun(5,100,0.5,2000);
+    eq(r.mean,49.9645,'2000 sets of 100 at 0.5: the sample mean (derive)'); rel(r.v,24.08728339169585,1e-12,'the sample variance (derive)');
+    rel(r.chi,20.355592512456422,1e-10,'the binned chi-square (derive)'); eq(r.dof,28,'on 28 dof (derive)');
+    ok(r.chi<56.89228539335361,'below the 99.9 % point, 56.89 (scipy)');
+    ok(Math.abs(r.mean-50)<4*0.11180339887498948,'the mean within 4 sd of the mean, 4 x 0.112 (derive)');
+    ok(Math.abs(r.v-25)<4*0.7866066361276137,'the variance within 4 sd of Npq, from the fourth moment (derive)');
+    eq(Array.from(r.ks.slice(0,10)).join(','),'49,55,51,51,49,58,56,49,55,55','the first ten sets (derive)'); eq(r.obs[50],159,'159 sets of exactly 50 (derive)'); }
+  for(const [seed,N,p,M,mean,v,chi,dof,q] of [[71,100,0.3,1000,29.951,22.703302302302305,34.07443399161474,23,49.72823246643149],
+      [72,10000,0.5,200,4997.815,2918.975653266332,36.41152780730935,34,65.24721746094244],[73,10,0.65,3000,6.498333333333333,2.299430365677448,4.22415254284819,8,26.12448155837614]]){
+    const r=repeatsRun(seed,N,p,M), tag=M+' sets of '+N+' at '+p+': ';
+    rel(r.mean,mean,1e-13,tag+'mean (derive)'); rel(r.v,v,1e-11,tag+'variance (derive)'); rel(r.chi,chi,1e-9,tag+'chi-square (derive)'); eq(r.dof,dof,tag+'dof (derive)');
+    ok(r.chi<q,tag+'chi-square below the 99.9 % point (scipy)'); ok(Math.abs(r.mean-N*p)<4*Math.sqrt(N*p*(1-p)/M),tag+'mean within 4 sigma/sqrt(M)');
+    rel(chi2Quantile(dof,Z999),q,dof>=20?1e-2:1.5e-2,tag+'Wilson-Hilferty quantile within '+(dof>=20?'1':'1.5')+' % of scipy (measured)');
+  }
+  rel(Z999,3.090232306167813,1e-15,'the normal 99.9 % point (scipy)');
+  eq(binEffM(10000,5000),200,'N = 10 000 caps M at 200 (2e6 draws)'); eq(binEffM(100,1000),1000,'N = 100 does not');
+}
+
+/* ================================================================== *
+ *  selfTest — headless verification (runs when there is no document). *
+ *  (derive) marks build/quantum-measurement/refvals.txt for the shared *
+ *  engine and build/quantum-coin-toss/refvals.txt for this view.       *
+ * ================================================================== */
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T={ok,eq,close,rel}, T0=Date.now();
+  const stSave=Object.assign({},ST);
+  function fresh(over){ Object.assign(ST,DEFAULTS,over||{}); resetScenes(); }
+  function withState(over,fn){ fresh(over); try{ return fn(); } finally{ fresh(stSave); } }
+
+  engineTests(T);
+
+  /* ---------- A. PhET's values and the sim's shape ---------- */
+  eq(FLIP_T,1,'a flip takes 1 s (PhET\'s value)'); eq(COIN_NS.join(','),'10,100,10000','10, 100 or 10 000 identical coins (PhET\'s value)'); eq(BIAS_STEP,0.05,'bias steps of 0.05 (PhET\'s value)');
+  eq(TABS.map(t=>t[0]).join(','),'classical,quantum,binom,mix','four views: PhET\'s two scenes, then the analysis');
+  { const c=COINS.classical, q=COINS.quantum; ok(c.init==='heads'&&c.p===0.5&&c.preparing,'the classical scene starts heads up at 0.5, being prepared (PhET)');
+    ok(q.p===0.5&&quantumInit(q.p)==='superposition'&&q.preparing,'the quantum scene starts in a superposition at 0.5 (PhET)'); ok(c!==q&&c.R!==q.R,'each scene has its own state and its own stream'); }
+  ok(sceneOf('quantum')===COINS.quantum&&sceneOf('classical')===COINS.classical,'each coin tab shows its own scene');
+
+  /* ---------- B. the hidden difference ---------- */
+  for(const [p,want,bm,bp] of [[0,[0,0,0.5,0.5,1,1,0],[0,0,-1],[0,0,-1]],[0.05,[0.05,0.049999999999999996,0.5,0.7179449471770336,0.9049999999999999,1,0.21794494717703367],[0,0,-0.8999999999999999],[0.43588989435406733,0,-0.8999999999999998]],
+      [0.3,[0.3,0.29999999999999993,0.5,0.958257569495584,0.58,1,0.458257569495584],[0,0,-0.39999999999999997],[0.916515138991168,0,-0.40000000000000013]],
+      [0.5,[0.5,0.5000000000000001,0.5,1.0000000000000002,0.5,1,0.5000000000000001],[0,0,0],[1.0000000000000002,0,0]],
+      [0.7,[0.7,0.7000000000000001,0.5,0.9582575694955842,0.58,1,0.45825756949558405],[0,0,0.3999999999999999],[0.9165151389911681,0,0.39999999999999997]],
+      [0.85,[0.85,0.8500000000000001,0.5,0.8570714214271425,0.7449999999999999,1,0.35707142142714254],[0,0,0.7],[0.7141428428542851,0,0.7000000000000001]],
+      [1,[1,1,0.5,0.5,1,1,0],[0,0,1],[0,0,1]]]){
+    const tag='p = '+p+': ';
+    close(bornP(mixBloch(p),[0,0,1]),want[0],1e-14,tag+'face-on, the hidden face comes up with p (numpy, derive)');
+    close(bornP(pureBloch(p),[0,0,1]),want[1],1e-14,tag+'and so does the superposition (derive)');
+    close(mixPx(p),want[2],1e-15,tag+'sideways the hidden face gives 1/2 (derive)');
+    close(purePx(p),want[3],1e-14,tag+'the superposition (1 + 2 sqrt(p(1-p)))/2 (derive)');
+    close(mixPurity(p),want[4],1e-14,tag+'the mixture\'s purity p^2 + (1-p)^2 (derive)');
+    close(Math.sqrt(p*(1-p)),want[6],1e-14,tag+'the superposition\'s coherence sqrt(p(1-p)) (derive)');
+    ok(Math.max(Math.abs(mixBloch(p)[0]-bm[0]),Math.abs(mixBloch(p)[2]-bm[2]))<1e-14,tag+'the mixture sits at (0, 0, 2p-1), inside the ball (derive)');
+    ok(Math.max(Math.abs(pureBloch(p)[0]-bp[0]),Math.abs(pureBloch(p)[2]-bp[2]))<1e-14,tag+'the superposition on the sphere (derive)');
+  }
+  { /* the pure state IS the quantum coin's ket: same Bloch vector two ways */
+    let w=0; for(let i=0;i<=20;i++){ const p=i/20, k=[Math.sqrt(p),0,Math.sqrt(1-p),0], r=blochOfKet(k), b=pureBloch(p); w=Math.max(w,Math.abs(r[0]-b[0]),Math.abs(r[2]-b[2])); }
+    ok(w<1e-14,'pureBloch(p) = <psi|sigma|psi> for sqrt(p)|up> + sqrt(1-p)|down> over 21 biases ('+w.toExponential(1)+')');
+    let mono=true; for(let i=1;i<=10;i++) if(!(purePx(i/20)>purePx((i-1)/20))) mono=false; ok(mono,'P(+x) of the superposition rises to its maximum, 1, at p = 1/2');
+    for(const [p,v] of [[0.1,0.8],[0.25,0.9330127018922193],[0.5,1],[0.75,0.9330127018922193],[0.9,0.8]]) close(purePx(p),v,1e-14,'the law at p = '+p+' (derive)'); }
+  for(const [seed,p,n,want] of [[7,0.7,1000,[674,507,721,961]],[21,0.5,2000,[991,1038,980,2000]],[3,0.15,1500,[209,783,225,1278]],[9,1,500,[500,265,500,230]]]){
+    const r=mixRun(seed,p,n), got=[r.cz,r.cx,r.qz,r.qx], tag='seed '+seed+', p = '+p+', '+n+' of each: ';
+    eq(got.join(','),want.join(','),tag+'the four counts, bit for bit (derive)');
+    const laws=[p,0.5,p,purePx(p)]; let okk=true; for(let i=0;i<4;i++){ const q=laws[i]; if(Math.abs(got[i]-n*q)>4*Math.sqrt(n*q*(1-q))+1e-9) okk=false; }
+    ok(okk,tag+'each within 4 sigma of n x its law');
+  }
+  withState({view:'mix',mixP:0.5,mixShots:2000,mixSeed:21},()=>{ const m=mixModel(ST); eq(m.run.qx,2000,'at p = 1/2 the superposition goes +x every time'); ok(Math.abs(m.f.cx-0.5)<4*Math.sqrt(0.25/2000),'while the hidden face splits evenly'); });
+
+  /* ---------- C. the models and the readouts ---------- */
+  const PRESETS={classical:[{},{_start:1},{_start:1,_flip:1},{_n:10000,_start:1,_flip:1,_rev:1},{_start:1,_p:0,_flip:1,_rev:1},{_hidden:1,_start:1}],
+    quantum:[{},{_start:1},{_start:1,_obs:1},{_n:10000,_start:1,_obs:1},{_p:1,_start:1,_obs:1},{_p:0.85}],
+    binom:[{},{binN:10},{binN:10000,binP:0.35},{binP:1}],
+    mix:[{},{mixP:0},{mixP:0.5},{mixP:1,mixShots:100},{mixP:0.15,mixShots:5000,mixSeed:3}]};
+  function applyPreset(v,over){
+    const clean={view:v}; for(const k in over) if(k[0]!=='_') clean[k]=over[k];
+    fresh(clean);
+    if(isCoinView(v)){ const sc=sceneOf(v); if(over._p!==undefined) sc.p=over._p; if(over._n) setCoinCount(sc,over._n); if(over._hidden) sc.startsHidden=true;
+      if(over._start) sceneStart(sc); if(over._flip){ coinPrepare(sc,sc.single,!!over._rev); coinPrepare(sc,sc.set,!!over._rev); coinStep(sc,sc.single,1); coinStep(sc,sc.set,1); }
+      if(over._obs){ coinReveal(sc,sc.single); coinReveal(sc,sc.set); } }
+  }
+  for(const [v] of TABS) for(const over of PRESETS[v]){
+    applyPreset(v,over); const M=buildModel(), html=readoutHTML(M)+eqbarHTML(M)+tagHTML(M);
+    ok(!/NaN|undefined|Infinity/.test(html),'panels clean for '+v+' '+JSON.stringify(over));
+    { const nz=negZeroIn(html); ok(!nz,'no negative zero in the panels for '+v+' '+JSON.stringify(over)+(nz?': '+nz:'')); }
+  }
+  applyPreset('mix',{mixP:0.7}); ok(readoutHTML(buildModel()).indexOf('0.9583')>=0,'the hidden-difference readout prints P(+x) = 0.9583 at p = 0.7 off the model');
+  applyPreset('quantum',{}); ok(readoutHTML(buildModel()).indexOf('0.707')>=0,'the quantum coin readout prints alpha = 0.707 at bias 0.5');
+  applyPreset('classical',{_start:1}); ok(readoutHTML(buildModel()).indexOf('revealed')>=0,'the classical coin arrives revealed (the readout says so)');
+  fresh(stSave);
+
+  /* ---------- D. the pointer ---------- */
+  { const shot=makeShot(1100,712), S=makeScene({getContext:()=>shot});
+    withState({view:'classical'},()=>{ ok(!S.pointer('down',400,300),'while preparing the coins cannot be clicked'); sceneStart(COINS.classical);
+      const G=viewGeo(shot,S.W,S.H,buildModel()); ok(S.pointer('down',G.single.cx,G.single.cy),'clicking the single coin'); eq(COINS.classical.single.state,'hidden','hides it');
+      S.pointer('up',0,0); ok(S.pointer('down',G.C.x+G.C.w/2,G.C.y+G.C.h/2),'clicking the set'); eq(COINS.classical.set.state,'hidden','hides the set'); S.pointer('up',0,0); });
+    withState({view:'quantum'},()=>{ sceneStart(COINS.quantum); const G=viewGeo(shot,S.W,S.H,buildModel()); const s0=COINS.quantum.R.s;
+      ok(S.pointer('down',G.single.cx,G.single.cy),'clicking the quantum coin'); eq(COINS.quantum.single.state,'revealed','observes it'); ok(COINS.quantum.R.s!==s0,'with a draw: the collapse'); S.pointer('up',0,0); });
+    for(const v of ['binom','mix']) withState({view:v},()=>ok(!S.pointer('down',400,300),'the '+v+' view ignores the pointer'));
+  }
+
+  /* ---------- E. the layout sweep ---------- */
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const FLOOR={classical:2,quantum:2,binom:4,mix:6};
+  /* legendAuto draws NO legend when every spot is crossed, so a legend can
+     vanish silently: at the two large sizes every legend must find its spot
+     (quantum-measurement lost two, looked at and tested) */
+  const legendAuto0=legendAuto; let legLost=[];
+  legendAuto=function(ctx,b,items){ const r=legendAuto0(ctx,b,items); if(r===null) legLost.push(items.map(i=>i[1]).join(', ')); return r; };
+  for(const [v] of TABS) for(const over of PRESETS[v]) for(const [W,H] of SIZES){
+    applyPreset(v,over); legLost=[];
+    layoutCheck(T,v+' '+JSON.stringify(over),(c,w,hh)=>drawView(c,w,hh,buildModel()),W,H,FLOOR[v]);
+    if(W>=1100) ok(!legLost.length,v+' '+JSON.stringify(over)+' '+W+'x'+H+' every legend is drawn'+(legLost.length?' (lost: '+legLost[0]+')':''));
+  }
+  legendAuto=legendAuto0;
+  /* a caption names only panels that are drawn (quantum-measurement's named panels its small sizes skip, looked at) */
+  { const NAMES={classical:/histogram counts|Orange:/,quantum:/histogram counts|Orange:/,binom:/Below:|one long run/,mix:/Below:/};
+    const LAY={classical:coinsLayout,quantum:coinsLayout,binom:binomLayout,mix:mixLayout};
+    let bad=null, n=0; const off={};
+    for(const v in LAY) for(const over of PRESETS[v]) for(const [W,H] of SIZES.concat([[700,450],[900,560]])){
+      applyPreset(v,over); const L=LAY[v](makeShot(W,H),W,H,buildModel()); n++;
+      if(L.G.panelOff){ off[v]=(off[v]||0)+1; if(NAMES[v].test(L.G.fit.txt)&&!bad) bad=v+' '+W+'x'+H+': "'+L.G.fit.txt.slice(0,60)+'"'; }
+      else if(!NAMES[v].test(L.Cap.full)&&!bad) bad=v+' '+W+'x'+H+': the panel is drawn but the full caption does not name it'; }
+    ok(!bad&&Object.keys(LAY).every(v=>off[v]>0),'every caption names only the panels that are drawn ('+n+' layouts; optional panel off in '+JSON.stringify(off)+(bad?'; '+bad:'')+')'); }
+  { applyPreset('classical',{}); const c=makeShot(1400,820); drawView(c,1400,820,buildModel()); const low=c.ops.filter(o=>o.op==='text').reduce((a,o)=>Math.max(a,o.bb[3]),0);
+    ok(low<=820-HINT_H,'the lowest canvas text ends '+fmt(820-low,0)+' px above the bottom, clear of the 18-px hint band'); }
+  fresh(stSave);
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

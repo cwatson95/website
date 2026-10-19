@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projectile Motion &mdash; the cannon, the drag, the envelope and the hodograph</title>
+<!--
+  ===================================================================
+  projectile-motion.html — a cannon, a projectile and the air: the
+  vacuum parabola in closed form, quadratic drag integrated and checked
+  three independent ways, the envelope of every shot at one speed, and
+  the hodograph that carries a falling body to its terminal velocity
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Projectile Motion (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0).  New code; no PhET
+  code or assets.  The original (1.0.34) is docs/phets/projectile-motion_en.html.
+
+  Six views.  THE LAUNCH (PhET's Intro screen): a cannon on a pedestal —
+  drag the barrel to aim it, drag the pedestal to raise it — the initial
+  speed, PhET's nine projectiles, air resistance on or off, a target with
+  one to three stars, a tape measure and a data probe that reads time,
+  range and height off the dots the flight leaves every 0.1 s.  THE
+  VECTORS (PhET's Vectors screen): velocity, acceleration and force
+  vectors, total or in components, on a 5-kg sphere you can resize and
+  reweigh.  THE DRAG (PhET's Drag screen): air resistance always on, the
+  drag coefficient (its shape drawn from teardrop to flat-faced cup), the
+  diameter, the mass and the altitude, with the same shot in vacuum drawn
+  beside it.  THE LAB (PhET's Lab screen): every projectile or a custom
+  one, gravity from 5 to 20 m/s^2, altitude, air resistance.  THE
+  ENVELOPE (analysis): every shot at one speed, the parabola of safety
+  that bounds them in vacuum, and the range against the launch angle with
+  both optimum angles.  THE HODOGRAPH (analysis): the flight in velocity
+  space — a vertical line in vacuum, a curve that ends at the terminal
+  velocity (0, -v_t) with drag — against its exact closed form, the speed
+  against time and the energy ledger.
+
+  WHAT IS EXACT
+  -------------
+  In vacuum everything is closed form: x = v0 cos(th) t, y = h + v0 sin(th) t
+  - g t^2/2; the time of flight (v0 sin th + sqrt(v0^2 sin^2 th + 2gh))/g,
+  the range, the apex, the landing speed sqrt(v0^2 + 2gh) (energy), the
+  optimum angle tan th* = v0/sqrt(v0^2 + 2gh) with R* = (v0/g) sqrt(v0^2 +
+  2gh), and the envelope y = h + v0^2/2g - g x^2/2v0^2.  The integrator
+  reproduces them to rounding, because RK4 is exact on a quadratic in t.
+  Quadratic drag has no closed form for a general angle.  It is integrated
+  here by RK4 with the step h = min(2 ms, 0.005/(k|v|)), cut to land on
+  every 0.1-s dot, the apex and the ground found by bisecting the partial
+  step (60 halvings), and the energy lost to the air integrated as a fifth
+  state inside the same RK4 stages.  Checked in selfTest against
+    - scipy solve_ivp DOP853 at rtol = atol = 1e-13: worst 2.8e-11 relative
+      over PhET's parameter box (the extreme corner m = 1 kg, d = 3 m,
+      C_d = 1, g = 20), typically 1e-14..1e-13 (build/projectile-motion/
+      derive.py, refvals.txt);
+    - the EXACT hodograph of quadratic drag, 1/u^2 = 1/u0^2 + (k/g)[F(th) -
+      F(phi)], F(psi) = sin psi / cos^2 psi + ln tan(pi/4 + psi/2), with t, x,
+      y as quadratures over the velocity angle (Gauss-Legendre in the page,
+      scipy quad in derive.py; the two routes agree with DOP853 to 6e-14);
+    - the vertical closed forms: t_apex = (v_t/g) atan(v0/v_t), H = h +
+      (v_t^2/2g) ln(1 + v0^2/v_t^2), and the fall v = v_t tanh(g t/v_t),
+      y = H - (v_t^2/g) ln cosh(g t/v_t);
+    - the limits: drag -> 0 recovers the vacuum range at the first-order
+      rate dR/dk (a perturbation integral), and a long fall approaches the
+      terminal speed v_t = sqrt(2mg/(rho C_d A)) = sqrt(g/k), k = rho C_d A/2m.
+  The Python twin of the integrator (derive.py) pins every JS flight to
+  1e-12.
+
+  WHAT IS MODELLED
+  ----------------
+  Drag is quadratic, F = (1/2) rho C_d A v^2 against the velocity, with a
+  constant drag coefficient: PhET's model, right for macroscopic bodies at
+  high Reynolds number.  The air density is NASA Glenn's "Earth Atmosphere
+  Model" curve fit, troposphere branch — PhET's choice:
+      T = 15.04 - 0.00649 h  (deg C),   p = 101.29 [(T + 273.1)/288.08]^5.256  (kPa),
+      rho = p / (0.2869 (T + 273.1))  (kg/m^3)
+  (grc.nasa.gov/www/k-12/airplane/atmosmet.html).  It gives 1.2266 kg/m^3 at
+  sea level, 0.13 % above the ISA's 1.2250 and 0.21 % above it at 5 km (both
+  printed by derive.py); the altitude slider stops at 5 km, well inside the
+  11-km troposphere.  Gravity is uniform, the ground flat at y = 0, and each
+  projectile a point carrying its mass, its cross-section pi d^2/4 and C_d.
+  The shot leaves from the cannon's pivot, as in PhET.  The clock advances
+  a fixed 1/60 s per frame (x 0.33 in slow motion) so the headless suites
+  are deterministic; the whole flight is integrated at launch and replayed
+  by cubic Hermite interpolation between the integrator's nodes.  Changing
+  the air, the altitude or gravity bends every projectile still in flight
+  from its last node (as in PhET); mass, size, angle and speed apply to the
+  next shot.
+
+  WHAT IS NOT MODELLED
+  --------------------
+  Lift and spin (the Magnus force that carries a real golf ball and bends a
+  baseball), the tumbling of the non-spherical objects, wind, the Reynolds-
+  number dependence of C_d (the drag crisis), the buoyancy of the air, the
+  Earth's curvature and rotation, the cannon's recoil and barrel length,
+  bouncing.  PhET's own step is a 25-ms first-order scheme; on the Drag
+  screen's default shot it lands 0.81 % short of the exact range (6.631 m
+  against 6.686 m, derive.py section 11), so drag numbers here differ from
+  the original's by that much; the vacuum numbers agree exactly.
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's values, read out of projectile-motion_en.html 1.0.34
+  (ProjectileObjectType, ProjectileMotionConstants, ProjectileMotionModel,
+  Score, Tracer):  the projectiles (mass kg, diameter m, C_d) — cannonball
+  17.6, 0.18, 0.47; tank shell 42, 0.15, 0.06; golf ball 0.05, 0.04, 0.25;
+  baseball 0.15, 0.07, 0.35; football 0.41, 0.17, 0.05; pumpkin 5, 0.37,
+  0.6; human 70, 0.5, 0.6; piano 400, 2.2, 1.2; car 2000, 2, 0.55; custom
+  100, 1, 0.47; the Vectors/Drag sphere 5, 0.8, 0.47 — and each one's Lab
+  slider range; g = 9.81 m/s^2; height 0..15 m, angle -90..90 deg, speed
+  0..30 m/s, altitude 0..5000 m in 100-m steps, gravity 5..20 m/s^2, C_d
+  0.04..1; the target at 15 m, 3 m wide, three stars within W/6, two
+  within W/3, one within W/2; dots every 0.1 s and 1 s; three projectiles
+  in flight and five paths kept; slow motion x 0.33; the air-density fit
+  above.  The screens' defaults are PhET's (Intro: pumpkin, 10 m, 0 deg,
+  15 m/s, no air; the others: 0 m, 80 deg, 18 m/s).  Everything else is
+  computed, and every computed number is pinned in selfTest to derive.py.
+-->

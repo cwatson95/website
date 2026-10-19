@@ -1,0 +1,2641 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Charges and Fields &mdash; point charges, their field and potential</title>
+<!--
+  ===================================================================
+  charges-and-fields.html — Charges and Fields: point charges on a
+  plane, their exact electric field and potential, the equipotentials
+  and field lines they make, the potential as a landscape, the field
+  as a vector sum, and the multipole far field
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Charges and Fields (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets. The original is docs/phets/charges-and-fields_en.html
+  (version 1.0.67); its single screen is the first view here.
+
+  Five views.  THE PLANE — PhET's screen: drag +1 nC and -1 nC charges
+  and E-field sensors out of the bin onto an 8 m x 5 m plane, drop them
+  back in the bin to remove them.  The field is drawn on a 0.5 m grid of
+  fixed-length arrows whose brightness follows |E| up to 5 V/m ("direction
+  only" makes them all bright), the voltage on 0.1 m cells that saturate
+  at +-40 V.  The voltage sensor reads V at its crosshair and its "plot"
+  button traces the equipotential through it; the E-field sensors read
+  |E| and its direction; there is a tape measure, a grid and value
+  labels.  FIELD LINES — the same charges, lines traced along E from the
+  charges of the majority sign, an evenly spaced family of equipotentials
+  crossing them at right angles, and the null points where E = 0 found and
+  classified.  THE LANDSCAPE — V(x, y) as a height surface (clipped, and
+  the clip printed): peaks at the positive charges, wells at the negative
+  ones, the field everywhere pointing straight downhill, and the plotted
+  equipotentials drawn as the level cuts they are.  SUPERPOSITION — at a
+  probe, each charge's field drawn head to tail and the chain closing on
+  the total; the potential as a signed sum of the charges' terms.  THE FAR
+  FIELD — the potential along a ray against distance on log axes, the
+  exact sum against its leading multipole term, and r^(l+1) V(r) taken to
+  its limit numerically.
+
+  WHAT IS EXACT
+  -------------
+  V(r) = k sum q_i / |r - r_i| and E = k sum q_i (r - r_i) / |r - r_i|^3:
+  the 3-D Coulomb field of point charges held in the plane z = 0 (PhET's
+  model: "the three dimensional Maxwell's equations are used, the charges
+  are confined to move along a two dimensional surface"), in closed form
+  at every point drawn.  The equipotentials are traced along z x E by RK4
+  and projected back onto V = V0 by Newton after every step, so every
+  vertex sits on the level set to 1e-12; they close on themselves or end
+  at the edge of the traced region.  Field lines are RK4 on E/|E| with the
+  step set by the local length scale min(distance to a charge, |E|/|grad E|).
+  Null points are Newton roots of E = 0 with the analytic Jacobian.  The
+  multipole coefficients along a ray come from the Legendre expansion of
+  1/|r - d|, exact to all orders beyond the farthest charge and checked
+  against the tensor contraction for the monopole, dipole and quadrupole.
+  The tape reads V(A) - V(B), which the suite checks against the line
+  integral of E along it.  Everything is pinned in selfTest to
+  build/charges-and-fields/derive.py (scipy brentq on rays for the
+  equipotential loops, solve_ivp for the field lines, fsolve for the
+  nulls, quad for the tape).
+
+  WHAT IS MEASURED
+  ----------------
+  One constant: eps0 = 8.8541878188e-12 F/m (CODATA 2022, from the NIST
+  constants page, stored verbatim), so k = 1/(4 pi eps0) = 8.98755 V m/nC.
+  The charges are +-1 nC exactly, as in PhET.
+
+  WHAT IS CHOSEN (PhET's values, read from the 1.0.67 build)
+  ----------------------------------------------------------
+  The 8 m x 5 m plane and the bin at x in [-1.25, 1.25] m, y in [-2.3,
+  -1.7] m; the arrow grid at 0.5 m cell centres, 40 px arrows at 128 px/m
+  (0.3125 m); the voltage cells of 0.1 m; the colour saturations at +-40 V
+  and 5 V/m; the sensor arrow at 15 px per V/m at 128 px/m (0.1172 m per
+  V/m); the charge radius of 12 px (0.094 m); no equipotential seeded
+  within 3 cm of a charge; plotted equipotentials cleared whenever a charge
+  moves.  PhET's own Coulomb constant is K_CONSTANT = 9 V m/nC, a rounding
+  of k, so PhET reads 0.14 % higher than this page (9.00 V at 1 m from
+  +1 nC against 8.99 V here).
+
+  WHAT IS NOT MODELLED
+  --------------------
+  The charges feel no forces and do not move by themselves (this is
+  electrostatics, not dynamics); there are no conductors or dielectrics;
+  the charges are points (nothing is drawn inside a charge's disc, where
+  the field grows without bound).  PhET's projector colour profile and its
+  touch and keyboard accessibility layer are not reproduced.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = a positive charge, V > 0 and the computed field
+       lines; magenta = a negative charge and V < 0 (the house charge pair, as
+       in dipole_radiation.html); orange = the reference/analytic curve, the
+       null points, a warning; cyan = structure (equipotentials, the tape, the
+       grid, the axes); the live probes and sensors are white. */
+    --pos:#b8ec4c; --neg:#cd35c4; --ref:#e8843a; --live:#f2f4f8; --struct:#5ac8e0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match the site stylesheet (links absolute: this page lives outside the site tree) */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Charges and Fields</h1>
+  <span class="sub" id="sub">point charges on a plane and their exact field and potential &mdash; the voltage map, equipotentials, field lines, the potential as a landscape, superposition and the multipole far field</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html)                    *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+/* ================================================================== *
+ *  3-vector helpers, orbit camera, perspective projection (z-up)      *
+ *  — verbatim from build_lagr/p4_views.js (the lattice / steam_carnot *
+ *  camera), with boxCamera sizing it to a panel                       *
+ * ================================================================== */
+const v3={
+  add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+  sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+  mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+  dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross:(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],
+  len:a=>Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2]),
+  norm:a=>{ const l=Math.sqrt(a[0]*a[0]+a[1]*a[1]+a[2]*a[2])||1; return [a[0]/l,a[1]/l,a[2]/l]; },
+};
+function makeCamera(theta,phi,dist,target){
+  return {theta,phi,dist,fov:0.78,target:target||[0,0,0],W:800,H:600};
+}
+function camBasis(cam){
+  const ct=Math.cos(cam.theta), stt=Math.sin(cam.theta);
+  const cp=Math.cos(cam.phi),  sp=Math.sin(cam.phi);
+  const dir=[ct*cp, stt*cp, sp];
+  const eye=v3.add(cam.target, v3.mul(dir,cam.dist));
+  const fwd=v3.mul(dir,-1);
+  const right=v3.norm(v3.cross(fwd,[0,0,1]));
+  const up=v3.cross(right,fwd);
+  return {eye,fwd,right,up,f:(cam.H/2)/Math.tan(cam.fov/2)};
+}
+function project(cam,B,p){
+  const dx=p[0]-B.eye[0], dy=p[1]-B.eye[1], dz=p[2]-B.eye[2];
+  const z=dx*B.fwd[0]+dy*B.fwd[1]+dz*B.fwd[2];
+  if(z<=0.05) return null;
+  return { x: cam.W/2 + B.f*(dx*B.right[0]+dy*B.right[1]+dz*B.right[2])/z,
+           y: cam.H/2 - B.f*(dx*B.up[0]   +dy*B.up[1]   +dz*B.up[2])/z, z };
+}
+/* a camera sized to a box: projected points land in the box's pixel frame */
+function boxCamera(b,theta,phi,dist,target){
+  const cam=makeCamera(theta,phi,dist,target); cam.W=b.w; cam.H=b.h;
+  const B=camBasis(cam);
+  const P=p=>{ const q=project(cam,B,p); return q?{x:b.x+q.x,y:b.y+q.y,z:q.z}:null; };
+  return {cam,B,P};
+}
+
+/* ================================================================== *
+ *  physics — point charges held in the plane z = 0, the 3-D Coulomb   *
+ *  field and potential by exact superposition                         *
+ * ================================================================== */
+const DEG=PI/180;                       /* degrees INTO radians: 90*DEG = pi/2 */
+/* the one measured constant: eps0, CODATA 2022, from the NIST constants
+   page (physics.nist.gov/cgi-bin/cuu/Value?ep0), stored verbatim */
+const EPS0=8.8541878188e-12;            /* F/m */
+const K_SI=1/(4*PI*EPS0);               /* N m^2/C^2 = 8.98755e9 */
+const KNC=K_SI*1e-9;                    /* V m/nC:  V[volt] = KNC q[nC] / r[m] */
+const K_PHET=9;                         /* PhET's K_CONSTANT, a rounding of KNC */
+/* PhET's layout and display values (ChargesAndFieldsConstants and the view
+   classes of the 1.0.67 build), converted to metres at its 128 px/m: the
+   play area, the charge bin, the arrow and voltage grids, the two colour
+   saturations, the sensor-arrow scale (15 px per V/m), the field-arrow
+   length (40 px), the charge radius (12 px), the 3-cm radius inside which
+   no equipotential is seeded, and the reading above which a sensor shows a
+   dash (MAX_EFIELD_MAGNITUDE) */
+const PLANE={x0:-4,x1:4,y0:-2.5,y1:2.5};
+const BIN={x0:-1.25,x1:1.25,y0:-2.3,y1:-1.7};
+const ARROW_DX=0.5, MAP_DX=0.1;
+const V_SAT=40, E_SAT=5;
+const SENSOR_M_PER_VM=15/128, ARROW_LEN=40/128, CHARGE_R=12/128;
+const EQ_REFUSE=0.03, E_MAX_READ=1e6;
+const MAX_CHARGES=40, MAX_SENSORS=12, MAX_EQ=24;
+/* the region an equipotential is followed over before it is called open —
+   the plane with a 2-m margin (PhET's enlarged bounds are [-6,6]x[-2.5,7.5],
+   lopsided for its screen layout) */
+const EQ_BOX={x0:-6,x1:6,y0:-4.5,y1:4.5};
+
+function potentialAt(ch,x,y){
+  let s=0;
+  for(let i=0;i<ch.length;i++){ const c=ch[i]; s+=c.q/Math.hypot(x-c.x,y-c.y); }
+  return KNC*s;
+}
+/* V and E in one pass: E = k sum q (r - r_i)/|r - r_i|^3 */
+function fieldAt(ch,x,y){
+  let s=0, ex=0, ey=0;
+  for(let i=0;i<ch.length;i++){
+    const c=ch[i], dx=x-c.x, dy=y-c.y, r2=dx*dx+dy*dy, r=Math.sqrt(r2), r3=r2*r;
+    s+=c.q/r; ex+=c.q*dx/r3; ey+=c.q*dy/r3;
+  }
+  return {V:KNC*s, ex:KNC*ex, ey:KNC*ey};
+}
+/* the Jacobian dE_a/dx_b = [dEx/dx, dEx/dy (= dEy/dx), dEy/dy]; symmetric
+   because E = -grad V, and minus the in-plane Hessian of V */
+function jacAt(ch,x,y){
+  let a=0, b=0, d=0;
+  for(let i=0;i<ch.length;i++){
+    const c=ch[i], dx=x-c.x, dy=y-c.y, r2=dx*dx+dy*dy, r=Math.sqrt(r2), r3=r2*r, r5=r3*r2;
+    a+=c.q*(1/r3-3*dx*dx/r5); b+=c.q*(-3*dx*dy/r5); d+=c.q*(1/r3-3*dy*dy/r5);
+  }
+  return [KNC*a,KNC*b,KNC*d];
+}
+function nearestCharge(ch,x,y){
+  let r=Infinity, k=-1;
+  for(let i=0;i<ch.length;i++){ const d=Math.hypot(x-ch[i].x,y-ch[i].y); if(d<r){ r=d; k=i; } }
+  return {r,k};
+}
+function netCharge(ch){ let Q=0; for(const c of ch) Q+=c.q; return Q; }
+/* the size of the terms being cancelled at a point, k sum |q|/r^2: the
+   scale against which "E = 0" is judged */
+function fieldScale(ch,x,y){
+  let s=0; for(const c of ch){ const r2=(x-c.x)*(x-c.x)+(y-c.y)*(y-c.y); s+=Math.abs(c.q)/r2; }
+  return KNC*s;
+}
+/* V with a rounding floor: a sum whose terms cancel to below 1e-12 of their
+   total size is zero.  Off the exact bisector of a dipole by the 6e-17 of
+   cos(90°), the plain sum read 1e-15 V and was drawn and printed as a value */
+const ROUND_FLOOR=1e-12;
+function potentialClean(ch,x,y){
+  let s=0, sa=0;
+  for(let i=0;i<ch.length;i++){ const c=ch[i], r=Math.hypot(x-c.x,y-c.y); s+=c.q/r; sa+=Math.abs(c.q)/r; }
+  if(!isFinite(sa)) return KNC*s;
+  return Math.abs(s)<=ROUND_FLOOR*sa?0:KNC*s;
+}
+function chargeKey(ch){ let s=''; for(const c of ch) s+=c.x+','+c.y+','+c.q+';'; return s; }
+/* an E-field sensor's reading, PhET's way: magnitude and direction, a dash
+   above 1e6 V/m (on top of a charge) */
+function sensorReading(ch,x,y){
+  const f=fieldAt(ch,x,y), V=potentialClean(ch,x,y);
+  let m=Math.hypot(f.ex,f.ey), ex=f.ex, ey=f.ey;
+  if(ch.length&&isFinite(m)&&m<=ROUND_FLOOR*fieldScale(ch,x,y)){ m=0; ex=0; ey=0; }   /* at a null: zero, not rounding */
+  return {V, ex, ey, mag:m, ang:m>0?Math.atan2(ey,ex)/DEG:0, over:!(m<E_MAX_READ)};
+}
+
+/* ---- the two display grids (PhET's cell centres) ---- */
+function vmapGrid(ch){
+  const nx=Math.round((PLANE.x1-PLANE.x0)/MAP_DX), ny=Math.round((PLANE.y1-PLANE.y0)/MAP_DX), v=new Float64Array(nx*ny);
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) v[j*nx+i]=potentialAt(ch,PLANE.x0+(i+0.5)*MAP_DX,PLANE.y0+(j+0.5)*MAP_DX);
+  return {nx,ny,v};
+}
+function arrowGrid(ch){
+  const nx=Math.round((PLANE.x1-PLANE.x0)/ARROW_DX), ny=Math.round((PLANE.y1-PLANE.y0)/ARROW_DX), out=[];
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
+    const x=PLANE.x0+(i+0.5)*ARROW_DX, y=PLANE.y0+(j+0.5)*ARROW_DX, f=fieldAt(ch,x,y);
+    out.push({x,y,ex:f.ex,ey:f.ey,mag:Math.hypot(f.ex,f.ey)});
+  }
+  return {nx,ny,a:out};
+}
+/* PhET's arrow opacity: |E|/5 V/m, clamped; "direction only" makes every
+   arrow with a defined direction fully opaque */
+function arrowAlpha(mag,dirOnly){ if(!(mag>1e-9)) return 0; return dirOnly?1:clamp(mag/E_SAT,0,1); }
+/* PhET's voltage colour: linear in V to saturation at +-40 V */
+function vLevel(V){ if(V!==V) return 0; return clamp(Math.abs(V)/V_SAT,0,1); }   /* NaN (coincident +q and -q) reads as zero */
+/* a value safe to contour: +-infinity (a sample exactly on a charge) becomes
+   a large finite number of the same sign, NaN (coincident +q and -q) zero */
+function vSafe(V){ return V===V?clamp(V,-1e6,1e6):0; }
+
+/* ================================================================== *
+ *  equipotentials — RK4 along the tangent z x E/|E|, then Newton back  *
+ *  onto V = V0 along E after every step                               *
+ * ================================================================== */
+/* the local length scale: the distance to the nearest charge, or |E|/|grad E|
+   (the distance over which E changes by itself), whichever is smaller */
+function lengthScale(ch,x,y){
+  const nc=nearestCharge(ch,x,y), f=fieldAt(ch,x,y), j=jacAt(ch,x,y);
+  const e=Math.hypot(f.ex,f.ey), jn=Math.sqrt(j[0]*j[0]+2*j[1]*j[1]+j[2]*j[2]);
+  return Math.min(nc.r,jn>0?e/jn:Infinity);
+}
+function tangentAt(ch,x,y){ const f=fieldAt(ch,x,y), m=Math.hypot(f.ex,f.ey); return m>0?[-f.ey/m,f.ex/m]:null; }
+function rk4Dir(dirFn,ch,x,y,h){
+  const k1=dirFn(ch,x,y); if(!k1) return null;
+  const k2=dirFn(ch,x+0.5*h*k1[0],y+0.5*h*k1[1]); if(!k2) return null;
+  const k3=dirFn(ch,x+0.5*h*k2[0],y+0.5*h*k2[1]); if(!k3) return null;
+  const k4=dirFn(ch,x+h*k3[0],y+h*k3[1]); if(!k4) return null;
+  return [x+h*(k1[0]+2*k2[0]+2*k3[0]+k4[0])/6, y+h*(k1[1]+2*k2[1]+2*k3[1]+k4[1])/6];
+}
+/* Newton onto the level set: V(p + s E) = V(p) - s|E|^2 + ..., so s = (V - V0)/|E|^2 */
+function projectToLevel(ch,x,y,V0){
+  for(let it=0;it<4;it++){
+    const f=fieldAt(ch,x,y), e2=f.ex*f.ex+f.ey*f.ey;
+    if(!(e2>0)) break;
+    const s=(f.V-V0)/e2; x+=s*f.ex; y+=s*f.ey;
+    if(Math.abs(f.V-V0)<=1e-15*Math.max(1,Math.abs(V0))) break;
+  }
+  return [x,y];
+}
+/* Trace the equipotential through (x0, y0).  Refuses on an empty plane,
+   within 3 cm of a charge (PhET's rule) and at a null of E, where the level
+   set is not a single curve.  Follows one way until it closes on the seed
+   (the step that crosses the seed's normal line, back within three steps of
+   it) or leaves EQ_BOX; an open curve is then followed the other way too. */
+function traceEquipotential(ch,x0,y0,opt){
+  opt=opt||{};
+  const c=opt.c||0.12, hmin=opt.hmin||0.004, hmax=opt.hmax||0.05, bx=opt.box||EQ_BOX, maxN=opt.maxN||8000;
+  if(!ch.length) return {ok:false,why:'no charges on the plane'};
+  if(nearestCharge(ch,x0,y0).r<EQ_REFUSE) return {ok:false,why:'too close to a charge'};
+  const f0=fieldAt(ch,x0,y0), e0=Math.hypot(f0.ex,f0.ey);
+  if(!(e0>1e-9*fieldScale(ch,x0,y0))) return {ok:false,why:'E = 0 here: no single equipotential'};
+  const V0=f0.V, t0=[-f0.ey/e0,f0.ex/e0];
+  function run(sgn){
+    const pts=[[x0,y0]]; let x=x0, y=y0, s=0, closed=false, exit='steps', hLast=hmin;
+    for(let n=0;n<maxN;n++){
+      const h=clamp(c*lengthScale(ch,x,y),hmin,hmax); hLast=h;
+      const q=rk4Dir(tangentAt,ch,x,y,sgn*h); if(!q){ exit='null'; break; }
+      const p=projectToLevel(ch,q[0],q[1],V0);
+      const before=(x-x0)*t0[0]+(y-y0)*t0[1], after=(p[0]-x0)*t0[0]+(p[1]-y0)*t0[1];
+      s+=Math.hypot(p[0]-x,p[1]-y);
+      if(s>6*hmin&&sgn*before<0&&sgn*after>=0&&Math.hypot(p[0]-x0,p[1]-y0)<3*h){ closed=true; exit='closed'; break; }
+      x=p[0]; y=p[1]; pts.push([x,y]);
+      if(x<bx.x0||x>bx.x1||y<bx.y0||y>bx.y1){ exit='box'; break; }
+    }
+    return {pts,closed,exit,h:hLast,s};
+  }
+  const fw=run(1);
+  const V0c=potentialClean(ch,x0,y0);                /* the value to print (rounding floor) */
+  if(fw.closed) return {ok:true,closed:true,pts:fw.pts,V0,V0c,x0,y0,gap:Math.hypot(fw.pts[fw.pts.length-1][0]-x0,fw.pts[fw.pts.length-1][1]-y0),exits:['closed']};
+  const bw=run(-1);
+  return {ok:true,closed:false,pts:bw.pts.slice(1).reverse().concat(fw.pts),V0,V0c,x0,y0,gap:null,exits:[bw.exit,fw.exit]};
+}
+function polyArea(pts){ let s=0; for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; s+=a[0]*b[1]-b[0]*a[1]; } return 0.5*s; }
+function polyLength(pts,closed){ let s=0; const n=pts.length; for(let i=0;i<n-1;i++) s+=Math.hypot(pts[i+1][0]-pts[i][0],pts[i+1][1]-pts[i][1]);
+  if(closed&&n>1) s+=Math.hypot(pts[0][0]-pts[n-1][0],pts[0][1]-pts[n-1][1]); return s; }
+
+/* ================================================================== *
+ *  field lines — RK4 on E/|E|, from the charges of the majority sign  *
+ * ================================================================== */
+/* R_ESC is far: the lines of a NEUTRAL configuration all come back, some only after
+   a long excursion (a dipole line leaving at angle a from its axis reaches ~4a_d/a^2),
+   and the step grows with the distance, so following them costs ~20 steps per e-fold */
+const R_SEED=0.02, R_CAP=0.02, R_ESC=1e4, NULL_END=1e-7;
+function unitE(sgn){ return (ch,x,y)=>{ const f=fieldAt(ch,x,y), m=Math.hypot(f.ex,f.ey); return m>0?[sgn*f.ex/m,sgn*f.ey/m]:null; }; }
+/* follow sgn*E from (x0, y0): ends on a charge of the opposite sign (within
+   R_CAP), beyond rEsc from the centre, at a null, or after maxN steps */
+function traceFieldLine(ch,x0,y0,sgn,opt){
+  opt=opt||{};
+  /* no practical step floor: near a node the length scale |E|/|grad E| IS the distance
+     to the null, so the steps shrink geometrically and the line reaches it; a floor
+     made the RK4 step overshoot the node and orbit it until maxN (the triangle) */
+  const c=opt.c||0.12, hmin=opt.hmin||1e-9, hmax=opt.hmax||1000, rEsc=opt.rEsc||R_ESC, maxN=opt.maxN||20000, cen=opt.cen||[0,0];
+  const dir=unitE(sgn), pts=[[x0,y0]]; let x=x0, y=y0, end='steps', hit=-1;
+  for(let n=0;n<maxN;n++){
+    const h=clamp(c*lengthScale(ch,x,y),hmin,hmax);
+    const q=rk4Dir(dir,ch,x,y,h); if(!q){ end='null'; break; }
+    x=q[0]; y=q[1]; pts.push([x,y]);
+    const nc=nearestCharge(ch,x,y);
+    if(nc.r<R_CAP&&Math.sign(ch[nc.k].q)===-sgn){ end='charge'; hit=nc.k; break; }
+    if(Math.hypot(x-cen[0],y-cen[1])>rEsc){ end='escape'; break; }
+    /* a line can END at a null in the plane: at an in-plane minimum of V
+       (the centre of three like charges) in-plane lines converge and the
+       field turns out of the plane along z */
+    const f=fieldAt(ch,x,y);
+    if(!(Math.hypot(f.ex,f.ey)>NULL_END*fieldScale(ch,x,y))){ end='null'; break; }
+  }
+  return {pts,end,hit};
+}
+/* the seeding: N lines per charge of the majority sign (the positive ones
+   when the plane is neutral), at angles (k + 1/2) 2 pi/N from the +x axis */
+function fieldLines(ch,nPer,opt){
+  opt=opt||{};
+  if(!ch.length) return {lines:[],sgn:0,Q:0,ends:0,escapes:0,nulls:0,stalls:0};
+  const Q=netCharge(ch), sgn=Q<0?-1:1, cen=moments(ch).c, lines=[];
+  let ends=0, escapes=0, nulls=0, stalls=0;
+  ch.forEach((cc,i)=>{
+    if(Math.sign(cc.q)!==sgn) return;
+    for(let k=0;k<nPer;k++){
+      const a=(k+0.5)*TAU/nPer, L=traceFieldLine(ch,cc.x+R_SEED*Math.cos(a),cc.y+R_SEED*Math.sin(a),sgn,Object.assign({cen},opt));
+      L.from=i; L.alpha=a; lines.push(L);
+      if(L.end==='charge') ends++; else if(L.end==='escape') escapes++; else if(L.end==='null') nulls++; else stalls++;
+    }
+  });
+  return {lines,sgn,Q,ends,escapes,nulls,stalls};
+}
+/* the Stokes flux function of charges on the x axis, sum q_i cos(theta_i):
+   constant along every field line of such a configuration (3-D axisymmetry) */
+function psiAxisX(ch,x,y){ let s=0; for(const c of ch) s+=c.q*(x-c.x)/Math.hypot(x-c.x,y-c.y); return s; }
+
+/* ================================================================== *
+ *  null points — Newton on E = 0 with the analytic Jacobian           *
+ * ================================================================== */
+function newtonNull(ch,x,y,bx){
+  for(let it=0;it<60;it++){
+    const f=fieldAt(ch,x,y), j=jacAt(ch,x,y), det=j[0]*j[2]-j[1]*j[1];
+    if(!(Math.abs(det)>0)) return null;
+    let dx=-( j[2]*f.ex-j[1]*f.ey)/det, dy=-(-j[1]*f.ex+j[0]*f.ey)/det;
+    const st=Math.hypot(dx,dy); if(st>0.25){ dx*=0.25/st; dy*=0.25/st; }
+    x+=dx; y+=dy;
+    if(x<bx.x0-1||x>bx.x1+1||y<bx.y0-1||y>bx.y1+1) return null;
+    if(Math.hypot(dx,dy)<1e-14*(1+Math.hypot(x,y))) break;
+  }
+  const f=fieldAt(ch,x,y);
+  if(!(Math.hypot(f.ex,f.ey)<1e-10*fieldScale(ch,x,y))) return null;
+  return [x,y];
+}
+/* classify by the in-plane Hessian of V, H = -J: det H < 0 is a saddle;
+   det H > 0 with trace H > 0 an in-plane minimum, trace H < 0 a maximum.
+   (Laplace's equation gives V_zz = -trace H: an in-plane minimum is a
+   maximum along z, so Earnshaw still holds in 3-D.) */
+function classifyNull(ch,x,y){
+  const j=jacAt(ch,x,y), hxx=-j[0], hxy=-j[1], hyy=-j[2], det=hxx*hyy-hxy*hxy, tr=hxx+hyy;
+  return {kind:det<0?'saddle':(tr>0?'min':'max'),det,tr};
+}
+function findNulls(ch,bx){
+  bx=bx||PLANE;
+  if(ch.length<2) return [];
+  const seeds=[];
+  for(let j=0;j<=16;j++) for(let i=0;i<=26;i++) seeds.push([bx.x0+(bx.x1-bx.x0)*i/26,bx.y0+(bx.y1-bx.y0)*j/16]);
+  for(let a=0;a<ch.length;a++) for(let b=a+1;b<ch.length&&seeds.length<1400;b++) seeds.push([(ch[a].x+ch[b].x)/2,(ch[a].y+ch[b].y)/2]);
+  const found=[];
+  for(const s of seeds){
+    if(nearestCharge(ch,s[0],s[1]).r<0.05) continue;
+    const p=newtonNull(ch,s[0],s[1],bx); if(!p) continue;
+    if(p[0]<bx.x0||p[0]>bx.x1||p[1]<bx.y0||p[1]>bx.y1) continue;
+    if(nearestCharge(ch,p[0],p[1]).r<0.02) continue;
+    if(found.some(q=>Math.hypot(q.x-p[0],q.y-p[1])<1e-6)) continue;
+    const k=classifyNull(ch,p[0],p[1]);
+    found.push({x:p[0],y:p[1],V:potentialAt(ch,p[0],p[1]),kind:k.kind,lap:k.tr});
+  }
+  found.sort((a,b)=>a.x-b.x||a.y-b.y);
+  return found;
+}
+
+/* ================================================================== *
+ *  multipoles — about the centre of charge (Q != 0) or the mean       *
+ *  position (Q = 0); the coefficients along a ray two ways            *
+ * ================================================================== */
+function moments(ch){
+  const n=ch.length;
+  if(!n) return {c:[0,0],Q:0,p:[0,0],Qxx:0,Qxy:0,Qyy:0,dmax:0,sumAbs:0};
+  const Q=netCharge(ch); let cx=0, cy=0, sa=0;
+  if(Math.abs(Q)>1e-12){ for(const c of ch){ cx+=c.q*c.x; cy+=c.q*c.y; } cx/=Q; cy/=Q; }
+  else { for(const c of ch){ cx+=c.x; cy+=c.y; } cx/=n; cy/=n; }
+  let px=0, py=0, qxx=0, qxy=0, qyy=0, dmax=0;
+  for(const c of ch){ const dx=c.x-cx, dy=c.y-cy, d2=dx*dx+dy*dy;
+    px+=c.q*dx; py+=c.q*dy; qxx+=c.q*(3*dx*dx-d2); qxy+=c.q*3*dx*dy; qyy+=c.q*(3*dy*dy-d2);
+    dmax=Math.max(dmax,Math.sqrt(d2)); sa+=Math.abs(c.q); }
+  return {c:[cx,cy],Q,p:[px,py],Qxx:qxx,Qxy:qxy,Qyy:qyy,dmax,sumAbs:sa};
+}
+function legendreP(lmax,x){ const p=[1,x]; for(let l=1;l<lmax;l++) p.push(((2*l+1)*x*p[l]-l*p[l-1])/(l+1)); return p.slice(0,lmax+1); }
+/* V(c + r n) = sum_l c_l / r^(l+1) for r > max|d_i|, with
+   c_l = k sum_i q_i |d_i|^l P_l(n . d_i/|d_i|)  (the Legendre route) */
+function seriesCoeffs(ch,th,lmax){
+  const M=moments(ch), n=[Math.cos(th),Math.sin(th)], cs=new Array(lmax+1).fill(0);
+  for(const c of ch){
+    const dx=c.x-M.c[0], dy=c.y-M.c[1], d=Math.hypot(dx,dy);
+    if(d===0){ cs[0]+=KNC*c.q; continue; }
+    const pl=legendreP(lmax,(dx*n[0]+dy*n[1])/d);
+    let dl=1; for(let l=0;l<=lmax;l++){ cs[l]+=KNC*c.q*dl*pl[l]; dl*=d; }
+  }
+  return cs;
+}
+/* the same first three from the moments (the tensor route) */
+function tensorCoeffs(M,th){
+  const n=[Math.cos(th),Math.sin(th)];
+  return [KNC*M.Q, KNC*(M.p[0]*n[0]+M.p[1]*n[1]), KNC*0.5*(M.Qxx*n[0]*n[0]+2*M.Qxy*n[0]*n[1]+M.Qyy*n[1]*n[1])];
+}
+const ORDER_NAME=['monopole','dipole','quadrupole','octupole','hexadecapole'];
+/* the lowest order with a coefficient above rounding along this ray */
+function leadingOrder(cs,M){
+  for(let l=0;l<cs.length;l++) if(Math.abs(cs[l])>1e-9*KNC*M.sumAbs*Math.pow(Math.max(M.dmax,1e-3),l)) return l;
+  return null;
+}
+/* the far field along the ray at angle th (degrees): samples of the exact V,
+   the leading term, and r^(l0+1) V(r) taken to its limit by Richardson
+   extrapolation with the order gap m to the next non-zero coefficient */
+const FAR_RLO=0.1, FAR_RHI=5000, FAR_N=241;
+function farField(ch,thDeg){
+  const M=moments(ch), th=thDeg*DEG, n=[Math.cos(th),Math.sin(th)], cs=seriesCoeffs(ch,th,8), l0=leadingOrder(cs,M);
+  const rs=[], Vs=[], lead=[], ratio=[];
+  for(let k=0;k<FAR_N;k++){
+    const r=FAR_RLO*Math.pow(FAR_RHI/FAR_RLO,k/(FAR_N-1)), v=potentialClean(ch,M.c[0]+r*n[0],M.c[1]+r*n[1]);
+    rs.push(r); Vs.push(v);
+    lead.push(l0===null?NaN:cs[l0]/Math.pow(r,l0+1));
+    ratio.push(l0===null?NaN:Math.pow(r,l0+1)*v/cs[l0]);
+  }
+  let m=null, lim=null, rate=null;
+  if(l0!==null){
+    for(let l=l0+1;l<cs.length;l++) if(Math.abs(cs[l])>1e-9*KNC*M.sumAbs*Math.pow(Math.max(M.dmax,1e-3),l)){ m=l-l0; break; }
+    const f=r=>Math.pow(r,l0+1)*potentialAt(ch,M.c[0]+r*n[0],M.c[1]+r*n[1]);
+    if(m===null){ lim=f(100); }
+    else { const g=Math.pow(2,m); lim=(g*f(100)-f(50))/(g-1); rate=(f(50)-cs[l0])/(f(100)-cs[l0]); }
+  }
+  return {M,th:thDeg,n,cs,l0,m,lim,rate,rs,Vs,lead,ratio};
+}
+
+/* ================================================================== *
+ *  the tape: V(A) - V(B), and the line integral of E that equals it    *
+ * ================================================================== */
+/* Gauss-Legendre nodes and weights by Newton on P_n (never typed) */
+function gaussLegendre(n){
+  const x=[], w=[];
+  for(let i=1;i<=n;i++){
+    let z=Math.cos(PI*(i-0.25)/(n+0.5)), dp=0;
+    for(let it=0;it<100;it++){
+      let p0=1, p1=z;
+      for(let l=1;l<n;l++){ const p2=((2*l+1)*z*p1-l*p0)/(l+1); p0=p1; p1=p2; }
+      dp=n*(z*p1-p0)/(z*z-1);
+      const dz=p1/dp; z-=dz; if(Math.abs(dz)<1e-16) break;
+    }
+    x.push(z); w.push(2/((1-z*z)*dp*dp));
+  }
+  return {x,w};
+}
+const GL8=gaussLegendre(8);
+function lineIntegralE(ch,ax,ay,bx,by,nPan){
+  nPan=nPan||40;
+  const L=Math.hypot(bx-ax,by-ay); if(!(L>0)) return 0;
+  const tx=(bx-ax)/L, ty=(by-ay)/L; let s=0;
+  for(let p=0;p<nPan;p++){ const s0=L*p/nPan, s1=L*(p+1)/nPan, hm=(s1-s0)/2, mid=(s0+s1)/2;
+    for(let k=0;k<GL8.x.length;k++){ const ss=mid+hm*GL8.x[k], f=fieldAt(ch,ax+ss*tx,ay+ss*ty); s+=GL8.w[k]*hm*(f.ex*tx+f.ey*ty); } }
+  return s;
+}
+function tapeModel(ch,t){
+  const L=Math.hypot(t.bx-t.ax,t.by-t.ay), VA=potentialClean(ch,t.ax,t.ay), VB=potentialClean(ch,t.bx,t.by);
+  return {L,cm:100*L,VA,VB,dV:VA-VB};
+}
+
+/* ================================================================== *
+ *  superposition — each charge's term at a point                      *
+ * ================================================================== */
+function contributions(ch,x,y){
+  return ch.map((c,i)=>{ const dx=x-c.x, dy=y-c.y, r2=dx*dx+dy*dy, r=Math.sqrt(r2), r3=r2*r;
+    return {i,q:c.q,r,V:KNC*c.q/r,ex:KNC*c.q*dx/r3,ey:KNC*c.q*dy/r3}; });
+}
+
+/* ================================================================== *
+ *  the landscape: V on a vertex grid over the plane, clipped           *
+ * ================================================================== */
+const LAND_NX=64, LAND_NY=40, LAND_HZ=1.25;      /* 65 x 41 vertices; LAND_HZ metres of height at the clip */
+/* the camera distance that frames the surface's actual box (8 m x 5 m x
+   2 LAND_HZ): bisected until all 8 corners project inside the middle 90 % of
+   the panel (the bounding sphere of so flat a box left the surface small);
+   the zoom then divides it */
+function landFitDist(b,theta,phi){
+  const corners=[]; for(const x of [PLANE.x0,PLANE.x1]) for(const y of [PLANE.y0,PLANE.y1]) for(const z of [-LAND_HZ,LAND_HZ]) corners.push([x,y,z]);
+  const ix0=b.x+0.05*b.w, ix1=b.x+0.95*b.w, iy0=b.y+0.05*b.h, iy1=b.y+0.95*b.h;
+  const fits=D=>{ const C=boxCamera(b,theta,phi,D,[0,0,0]); for(const p of corners){ const q=C.P(p); if(!q||q.x<ix0||q.x>ix1||q.y<iy0||q.y>iy1) return false; } return true; };
+  let lo=1, hi=400; for(let it=0;it<60;it++){ const m=0.5*(lo+hi); if(fits(m)) hi=m; else lo=m; }
+  return hi;
+}
+function landHeight(V,vcap){ const c=clamp(V,-vcap,vcap); return (c===c?c:0)/vcap*LAND_HZ; }
+function landGrid(ch,vcap){
+  const nx=LAND_NX, ny=LAND_NY, v=new Float64Array((nx+1)*(ny+1)), z=new Float64Array((nx+1)*(ny+1));
+  let clipped=0;
+  for(let j=0;j<=ny;j++) for(let i=0;i<=nx;i++){
+    const x=PLANE.x0+(PLANE.x1-PLANE.x0)*i/nx, y=PLANE.y0+(PLANE.y1-PLANE.y0)*j/ny, V=potentialAt(ch,x,y);
+    v[j*(nx+1)+i]=V; z[j*(nx+1)+i]=landHeight(V,vcap); if(!(Math.abs(V)<=vcap)) clipped++;
+  }
+  return {nx,ny,v,z,vcap,clipped};
+}
+
+/* ================================================================== *
+ *  marching squares — contours of a sampled scalar                     *
+ *  (the house implementation from dipole_radiation.html, unchanged)   *
+ * ================================================================== */
+function marchingSquares(grid, nx, ny, x0, z0, cs, level){
+  const segs=[];
+  const lerp=(pa,pb,va,vb)=>{ const f=(level-va)/((vb-va)||1e-30);
+    return [pa[0]+(pb[0]-pa[0])*f, pa[1]+(pb[1]-pa[1])*f]; };
+  for (let j=0;j<ny-1;j++){
+    for (let i=0;i<nx-1;i++){
+      const v00=grid[j*nx+i],   v10=grid[j*nx+i+1],
+            v01=grid[(j+1)*nx+i], v11=grid[(j+1)*nx+i+1];
+      let code=0;
+      if (v00>level) code|=1;
+      if (v10>level) code|=2;
+      if (v11>level) code|=4;
+      if (v01>level) code|=8;
+      if (code===0||code===15) continue;
+      const x=x0+i*cs, z=z0+j*cs;
+      const p00=[x,z], p10=[x+cs,z], p01=[x,z+cs], p11=[x+cs,z+cs];
+      const eB=()=>lerp(p00,p10,v00,v10), eR=()=>lerp(p10,p11,v10,v11),
+            eT=()=>lerp(p01,p11,v01,v11), eL=()=>lerp(p00,p01,v00,v01);
+      const put=(a,b)=>{ segs.push(a[0],a[1],b[0],b[1]); };
+      switch(code){
+        case 1:  put(eL(),eB()); break;
+        case 2:  put(eB(),eR()); break;
+        case 3:  put(eL(),eR()); break;
+        case 4:  put(eR(),eT()); break;
+        case 5:{ const mid=(v00+v10+v01+v11)/4;
+                 if (mid>level){ put(eL(),eT()); put(eB(),eR()); }
+                 else { put(eL(),eB()); put(eR(),eT()); } break; }
+        case 6:  put(eB(),eT()); break;
+        case 7:  put(eL(),eT()); break;
+        case 8:  put(eT(),eL()); break;
+        case 9:  put(eT(),eB()); break;
+        case 10:{ const mid=(v00+v10+v01+v11)/4;
+                 if (mid>level){ put(eT(),eR()); put(eL(),eB()); }
+                 else { put(eT(),eL()); put(eB(),eR()); } break; }
+        case 11: put(eT(),eR()); break;
+        case 12: put(eR(),eL()); break;
+        case 13: put(eR(),eB()); break;
+        case 14: put(eB(),eL()); break;
+      }
+    }
+  }
+  return segs;
+}
+/* the evenly spaced family for the field-lines view: V on a 4-cm grid over
+   the plane, contoured at every dV up to the +-40 V saturation (and at 0) */
+const FAM_DX=0.04;
+function equipotentialFamily(ch,dV){
+  const nx=Math.round((PLANE.x1-PLANE.x0)/FAM_DX)+1, ny=Math.round((PLANE.y1-PLANE.y0)/FAM_DX)+1, g2=new Float64Array(nx*ny);
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++) g2[j*nx+i]=vSafe(potentialAt(ch,PLANE.x0+i*FAM_DX,PLANE.y0+j*FAM_DX));
+  const levels=[0]; for(let k=1;k*dV<=V_SAT+1e-9;k++){ levels.push(k*dV,-k*dV); }
+  const out=[];
+  for(const L of levels){ const s=marchingSquares(g2,nx,ny,PLANE.x0,PLANE.y0,FAM_DX,L); if(s.length) out.push({V:L,segs:s}); }
+  return out;
+}
+
+/* ================================================================== *
+ *  state, presets, the per-view model, readout, eqbar, tag            *
+ * ================================================================== */
+const TABS=[['plane','the plane'],['lines','field lines'],['land','the landscape'],['super','superposition'],['far','the far field']];
+const COL={pos:'#b8ec4c', neg:'#cd35c4', ref:'#e8843a', struct:'#5ac8e0', live:'#f2f4f8', dim:'#8b93a6',
+           edge:'#242a3a', plane:'#0b1020', bin:'#10131b', binEdge:'#3a4152', arrow:'#e9ecf2',
+           grid:'#141b2a', gridMaj:'#1f2940', zero:'#1a2233'};
+const RO_W=300;
+const S3=Math.sqrt(3);
+function qCol(q){ return q>0?COL.pos:COL.neg; }
+/* the presets (PhET opens on an empty plane; the default here is the dipole
+   so the first view has something to show — "empty" gives PhET's start) */
+const PRESETS=[
+  {id:'empty',name:'empty',ch:[]},
+  {id:'single',name:'one charge',ch:[{x:0,y:0,q:1}]},
+  {id:'dipole',name:'dipole',ch:[{x:-0.5,y:0,q:-1},{x:0.5,y:0,q:1}]},
+  {id:'like',name:'like pair',ch:[{x:-0.5,y:0,q:1},{x:0.5,y:0,q:1}]},
+  {id:'quad',name:'quadrupole',ch:[{x:0.5,y:0.5,q:1},{x:-0.5,y:0.5,q:-1},{x:-0.5,y:-0.5,q:1},{x:0.5,y:-0.5,q:-1}]},
+  {id:'triangle',name:'triangle',ch:[{x:0,y:0.75,q:1},{x:-0.75*S3/2,y:-0.375,q:1},{x:0.75*S3/2,y:-0.375,q:1}]},
+  {id:'rows',name:'two rows',ch:[-1.5,-1,-0.5,0,0.5,1,1.5].map(x=>({x,y:1,q:1})).concat([-1.5,-1,-0.5,0,0.5,1,1.5].map(x=>({x,y:-1,q:-1})))},
+];
+function presetCharges(id){ const p=PRESETS.find(o=>o.id===id); return p?p.ch.map(c=>({x:c.x,y:c.y,q:c.q})):[]; }
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+const DEFAULTS={view:'plane', preset:'dipole', charges:presetCharges('dipole'),
+  /* PhET's check boxes and their defaults: field on, the rest off */
+  showE:true, dirOnly:false, showV:false, showVals:false, showGrid:false,
+  /* the tools: the voltage sensor out with one equipotential plotted, one
+     E-field sensor on the plane, the tape in its box */
+  showVS:true, showTape:false, vs:{x:1.5,y:0.9}, esens:[{x:-1.8,y:1.2}], tape:{ax:-2.8,ay:1.9,bx:-0.8,by:1.9},
+  eqSeeds:[{x:1.5,y:0.9}],
+  nLines:16, famDV:4, showFam:true, showNulls:true,
+  /* the landscape's clip: 20 V, half of PhET's colour saturation, so a dipole's
+     relief shows at the first look (at 40 V it was two thin spikes) */
+  vcap:20, camTheta:-1.05, camPhi:0.62, camZoom:1, landEq:true,
+  probe:{x:0.6,y:0.9}, farTheta:30};
+const ST=clone(DEFAULTS);
+function resetState(over){ Object.assign(ST,clone(DEFAULTS),over?clone(over):{}); for(const k in MEMO) delete MEMO[k]; }
+const MEMO={};
+function memo(name,key,fn){ const m=MEMO[name]; if(m&&m.key===key) return m.val; const val=fn(); MEMO[name]={key,val}; return val; }
+
+/* ---- edits to the charges (every one clears the plotted equipotentials,
+   as PhET's do: a line belongs to the charges it was traced in) ---- */
+function applyPreset(st,id){ st.preset=id; st.charges=presetCharges(id); st.eqSeeds=[]; }
+function addCharge(st,x,y,q){ if(st.charges.length>=MAX_CHARGES) return -1; st.charges.push({x,y,q}); st.preset='custom'; st.eqSeeds=[]; return st.charges.length-1; }
+function moveCharge(st,k,x,y){ const c=st.charges[k]; if(!c) return false; c.x=clamp(x,PLANE.x0,PLANE.x1); c.y=clamp(y,PLANE.y0,PLANE.y1); st.preset='custom'; st.eqSeeds=[]; return true; }
+function removeCharge(st,k){ if(k<0||k>=st.charges.length) return false; st.charges.splice(k,1); st.preset='custom'; st.eqSeeds=[]; return true; }
+function inBin(x,y){ return x>=BIN.x0&&x<=BIN.x1&&y>=BIN.y0&&y<=BIN.y1; }
+/* the voltage sensor's "plot" button: refused on an empty plane, within 3 cm
+   of a charge and at a null (the tracer says why) */
+function plotEquipotential(st){
+  if(!st.showVS) return {ok:false,why:'the voltage sensor is in its box'};
+  const t=traceEquipotential(st.charges,st.vs.x,st.vs.y);
+  if(!t.ok) return t;
+  if(st.eqSeeds.length>=MAX_EQ) st.eqSeeds.shift();
+  st.eqSeeds.push({x:st.vs.x,y:st.vs.y});
+  return t;
+}
+
+function buildModel(){
+  const st=ST, ch=st.charges, key=chargeKey(ch), view=st.view;
+  let npos=0, nneg=0; for(const c of ch){ if(c.q>0) npos++; else nneg++; }
+  const M={view,st,ch,key,Q:netCharge(ch),n:ch.length,npos,nneg};
+  M.vsR=st.showVS?sensorReading(ch,st.vs.x,st.vs.y):null;
+  M.esR=st.esens.map(s=>sensorReading(ch,s.x,s.y));
+  M.tape=st.showTape?tapeModel(ch,st.tape):null;
+  M.eq=memo('eq',key+'|'+JSON.stringify(st.eqSeeds),()=>st.eqSeeds.map(s=>traceEquipotential(ch,s.x,s.y)));
+  if(view==='plane'){
+    M.vmap=st.showV?memo('vmap',key,()=>vmapGrid(ch)):null;
+    M.arrows=st.showE?memo('arrows',key,()=>arrowGrid(ch)):null;
+  }
+  if(view==='lines'){
+    M.FL=memo('fl',key+'|'+st.nLines,()=>fieldLines(ch,st.nLines));
+    M.fam=st.showFam?memo('fam',key+'|'+st.famDV,()=>equipotentialFamily(ch,st.famDV)):null;
+    M.nulls=memo('nulls',key,()=>findNulls(ch));
+  }
+  if(view==='land') M.land=memo('land',key+'|'+st.vcap,()=>landGrid(ch,st.vcap));
+  if(view==='super'){ M.contrib=contributions(ch,st.probe.x,st.probe.y); M.probe=sensorReading(ch,st.probe.x,st.probe.y); }
+  if(view==='far') M.far=memo('far',key+'|'+st.farTheta,()=>farField(ch,st.farTheta));
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function fV(v){ return isFinite(v)?sigf(v,3)+' V':'&mdash; (on a charge)'; }
+function fE(m){ return isFinite(m)?sigf(m,3)+' V/m':'&mdash;'; }
+function fQ(q){ return (q>0?'+':q<0?'&minus;':'')+fmt(Math.abs(q),0)+' nC'; }
+function fXY(x,y){ return '('+fmt(x,2)+', '+fmt(y,2)+') m'; }
+function sensorText(R){ return R.over?'&mdash; (on a charge)':R.mag>0?fE(R.mag)+' at '+fmt(R.ang,1)+'&deg;':'0 V/m, no direction'; }
+function chargesRows(M){
+  return hd('the charges')+rrow('on the plane',M.n+(M.n?' ('+M.npos+' positive, '+M.nneg+' negative)':''))
+    +rrow('net charge Q',fQ(M.Q),M.Q===0&&M.n?'good':'');
+}
+function readoutHTML(M){
+  const st=ST;
+  let s='<div class="rname">charges and fields<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  s+=chargesRows(M);
+  if(M.view==='plane'){
+    s+=hd('the voltage sensor');
+    s+=M.vsR?rrow('at '+fXY(st.vs.x,st.vs.y),fV(M.vsR.V),'good'):rrow('in its box','&mdash;');
+    s+=hd('E-field sensors');
+    if(!M.esR.length) s+=rrow('none on the plane','drag one from the bin');
+    M.esR.slice(0,4).forEach((R,i)=>{ s+=rrow('#'+(i+1)+' '+fXY(st.esens[i].x,st.esens[i].y),sensorText(R)); });
+    if(M.esR.length>4) s+=rrow('and '+(M.esR.length-4)+' more','');
+    if(M.tape) s+=hd('the tape')+rrow('length',fmt(M.tape.cm,1)+' cm')+rrow('V(A) &minus; V(B)',fV(M.tape.dV));
+    s+=hd('equipotentials');
+    s+=M.eq.length?rrow(M.eq.length+' plotted',M.eq.slice(-4).map(e=>e.ok?sigf(e.V0c,3)+' V':'&mdash;').join(', ')):rrow('none plotted','press plot on the sensor');
+  }
+  else if(M.view==='lines'){
+    const F=M.FL;
+    s+=hd('field lines');
+    if(!M.n) s+=rrow('no charges','nothing to trace');
+    else { s+=rrow('traced from the',F.sgn>0?'positive charges':'negative charges')+rrow('lines',F.lines.length)
+        +rrow('end on a charge',F.ends,'good')+rrow('run off past 10 km',F.escapes)+rrow('end at a null',F.nulls,F.nulls?'bad':''); }
+    s+=hd('null points, E = 0');
+    if(!M.nulls.length) s+=rrow('none on the plane','&mdash;');
+    M.nulls.slice(0,5).forEach(N=>{ s+=rrow(fXY(N.x,N.y),(N.kind==='saddle'?'saddle':N.kind==='min'?'in-plane minimum':'in-plane maximum')+', '+fV(N.V)); });
+    if(M.nulls.length>5) s+=rrow('and '+(M.nulls.length-5)+' more','');
+    if(st.showFam) s+=hd('equipotentials')+rrow('every',fmt(st.famDV,0)+' V to &plusmn;'+V_SAT+' V');
+  }
+  else if(M.view==='land'){
+    const Ld=M.land;
+    s+=hd('the surface')+rrow('height',fmt(LAND_HZ,2)+' m = '+fmt(st.vcap,0)+' V')+rrow('clipped at','&plusmn;'+fmt(st.vcap,0)+' V')
+      +rrow('vertices clipped',Ld.clipped+' of '+((Ld.nx+1)*(Ld.ny+1)),Ld.clipped?'bad':'');
+    s+=hd('camera')+rrow('azimuth, elevation',fmt(st.camTheta/DEG,0)+'&deg;, '+fmt(st.camPhi/DEG,0)+'&deg;')+rrow('zoom',fmt(st.camZoom,2)+'&times;');
+    if(M.eq.length) s+=hd('level cuts')+rrow(M.eq.length+' plotted equipotentials',M.eq.slice(-4).map(e=>e.ok?sigf(e.V0c,3)+' V':'&mdash;').join(', '));
+  }
+  else if(M.view==='super'){
+    const P=M.probe, C=M.contrib;
+    let sv=0, sx=0, sy=0; for(const c of C){ sv+=c.V; sx+=c.ex; sy+=c.ey; }
+    s+=hd('the probe at '+fXY(st.probe.x,st.probe.y))+rrow('V = &Sigma; V<sub>i</sub>',fV(P.V),'good')+rrow('|E|, direction',sensorText(P),'good');
+    if(C.length){ s+=rrow('|&Sigma;E<sub>i</sub> &minus; E|',sigf(Math.hypot(sx-P.ex,sy-P.ey),2)+' V/m');
+      s+=hd('each charge (first '+Math.min(C.length,6)+')');
+      C.slice(0,6).forEach(c=>{ s+=rrow('#'+(c.i+1)+' '+fQ(c.q)+', r = '+fmt(c.r,2)+' m',(isFinite(c.V)?sigf(c.V,3):'&mdash;')+' V, '+fE(Math.hypot(c.ex,c.ey))); }); }
+  }
+  else {
+    const F=M.far, Mo=F.M;
+    s+=hd('the moments about '+fXY(Mo.c[0],Mo.c[1]))+rrow('Q',fQ(Mo.Q))+rrow('p = &Sigma; q d',sigf(Math.hypot(Mo.p[0],Mo.p[1]),3)+' nC&middot;m')
+      +rrow('Q<sub>xx</sub>, Q<sub>xy</sub>, Q<sub>yy</sub>',sigf(Mo.Qxx,3)+', '+sigf(Mo.Qxy,3)+', '+sigf(Mo.Qyy,3)+' nC&middot;m&sup2;')
+      +rrow('farthest charge, d<sub>max</sub>',fmt(Mo.dmax,3)+' m');
+    s+=hd('along the ray at '+fmt(F.th,0)+'&deg;');
+    for(let l=0;l<4;l++) s+=rrow('c<sub>'+l+'</sub> ('+ORDER_NAME[l]+')',M.n?sigf(F.cs[l],4)+' V&middot;m'+(l?'<sup>'+(l+1)+'</sup>':''):'&mdash;',F.l0===l?'good':'');
+    if(F.l0!==null) s+=rrow('leading order',ORDER_NAME[F.l0]+', V &prop; 1/r'+(F.l0?'<sup>'+(F.l0+1)+'</sup>':''))
+      +rrow('lim r<sup>'+(F.l0+1)+'</sup>V, numerically',sigf(F.lim,6),'good')+rrow('c<sub>'+F.l0+'</sub>, exact',sigf(F.cs[F.l0],6));
+    else s+=rrow('leading order',M.n?'none: V = 0 along this ray':'no charges','bad');
+  }
+  s+='</table><div class="note">k = 1/4&pi;&epsilon;<sub>0</sub> = '+sigf(KNC,6)+' V&middot;m/nC from the CODATA 2022 &epsilon;<sub>0</sub>; PhET uses 9, so its readings run 0.14 % higher. Everything else is exact superposition, pinned in selfTest to build/charges-and-fields/derive.py.</div>';
+  return s;
+}
+
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='plane') return E('<span class="hl">V(r) = k &Sigma; q<sub>i</sub> / |r &minus; r<sub>i</sub>|</span> &nbsp;&middot;&nbsp; <span class="hl">E = &minus;&nabla;V = k &Sigma; q<sub>i</sub> (r &minus; r<sub>i</sub>) / |r &minus; r<sub>i</sub>|&sup3;</span> &nbsp;&middot;&nbsp; k = 1/4&pi;&epsilon;<sub>0</sub> = 8.988 V&middot;m/nC',
+    'each charge adds a 1/r potential and a 1/r&sup2; field; the voltage map, the arrows and every sensor are these two sums, evaluated exactly');
+  if(M.view==='lines') return E('<span class="hl">dr/ds = E/|E|</span> <span class="rm">(a field line)</span> &nbsp;&middot;&nbsp; V(r) = V<sub>0</sub> <span class="rm">(an equipotential)</span> &nbsp;&rArr;&nbsp; <span class="hl2">t&#770;<sub>V</sub> &middot; E = 0</span>',
+    'lines follow E and cross every equipotential at a right angle; equally spaced equipotentials crowd where the field is strong');
+  if(M.view==='land') return E('<span class="hl">E = &minus;&nabla;V</span> &nbsp;&middot;&nbsp; |E| = <span class="rm">the steepest slope of</span> V(x, y) &nbsp;&middot;&nbsp; V = V<sub>0</sub> <span class="rm">is a level cut</span>',
+    'the field points straight downhill on the potential landscape, and is as strong as the slope is steep');
+  if(M.view==='super') return E('<span class="hl">E(P) = &Sigma;<sub>i</sub> E<sub>i</sub>(P)</span> &nbsp;&middot;&nbsp; <span class="hl2">V(P) = &Sigma;<sub>i</sub> V<sub>i</sub>(P)</span> &nbsp;&middot;&nbsp; E<sub>i</sub> = k q<sub>i</sub> (P &minus; r<sub>i</sub>)/|P &minus; r<sub>i</sub>|&sup3;',
+    'fields add as vectors, head to tail; potentials add as signed numbers');
+  return E('<span class="hl">V(c + r n&#770;) = &Sigma;<sub>&ell;</sub> c<sub>&ell;</sub> / r<sup>&ell;+1</sup></span>, &nbsp; c<sub>&ell;</sub> = k &Sigma; q<sub>i</sub> d<sub>i</sub><sup>&ell;</sup> P<sub>&ell;</sub>(cos &gamma;<sub>i</sub>) &nbsp;&middot;&nbsp; c<sub>0</sub> = kQ, &nbsp;c<sub>1</sub> = k p&middot;n&#770;, &nbsp;c<sub>2</sub> = &frac12;k n&#770;&middot;Q&middot;n&#770;',
+    'far away only the lowest non-vanishing moment survives: a net charge falls as 1/r, a neutral pair as 1/r&sup2;, a square of four as 1/r&sup3;');
+}
+function tagHTML(M){
+  const st=ST, pn=(PRESETS.find(p=>p.id===st.preset)||{name:'your charges'}).name;
+  if(M.view==='plane') return '<b>the plane</b> — '+pn+(M.n?', '+M.n+' charge'+(M.n>1?'s':''):'');
+  if(M.view==='lines') return '<b>field lines</b> — '+pn+', '+st.nLines+' per charge';
+  if(M.view==='land') return '<b>the landscape</b> — '+pn+', clipped at &plusmn;'+fmt(st.vcap,0)+' V';
+  if(M.view==='super') return '<b>superposition</b> — '+pn+', the probe at '+fXY(st.probe.x,st.probe.y);
+  return '<b>the far field</b> — '+pn+', the ray at '+fmt(st.farTheta,0)+'&deg;';
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — verbatim from build_buoy/p4_views.js (build_cycloid lineage)     *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  the plane's geometry, shared by the plane, field-lines and          *
+ *  superposition views: 8 m x 5 m at EQUAL aspect (a configuration of  *
+ *  charges is a shape), left of the readout, under a measured caption  *
+ * ================================================================== */
+function planeGeo(ctx,W,H,capFull,capShort){
+  const narrow=isNarrow(W), left=16, right=narrow?W-16:W-RO_W-40, top=stageTop();
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const aw=right-left, ah=Math.max(60,fit.capY-14-top);
+  const s=Math.min(aw/(PLANE.x1-PLANE.x0),ah/(PLANE.y1-PLANE.y0));
+  const w=s*(PLANE.x1-PLANE.x0), hh=s*(PLANE.y1-PLANE.y0);
+  const b=box(left+(aw-w)/2,top+(ah-hh)/2,w,hh);
+  const map=worldFitUp(b,{xmin:PLANE.x0,xmax:PLANE.x1,ymin:PLANE.y0,ymax:PLANE.y1},0);
+  return {b,map,capY:fit.capY,capTxt:fit.txt,capW:fit.capW,left};
+}
+function chargePx(map){ return Math.max(6,CHARGE_R*map.s); }
+/* lab() on a translucent pad: a value printed over arrows, lines or the voltage
+   map stays legible (white on white was unreadable over "direction only") */
+function labPad(ctx,W,H,x,y,txt,col,font,align,base){
+  const f=font||LAB_FONT; ctx.font=f;
+  const al=align||'left', bl=base||'middle', t=plain(txt), fs=parseFloat(f.match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  const wp=Math.max(w,ctx.measureText(t).width);
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X), ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(!labFits(bx)) continue;
+    LABELS.push(bx);
+    const px=al==='center'?X-wp/2:(al==='right'?X-wp:X);
+    ctx.fillStyle='rgba(7,11,24,0.8)'; ctx.fillRect(px-3,ly-1,wp+6,hh+2);
+    ctx.fillStyle=col||'#aeb6c6'; ctx.textAlign=al; ctx.textBaseline=bl; ctx.fillText(t,X,Y);
+    return true;
+  }
+  return false;
+}
+function inBox(bx,x,y){ return x>=bx.x&&x<=bx.x1&&y>=bx.y&&y<=bx.y1; }
+/* a charge: the disc in its sign's colour with the sign drawn as strokes */
+function chargeGlyph(ctx,X,Y,r,q){
+  ctx.beginPath(); ctx.arc(X,Y,r,0,TAU); ctx.fillStyle=qCol(q); ctx.fill();
+  ctx.strokeStyle=shade(qCol(q),0.5); ctx.lineWidth=1; ctx.stroke();
+  const a=r*0.55; ctx.strokeStyle='#0b1020'; ctx.lineWidth=Math.max(1.4,r*0.2);
+  ctx.beginPath(); ctx.moveTo(X-a,Y); ctx.lineTo(X+a,Y); if(q>0){ ctx.moveTo(X,Y-a); ctx.lineTo(X,Y+a); } ctx.stroke();
+}
+function drawCharges(ctx,map,ch){ const r=chargePx(map); for(const c of ch) chargeGlyph(ctx,map.X(c.x),map.Y(c.y),r,c.q); }
+/* an E-field sensor: PhET's 7-px ring */
+function eSensorGlyph(ctx,X,Y){
+  ctx.beginPath(); ctx.arc(X,Y,7,0,TAU); ctx.fillStyle='#0b1020'; ctx.fill(); ctx.strokeStyle=COL.live; ctx.lineWidth=1.6; ctx.stroke();
+  ctx.beginPath(); ctx.arc(X,Y,2,0,TAU); ctx.fillStyle=COL.live; ctx.fill();
+}
+/* PhET's field-arrow proportions (ElectricFieldArrowShape): the whole arrow is
+   L long and turns about a point 40 % from the tail; head L/4 long and L/2.5
+   wide, tail L/5 wide */
+function blockArrow(ctx,X,Y,ux,uy,L,col){
+  const t0=-0.4*L, t1=0.6*L, hh=0.25*L, hw=0.2*L, tw=0.1*L, vx=-uy, vy=ux;
+  const P=(s,w)=>[X+ux*s+vx*w,Y+uy*s+vy*w];
+  const pts=[P(t0,tw),P(t1-hh,tw),P(t1-hh,hw),P(t1,0),P(t1-hh,-hw),P(t1-hh,-tw),P(t0,-tw)];
+  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]); for(let k=1;k<pts.length;k++) ctx.lineTo(pts[k][0],pts[k][1]); ctx.closePath();
+  ctx.fillStyle=col; ctx.fill();
+}
+/* a line arrow in pixels; a double head marks one capped at its drawn maximum */
+function arrowPx(ctx,X0,Y0,X1,Y1,col,lw,capped){
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  for(const back of (capped?[0,6]:[0])){ const Xh=X1-back*ux, Yh=Y1-back*uy;
+    ctx.moveTo(Xh,Yh); ctx.lineTo(Xh-hh*ux+0.5*hh*uy,Yh-hh*uy-0.5*hh*ux);
+    ctx.moveTo(Xh,Yh); ctx.lineTo(Xh-hh*ux-0.5*hh*uy,Yh-hh*uy+0.5*hh*ux); }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* a world-space arrow clipped to the plane: the shaft by Liang-Barsky in data
+   space (the recorder cannot see a canvas clip), the head only if the tip is on
+   the plane */
+function clipSeg(x0,y0,x1,y1,bx){
+  let t0=0,t1=1; const dx=x1-x0, dy=y1-y0;
+  for(const [p,q] of [[-dx,x0-bx.x0],[dx,bx.x1-x0],[-dy,y0-bx.y0],[dy,bx.y1-y0]]){
+    if(p===0){ if(q<0) return null; continue; }
+    const t=q/p; if(p<0){ if(t>t1) return null; if(t>t0) t0=t; } else { if(t<t0) return null; if(t<t1) t1=t; }
+  }
+  return [x0+t0*dx,y0+t0*dy,x0+t1*dx,y0+t1*dy,t1];
+}
+function arrowWorldClip(ctx,map,a,v,col,lw,bx){
+  const c=clipSeg(a[0],a[1],a[0]+v[0],a[1]+v[1],bx||PLANE); if(!c) return false;
+  if(c[4]>=1) arrowPx(ctx,map.X(c[0]),map.Y(c[1]),map.X(c[2]),map.Y(c[3]),col,lw);
+  else { ctx.beginPath(); ctx.moveTo(map.X(c[0]),map.Y(c[1])); ctx.lineTo(map.X(c[2]),map.Y(c[3])); ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke(); }
+  return true;
+}
+
+/* ---- the plane's layers ---- */
+const VQ=32;      /* colour levels per sign for the voltage cells (PhET's colour is continuous) */
+function vCellColour(V){ const lv=Math.round(vLevel(V)*VQ); return lv===0?null:shade(V>0?COL.pos:COL.neg,lv/VQ); }
+function drawVmap(ctx,map,G){
+  const cw=MAP_DX*map.s, buckets={};
+  for(let j=0;j<G.ny;j++) for(let i=0;i<G.nx;i++){
+    const V=G.v[j*G.nx+i], lv=Math.round(vLevel(V)*VQ); if(lv===0) continue;
+    const k=(V>0?1:-1)*lv; (buckets[k]=buckets[k]||[]).push(i,j);
+  }
+  /* opaque, pre-mixed against the background, each cell widened by half a pixel:
+     abutting cells then leave no antialiased seam (Known-bad: seams / corduroy) */
+  for(const k in buckets){
+    const kk=+k, a=buckets[k];
+    ctx.beginPath();
+    for(let n=0;n<a.length;n+=2){ const x=PLANE.x0+a[n]*MAP_DX, y=PLANE.y0+(a[n+1]+1)*MAP_DX; ctx.rect(map.X(x)-0.25,map.Y(y)-0.25,cw+0.5,cw+0.5); }
+    ctx.fillStyle=shade(kk>0?COL.pos:COL.neg,Math.abs(kk)/VQ); ctx.fill();
+  }
+}
+/* PhET's grid: minor lines every 0.1 m, major every 0.5 m, translucent so that
+   over the voltage map they read as lines and not as a mosaic of dark tiles */
+function drawGrid(ctx,map,b){
+  ctx.lineWidth=1; ctx.strokeStyle='rgba(255,255,255,0.055)'; ctx.beginPath();
+  for(let i=1;i<80;i++){ if(i%5===0) continue; const X=Math.round(map.X(PLANE.x0+i*0.1))+0.5; ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); }
+  for(let j=1;j<50;j++){ if(j%5===0) continue; const Y=Math.round(map.Y(PLANE.y0+j*0.1))+0.5; ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); }
+  ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.13)'; ctx.lineWidth=1.6; ctx.beginPath();
+  for(let i=1;i<16;i++){ const X=map.X(PLANE.x0+i*0.5); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); }
+  for(let j=1;j<10;j++){ const Y=map.Y(PLANE.y0+j*0.5); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); }
+  ctx.stroke();
+}
+function drawArrows(ctx,map,G,dirOnly){
+  const L=ARROW_LEN*map.s;
+  for(const a of G.a){
+    const al=arrowAlpha(a.mag,dirOnly);
+    if(!(al>0.004)||!isFinite(a.mag)) continue;
+    ctx.globalAlpha=al; blockArrow(ctx,map.X(a.x),map.Y(a.y),a.ex/a.mag,-a.ey/a.mag,L,COL.arrow);
+  }
+  ctx.globalAlpha=1;
+}
+/* the plotted equipotentials, clipped to the plane in data space */
+function drawEqLines(ctx,W,H,G,M,vals){
+  M.eq.forEach(E=>{ if(!E.ok) return;
+    const xs=E.pts.map(p=>p[0]), ys=E.pts.map(p=>p[1]); if(E.closed){ xs.push(E.pts[0][0]); ys.push(E.pts[0][1]); }
+    polyline(ctx,G.b,xs,ys,PLANE.x0,PLANE.x1,PLANE.y0,PLANE.y1,COL.struct,1.6);
+    if(vals) labPad(ctx,W,H,G.map.X(E.x0)+7,G.map.Y(E.y0)-10,sigf(E.V0c,3)+' V',COL.struct,SM_FONT,'left'); });
+}
+/* the bin: PhET's enclosure, with its three sources */
+const BIN_SRC=[{kind:'pos',x:-0.75,label:'+1 nC'},{kind:'neg',x:0,label:'−1 nC'},{kind:'es',x:0.75,label:'sensors'}];
+const BIN_GLYPH_Y=-1.93, BIN_LABEL_Y=-2.2;
+function drawBin(ctx,W,H,map,M){
+  const X0=map.X(BIN.x0), X1=map.X(BIN.x1), Y0=map.Y(BIN.y1), Y1=map.Y(BIN.y0);
+  ctx.fillStyle=COL.bin; ctx.fillRect(X0,Y0,X1-X0,Y1-Y0);
+  ctx.strokeStyle=COL.binEdge; ctx.lineWidth=1; ctx.strokeRect(X0+0.5,Y0+0.5,X1-X0-1,Y1-Y0-1);
+  for(const s of BIN_SRC){
+    const X=map.X(s.x), Y=map.Y(BIN_GLYPH_Y), full=s.kind==='es'?M.st.esens.length>=MAX_SENSORS:M.n>=MAX_CHARGES;
+    ctx.globalAlpha=full?0.35:1;
+    if(s.kind==='es') eSensorGlyph(ctx,X,Y); else chargeGlyph(ctx,X,Y,chargePx(map),s.kind==='pos'?1:-1);
+    ctx.globalAlpha=1;
+    lab(ctx,W,H,X,map.Y(BIN_LABEL_Y),s.label,COL.dim,SM_FONT,'center');
+  }
+}
+/* an E-field sensor: the ring, its reading as an arrow at 15 px per V/m at
+   128 px/m (PhET's scale, i.e. 0.117 m per V/m), capped at 2 m with a double
+   head, and with "values" on, |E| and its direction above it */
+const ES_CAP_M=2;
+function drawESensor(ctx,W,H,map,s,R,vals){
+  const X=map.X(s.x), Y=map.Y(s.y);
+  if(!R.over&&R.mag>0){
+    const Lm=R.mag*SENSOR_M_PER_VM, capped=Lm>ES_CAP_M, L=Math.min(Lm,ES_CAP_M)*map.s;
+    arrowPx(ctx,X,Y,X+L*R.ex/R.mag,Y-L*R.ey/R.mag,COL.live,2.2,capped);
+  }
+  eSensorGlyph(ctx,X,Y);
+  if(vals){
+    labPad(ctx,W,H,X,Y-25,R.over?'—':sigf(R.mag,3)+' V/m',COL.live,SM_FONT,'center');
+    labPad(ctx,W,H,X,Y-12,R.over?'—':(R.mag>0?fmt(R.ang,1)+'°':'no direction'),COL.live,SM_FONT,'center');
+  }
+}
+/* the voltage sensor: crosshair ring, and below it a panel with the reading
+   and PhET's two buttons (plot an equipotential, clear them) */
+function vsGeo(map,st,W,H){
+  /* the panel hangs below the crosshair, and flips above it rather than leave
+     the plane (it ran over the caption at the plane's bottom edge) */
+  const X=map.X(st.vs.x), Y=map.Y(st.vs.y), r=Math.max(9,0.09*map.s), pw=132, ph=50;
+  let py=Y+r+8; if(py+ph>Math.min(H-4,map.Y(PLANE.y0))) py=Y-r-8-ph;
+  const px=clamp(X-pw/2,4,W-pw-4), bw=56, bh=18, by=py+ph-bh-6;
+  return {X,Y,r,panel:box(px,py,pw,ph),plot:box(px+6,by,bw,bh),clear:box(px+pw-6-bw,by,bw,bh)};
+}
+function canvasButton(ctx,W,H,b,txt){
+  ctx.fillStyle='#10131b'; ctx.fillRect(b.x,b.y,b.w,b.h);
+  ctx.strokeStyle='#3a4152'; ctx.lineWidth=1; ctx.strokeRect(b.x+0.5,b.y+0.5,b.w-1,b.h-1);
+  lab(ctx,W,H,b.x+b.w/2,b.y+b.h/2,txt,'#cfd4de',SM_FONT,'center');
+}
+function drawVSensor(ctx,W,H,map,st,R){
+  const g=vsGeo(map,st,W,H);
+  ctx.beginPath(); ctx.arc(g.X,g.Y,g.r,0,TAU); ctx.strokeStyle=COL.live; ctx.lineWidth=1.8; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(g.X-g.r-5,g.Y); ctx.lineTo(g.X+g.r+5,g.Y); ctx.moveTo(g.X,g.Y-g.r-5); ctx.lineTo(g.X,g.Y+g.r+5);
+  ctx.lineWidth=1; ctx.stroke();
+  const P=g.panel;
+  ctx.beginPath(); ctx.moveTo(g.X,P.y>g.Y?g.Y+g.r:g.Y-g.r); ctx.lineTo(clamp(g.X,P.x+6,P.x1-6),P.y>g.Y?P.y:P.y1); ctx.strokeStyle=rgba(COL.live,0.5); ctx.stroke();
+  ctx.fillStyle='rgba(10,12,18,0.94)'; ctx.fillRect(P.x,P.y,P.w,P.h);
+  ctx.strokeStyle='#3a4152'; ctx.strokeRect(P.x+0.5,P.y+0.5,P.w-1,P.h-1);
+  lab(ctx,W,H,P.x+P.w/2,P.y+12,R?(isFinite(R.V)?sigf(R.V,3)+' V':'— (on a charge)'):'—','#ffffff','12px -apple-system, sans-serif','center');
+  canvasButton(ctx,W,H,g.plot,'plot'); canvasButton(ctx,W,H,g.clear,'clear');
+}
+/* the tape: two ends, the length in centimetres (PhET's unit) */
+function drawTape(ctx,W,H,map,t,T){
+  const A=[map.X(t.ax),map.Y(t.ay)], B=[map.X(t.bx),map.Y(t.by)], L=Math.hypot(B[0]-A[0],B[1]-A[1]);
+  ctx.strokeStyle=COL.struct; ctx.lineWidth=2.2; ctx.beginPath(); ctx.moveTo(A[0],A[1]); ctx.lineTo(B[0],B[1]); ctx.stroke();
+  if(L>1){ const ux=(B[0]-A[0])/L, uy=(B[1]-A[1])/L, n=Math.floor(T.L/0.1);
+    ctx.lineWidth=1; ctx.beginPath();
+    for(let k=1;k<=n;k++){ const d=k*0.1*map.s, big=k%5===0?6:3.5; ctx.moveTo(A[0]+ux*d-uy*big,A[1]+uy*d+ux*big); ctx.lineTo(A[0]+ux*d,A[1]+uy*d); }
+    ctx.stroke();
+    const mx=(A[0]+B[0])/2, my=(A[1]+B[1])/2, off=uy>0?1:-1;
+    lab(ctx,W,H,mx+uy*14*off,my-ux*14*off,fmt(T.cm,1)+' cm',COL.struct,LAB_FONT,'center'); }
+  for(const [P,nm] of [[A,'A'],[B,'B']]){ dot(ctx,P[0],P[1],5,'#0b1020',COL.struct,1.6); lab(ctx,W,H,P[0]+8,P[1]-9,nm,COL.struct,SM_FONT); }
+}
+/* PhET's "1 meter" scale, at (2, -2.2) m, shown with the grid and values */
+function drawMeter(ctx,W,H,map){
+  const Y=map.Y(-2.2), X0=map.X(2), X1=map.X(3);
+  arrowPx(ctx,X0,Y,X1,Y,COL.live,1.4); arrowPx(ctx,X1,Y,X0,Y,COL.live,1.4);
+  lab(ctx,W,H,(X0+X1)/2,Y+10,'1 meter',COL.live,SM_FONT,'center');
+}
+
+/* ================================================================== *
+ *  view: the plane (PhET's screen)                                    *
+ * ================================================================== */
+const PLANE_CAP_FULL='Drag +1 nC and −1 nC charges and E-field sensors out of the bin; drop them back in it to take them away. '
+  +'Arrows: the field at 0.5-m cell centres, all one length (0.31 m); their brightness follows |E| up to 5 V/m, or all are bright with “direction only”. '
+  +'Voltage: 0.1-m cells, green for V > 0 and magenta for V < 0, saturating at ±40 V. The sensor arrow is 0.117 m per V/m (PhET’s scale), capped at 2 m (double head). '
+  +'The voltage sensor’s plot traces the equipotential through its crosshair; moving a charge clears them.';
+const PLANE_CAP_SHORT='Drag charges and sensors from the bin. Arrows: one length, brightness ∝ |E| to 5 V/m. Voltage saturates at ±40 V.';
+function drawPlane(ctx,W,H,M){
+  const G=planeGeo(ctx,W,H,PLANE_CAP_FULL,PLANE_CAP_SHORT), b=G.b, map=G.map, st=M.st;
+  ctx.fillStyle=COL.plane; ctx.fillRect(b.x,b.y,b.w,b.h);
+  if(M.vmap) drawVmap(ctx,map,M.vmap);
+  if(st.showGrid) drawGrid(ctx,map,b);
+  drawEqLines(ctx,W,H,G,M,st.showVals);
+  if(M.arrows) drawArrows(ctx,map,M.arrows,st.dirOnly);
+  frame(ctx,b,'#2a3346');
+  drawBin(ctx,W,H,map,M);
+  if(st.showTape) drawTape(ctx,W,H,map,st.tape,M.tape);
+  drawCharges(ctx,map,M.ch);
+  M.esR.forEach((R,i)=>drawESensor(ctx,W,H,map,st.esens[i],R,st.showVals));
+  if(st.showVS) drawVSensor(ctx,W,H,map,st,M.vsR);
+  if(st.showGrid&&st.showVals) drawMeter(ctx,W,H,map);
+  if(!M.n) lab(ctx,W,H,b.x+b.w/2,b.y+b.h*0.28,'no charges on the plane: drag one out of the bin, or pick a preset',COL.dim,LAB_FONT,'center');
+  caption(ctx,G.left,G.capY,G.capTxt,G.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  view: field lines                                                  *
+ * ================================================================== */
+const LINES_CAP_FULL='Field lines leave the charges of the majority sign (the positive ones when the plane is neutral) at equal angles and follow E; '
+  +'each ends on a charge of the other sign, runs off past 10 km, or ends at a null. The plane is a slice through a 3-D field, so the number of lines '
+  +'reaching a charge is not proportional to its charge, and a line can end where the field turns out of the plane. Cyan: equipotentials every ΔV '
+  +'(dashed, V = 0), contoured on a 4-cm grid. Orange: the null points, where E = 0. Drag the charges.';
+const LINES_CAP_SHORT='Lines follow E from the majority charges; cyan equipotentials every ΔV; orange, E = 0. A 3-D field, sliced.';
+function drawFamily(ctx,map,fam){
+  for(const f of fam){
+    ctx.beginPath(); const s=f.segs;
+    for(let k=0;k<s.length;k+=4){ ctx.moveTo(map.X(s[k]),map.Y(s[k+1])); ctx.lineTo(map.X(s[k+2]),map.Y(s[k+3])); }
+    ctx.strokeStyle=rgba(COL.struct,f.V===0?0.75:0.42); ctx.lineWidth=1; if(f.V===0) ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+/* the drawn polyline of a traced line: from the seed charge's centre to the
+   capturing charge's centre, so a line visibly starts and ends on charges */
+function linePolyline(M,L){
+  const pts=[[M.ch[L.from].x,M.ch[L.from].y]].concat(L.pts);
+  if(L.end==='charge') pts.push([M.ch[L.hit].x,M.ch[L.hit].y]);
+  return pts;
+}
+function drawFieldLines(ctx,G,M){
+  const b=G.b, map=G.map, spacing=1.1;
+  for(const L of M.FL.lines){
+    const pts=linePolyline(M,L), xs=pts.map(p=>p[0]), ys=pts.map(p=>p[1]);
+    polyline(ctx,b,xs,ys,PLANE.x0,PLANE.x1,PLANE.y0,PLANE.y1,rgba(COL.pos,0.85),1.3);
+    /* arrowheads every ~1.1 m of line on the plane, clear of the charges */
+    let acc=0.55;
+    for(let k=1;k<pts.length;k++){
+      const a=pts[k-1], c=pts[k], d=Math.hypot(c[0]-a[0],c[1]-a[1]); acc+=d;
+      if(acc<spacing) continue;
+      if(c[0]<PLANE.x0||c[0]>PLANE.x1||c[1]<PLANE.y0||c[1]>PLANE.y1||nearestCharge(M.ch,c[0],c[1]).r<0.3||!(d>0)) continue;
+      acc=0;
+      const ux=(c[0]-a[0])/d*M.FL.sgn, uy=-(c[1]-a[1])/d*M.FL.sgn, X=map.X(c[0]), Y=map.Y(c[1]);
+      ctx.beginPath(); ctx.moveTo(X+ux*4.5,Y+uy*4.5); ctx.lineTo(X-ux*3-uy*3,Y-uy*3+ux*3); ctx.lineTo(X-ux*3+uy*3,Y-uy*3-ux*3); ctx.closePath();
+      ctx.fillStyle=COL.pos; ctx.fill();
+    }
+  }
+}
+function drawNulls(ctx,W,H,map,nulls){
+  for(const N of nulls){
+    const X=map.X(N.x), Y=map.Y(N.y);
+    ctx.strokeStyle=COL.ref; ctx.lineWidth=1.8; ctx.beginPath();
+    if(N.kind==='saddle'){ ctx.moveTo(X-5,Y-5); ctx.lineTo(X+5,Y+5); ctx.moveTo(X-5,Y+5); ctx.lineTo(X+5,Y-5); }
+    else { ctx.moveTo(X,Y-6); ctx.lineTo(X+6,Y); ctx.lineTo(X,Y+6); ctx.lineTo(X-6,Y); ctx.closePath(); }
+    ctx.stroke();
+    /* named one by one only when there are few (the two rows have twelve, and
+       their labels piled onto the charges); the readout lists them all */
+    if(nulls.length<=4) labPad(ctx,W,H,X+9,Y-9,N.kind==='saddle'?'saddle':'in-plane '+(N.kind==='min'?'minimum':'maximum'),COL.ref,SM_FONT,'left');
+  }
+}
+function drawLines(ctx,W,H,M){
+  const G=planeGeo(ctx,W,H,LINES_CAP_FULL,LINES_CAP_SHORT), b=G.b, map=G.map, st=M.st;
+  ctx.fillStyle=COL.plane; ctx.fillRect(b.x,b.y,b.w,b.h);
+  if(M.fam) drawFamily(ctx,map,M.fam);
+  drawFieldLines(ctx,G,M);
+  frame(ctx,b,'#2a3346');
+  drawCharges(ctx,map,M.ch);
+  if(st.showNulls) drawNulls(ctx,W,H,map,M.nulls);
+  if(!M.n) lab(ctx,W,H,b.x+b.w/2,b.y+b.h*0.4,'no charges: pick a preset, or add charges on the plane',COL.dim,LAB_FONT,'center');
+  else labPad(ctx,W,H,b.x+8,b.y+10,M.FL.lines.length+' lines from the '+(M.FL.sgn>0?'positive':'negative')+' charges: '+M.FL.ends+' end on charges, '
+    +M.FL.escapes+' run off past 10 km'+(M.FL.nulls?', '+M.FL.nulls+' end at a null':'')+(M.nulls.length>4&&st.showNulls?'; orange: '+M.nulls.length+' nulls':''),'#aeb6c6',SM_FONT,'left','top');
+  caption(ctx,G.left,G.capY,G.capTxt,G.capW,'#767e92',CAP_FONT);
+}
+
+/* ================================================================== *
+ *  view: the landscape — V(x, y) as a height surface                  *
+ * ================================================================== */
+function landCap(st){
+  return 'The potential V(x, y) over the plane drawn as a height: '+fmt(LAND_HZ,2)+' m of height for every '+fmt(st.vcap,0)+' V, so the peaks over the positive '
+    +'charges and the wells under the negative ones are clipped flat at ±'+fmt(st.vcap,0)+' V (a point charge’s 1/r would climb forever). The field is minus the '
+    +'slope: E points straight downhill and is strongest where the surface is steepest. The cyan loops are the equipotentials plotted on the plane, lifted '
+    +'to their own height and drawn over the surface — its level cuts. Drag to orbit, scroll to zoom.';
+}
+const LAND_CAP_SHORT='V(x, y) as height, clipped at the cap; E points straight downhill. Drag to orbit, scroll to zoom.';
+function landCamera(b,st){ return boxCamera(b,st.camTheta,st.camPhi,landFitDist(b,st.camTheta,st.camPhi)/st.camZoom,[0,0,0]); }
+function inPanel(b,q){ return !!q&&q.x>=b.x&&q.x<=b.x1&&q.y>=b.y&&q.y<=b.y1; }
+function landQuadColour(zm,sh){ return shade(mix(COL.zero,zm>=0?COL.pos:COL.neg,Math.min(1,Math.abs(zm)/LAND_HZ)),sh); }
+function drawLand(ctx,W,H,M){
+  const st=M.st, Ld=M.land, L=stageLayout(ctx,W,H,landCap(st),LAND_CAP_SHORT,0,0,0), b=L.main;
+  frame(ctx,b,COL.edge);
+  const C=landCamera(b,st), nx=Ld.nx, ny=Ld.ny, n1=nx+1, dx=(PLANE.x1-PLANE.x0)/nx, dy=(PLANE.y1-PLANE.y0)/ny;
+  const gx=i=>PLANE.x0+dx*i, gy=j=>PLANE.y0+dy*j;
+  const P=new Array(n1*(ny+1));
+  for(let j=0;j<=ny;j++) for(let i=0;i<=nx;i++) P[j*n1+i]=C.P([gx(i),gy(j),Ld.z[j*n1+i]]);
+  /* the quads, the level-cut segments and the charge markers are painted in ONE
+     depth sort, so the near rim of a well hides the negative charge at its bottom
+     and a peak hides the far side of a loop; segments and markers are biased 5 cm
+     toward the eye so they do not fight the quad they lie on */
+  const light=v3.norm([-0.4,0.5,0.75]), quads=[];
+  for(let j=0;j<ny;j++) for(let i=0;i<nx;i++){
+    const a=P[j*n1+i], bq=P[j*n1+i+1], c=P[(j+1)*n1+i+1], d=P[(j+1)*n1+i];
+    /* a quad with any corner off the panel is dropped whole, never clamped
+       (Known-bad: a clamped mesh paints a false wall); zoomed in, the surface is cropped */
+    if(!inPanel(b,a)||!inPanel(b,bq)||!inPanel(b,c)||!inPanel(b,d)) continue;
+    const z00=Ld.z[j*n1+i], z10=Ld.z[j*n1+i+1], z01=Ld.z[(j+1)*n1+i], z11=Ld.z[(j+1)*n1+i+1];
+    const nrm=v3.norm([-(z10-z00+z11-z01)/(2*dx),-(z01-z00+z11-z10)/(2*dy),1]);
+    quads.push({z:(a.z+bq.z+c.z+d.z)/4,pts:[a,bq,c,d],col:landQuadColour((z00+z10+z01+z11)/4,0.55+0.45*Math.max(0,v3.dot(nrm,light)))});
+  }
+  const items=quads;
+  /* the plotted equipotentials at their own height: the level cuts */
+  if(st.landEq) for(const E of M.eq){
+    if(!E.ok||!(Math.abs(E.V0)<st.vcap)) continue;
+    const z=landHeight(E.V0,st.vcap), pts=E.pts.filter(p=>p[0]>=PLANE.x0&&p[0]<=PLANE.x1&&p[1]>=PLANE.y0&&p[1]<=PLANE.y1);
+    if(E.closed&&pts.length===E.pts.length) pts.push(pts[0]);
+    let prev=null;
+    for(const p of pts){ const q=C.P([p[0],p[1],z]); if(!inPanel(b,q)){ prev=null; continue; }
+      if(prev&&Math.hypot(q.x-prev.x,q.y-prev.y)<40) items.push({seg:true,z:(q.z+prev.z)/2-0.05,a:prev,b2:q}); prev=q; }
+  }
+  /* the charges on their clipped plateaus, at the bottom of their wells */
+  for(const c of M.ch){ const q=C.P([c.x,c.y,landHeight(c.q>0?Infinity:-Infinity,st.vcap)]); if(inPanel(b,q)) items.push({mark:true,z:q.z-0.05,x:q.x,y:q.y,q:c.q}); }
+  items.sort((p,q)=>q.z-p.z);
+  for(const it of items){
+    if(it.seg){ ctx.beginPath(); ctx.moveTo(it.a.x,it.a.y); ctx.lineTo(it.b2.x,it.b2.y); ctx.strokeStyle=COL.struct; ctx.lineWidth=1.8; ctx.lineCap='round'; ctx.stroke(); ctx.lineCap='butt'; continue; }
+    if(it.mark){ chargeGlyph(ctx,it.x,it.y,4.5,it.q); continue; }
+    /* a quad: opaque and widened 0.4 px about its centroid, no seams (Known-bad) */
+    const q=it, cx=(q.pts[0].x+q.pts[1].x+q.pts[2].x+q.pts[3].x)/4, cy=(q.pts[0].y+q.pts[1].y+q.pts[2].y+q.pts[3].y)/4;
+    ctx.beginPath();
+    q.pts.forEach((p,k)=>{ const ex=p.x-cx, ey=p.y-cy, e=Math.hypot(ex,ey)||1, X=p.x+0.4*ex/e, Y=p.y+0.4*ey/e; if(k) ctx.lineTo(X,Y); else ctx.moveTo(X,Y); });
+    ctx.closePath(); ctx.fillStyle=q.col; ctx.fill();
+  }
+  /* the height scale: a vertical bar at the far corner, ticks in volts */
+  const corner=[PLANE.x1,PLANE.y1], bot=C.P([corner[0],corner[1],-LAND_HZ]), top=C.P([corner[0],corner[1],LAND_HZ]);
+  if(inPanel(b,bot)&&inPanel(b,top)){
+    /* foreshortened (seen from above) the bar is short: then only its top is named */
+    const longBar=Math.hypot(top.x-bot.x,top.y-bot.y)>=70;
+    ctx.strokeStyle=COL.struct; ctx.lineWidth=1.2; ctx.beginPath(); ctx.moveTo(bot.x,bot.y); ctx.lineTo(top.x,top.y); ctx.stroke();
+    for(const f of (longBar?[-1,-0.5,0,0.5,1]:[1])){ const q=C.P([corner[0],corner[1],f*LAND_HZ]); if(!q) continue;
+      ctx.beginPath(); ctx.moveTo(q.x-4,q.y); ctx.lineTo(q.x+4,q.y); ctx.stroke();
+      lab(ctx,W,H,q.x+7,q.y,(f>0?'+':f<0?'−':'')+fmt(Math.abs(f*st.vcap),0)+' V',COL.struct,SM_FONT,'left'); }
+  }
+  /* the plane's outline at V = 0, and the axes named at their far ends */
+  const o=[[PLANE.x0,PLANE.y0],[PLANE.x1,PLANE.y0],[PLANE.x1,PLANE.y1],[PLANE.x0,PLANE.y1],[PLANE.x0,PLANE.y0]].map(p=>C.P([p[0],p[1],0]));
+  if(o.every(q=>inPanel(b,q))){ ctx.beginPath(); o.forEach((q,k)=>{ if(k) ctx.lineTo(q.x,q.y); else ctx.moveTo(q.x,q.y); }); ctx.strokeStyle=rgba(COL.dim,0.45); ctx.lineWidth=1; ctx.setLineDash([4,4]); ctx.stroke(); ctx.setLineDash([]); }
+  const ex=C.P([PLANE.x1+0.35,PLANE.y0,0]), ey=C.P([PLANE.x0,PLANE.y1+0.35,0]);
+  if(inPanel(b,ex)) lab(ctx,W,H,ex.x,ex.y,'x',COL.dim,SM_FONT,'center'); if(inPanel(b,ey)) lab(ctx,W,H,ey.x,ey.y,'y',COL.dim,SM_FONT,'center');
+  lab(ctx,W,H,b.x+6,b.y+8,'V(x, y) as height — '+fmt(LAND_HZ,2)+' m = '+fmt(st.vcap,0)+' V, clipped at ±'+fmt(st.vcap,0)+' V ('+Ld.clipped+' of '+(n1*(ny+1))+' vertices)','#aeb6c6','italic 13px Georgia, serif','left','top');
+  if(!M.n) lab(ctx,W,H,b.x+b.w/2,b.y+b.h*0.2,'no charges: the landscape is flat',COL.dim,LAB_FONT,'center');
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  view: superposition — the field at a probe as a vector sum          *
+ * ================================================================== */
+const SUP_CAP_FULL='The probe (drag it, or drag the charges) sits in the field of every charge at once. From the probe, each charge’s own field is drawn head '
+  +'to tail — green for a positive charge, pointing away from it, magenta for a negative one, pointing toward it — and the chain closes on the total field, in '
+  +'white. All the arrows share one scale, printed on the plane. Below: the potential at the probe built up charge by charge; the terms are signed numbers, so '
+  +'the running total rises and falls and ends at V.';
+const SUP_CAP_SHORT='Each charge’s field at the probe, head to tail, closes on the total (white). Below: V built up term by term.';
+function superGeo(ctx,W,H){
+  const L=stageLayout(ctx,W,H,SUP_CAP_FULL,SUP_CAP_SHORT,1,0.30,1);
+  const map=worldFitUp(L.main,{xmin:PLANE.x0,xmax:PLANE.x1,ymin:PLANE.y0,ymax:PLANE.y1},0);
+  const pb=box(map.X(PLANE.x0),map.Y(PLANE.y1),(PLANE.x1-PLANE.x0)*map.s,(PLANE.y1-PLANE.y0)*map.s);
+  return {L,map,pb};
+}
+/* the one arrow scale (m of plane per V/m): the longest thing in the chain (a
+   single term, a partial sum or the total) is drawn 1.4 m long */
+function superScale(C,P){
+  let sx=0, sy=0, mx=Math.hypot(P.ex,P.ey);
+  for(const c of C){ sx+=c.ex; sy+=c.ey; mx=Math.max(mx,Math.hypot(sx,sy),Math.hypot(c.ex,c.ey)); }
+  return (isFinite(mx)&&mx>0)?1.4/mx:null;
+}
+function drawSuper(ctx,W,H,M){
+  const st=M.st, G=superGeo(ctx,W,H), L=G.L, map=G.map, pb=G.pb, C=M.contrib, P=M.probe, pr=[st.probe.x,st.probe.y];
+  ctx.fillStyle=COL.plane; ctx.fillRect(pb.x,pb.y,pb.w,pb.h);
+  ctx.strokeStyle=COL.grid; ctx.lineWidth=1; ctx.beginPath();
+  for(let i=1;i<16;i++){ const X=map.X(PLANE.x0+i*0.5); ctx.moveTo(X,pb.y); ctx.lineTo(X,pb.y1); }
+  for(let j=1;j<10;j++){ const Y=map.Y(PLANE.y0+j*0.5); ctx.moveTo(pb.x,Y); ctx.lineTo(pb.x1,Y); }
+  ctx.stroke(); frame(ctx,pb,'#2a3346');
+  /* the line from each charge to the probe: the direction of its field there */
+  for(const c of C){ const q=M.ch[c.i]; ctx.beginPath(); ctx.moveTo(map.X(q.x),map.Y(q.y)); ctx.lineTo(map.X(pr[0]),map.Y(pr[1]));
+    ctx.strokeStyle=rgba(qCol(c.q),0.28); ctx.lineWidth=1; ctx.setLineDash([3,4]); ctx.stroke(); ctx.setLineDash([]); }
+  drawCharges(ctx,map,M.ch);
+  const sc=superScale(C,P);
+  /* the chain may use the whole panel, not just the plane (at a corner of the
+     plane the total pointed off it and vanished) */
+  const vw={x0:map.wx(L.main.x),x1:map.wx(L.main.x1),y0:map.wy(L.main.y1),y1:map.wy(L.main.y)};
+  if(!M.n) lab(ctx,W,H,pb.x+pb.w/2,pb.y+pb.h*0.3,'no charges: nothing to superpose',COL.dim,LAB_FONT,'center');
+  else if(sc===null) lab(ctx,W,H,pb.x+pb.w/2,pb.y+pb.h*0.12,'the probe sits on a charge: its field there is unbounded',COL.ref,LAB_FONT,'center');
+  else {
+    let x=pr[0], y=pr[1];
+    for(const c of C){ const v=[c.ex*sc,c.ey*sc]; arrowWorldClip(ctx,map,[x,y],v,qCol(c.q),1.5,vw); x+=v[0]; y+=v[1]; }
+    arrowWorldClip(ctx,map,pr,[P.ex*sc,P.ey*sc],COL.live,2.8,vw);
+    lab(ctx,W,H,pb.x1-6,pb.y1-10,'arrows: 1 m on the plane = '+sigf(1/sc,3)+' V/m','#aeb6c6',SM_FONT,'right');
+    const tip=[pr[0]+P.ex*sc,pr[1]+P.ey*sc];
+    if(tip[0]>=vw.x0&&tip[0]<=vw.x1&&tip[1]>=vw.y0&&tip[1]<=vw.y1) labPad(ctx,W,H,map.X(tip[0])+8,map.Y(tip[1])-8,'E = '+sigf(P.mag,3)+' V/m',COL.live,LAB_FONT,'left');
+    else labPad(ctx,W,H,pb.x+pb.w/2,pb.y+14,'the total points off the panel: E = '+sigf(P.mag,3)+' V/m at '+fmt(P.ang,1)+'°',COL.live,SM_FONT,'center');
+  }
+  /* the probe */
+  const X=map.X(pr[0]), Y=map.Y(pr[1]);
+  ctx.beginPath(); ctx.arc(X,Y,8,0,TAU); ctx.strokeStyle=COL.live; ctx.lineWidth=1.6; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(X-12,Y); ctx.lineTo(X+12,Y); ctx.moveTo(X,Y-12); ctx.lineTo(X,Y+12); ctx.lineWidth=1; ctx.stroke();
+  lab(ctx,W,H,X+12,Y+14,'P',COL.live,SM_FONT,'left');
+  /* the potential, term by term: a signed waterfall (Known-bad: a stacked bar
+     cannot draw a signed sum) */
+  if(L.bottom.length){
+    const bb=L.bottom[0], n=C.length;
+    const ser=superWaterfall(C);
+    if(!n||!ser.finite){ axesR(ctx,bb,0,1,-1,1,{title:titleFor(bb,'the potential at P, one charge at a time','V at P, term by term'),ylab:'volts',xticks:[],ny:3});
+      lab(ctx,W,H,bb.x+bb.w/2,bb.y+bb.h/2,n?'the probe sits on a charge: V is unbounded':'no charges',COL.dim,SM_FONT,'center'); }
+    else {
+      const lo=ser.lo-0.08*(ser.hi-ser.lo||1), hi=ser.hi+0.08*(ser.hi-ser.lo||1), every=Math.max(1,Math.ceil((n+1)*18/bb.w));
+      const xt=[]; for(let k=0;k<=n;k++) if(k%every===0||k===n) xt.push(k+0.5);
+      axesR(ctx,bb,0,n+1,lo,hi,{title:titleFor(bb,'the potential at P, one charge at a time: running total, then V','V at P, term by term'),xlab:'charge number (last slot: the total V)',ylab:'volts',
+        xticks:xt,xfmt:v=>{ const k=Math.round(v-0.5); return k===n?'V':String(k+1); },yticks:sparseTicks(lo,hi,bb.h),yfmt:v=>sigf(v,3)});
+      const Xs=t=>bb.x+bb.w*t/(n+1), Yv=v=>bb.y1-bb.h*(v-lo)/(hi-lo);
+      for(let k=0;k<n;k++){
+        const a=ser.S[k], c=ser.S[k+1], x0=Xs(k+0.18), x1=Xs(k+0.82);
+        ctx.fillStyle=rgba(qCol(C[k].q),0.8); ctx.fillRect(x0,Math.min(Yv(a),Yv(c)),x1-x0,Math.max(1,Math.abs(Yv(c)-Yv(a))));
+        /* the leader to the next slot (the last one runs to the total's bar, which ends at the same height) */
+        ctx.strokeStyle='#3a4152'; ctx.lineWidth=1; ctx.setLineDash([2,2]); ctx.beginPath(); ctx.moveTo(x1,Yv(c)); ctx.lineTo(Xs(k+1.18),Yv(c)); ctx.stroke(); ctx.setLineDash([]);
+      }
+      const xv0=Xs(n+0.18), xv1=Xs(n+0.82);
+      ctx.fillStyle=COL.live; ctx.fillRect(xv0,Math.min(Yv(0),Yv(ser.total)),xv1-xv0,Math.max(1,Math.abs(Yv(ser.total)-Yv(0))));
+      polyline(ctx,bb,[0,n+1],[0,0],0,n+1,lo,hi,'#3a4152',1,[2,3]);
+      lab(ctx,W,H,Math.min(xv1+4,bb.x1-60),Yv(ser.total)+(ser.total>=0?-9:9),'V = '+sigf(ser.total,3)+' V',COL.live,SM_FONT,'left');
+    }
+  }
+  drawCaption(ctx,L);
+}
+/* the running sums of the potential terms (a model function: the waterfall's
+   numbers are assertable, Known-bad "a number computed inside a draw call") */
+function superWaterfall(C){
+  const S=[0]; let lo=0, hi=0, finite=true;
+  for(const c of C){ const v=S[S.length-1]+c.V; S.push(v); if(!isFinite(v)) finite=false; lo=Math.min(lo,v); hi=Math.max(hi,v); }
+  return {S,total:S[S.length-1],lo,hi,finite};
+}
+
+/* ================================================================== *
+ *  view: the far field — the multipole expansion along a ray          *
+ * ================================================================== */
+const FAR_CAP_FULL='The potential along a ray from the expansion centre (the centre of charge, or the middle of a neutral set), against distance on log axes. '
+  +'Beyond the farthest charge the exact sum (green) is a series in 1/r whose first non-zero term (orange) takes over far away: a net charge falls as 1/r, '
+  +'a neutral pair as 1/r², a square of four as 1/r³ — the slope of the line. Below left, the charges and the ray; below right, r^(ℓ+1) V(r) divided by the '
+  +'exact coefficient c_ℓ settling on 1, the limit the readout also takes numerically. Turn the ray with the slider.';
+const FAR_CAP_SHORT='|V| along the ray (green) and its leading multipole (orange); below, r^(ℓ+1) V / c_ℓ → 1.';
+const SUPS={'-':'⁻','0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+function pow10Label(e){ return '10'+String(e).split('').map(ch=>SUPS[ch]||ch).join(''); }
+function rPow(l0){ return l0===0?'r':'r'+String(l0+1).split('').map(ch=>SUPS[ch]||ch).join(''); }
+function farRange(F){
+  const ly=[]; for(let k=0;k<F.Vs.length;k++){ const a=Math.abs(F.Vs[k]); if(a>0&&isFinite(a)) ly.push(Math.log10(a)); }
+  if(!ly.length) return null;
+  const last=Math.abs(F.Vs[F.Vs.length-1]), ldl=F.l0===null?NaN:Math.abs(F.lead[F.lead.length-1]);
+  let lo=Math.min(last>0?Math.log10(last):Infinity,ldl>0?Math.log10(ldl):Infinity);
+  if(!isFinite(lo)) lo=Math.min.apply(null,ly);
+  lo=Math.floor(lo-0.3); const hi=Math.min(Math.ceil(Math.max.apply(null,ly)+0.2),lo+14);
+  return {lo,hi};
+}
+function drawFar(ctx,W,H,M){
+  const F=M.far, st=M.st, L=stageLayout(ctx,W,H,FAR_CAP_FULL,FAR_CAP_SHORT,2,0.36,1), b=L.main;
+  const xlo=Math.log10(FAR_RLO), xhi=Math.log10(FAR_RHI), lx=F.rs.map(r=>Math.log10(r));
+  /* the axis starts at 0.1 m but ticks from 1 m: a tick on the left edge collided
+     with the lowest y label in the corner */
+  const xt=[0,1,2,3], xf=v=>v===0?'1 m':v===1?'10 m':v===2?'100 m':'1 km';
+  const R=M.n?farRange(F):null;
+  if(!R){
+    axesR(ctx,b,xlo,xhi,-3,1,{title:titleFor(b,'the potential along the ray, log–log','|V| along the ray'),xlab:'distance r from the centre',ylab:'|V| (V)',xticks:xt,xfmt:xf,yticks:[-3,-2,-1,0,1],yfmt:pow10Label});
+    lab(ctx,W,H,b.x+b.w/2,b.y+b.h/2,M.n?'V = 0 all along this ray':'no charges on the plane: nothing to expand',COL.dim,LAB_FONT,'center');
+  } else {
+    const yt=[]; for(let e=R.lo;e<=R.hi;e++) yt.push(e);
+    const every=Math.max(1,Math.ceil(yt.length*16/b.h)), ytt=yt.filter(e=>(e-R.lo)%every===0);
+    axesR(ctx,b,xlo,xhi,R.lo,R.hi,{title:titleFor(b,'|V| along the ray at '+fmt(F.th,0)+'° — the exact sum and its leading multipole, log–log','|V| along the ray, log–log'),
+      xlab:'distance r from the centre',ylab:'|V| (V)',xticks:xt,xfmt:xf,yticks:ytt,yfmt:pow10Label});
+    const lv=F.Vs.map(v=>Math.abs(v)>0?Math.log10(Math.abs(v)):NaN);
+    if(F.M.dmax>0){ const xd=Math.log10(F.M.dmax); polyline(ctx,b,[xd,xd],[R.lo,R.hi],xlo,xhi,R.lo,R.hi,rgba(COL.dim,0.6),1,[3,4]);
+      if(xd>xlo) lab(ctx,W,H,b.x+b.w*(xd-xlo)/(xhi-xlo)+5,b.y1-12,'d_max = '+fmt(F.M.dmax,2)+' m: the series converges beyond',COL.dim,SM_FONT,'left'); }
+    if(F.l0!==null) polyline(ctx,b,lx,F.lead.map(v=>Math.abs(v)>0?Math.log10(Math.abs(v)):NaN),xlo,xhi,R.lo,R.hi,COL.ref,1.4,[6,4]);
+    polyline(ctx,b,lx,lv,xlo,xhi,R.lo,R.hi,COL.pos,1.8);
+    /* the orange entry only when the orange curve was drawn (Known-bad: a legend
+       entry for a curve that is not there is a false statement about the picture) */
+    legendAuto(ctx,b,[[COL.pos,'|V|, the exact sum']].concat(F.l0===null?[]:[[COL.ref,'|c'+F.l0+'| / '+rPow(F.l0)+', the '+ORDER_NAME[F.l0]]]));
+  }
+  /* below left: the charges, the centre, the ray */
+  if(L.bottom.length){
+    const bb=L.bottom[0], Mo=F.M;
+    let x0=Mo.c[0]-0.5, x1=Mo.c[0]+0.5, y0=Mo.c[1]-0.5, y1=Mo.c[1]+0.5;
+    for(const c of M.ch){ x0=Math.min(x0,c.x); x1=Math.max(x1,c.x); y0=Math.min(y0,c.y); y1=Math.max(y1,c.y); }
+    const pad=0.25*Math.max(x1-x0,y1-y0), mp=worldFitUp(bb,{xmin:x0-pad,xmax:x1+pad,ymin:y0-pad,ymax:y1+pad},0);
+    frame(ctx,bb,COL.edge);
+    lab(ctx,W,H,bb.x,bb.y-12,M.n?'the charges and the ray at '+fmt(F.th,0)+'°':'no charges','#aeb6c6','italic 13px Georgia, serif','left');
+    const vw={x0:mp.wx(bb.x),x1:mp.wx(bb.x1),y0:mp.wy(bb.y1),y1:mp.wy(bb.y)};
+    if(M.n){
+      if(Mo.dmax>0) circleW(ctx,mp,Mo.c,Mo.dmax,rgba(COL.dim,0.5),1,[3,4]);
+      const far=Math.max(vw.x1-vw.x0,vw.y1-vw.y0)*2, cl=clipSeg(Mo.c[0],Mo.c[1],Mo.c[0]+far*F.n[0],Mo.c[1]+far*F.n[1],vw);
+      if(cl){ ctx.beginPath(); ctx.moveTo(mp.X(cl[0]),mp.Y(cl[1])); ctx.lineTo(mp.X(cl[2]),mp.Y(cl[3])); ctx.strokeStyle=COL.ref; ctx.lineWidth=1.4; ctx.stroke(); }
+      for(const c of M.ch) chargeGlyph(ctx,mp.X(c.x),mp.Y(c.y),Math.max(4,Math.min(9,CHARGE_R*mp.s)),c.q);
+      const X=mp.X(Mo.c[0]), Y=mp.Y(Mo.c[1]); ctx.strokeStyle=COL.ref; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(X-4,Y-4); ctx.lineTo(X+4,Y+4); ctx.moveTo(X-4,Y+4); ctx.lineTo(X+4,Y-4); ctx.stroke();
+    }
+  }
+  /* below right: r^(l+1) V(r) / c_l -> 1 */
+  if(L.bottom.length>1){
+    const bb=L.bottom[1];
+    axesR(ctx,bb,xlo,xhi,0,2,{title:titleFor(bb,F.l0===null?'r^(ℓ+1) V / c_ℓ — no leading term':rPow(F.l0)+' V(r) / c'+F.l0+' → 1 (the limit, numerically)','the limit, numerically'),
+      xlab:'distance r',xticks:xt,xfmt:xf,ny:4,yfmt:v=>fmt(v,1)});
+    if(F.l0!==null){ polyline(ctx,bb,[xlo,xhi],[1,1],xlo,xhi,0,2,COL.ref,1.2,[4,4]); polyline(ctx,bb,lx,F.ratio,xlo,xhi,0,2,COL.pos,1.8);
+      lab(ctx,W,H,bb.x1-6,bb.y1-10,'Richardson at 50, 100 m: '+sigf(F.lim/F.cs[F.l0],10),COL.pos,SM_FONT,'right'); }
+    else lab(ctx,W,H,bb.x+bb.w/2,bb.y+bb.h/2,M.n?'V = 0 along this ray':'no charges',COL.dim,SM_FONT,'center');
+  }
+  drawCaption(ctx,L);
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='plane') drawPlane(ctx,W,H,M);
+  else if(M.view==='lines') drawLines(ctx,W,H,M);
+  else if(M.view==='land') drawLand(ctx,W,H,M);
+  else if(M.view==='super') drawSuper(ctx,W,H,M);
+  else drawFar(ctx,W,H,M);
+}
+function wrapPi(a){ return a-TAU*Math.floor((a+PI)/TAU); }
+/* the geometry a pointer event is judged against (the same functions the
+   drawing uses, so a hit test cannot drift from the picture) */
+function pointerMap(ctx,W,H,view){
+  if(view==='plane') return planeGeo(ctx,W,H,PLANE_CAP_FULL,PLANE_CAP_SHORT).map;
+  if(view==='lines') return planeGeo(ctx,W,H,LINES_CAP_FULL,LINES_CAP_SHORT).map;
+  if(view==='super') return superGeo(ctx,W,H).map;
+  return null;
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  S.resetCam=function(){ ST.camTheta=DEFAULTS.camTheta; ST.camPhi=DEFAULTS.camPhi; ST.camZoom=DEFAULTS.camZoom; };
+  /* the wheel zooms the landscape and nothing else */
+  S.wheel=function(dy){ if(ST.view!=='land') return false; ST.camZoom=clamp(ST.camZoom*Math.exp(-dy*0.0012),0.4,3); return true; };
+  S.pointer=function(type,x,y){
+    const st=ST, v=st.view;
+    if(type==='up'){
+      const d=DRAG.what; DRAG.what=null; if(d===null) return false;
+      /* the bin exists only on the plane: elsewhere a charge dropped where it would
+         be stays put (it was silently deleted in the field-lines view) */
+      if(d==='charge'&&v==='plane'){ const c=st.charges[DRAG.k]; if(c&&inBin(c.x,c.y)){ if(DRAG.fresh&&!DRAG.moved) st.charges.splice(DRAG.k,1); else removeCharge(st,DRAG.k); } }
+      if(d==='es'){ const s=st.esens[DRAG.k]; if(s&&inBin(s.x,s.y)) st.esens.splice(DRAG.k,1); }
+      return true;
+    }
+    if(v==='land'){
+      if(type==='down'){ DRAG.what='cam'; DRAG.x=x; DRAG.y=y; DRAG.th=st.camTheta; DRAG.ph=st.camPhi; return true; }
+      if(type==='move'&&DRAG.what==='cam'){ st.camTheta=wrapPi(DRAG.th-(x-DRAG.x)*0.008); st.camPhi=clamp(DRAG.ph+(y-DRAG.y)*0.008,0.05,1.5); return true; }
+      return false;
+    }
+    const map=pointerMap(canvas.getContext('2d'),S.W,S.H,v); if(!map) return false;
+    const wx=map.wx(x), wy=map.wy(y);
+    if(type==='down'){
+      DRAG.fresh=false; DRAG.moved=false;
+      if(v==='plane'&&st.showVS){
+        const g=vsGeo(map,st,S.W,S.H);
+        if(inBox(g.plot,x,y)){ plotEquipotential(st); return true; }
+        if(inBox(g.clear,x,y)){ st.eqSeeds=[]; return true; }
+        if(Math.hypot(x-g.X,y-g.Y)<=g.r+5||inBox(g.panel,x,y)){ DRAG.what='vs'; DRAG.dx=st.vs.x-wx; DRAG.dy=st.vs.y-wy; return true; }
+      }
+      if(v==='plane') for(let k=st.esens.length-1;k>=0;k--) if(Math.hypot(x-map.X(st.esens[k].x),y-map.Y(st.esens[k].y))<=10){ DRAG.what='es'; DRAG.k=k; return true; }
+      if(v==='super'&&Math.hypot(x-map.X(st.probe.x),y-map.Y(st.probe.y))<=12){ DRAG.what='probe'; return true; }
+      const rp=Math.max(10,chargePx(map));
+      for(let k=st.charges.length-1;k>=0;k--){ const c=st.charges[k];
+        if(Math.hypot(x-map.X(c.x),y-map.Y(c.y))<=rp){ DRAG.what='charge'; DRAG.k=k; DRAG.dx=c.x-wx; DRAG.dy=c.y-wy; return true; } }
+      if(v==='plane'&&st.showTape){
+        const t=st.tape;
+        if(Math.hypot(x-map.X(t.ax),y-map.Y(t.ay))<=9){ DRAG.what='tapeA'; return true; }
+        if(Math.hypot(x-map.X(t.bx),y-map.Y(t.by))<=9){ DRAG.what='tapeB'; return true; }
+        const c=clipSeg(t.ax,t.ay,t.bx,t.by,{x0:wx-6/map.s,x1:wx+6/map.s,y0:wy-6/map.s,y1:wy+6/map.s});
+        if(c){ DRAG.what='tape'; DRAG.x=wx; DRAG.y=wy; DRAG.t0=Object.assign({},t); return true; }
+      }
+      if(v==='plane') for(const s of BIN_SRC){
+        if(Math.hypot(x-map.X(s.x),y-map.Y(BIN_GLYPH_Y))>Math.max(12,chargePx(map)+3)) continue;
+        if(s.kind==='es'){ if(st.esens.length>=MAX_SENSORS) return false; st.esens.push({x:s.x,y:BIN_GLYPH_Y}); DRAG.what='es'; DRAG.k=st.esens.length-1; return true; }
+        if(st.charges.length>=MAX_CHARGES) return false;
+        st.charges.push({x:s.x,y:BIN_GLYPH_Y,q:s.kind==='pos'?1:-1}); st.preset='custom';
+        DRAG.what='charge'; DRAG.k=st.charges.length-1; DRAG.dx=0; DRAG.dy=0; DRAG.fresh=true; return true;
+      }
+      return false;
+    }
+    if(type==='move'){
+      const px=clamp(wx,PLANE.x0,PLANE.x1), py=clamp(wy,PLANE.y0,PLANE.y1);
+      if(DRAG.what==='charge'){ DRAG.moved=true; return moveCharge(st,DRAG.k,wx+DRAG.dx,wy+DRAG.dy); }
+      if(DRAG.what==='es'){ const s=st.esens[DRAG.k]; if(!s) return false; s.x=px; s.y=py; return true; }
+      if(DRAG.what==='vs'){ st.vs.x=clamp(wx+DRAG.dx,PLANE.x0,PLANE.x1); st.vs.y=clamp(wy+DRAG.dy,PLANE.y0,PLANE.y1); return true; }
+      if(DRAG.what==='probe'){ st.probe.x=px; st.probe.y=py; return true; }
+      if(DRAG.what==='tapeA'){ st.tape.ax=px; st.tape.ay=py; return true; }
+      if(DRAG.what==='tapeB'){ st.tape.bx=px; st.tape.by=py; return true; }
+      if(DRAG.what==='tape'){ const t0=DRAG.t0, ddx=wx-DRAG.x, ddy=wy-DRAG.y;
+        const sx=clamp(ddx,PLANE.x0-Math.min(t0.ax,t0.bx),PLANE.x1-Math.max(t0.ax,t0.bx)), sy=clamp(ddy,PLANE.y0-Math.min(t0.ay,t0.by),PLANE.y1-Math.max(t0.ay,t0.by));
+        st.tape.ax=t0.ax+sx; st.tape.bx=t0.bx+sx; st.tape.ay=t0.ay+sy; st.tape.by=t0.by+sy; return true; }
+      return false;
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    st.view=k; DRAG.what=null;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab2)); });
+
+  const rows={};
+  function slider(key,lab2,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync,inp}; sync(); return rowEl;
+  }
+  /* a slider on one coordinate of an object in the state (the probe) */
+  function slider2(obj,key,lab2,lo,hi,step2,fmtf){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[obj][key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=st[obj][key]; val.textContent=fmtf(st[obj][key]); };
+    inp.addEventListener('input',()=>{ st[obj][key]=parseFloat(inp.value); val.textContent=fmtf(st[obj][key]); syncPanel(); dirty=true; refresh(); });
+    rows[obj+'.'+key]={row:rowEl,sync,inp}; sync(); return rowEl;
+  }
+  function checkbox(key,lab2,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; },inp};
+    return el;
+  }
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips'});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        if(onPick) onPick(o); else st[key]=o.id;
+        syncChips(); syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const btn=(txt,fn)=>h('button',{onclick:()=>{ fn(); syncChips(); syncPanel(); dirty=true; refresh(); }},txt);
+
+  const gCh=h('div',{class:'grp'},h('h3',null,'the charges'));
+  const presetChips=chipRow(PRESETS,'preset',o=>applyPreset(st,o.id)); gCh.appendChild(presetChips);
+  const chTag=h('div',{class:'tag'}); gCh.appendChild(chTag);
+
+  let lastPlot=null;          /* the last plot's verdict, so a refusal says why */
+  const gShow=h('div',{class:'grp'},h('h3',null,'what to show'));
+  gShow.appendChild(h('div',{class:'checks'},checkbox('showE','electric field'),checkbox('dirOnly','direction only'),checkbox('showV','voltage'),
+    checkbox('showVals','values'),checkbox('showGrid','grid'),checkbox('showVS','voltage sensor'),checkbox('showTape','tape measure')));
+  gShow.appendChild(h('div',{class:'btnrow'},btn('plot equipotential',()=>{ lastPlot=plotEquipotential(st); }),btn('clear equipotentials',()=>{ st.eqSeeds=[]; })));
+  const showTag=h('div',{class:'tag'}); gShow.appendChild(showTag);
+
+  const gLines=h('div',{class:'grp'},h('h3',null,'field lines'));
+  gLines.appendChild(slider('nLines','lines per charge',4,32,2,v=>fmt(v,0)));
+  gLines.appendChild(slider('famDV','equipotentials every, V',1,10,1,v=>fmt(v,0)+' V'));
+  gLines.appendChild(h('div',{class:'checks'},checkbox('showFam','equipotentials'),checkbox('showNulls','null points')));
+  const linesTag=h('div',{class:'tag'}); gLines.appendChild(linesTag);
+
+  const gLand=h('div',{class:'grp'},h('h3',null,'the landscape'));
+  gLand.appendChild(slider('vcap','clip at ±, V',10,100,5,v=>fmt(v,0)+' V'));
+  gLand.appendChild(slider('camTheta','azimuth',-PI,PI,0.01,v=>fmt(v/DEG,0)+'°'));
+  gLand.appendChild(slider('camPhi','elevation',0.05,1.5,0.01,v=>fmt(v/DEG,0)+'°'));
+  gLand.appendChild(h('div',{class:'checks'},checkbox('landEq','plotted equipotentials')));
+  gLand.appendChild(h('div',{class:'btnrow'},btn('reset the camera',()=>{ S.resetCam(); })));
+  const landTag=h('div',{class:'tag'}); gLand.appendChild(landTag);
+
+  const gSup=h('div',{class:'grp'},h('h3',null,'the probe'));
+  gSup.appendChild(slider2('probe','x','probe x, m',PLANE.x0,PLANE.x1,0.01,v=>fmt(v,2)));
+  gSup.appendChild(slider2('probe','y','probe y, m',PLANE.y0,PLANE.y1,0.01,v=>fmt(v,2)));
+  const supTag=h('div',{class:'tag'}); gSup.appendChild(supTag);
+
+  const gFar=h('div',{class:'grp'},h('h3',null,'the ray'));
+  gFar.appendChild(slider('farTheta','direction',-180,180,1,v=>fmt(v,0)+'°'));
+  const farTag=h('div',{class:'tag'}); gFar.appendChild(farTag);
+
+  const gReset=h('div',{class:'grp'},h('h3',null,'start again'));
+  gReset.appendChild(h('div',{class:'btnrow'},btn('reset all',()=>{ const v=st.view; resetState({view:v}); DRAG.what=null; })));
+  const keysTag=h('div',{class:'tag'}); gReset.appendChild(keysTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Charges and Fields (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). '
+      +'New code; no PhET code or assets.'}),
+    h('div',{class:'src',html:'Measured: &epsilon;<sub>0</sub> = 8.8541878188&times;10<sup>&minus;12</sup> F/m (CODATA 2022, NIST), the only measured number. '
+      +'PhET&rsquo;s values (read from its 1.0.67 build): the 8 m &times; 5 m plane and its bin, the 0.5-m arrow and 0.1-m voltage grids, the &plusmn;40 V and 5 V/m '
+      +'saturations, 15 px per V/m at 128 px/m for the sensor arrows, no equipotential within 3 cm of a charge; PhET&rsquo;s k is 9 V&middot;m/nC. '
+      +'Everything else is exact superposition, pinned in selfTest to build/charges-and-fields/derive.py (scipy brentq, solve_ivp, fsolve, quad).'}));
+  [gCh,gShow,gLines,gLand,gSup,gFar,gReset,gInfo].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info');
+
+  function syncChips(){
+    [].forEach.call(presetChips.children,(b,i)=>b.className='chip'+(PRESETS[i].id===st.preset?' on':''));
+  }
+  function syncPanel(){
+    const v=st.view;
+    gShow.hidden=(v!=='plane'); gLines.hidden=(v!=='lines'); gLand.hidden=(v!=='land'); gSup.hidden=(v!=='super'); gFar.hidden=(v!=='far');
+    /* a control that is live but ignored is worse than none: dim what does nothing */
+    rows.cb_dirOnly.inp.disabled=!st.showE; rows.famDV.inp.disabled=!st.showFam;
+    for(const k in rows) rows[k].sync();
+    chTag.innerHTML=st.preset==='custom'?'your own arrangement: '+st.charges.length+' charge'+(st.charges.length===1?'':'s'):'drag the charges in the plane, field-lines and superposition views';
+    showTag.innerHTML=lastPlot&&!lastPlot.ok?'<span class="r">cannot plot: '+lastPlot.why+'</span>':'the sensor&rsquo;s plot button (or <b>e</b>) traces the equipotential through its crosshair; <b>c</b> clears them';
+    linesTag.innerHTML='lines from the majority sign; equipotentials from a 4-cm grid, up to &plusmn;'+V_SAT+' V';
+    landTag.innerHTML='drag to orbit, scroll to zoom, <b>r</b> resets the camera';
+    supTag.innerHTML='drag P, or the charges, on the plane';
+    farTag.innerHTML='the ray starts at the expansion centre (orange &times; in the inset)';
+    keysTag.innerHTML='<b>1</b>&ndash;<b>5</b> switch views';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=st.view==='plane'?'drag charges and sensors from the bin · e plots, c clears · 1–5 switch views'
+        :st.view==='land'?'drag to orbit · scroll to zoom · r resets the camera · 1–5 switch views'
+        :st.view==='far'?'turn the ray with the slider · 1–5 switch views':'drag the charges · 1–5 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); syncChips(); syncPanel(); roEl.innerHTML=readoutHTML(S.model()); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncChips(); syncPanel(); roEl.innerHTML=readoutHTML(S.model()); tagEl.innerHTML=tagHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ syncChips(); dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+  canvas.addEventListener('wheel',e=>{ e.preventDefault(); if(S.wheel(e.deltaY)){ dirty=true; roEl.innerHTML=readoutHTML(S.model()); } },{passive:false});
+
+  window.addEventListener('keydown',e=>{
+    if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+    else if(e.key==='e'){ lastPlot=plotEquipotential(st); syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='c'){ st.eqSeeds=[]; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ S.resetCam(); syncPanel(); dirty=true; refresh(); }
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  /* nothing here moves by itself: the loop paints only what a handler marked */
+  function frameLoop(){
+    if(dirty){ dirty=false; try{ S.draw(); }catch(e){ fail(e); } }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  plane:'This is PhET&rsquo;s screen. Every charge on the plane is a point charge of one nanocoulomb, and every reading is the exact sum of what each '
+    +'charge would do alone: a potential k q/r and a field k q/r&sup2; that points away from a positive charge and toward a negative one. The arrows '
+    +'show the direction of the field everywhere at once and their brightness shows its strength, fading out below 5 V/m, so the field of a lone charge '
+    +'visibly dies away with distance; tick <b>direction only</b> to see the pattern without the fading. The voltage map colours each 10-cm cell by the '
+    +'potential. Put the voltage sensor anywhere and press <b>plot</b>: the curve it draws joins every point at the same potential, and it crosses the '
+    +'arrows at right angles everywhere, because moving along it takes no work. The E-field sensors read the size and direction of the field at a point, '
+    +'and the tape measures distances and, here, the potential difference between its two ends.',
+  lines:'Faraday&rsquo;s way of seeing a field. A field line runs along E everywhere, so it starts on a positive charge and ends on a negative one, and '
+    +'the equipotentials cross it at right angles. Where equally spaced equipotentials crowd together the field is strong, because the same step in '
+    +'potential happens over a shorter distance. The orange marks are the null points, where the fields of the charges cancel exactly: between two like '
+    +'charges it is a saddle of the potential, and lines run toward it and turn away. These are ordinary three-dimensional charges held in a plane, so the '
+    +'plane is a slice through their field. That is why the number of lines reaching a charge is not proportional to its charge, and why three equal '
+    +'charges make a point at their centre where the lines in the plane run in and stop: the potential there is a minimum within the plane, the field '
+    +'turns out of the plane along z, and a positive charge confined to the plane would sit there stably. Along z the same point is a maximum, so Earnshaw&rsquo;s '
+    +'theorem, which forbids a stable equilibrium in free space, is not broken.',
+  land:'The voltage map, stood up as a landscape. Height is potential, so a positive charge is a peak whose sides fall as 1/r and a negative charge is a '
+    +'well. The electric field is minus the gradient of the potential: at every point it points straight downhill, along the steepest descent, and its '
+    +'size is the steepness. A positive test charge released on this surface would run downhill and a negative one would climb. Two like charges make two '
+    +'peaks with a saddle between them, the null point of the field-lines view. The equipotentials you plot on the plane appear here as horizontal loops '
+    +'at their own height: an equipotential is a contour line of this map. The peaks are infinitely high at the charges themselves, so the surface is '
+    +'clipped at the height you choose, and the clip is printed on the canvas.',
+  super:'The principle of superposition is the whole model. The field of several charges is the vector sum of the fields each would make alone, and the '
+    +'potential is the ordinary sum of their potentials. Drag the probe and watch the chain: every arrow points along the line from its charge, away from '
+    +'a positive one and toward a negative one, its length falls off as the inverse square of the distance, and laid head to tail the arrows land exactly '
+    +'on the total field. The potential adds without directions, only with signs. So the two sums behave very differently: on the perpendicular bisector '
+    +'of a dipole the potential is exactly zero while the field is not, and midway between two like charges the field is zero while the potential is not.',
+  far:'From far away any set of charges looks simple. Beyond the farthest charge the potential along a ray is exactly a power series in 1/r, the Legendre '
+    +'expansion of each charge&rsquo;s 1/|r &minus; d|: the 1/r term is the net charge, the 1/r&sup2; term the dipole moment, the 1/r&sup3; term the '
+    +'quadrupole moment, and so on. The first term that does not vanish takes over at large distance, which is why a net charge falls off as 1/r, a '
+    +'neutral pair as 1/r&sup2; and a square of alternating charges as 1/r&sup3;, the slope of the line on these log axes. The limit is also taken '
+    +'numerically: r<sup>&ell;+1</sup> V(r) at 50 m and 100 m, extrapolated to infinite distance, agrees with the exact coefficient to between six and ten '
+    +'digits, depending on how quickly the next order dies away (the readout prints both). '
+    +'Point the ray where the leading moment has no component, along the perpendicular bisector of a dipole, and a different order takes over, or none does.',
+};
+
+/* ================================================================== *
+ *  REF: derive.py's printed reference values (refvals.txt), emitted  *
+ *  as literals by gen_refs.py -- never retyped                        *
+ * ================================================================== */
+const REF={"VE":{"single":[[6.087138159059472,3.629944773751061,1.954585647404417,4.122730177142567,28.30075576600638],[3.791169903406467,-1.416629323336936,0.7420439312717284,1.599208502877366,152.3540246362613],[9.74836861821456,2.293733792521073,-10.32180206634483,10.57359033667153,-77.47119229084849],[2.174054237171099,0.4452422369864742,0.2798665489629267,0.5258953649017435,32.15229514128234],[25.42063525706656,-71.17777871978636,10.16825410282663,71.9004142893664,171.869897645844]],"dipole":[[3.801199604023309,3.739988763545065,4.364147186142844,5.747460014107262,49.40407040802894],[-1.445270489498132,0.9259382534193241,-0.9111990482540113,1.299094051515996,-44.54033042058136],[1.591107043006464,-7.402383078744272,-4.016523771621331,8.421860747630465,-151.5157978201672],[0.4471099231854831,0.1457902023197038,0.1761909615524267,0.2286876429219316,50.39375252248106],[-46.28692420047868,-353.428842004058,-112.9565821551228,371.0406120797242,-162.2760137285137]],"like":[[13.10835543783498,8.231377637770535,6.110798415008304,10.25170400882004,36.58940149523158],[7.812378845148928,-3.003037591523725,1.789971845144334,3.496031175849842,149.2027851148756],[17.35631577900309,1.086575471407755,-14.93089905038822,14.97038385305964,-85.83771657442708],[4.384627850734517,0.9015518006976374,0.5918598406602903,1.078468228705685,33.28450293585259],[67.3976127315786,328.6783795882857,114.4124917089917,348.0225502289202,19.19293679018812]],"quad":[[3.859213511503391,9.300071891851713,0.3730138813838165,9.307549438456684,2.296828658524013],[-0.8633356350086084,1.232021110102394,-0.06105422547831456,1.233532988690084,-2.837037470713299],[-6.292175328945184,31.0161599143515,20.89430408194208,37.39751487600863,33.96651899043135],[0.1741079206661865,0.1295230178553327,0.03338237196248933,0.1337557285210425,14.45249083109821],[-2.714673614680348,-6.580849708803502,55.2648915535694,55.65533057414757,96.79070827325027]],"triangle":[[18.098391257201,9.841431592002746,5.542108794893295,11.29463349004753,29.38562367165569],[11.44656201389193,-4.241960309172344,2.259811908186312,4.80634758678294,151.9545129989488],[27.4108064241165,-4.179253862996216,-22.25887131268214,22.64781479449867,-100.6338670074928],[6.552407545773132,1.350699216312125,0.8466705035204511,1.594126505167567,32.08107659822587],[37.0445430220409,5.578287481715379,17.03199904048523,17.92222872702367,71.86544344463374]],"rows":[[46.40164103908315,13.74328564193267,-111.0425187925709,111.8897621770384,-82.94461083688702],[20.05834290522127,-35.40587683454283,-1.024776924114233,35.42070414555608,-178.3421112496174],[-82.50375390481368,-82.85364139966302,-126.9563269439585,151.6002468477055,-123.1290813540161],[4.699551193028165,3.10819230643363,0.1251523469324208,3.110710935415874,2.305787113051947],[3.095551728719325,-0.2025308321576828,-62.0383483710202,62.03867896193502,-90.18704754372845]]},"PROBE":[[1.3,0.7],[-2.1,1.1],[0.2,-0.9],[3.5,2.2],[-0.35,0.05]],"LOOP":{"single_r1":{"pre":"single","seed":[1.0,0.0],"V0":8.987551786170798,"A":3.141592653589793,"L":6.283185307179586,"ymax":1.0,"xmin":-1.0},"dipole_09":{"pre":"dipole","seed":[0.9,0.0],"V0":16.04919961816214,"A":0.4122637118590691,"L":2.276892274234003,"ymax":0.3693375329545498,"xmin":0.1907329751649384},"quad_08":{"pre":"quad","seed":[0.8,0.8],"V0":12.59953667705141,"A":0.4336013432897038,"L":2.335785701324567,"ymax":0.9086738238196445,"xmin":0.1682617780349801},"like_04":{"pre":"like","seed":[0.0,0.4],"V0":28.07239545229908,"A":1.437871749088028,"L":4.6986974668231,"ymax":0.458118565118665,"xmin":-0.9138733162235383},"tri_005":{"pre":"triangle","seed":[0.0,0.05],"V0":35.99692384725988,"A":0.009399492366885118,"L":0.349840874985146,"ymax":0.05000000000000096,"xmin":-0.05612523960136837}},"DIPLINE":[[22.5,-0.07609223247730446,-0.0760922324768536,22.49999999993252],[67.5,-0.6171484827742473,-0.617148482771561,67.49999999983346],[112.5,-1.38251012331639,-1.382510123313161,112.4999999997997],[157.5,-1.923849131427039,-1.923849131431704,157.5000000006982]],"LIKELINE":[[30.0,21.0905811789991,21.09442677979677,21.0944195650629],[90.0,59.99999999999999,60.00661374225247,60.00660443980055],[150.0,86.15903428374187,86.16052083998785,86.16051940454713]],"NULLCOUNT":{"single":0,"dipole":0,"like":1,"quad":1,"triangle":4,"rows":12},"NULL":{"like":[[-3.760986345257623e-18,0.0,35.95020714468319,"saddle",143.8008285787328]],"quad":[[-1.872376433726266e-17,1.084331865037054e-17,0.0,"saddle",-0.0]],"triangle":[[-0.1849299961373544,0.106769383051138,36.1847536863668,"saddle",70.00323081156618],[-5.246668006080441e-17,-0.2135387661022759,36.1847536863668,"saddle",70.00323081156618],[-2.463052306693111e-17,2.496239750448139e-17,35.95020714468319,"min",63.91147936832567],[0.1849299961373543,0.106769383051138,36.1847536863668,"saddle",70.00323081156617]],"rows":[[-1.26012596911854,-1.008072851042844,-77.4435781447091,"saddle",-1182.966224321615],[-1.26012596911854,1.008072851042844,77.44357814470908,"saddle",1182.966224321615],[-0.7533597087344145,-1.009159041214539,-84.7130821798706,"saddle",-1193.490047784462],[-0.7533597087344145,1.009159041214539,84.71308217987057,"saddle",1193.490047784463],[-0.2508762020326389,-1.009728651564402,-87.10256192438005,"saddle",-1195.541280550863],[-0.2508762020326389,1.009728651564402,87.10256192438004,"saddle",1195.541280550863],[0.2508762020326389,-1.009728651564402,-87.10256192438004,"saddle",-1195.541280550863],[0.2508762020326389,1.009728651564402,87.10256192438005,"saddle",1195.541280550863],[0.7533597087344145,-1.009159041214539,-84.7130821798706,"saddle",-1193.490047784463],[0.7533597087344145,1.009159041214539,84.71308217987057,"saddle",1193.490047784463],[1.26012596911854,-1.008072851042844,-77.44357814470911,"saddle",-1182.966224321614],[1.26012596911854,1.008072851042844,77.4435781447091,"saddle",1182.966224321615]]},"MOM":{"single":[0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0],"dipole":[0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0],"like":[0.0,0.0,2.0,0.0,0.0,1.0,0.0,-0.5],"quad":[0.0,0.0,0.0,0.0,0.0,0.0,3.0,0.0],"triangle":[0.0,0.0,3.0,0.0,0.0,0.84375,0.0,0.84375],"rows":[0.0,0.0,0.0,0.0,14.0,0.0,0.0,0.0]},"SER":{"single":{"0":[8.987551786170798,0.0,0.0,0.0,0.0],"30":[8.987551786170798,0.0,0.0,0.0,0.0],"90":[8.987551786170798,0.0,0.0,0.0,0.0],"137":[8.987551786170798,0.0,0.0,0.0,0.0]},"dipole":{"0":[0.0,8.987551786170798,0.0,2.246887946542699,0.0],"30":[0.0,7.783448164652119,0.0,0.7296982654361361,0.0],"90":[0.0,5.503288263552572e-16,0.0,-2.063733098832215e-16,0.0],"137":[0.0,-6.57307926731,0.0,0.2675315694168236,0.0]},"like":{"0":[17.9751035723416,0.0,4.493775893085399,0.0,1.12344397327135],"30":[17.9751035723416,0.0,2.808609933178374,0.0,0.02633071812354745],"90":[17.9751035723416,0.0,-2.246887946542699,0.0,0.4212914899767561],"137":[17.9751035723416,0.0,1.358546443344846,0.0,-0.4259301362710161]},"quad":{"0":[0.0,0.0,0.0,0.0,0.0],"30":[0.0,0.0,11.67517224697817,0.0,2.432327551453786],"90":[0.0,0.0,3.108624468950438e-15,0.0,8.881784197001252e-16],"137":[0.0,0.0,-13.44848784259869,0.0,-2.801768300541394]},"triangle":{"0":[26.96265535851239,0.0,3.791623409790805,0.0,1.199693344504123],"30":[26.96265535851239,-4.440892098500626e-16,3.791623409790804,-7.10929389335776,1.199693344504122],"90":[26.96265535851239,-4.440892098500626e-16,3.791623409790806,7.109293893357759,1.199693344504122],"137":[26.96265535851239,-8.881784197001252e-16,3.791623409790807,-5.524959038033691,1.199693344504125]},"rows":{"0":[0.0,-1.77635683940025e-15,0.0,0.0,5.329070518200751e-15],"30":[0.0,62.91286250319557,0.0,204.4668031353856,7.105427357601002e-15],"90":[0.0,125.8257250063912,1.554312234475219e-15,-62.9128625031956,7.105427357601002e-15],"137":[0.0,85.81293810803368,3.552713678800501e-15,186.5908961261657,-1.4210854715202e-14]}},"FAR":{"dipole":{"th":30.0,"l0":1,"limit":7.783448164652119,"f25":7.784615360573615,"f50":7.783740023887943,"f100":7.783521133224427,"rich":7.783448169669921,"rate":3.999793700124131},"quad":{"th":30.0,"l0":2,"limit":11.67517224697817,"f25":11.67906601543985,"f50":11.67614530570937,"f100":11.67541548771706,"rich":11.67517221505296,"rate":4.000393748351122},"like":{"th":30.0,"l0":0,"limit":17.9751035723416,"f25":17.97959741521089,"f50":17.97622702052106,"f100":17.97538443359811,"rich":17.97510357129046,"rate":4.000011227592605},"rows":{"th":60.0,"l0":1,"limit":108.9682743051296,"f25":109.0993789187976,"f50":109.0009863083826,"f100":108.9764482723713,"rich":108.9682689270342,"rate":4.001973862363415},"triangle":{"th":20.0,"l0":0,"limit":26.96265535851239,"f25":26.96833084123002,"f50":26.96412294044437,"f100":26.96302837587122,"rich":26.9626635210135,"rate":3.934352912158861}},"SERIES_CONV":{"dipole":{"dmax":0.5,"r":1.0,"partial":-6.0947538908259,"exact":-6.094753890825898},"quad":{"dmax":0.7071067811865476,"r":1.414213562373095,"partial":-5.560427764857551,"exact":-5.56042776485755},"rows":{"dmax":1.802775637731995,"r":3.605551275463989,"partial":7.87782452842295,"exact":7.877824528422954}},"TAPE":{"dipole":{"A":[-1.5,1.0],"B":[2.0,-1.3],"L":4.188078318274385,"int":-3.674103863780058,"dV":-3.674103863780033,"clear":0.2626502936204003},"rows":{"A":[-2.0,-0.3],"B":[1.7,0.4],"L":3.765634076752546,"int":-23.37281054898768,"dV":-23.37281054898769,"clear":0.6267204810392107},"quad":{"A":[-1.0,-1.2],"B":[1.3,0.9],"L":3.114482300479487,"int":0.36884514027268,"dV":0.3688451402727,"clear":0.1798051637390218}},"SUP":[[0,4.562738120014164,2.116734179388014,-0.940770746394673],[1,5.88794094269626,3.285117264165295,-2.02161062410172],[2,7.943948517833299,4.96496782364581,-4.96496782364581],[10,-7.266004966684485,-1.424706856212644,-5.698827424850576]],"ROWS_UNIF":[[0.5,0.9766537631278353],[1.0,0.8897667835800054],[1.5,0.6932126010970181],[2.5,0.2102351883186122]],"GRADCHECK":{"single":3.168e-10,"dipole":1.031e-09,"like":2.124e-10,"quad":4.9e-09,"triangle":2.755e-10,"rows":6.736e-10},"JACCHECK":{"single":2.666e-10,"dipole":6.16e-10,"like":1.982e-10,"quad":1.79e-09,"triangle":1.808e-10,"rows":3.848e-10},"EPS0":8.8541878188e-12,"K_SI":8987551786.170797,"KNC":8.987551786170798,"KNC_OVER_KPHET":0.9986168651300886,"PHET_M":[0.1171875,0.3125,0.09375],"CIRCLE":[3.141592653589793,6.283185307179586],"DIPOLE09_AXIS_LEFT":0.1907329751649384,"LIKE_SADDLE_V":35.95020714468319,"LIKE_SEED04_V":28.07239545229908,"TRI_SADDLE_Y":-0.213538766102276,"ASYM_MOM":[0.9500000000000001,-0.25,2.0,-1.110223024625157e-16,2.775557561562891e-17,-2.975,1.755,2.485000000000001],"ASYM_SER30":[17.9751035723416,0.0,-0.4050034233852657,-29.04291162727153,65.47646145204244],"DIPOLE_CLOSED":7.783448164652119,"QUAD_CLOSED":11.67517224697818,"SUPSUM":[12.61391031843353,0.6735038183560782,-65.18609755361936],"SUPDIRECT":[12.61391031843353,0.673503818356076,-65.18609755361935],"ROWS_E0":[-1.496728039202666e-15,-62.54516834470012],"PHET_V1M":[9.0,8.987551786170798]};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Reference values labelled       *
+ *  (derive) come from REF, emitted from build/charges-and-fields/     *
+ *  refvals.txt, the printed output of derive.py (scipy brentq on      *
+ *  rays, quad, solve_ivp, fsolve), read in full.                      *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1,style:ctx.fillStyle}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,rot:Math.abs(Mx[1])>1e-9,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+function brightness(css){ const c=toRgb(css); return Math.max(c[0],c[1],c[2]); }
+
+function selfTest(){
+  let pass=0,fail=0;
+  const ok=(c,name)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+name); } };
+  const eq=(a,b,name)=>ok(a===b,name+' ['+a+' vs '+b+']');
+  const close=(a,b,tol,name)=>ok(Math.abs(a-b)<=tol,name+' ['+a+' vs '+b+']');
+  const rel=(a,b,t,name)=>ok(Math.abs(a-b)<=t*Math.abs(b||1),name+' ['+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.abs(b||1)).toExponential(2)+']');
+  const T0=Date.now();
+  const stSave=clone(ST);
+  function withState(over,fn){ resetState(over); try{ return fn(); } finally{ resetState(stSave); } }
+  const PRE=id=>presetCharges(id);
+  const ORD=['single','dipole','like','quad','triangle','rows'];
+
+  /* ---------- 0. the shared-helper fixes cannot rot ---------- */
+  ok(plain('&Delta;x &theta; &#955;')==='Δx θ λ','plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b')==='aBb','plain() strips tags');
+  ok(ticksFor(0.8,0.2,5).length===1&&ticksFor(0.2,0.8,5).length>=3,'axes() range-sort is what rescues an inverted axis');
+  { let threw=false; try{ toRgb('nope'); }catch(e){ threw=true; } ok(threw,'toRgb throws on garbage'); }
+  ok(brightness(shade(mix(COL.zero,COL.pos,0.5),0.9))>60,'mix() output is a legal mix() input (a two-stage blend is not black)');
+  { const stub={beginPath(){},moveTo(){},lineTo(){},stroke(){},save(){},restore(){},setLineDash(){}};
+    const bb=box(100,100,200,100); POLY_SEGS=[];
+    polyline(stub,bb,[-1,2],[0.5,0.5],0,1,0,1,'#fff',1);
+    ok(POLY_SEGS.length===4&&Math.abs(POLY_SEGS[0]-bb.x)<1e-9&&Math.abs(POLY_SEGS[2]-bb.x1)<1e-9,'polyline clips a both-ends-outside segment to the frame edges');
+    POLY_SEGS=[]; }
+  close(90*DEG,PI/2,1e-15,'DEG converts degrees INTO radians (90 DEG = pi/2)');
+  { const c=clipSeg(-1,0.5,2,0.5,{x0:0,x1:1,y0:0,y1:1}); ok(!!c&&Math.abs(c[0])<1e-15&&Math.abs(c[2]-1)<1e-15,'clipSeg cuts a crossing segment at both edges'); ok(clipSeg(2,2,3,3,{x0:0,x1:1,y0:0,y1:1})===null,'and drops one that misses'); }
+  close(wrapPi(3*PI/2),-PI/2,1e-15,'wrapPi folds 270° to -90°');
+
+  /* ---------- 1. constants ---------- */
+  eq(EPS0,8.8541878188e-12,'eps0, CODATA 2022 (NIST), verbatim');
+  rel(KNC,REF.KNC,1e-15,'k = 1/(4 pi eps0) in V m/nC (derive)'); rel(K_SI,REF.K_SI,1e-15,'k in N m^2/C^2 (derive)');
+  rel(KNC/K_PHET,REF.KNC_OVER_KPHET,1e-15,'k / PhET\'s 9 = 0.99862: PhET reads 0.14 % high (derive)');
+  eq(SENSOR_M_PER_VM,REF.PHET_M[0],'sensor arrow 15 px per V/m at 128 px/m = 0.1171875 m per V/m (PhET\'s value)');
+  eq(ARROW_LEN,REF.PHET_M[1],'field arrow 40 px = 0.3125 m (PhET\'s value)'); eq(CHARGE_R,REF.PHET_M[2],'charge radius 12 px = 0.09375 m (PhET\'s value)');
+  ok(PLANE.x1-PLANE.x0===8&&PLANE.y1-PLANE.y0===5,'the plane is 8 m x 5 m (PhET WIDTH, HEIGHT)');
+  ok(BIN.x0===-1.25&&BIN.x1===1.25&&BIN.y0===-2.3&&BIN.y1===-1.7,'the bin, PhET\'s enclosure bounds');
+  ok(ARROW_DX===0.5&&MAP_DX===0.1&&V_SAT===40&&E_SAT===5&&EQ_REFUSE===0.03,'the grids, the saturations and the no-seed radius (PhET\'s values)');
+  rel(potentialAt(PRE('single'),1,0),REF.PHET_V1M[1],1e-15,'+1 nC at 1 m reads 8.99 V here (derive); PhET reads '+REF.PHET_V1M[0]);
+
+  /* ---------- 2. the fields ---------- */
+  for(const nm of ORD){ const ch=PRE(nm);
+    REF.VE[nm].forEach((r,i)=>{ const p=REF.PROBE[i], f=fieldAt(ch,p[0],p[1]), R=sensorReading(ch,p[0],p[1]), tag=nm+' probe '+i+': ';
+      rel(f.V,r[0],2e-14,tag+'V (derive)'); rel(potentialAt(ch,p[0],p[1]),r[0],2e-14,tag+'potentialAt agrees');
+      rel(f.ex,r[1],3e-14,tag+'Ex (derive)'); rel(f.ey,r[2],3e-14,tag+'Ey (derive)'); rel(R.mag,r[3],2e-14,tag+'|E| (derive)'); close(R.ang,r[4],1e-10,tag+'direction, degrees (derive)'); }); }
+  /* an independent route to E inside the suite: central differences of V */
+  for(const nm of ORD){ const ch=PRE(nm); let worst=0, wj=0;
+    for(const p of REF.PROBE){ const h2=1e-5, f=fieldAt(ch,p[0],p[1]);
+      const gx=-(potentialAt(ch,p[0]+h2,p[1])-potentialAt(ch,p[0]-h2,p[1]))/(2*h2), gy=-(potentialAt(ch,p[0],p[1]+h2)-potentialAt(ch,p[0],p[1]-h2))/(2*h2);
+      worst=Math.max(worst,Math.hypot(gx-f.ex,gy-f.ey)/Math.hypot(f.ex,f.ey));
+      const j=jacAt(ch,p[0],p[1]), fp=fieldAt(ch,p[0]+h2,p[1]), fm=fieldAt(ch,p[0]-h2,p[1]), fq=fieldAt(ch,p[0],p[1]+h2), fn=fieldAt(ch,p[0],p[1]-h2);
+      const sc=Math.max(Math.abs(j[0]),Math.abs(j[1]),Math.abs(j[2]));
+      wj=Math.max(wj,Math.abs((fp.ex-fm.ex)/(2*h2)-j[0])/sc,Math.abs((fp.ey-fm.ey)/(2*h2)-j[1])/sc,Math.abs((fq.ex-fn.ex)/(2*h2)-j[1])/sc,Math.abs((fq.ey-fn.ey)/(2*h2)-j[2])/sc); }
+    ok(worst<1e-7,nm+': E = -grad V by central differences ('+worst.toExponential(2)+')'); ok(wj<1e-7,nm+': the Jacobian against differences of E ('+wj.toExponential(2)+')'); }
+  { const ch=PRE('rows'), p=[0.3,0.2]; let V=0, ex=0, ey=0; for(const c of ch){ const f=fieldAt([c],p[0],p[1]); V+=f.V; ex+=f.ex; ey+=f.ey; }
+    const f=fieldAt(ch,p[0],p[1]); rel(f.V,V,1e-14,'superposition: V of 14 charges = the sum of 14 singles'); rel(f.ey,ey,1e-14,'and so is Ey'); rel(f.ex,ex,1e-13,'and Ex'); }
+  for(const r of [0.1,1,3.7,40]){ const ch=[{x:0.3,y:-0.2,q:-1}];
+    rel(potentialAt(ch,0.3+r,-0.2)*r,-KNC,1e-15,'a point charge: r V = k q at r = '+r); const f=fieldAt(ch,0.3,-0.2+r); rel(f.ey*r*r,-KNC,1e-14,'and r^2 E = k q, pointing toward the negative charge'); eq(f.ex,0,'with no sideways part'); }
+  { const f=fieldAt(PRE('single'),2,0); rel(f.ex,KNC/4,1e-15,'|E| at 2 m from +1 nC = k/4 (absolute)'); }
+  /* Laplace: V_xx + V_yy + V_zz = 0 at a point in the plane, with V_zz = -k sum q/r^3 */
+  { const ch=PRE('triangle'), p=[0.9,-0.4], j=jacAt(ch,p[0],p[1]); let vzz=0; for(const c of ch) vzz+=-KNC*c.q/Math.pow(Math.hypot(p[0]-c.x,p[1]-c.y),3);
+    const hz=1e-4, V3=z=>{ let s=0; for(const c of ch) s+=c.q/Math.sqrt((p[0]-c.x)*(p[0]-c.x)+(p[1]-c.y)*(p[1]-c.y)+z*z); return KNC*s; };
+    rel((V3(hz)-2*V3(0)+V3(-hz))/(hz*hz),vzz,1e-6,'V_zz by differences out of the plane matches -k sum q/r^3');
+    close(-j[0]-j[2]+vzz,0,1e-12*Math.abs(vzz),'and V_xx + V_yy + V_zz = 0: the field is a 3-D Coulomb field held in a plane'); }
+
+  /* ---------- 3. PhET's display grids and encodings ---------- */
+  { const ch=PRE('dipole'), G=vmapGrid(ch); eq(G.nx,80,'voltage cells: 80 across'); eq(G.ny,50,'and 50 down');
+    rel(G.v[0],potentialAt(ch,-3.95,-2.45),1e-15,'the first cell centre is (-3.95, -2.45)'); rel(G.v[49*80+79],potentialAt(ch,3.95,2.45),1e-15,'the last is (3.95, 2.45)');
+    const A=arrowGrid(ch); eq(A.nx,16,'arrows: 16 across'); eq(A.ny,10,'and 10 down'); ok(A.a[0].x===-3.75&&A.a[0].y===-2.25,'at 0.5-m cell centres from (-3.75, -2.25)');
+    rel(A.a[5*16+9].mag,Math.hypot(fieldAt(ch,0.75,0.25).ex,fieldAt(ch,0.75,0.25).ey),1e-15,'an arrow carries |E| at its centre'); }
+  eq(arrowAlpha(5,false),1,'arrow opacity saturates at 5 V/m (PhET)'); eq(arrowAlpha(2,false),0.4,'2 V/m is 40 % opaque'); eq(arrowAlpha(20,false),1,'and stays 1 above');
+  eq(arrowAlpha(0.01,true),1,'direction only: every arrow with a direction is opaque'); eq(arrowAlpha(0,true),0,'but a zero field draws no arrow');
+  eq(vLevel(20),0.5,'the voltage colour is half saturated at 20 V'); eq(vLevel(-40),1,'and full at -40 V'); eq(vLevel(Infinity),1,'a cell on a charge saturates'); eq(vLevel(NaN),0,'NaN (coincident +q, -q) reads as zero');
+  eq(vSafe(Infinity),1e6,'vSafe caps +infinity'); eq(vSafe(NaN),0,'and zeroes NaN');
+  { const b1=brightness(vCellColour(4)), b2=brightness(vCellColour(20)), b3=brightness(vCellColour(40)); ok(b1<b2&&b2<b3,'cell brightness rises with |V| ('+b1+' < '+b2+' < '+b3+')');
+    eq(vCellColour(0.5),null,'below half a level no cell is drawn'); ok(toRgb(vCellColour(30))[1]>toRgb(vCellColour(30))[2],'V > 0 is green'); ok(toRgb(vCellColour(-30))[2]>toRgb(vCellColour(-30))[1],'V < 0 is magenta'); }
+
+  /* ---------- 4. equipotentials ---------- */
+  for(const nm in REF.LOOP){
+    const L0=REF.LOOP[nm], ch=PRE(L0.pre), tag='loop '+nm+': ';
+    const F=traceEquipotential(ch,L0.seed[0],L0.seed[1],{hmax:0.002,hmin:0.0005,c:0.02}), D=traceEquipotential(ch,L0.seed[0],L0.seed[1]);
+    rel(F.V0,L0.V0,1e-15,tag+'V0 at the seed (derive)');
+    ok(F.closed&&D.closed,tag+'closes on itself (fine and default steps)'); ok(F.gap<0.002&&D.gap<0.05,tag+'the closing chord is shorter than a step ('+fmt(D.gap,4)+' m)');
+    let w=0; for(const p of D.pts) w=Math.max(w,Math.abs(potentialAt(ch,p[0],p[1])-D.V0)); ok(w<1e-12*Math.abs(D.V0),tag+'every vertex on the level set ('+w.toExponential(2)+' V)');
+    rel(Math.abs(polyArea(F.pts)),L0.A,5e-5,tag+'area at 2-mm steps vs the polar-brentq area (derive)'); rel(polyLength(F.pts,true),L0.L,2e-5,tag+'perimeter vs the polar quadrature (derive)');
+    const eF=Math.abs(Math.abs(polyArea(F.pts))-L0.A), eD=Math.abs(Math.abs(polyArea(D.pts))-L0.A);
+    ok(eD<2e-3*L0.A,tag+'the default-step polygon is within 0.2 % in area'); ok(eD>20*eF,tag+'and its error is the O(h^2) chord deficit: 2-mm steps cut it '+fmt(eD/eF,0)+'x');
+  }
+  { const F=traceEquipotential(PRE('single'),1,0,{hmax:0.002,hmin:0.0005,c:0.02}); let w=0; for(const p of F.pts) w=Math.max(w,Math.abs(Math.hypot(p[0],p[1])-1));
+    ok(w<1e-14,'a single charge\'s equipotential is the circle r = 1 ('+w.toExponential(2)+')'); rel(REF.CIRCLE[0],PI,1e-15,'and the polar route returned pi (derive CHECK)'); }
+  { const F=traceEquipotential(PRE('dipole'),0.9,0,{hmax:0.002,hmin:0.0005,c:0.02}); let xm=Infinity, ym=-Infinity; for(const p of F.pts){ xm=Math.min(xm,p[0]); ym=Math.max(ym,p[1]); }
+    close(xm,REF.LOOP.dipole_09.xmin,2e-6,'the dipole loop crosses the axis at x = 0.1907 (derive)'); rel(REF.DIPOLE09_AXIS_LEFT,REF.LOOP.dipole_09.xmin,1e-12,'(derive: two routes agree)');
+    close(ym,REF.LOOP.dipole_09.ymax,2e-6,'and its top is y = 0.3693 (derive)'); }
+  { const D=traceEquipotential(PRE('dipole'),0,0.7); let mx=0, y0=Infinity, y1=-Infinity; for(const p of D.pts){ mx=Math.max(mx,Math.abs(p[0])); y0=Math.min(y0,p[1]); y1=Math.max(y1,p[1]); }
+    ok(D.ok&&!D.closed,'the dipole\'s V = 0 equipotential does not close'); eq(D.exits.join(','),'box,box','it leaves the traced region at both ends'); eq(mx,0,'and is the bisector x = 0 exactly'); ok(y0<-4.4&&y1>4.4,'running the full height'); close(D.V0,0,1e-15,'at V = 0'); }
+  { const T=traceEquipotential(PRE('like'),0,0); ok(!T.ok&&/E = 0/.test(T.why),'refused at the like pair\'s null: no single equipotential');
+    ok(!traceEquipotential(PRE('like'),0.52,0).ok,'refused within 3 cm of a charge (PhET)'); ok(traceEquipotential(PRE('like'),0.5+0.031,0).ok,'accepted at 3.1 cm');
+    ok(!traceEquipotential([],1,1).ok,'refused on an empty plane'); }
+  withState({preset:'dipole'},()=>{
+    ST.eqSeeds=[]; ST.vs={x:1.5,y:0.9}; ok(plotEquipotential(ST).ok&&ST.eqSeeds.length===1,'plot adds a seed at the sensor');
+    ST.vs={x:0.51,y:0}; ok(!plotEquipotential(ST).ok&&ST.eqSeeds.length===1,'a refused plot adds nothing');
+    ST.vs={x:1.5,y:0.9}; for(let k=0;k<MAX_EQ+3;k++){ ST.vs.x=1+0.01*k; plotEquipotential(ST); } eq(ST.eqSeeds.length,MAX_EQ,'at most '+MAX_EQ+' lines: the oldest go first');
+    ST.showVS=false; ok(!plotEquipotential(ST).ok,'no plot with the sensor in its box');
+    ST.eqSeeds=[{x:1.5,y:0.9}]; moveCharge(ST,0,-0.6,0); eq(ST.eqSeeds.length,0,'moving a charge clears the equipotentials (PhET)');
+    ST.eqSeeds=[{x:1.5,y:0.9}]; addCharge(ST,2,2,1); eq(ST.eqSeeds.length,0,'adding one clears them'); ST.eqSeeds=[{x:1.5,y:0.9}]; removeCharge(ST,2); eq(ST.eqSeeds.length,0,'and so does removing one');
+    ST.eqSeeds=[{x:1.5,y:0.9}]; applyPreset(ST,'quad'); eq(ST.eqSeeds.length,0,'and picking a preset'); eq(ST.charges.length,4,'which sets its charges');
+    for(let k=0;k<MAX_CHARGES+5;k++) addCharge(ST,0,0,1); eq(ST.charges.length,MAX_CHARGES,'at most '+MAX_CHARGES+' charges'); });
+
+  /* ---------- 5. field lines ---------- */
+  REF.DIPLINE.forEach(([ad,psi0,psiE,arr])=>{
+    const a=ad*DEG, ch=PRE('dipole'), x0=0.5+R_SEED*Math.cos(a), y0=R_SEED*Math.sin(a), tag='dipole line at '+ad+'°: ';
+    rel(psiAxisX(ch,x0,y0),psi0,1e-13,tag+'Psi at the seed (derive)');
+    const L=traceFieldLine(ch,x0,y0,1,{c:0.02}); eq(L.end,'charge',tag+'ends on a charge'); eq(L.hit,0,tag+'the negative one');
+    let dp=0; for(const p of L.pts) dp=Math.max(dp,Math.abs(psiAxisX(ch,p[0],p[1])-psi0)); ok(dp<1e-9,tag+'Psi conserved along it ('+dp.toExponential(2)+')');
+    const e=L.pts[L.pts.length-1]; close(Math.atan2(e[1],-(e[0]+0.5))/DEG,arr,1e-3,tag+'arrives at the same angle from the far axis (derive)');
+    const Ld=traceFieldLine(ch,x0,y0,1); let dd=0; for(const p of Ld.pts) dd=Math.max(dd,Math.abs(psiAxisX(ch,p[0],p[1])-psi0)); ok(dd<1e-6,tag+'default steps hold Psi to 1e-6 ('+dd.toExponential(2)+')');
+    let tg=0; for(let k=1;k<Ld.pts.length;k++){ const p=Ld.pts[k-1], q=Ld.pts[k], m=[(p[0]+q[0])/2,(p[1]+q[1])/2], f=fieldAt(ch,m[0],m[1]), d=Math.hypot(q[0]-p[0],q[1]-p[1]);
+      tg=Math.max(tg,Math.abs(((q[0]-p[0])*f.ey-(q[1]-p[1])*f.ex)/(d*Math.hypot(f.ex,f.ey)))); }
+    ok(tg<2e-3,tag+'every drawn segment runs along E ('+tg.toExponential(2)+' rad)'); });
+  REF.LIKELINE.forEach(([ad,thF,thP,th1000])=>{
+    const a=ad*DEG, ch=PRE('like'), x0=0.5+R_SEED*Math.cos(a), y0=R_SEED*Math.sin(a), tag='like-pair line at '+ad+'°: ';
+    const L=traceFieldLine(ch,x0,y0,1,{c:0.02,rEsc:1000}), e=L.pts[L.pts.length-1], th=Math.atan2(e[1],e[0])/DEG;
+    eq(L.end,'escape',tag+'escapes'); close(th,th1000,1e-5,tag+'direction at 1000 m (derive solve_ivp)');
+    close(th,Math.acos(psiAxisX(ch,x0,y0)/2)/DEG,3e-5,tag+'= acos(Psi/2): the exact asymptote from the seed\'s flux (to (a/r)^2)'); close(thP,Math.acos(psiAxisX(ch,x0,y0)/2)/DEG,1e-9,tag+'(derive agrees)');
+    close(Math.acos((1+Math.cos(a))/2)/DEG,thF,1e-12,tag+'the charge-surface formula cos th = (1 + cos a)/2 (derive)'); ok(Math.abs(th-thF)<0.01,tag+'the 2-cm seed moves it by O(r_s^2) only'); });
+  { const ch=PRE('single'); let w=0; for(let k=0;k<16;k++){ const a=(k+0.5)*TAU/16, L=traceFieldLine(ch,R_SEED*Math.cos(a),R_SEED*Math.sin(a),1);
+      for(const p of L.pts) w=Math.max(w,Math.abs(wrapPi(Math.atan2(p[1],p[0])-a))); }
+    ok(w<1e-12,'a single charge\'s lines are radial ('+w.toExponential(2)+' rad)'); }
+  const LINECOUNT={single:[16,0,16,0],dipole:[16,16,0,0],like:[32,0,32,0],quad:[32,32,0,0],triangle:[48,0,46,2],rows:[112,112,0,0]};
+  for(const nm of ORD){ const ch=PRE(nm), F=fieldLines(ch,16), w=LINECOUNT[nm], tag=nm+' lines: ';
+    eq(F.lines.length,w[0],tag+'16 per charge of the majority sign'); eq(F.ends,w[1],tag+'ending on charges'); eq(F.escapes,w[2],tag+'escaping'); eq(F.nulls,w[3],tag+'ending at a null'); eq(F.stalls,0,tag+'none run out of steps');
+    let bad=0; for(const L of F.lines){ const s=ch[L.from]; if(Math.abs(Math.hypot(L.pts[0][0]-s.x,L.pts[0][1]-s.y)-R_SEED)>1e-12) bad++; if(L.end==='charge'&&Math.sign(ch[L.hit].q)!==-F.sgn) bad++; }
+    eq(bad,0,tag+'every line starts on a seeded charge and any that ends on a charge ends on one of the other sign'); }
+  ok(fieldLines(PRE('rows'),16).lines.every(L=>L.end==='charge'),'a NEUTRAL plane: every line that starts on a charge ends on one (the two rows, 112 of 112)');
+  { const F=fieldLines(PRE('dipole'),16); eq(F.sgn,1,'a neutral plane is traced from its positive charges, along E'); ok(F.lines.every(L=>PRE('dipole')[L.from].q>0),'every line starts on the + charge'); }
+  /* the step heuristic, pinned: a point charge's Jacobian has Frobenius norm sqrt(5) k q/r^3 whatever the
+     direction (the trace of J^2 is invariant), so the length scale is exactly r/sqrt(5) */
+  for(const [x,y] of [[1,0],[0.8,0.6],[-0.3,1.2]]) rel(lengthScale([{x:0,y:0,q:1}],x,y),Math.hypot(x,y)/Math.sqrt(5),1e-14,'length scale r/sqrt(5) at ('+x+', '+y+')');
+  { const rows=PRE('rows'), j=jacAt(rows,0,0); ok(Math.hypot(j[0],j[1],j[2])<1e-12*KNC,'between the rows grad E vanishes at the centre (the field is uniform to first order)');
+    eq(lengthScale(rows,0,0),1,'so there the other bound binds: the 1-m distance to the nearest charge'); rel(lengthScale(rows,0.2,0.3),Math.hypot(0.2-0,0.3-1),1e-15,'and at (0.2, 0.3) too'); }
+  /* the evenly spaced family: every level from -40 to 40 V, and marching squares on the level to under a centimetre */
+  { const ch=PRE('dipole'), fam=equipotentialFamily(ch,4), lv=fam.map(f=>f.V).sort((a,b)=>a-b);
+    eq(lv.length,21,'equipotentials every 4 V: 21 levels, -40 ... 40'); eq(lv[0],-40,'from -40 V'); eq(lv[20],40,'to +40 V'); ok(lv.indexOf(0)>=0,'with V = 0');
+    let worst=0, n=0; for(const f of fam) for(let k=0;k<f.segs.length;k+=2){ const x=f.segs[k], y=f.segs[k+1]; if(nearestCharge(ch,x,y).r<0.4) continue;
+      const g=fieldAt(ch,x,y); worst=Math.max(worst,Math.abs(g.V-f.V)/Math.hypot(g.ex,g.ey)); n++; }
+    ok(n>500&&worst<0.005,'contour points more than 40 cm from a charge lie within '+fmt(worst*1000,2)+' mm of their level ('+n+' points)');
+    eq(equipotentialFamily(ch,10).length,9,'every 10 V: -40 ... 40 is 9 levels'); }
+  { const F=fieldLines(PRE('triangle'),16), N=F.lines.filter(L=>L.end==='null'); ok(N.length===2&&N.every(L=>Math.hypot(L.pts[L.pts.length-1][0],L.pts[L.pts.length-1][1])<1e-3),
+    'the triangle\'s two captured lines end at the centre, the in-plane minimum'); }
+  { const ch=[{x:-0.5,y:0,q:1},{x:0.5,y:0,q:-1},{x:0,y:1.5,q:-1}], F=fieldLines(ch,8);
+    eq(F.sgn,-1,'a net negative plane is traced from its negative charges, against E'); eq(F.lines.length,16,'8 from each of the two');
+    ok(F.lines.every(L=>L.end!=='charge'||ch[L.hit].q>0),'and the lines that end on a charge end on the positive one'); ok(F.ends>0&&F.escapes>0,'some end on it, some come in from infinity'); }
+  eq(fieldLines([],16).lines.length,0,'no charges, no lines');
+
+  /* ---------- 6. null points ---------- */
+  for(const nm of ORD){ const N=findNulls(PRE(nm)); eq(N.length,REF.NULLCOUNT[nm],nm+': '+REF.NULLCOUNT[nm]+' null points on the plane (derive fsolve)');
+    (REF.NULL[nm]||[]).forEach(r=>{ const m=N.find(n=>Math.hypot(n.x-r[0],n.y-r[1])<1e-6); ok(!!m,nm+' null at ('+fmt(r[0],5)+', '+fmt(r[1],5)+') found (derive)');
+      if(m){ close(m.x,r[0],1e-9,nm+' null x (derive)'); close(m.y,r[1],1e-9,nm+' null y (derive)'); rel(m.V,r[2],1e-10,nm+' V there (derive)'); eq(m.kind,r[3],nm+' its kind (derive)');
+        close(m.lap,r[4],1e-8*Math.max(1,Math.abs(r[4])),nm+' in-plane Laplacian (derive)'); } }); }
+  { const N=findNulls(PRE('triangle')), s=N.filter(n=>n.kind==='saddle');
+    ok(s.every(n=>Math.abs(Math.hypot(n.x,n.y)+REF.TRI_SADDLE_Y)<1e-9),'the triangle\'s saddles sit 0.21354 m from the centre (derive brentq on E_y)');
+    const m=N.find(n=>n.kind==='min'); ok(!!m&&m.lap>0,'its centre is an in-plane minimum of V');
+    const j=jacAt(PRE('triangle'),0,0); let vzz=0; for(const c of PRE('triangle')) vzz+=-KNC*c.q/Math.pow(Math.hypot(c.x,c.y),3);
+    ok(vzz<0&&Math.abs(-j[0]-j[2]+vzz)<1e-10,'and a maximum along z (V_zz = '+fmt(vzz,2)+'): Earnshaw holds in 3-D'); }
+  rel(findNulls(PRE('like'))[0].V,REF.LIKE_SADDLE_V,1e-14,'the like pair\'s saddle is at V = 4k (derive)'); rel(REF.LIKE_SADDLE_V,4*KNC,1e-15,'4k, absolute');
+  eq(findNulls([{x:0,y:0,q:1}]).length,0,'one charge has no null');
+
+  /* ---------- 7. multipoles and the far field ---------- */
+  for(const nm of ORD){ const M=moments(PRE(nm)), r=REF.MOM[nm], tag=nm+' moments: ';
+    close(M.c[0],r[0],1e-15,tag+'centre x (derive)'); close(M.c[1],r[1],1e-15,tag+'centre y (derive)'); eq(M.Q,r[2],tag+'Q (derive)');
+    close(M.p[0],r[3],1e-14,tag+'p_x (derive)'); close(M.p[1],r[4],1e-14,tag+'p_y (derive)'); close(M.Qxx,r[5],1e-14,tag+'Q_xx (derive)'); close(M.Qxy,r[6],1e-14,tag+'Q_xy (derive)'); close(M.Qyy,r[7],1e-14,tag+'Q_yy (derive)');
+    for(const td in REF.SER[nm]){ const th=(+td)*DEG, cs=seriesCoeffs(PRE(nm),th,4), tc=tensorCoeffs(M,th), want=REF.SER[nm][td];
+      for(let l=0;l<5;l++) close(cs[l],want[l],1e-12*Math.max(1,Math.abs(want[l])),nm+' c'+l+' at '+td+'° (derive Legendre)');
+      for(let l=0;l<3;l++) close(cs[l],tc[l],1e-12*Math.max(1,Math.abs(tc[l])),nm+' c'+l+' at '+td+'°: Legendre route = tensor route'); } }
+  { const p=legendreP(3,0.3); close(p[2],(3*0.09-1)/2,1e-16,'P2(0.3) = (3x^2 - 1)/2'); close(p[3],(5*0.027-0.9)/2,1e-16,'P3(0.3) = (5x^3 - 3x)/2'); }
+  /* every charged preset has sum(q y) = 0 (and single, like, triangle sum(q x) = 0), so a
+     wrongly computed centre of charge still came out 0 for all of them and a mutant that
+     dropped the division survived the first sweep: an asymmetric set with Q = 2 */
+  { const A=[{x:0.3,y:0.8,q:1},{x:-0.4,y:-0.2,q:1},{x:1.1,y:-0.6,q:1},{x:-0.9,y:0.5,q:-1}], M=moments(A), r=REF.ASYM_MOM;
+    close(M.c[0],r[0],1e-15,'asymmetric Q = 2: centre of charge x (derive)'); close(M.c[1],r[1],1e-15,'y (derive)'); eq(M.Q,r[2],'Q = 2 (derive)');
+    ok(Math.hypot(M.p[0],M.p[1])<1e-14,'about the centre of charge the dipole moment vanishes (its defining property)');
+    close(M.Qxx,r[5],1e-14,'Q_xx (derive)'); close(M.Qxy,r[6],1e-14,'Q_xy (derive)'); close(M.Qyy,r[7],1e-14,'Q_yy (derive)');
+    const cs=seriesCoeffs(A,30*DEG,4); for(let l=0;l<5;l++) close(cs[l],REF.ASYM_SER30[l],1e-12*Math.max(1,Math.abs(REF.ASYM_SER30[l])),'asymmetric set: c'+l+' at 30° (derive)'); }
+  for(const nm in REF.SERIES_CONV){ const R=REF.SERIES_CONV[nm], ch=PRE(nm), M=moments(ch), th=137*DEG, cs=seriesCoeffs(ch,th,60);
+    close(M.dmax,R.dmax,1e-15,nm+': farthest charge (derive)'); let s=0; for(let l=0;l<=60;l++) s+=cs[l]/Math.pow(R.r,l+1);
+    rel(s,R.exact,1e-12,nm+': the 61-term series at 2 d_max sums to the exact V (derive)'); rel(potentialAt(ch,M.c[0]+R.r*Math.cos(th),M.c[1]+R.r*Math.sin(th)),R.exact,1e-14,nm+': exact V there (derive)'); }
+  for(const nm in REF.FAR){ const R=REF.FAR[nm], F=farField(PRE(nm),R.th), tag=nm+' far field at '+R.th+'°: ';
+    eq(F.l0,R.l0,tag+'leading order '+ORDER_NAME[R.l0]); eq(F.m,2,tag+'the next order is two down'); rel(F.cs[F.l0],R.limit,1e-12,tag+'c_l0 (derive)');
+    rel(F.lim,R.rich,1e-12,tag+'r^(l+1) V taken to its limit by Richardson (derive)'); rel(F.lim,R.limit,nm==='triangle'?5e-7:nm==='rows'?1e-7:1e-8,tag+'= the exact coefficient: the limit taken numerically');
+    rel(F.rate,R.rate,1e-7,tag+'approach rate (f(50) - c)/(f(100) - c) (derive; a ratio of 1e-4 differences, so 1e-7)'); ok(Math.abs(F.rate-4)<0.07,tag+'~4: the error falls as 1/r^2');
+    const k50=F.rs.findIndex(r=>r>=50); ok(Math.abs(F.ratio[k50]-1)<3e-3&&Math.abs(F.ratio[0]-1)>Math.abs(F.ratio[k50]-1),tag+'the plotted ratio settles on 1'); }
+  rel(REF.FAR.dipole.limit,REF.DIPOLE_CLOSED,1e-15,'the dipole limit is k p cos(theta) in closed form (derive)'); rel(REF.FAR.quad.limit,REF.QUAD_CLOSED,1e-14,'the square quadrupole\'s is 1.5 k sin(2 theta) (derive)');
+  { const F=farField(PRE('dipole'),90); eq(F.l0,null,'along the dipole\'s bisector V = 0: no leading order'); eq(F.lim,null,'and no limit'); }
+  { const F=farField(PRE('quad'),0); eq(F.l0,null,'the square quadrupole along x: V = 0 identically (it is odd under y -> -y)'); eq(F.cs.every(c=>Math.abs(c)<1e-12),true,'every coefficient vanishes (derive: SER quad 0)'); }
+  { const F=farField(PRE('quad'),45); eq(F.l0,2,'along the diagonal the quadrupole leads'); rel(F.cs[2],1.5*KNC,1e-14,'with c2 = 1.5 k sin(90°), absolute'); }
+  { const F=farField([],30); eq(F.l0,null,'no charges: nothing to expand'); }
+
+  /* ---------- 8. the tape: int E.dl = V(A) - V(B) ---------- */
+  for(const nm in REF.TAPE){ const R=REF.TAPE[nm], ch=PRE(nm), T=tapeModel(ch,{ax:R.A[0],ay:R.A[1],bx:R.B[0],by:R.B[1]}), I=lineIntegralE(ch,R.A[0],R.A[1],R.B[0],R.B[1],40);
+    rel(T.L,R.L,1e-15,nm+' tape length (derive)'); rel(T.cm,100*R.L,1e-15,nm+' in centimetres'); rel(T.dV,R.dV,1e-13,nm+' V(A) - V(B) (derive)'); rel(I,R.int,1e-12,nm+' the line integral of E (derive quad)'); rel(I,T.dV,1e-12,nm+': it equals V(A) - V(B), E = -grad V'); }
+  { let w14=0, w16=0; for(let k=0;k<8;k++){ w14+=GL8.w[k]*Math.pow(GL8.x[k],14); w16+=GL8.w[k]*Math.pow(GL8.x[k],16); }
+    rel(w14,2/15,1e-14,'8-point Gauss-Legendre integrates x^14 exactly');
+    rel(2/17-w16,Math.pow(2,17)*Math.pow(40320,4)/(17*Math.pow(20922789888000,2)),1e-9,'and misses x^16 by exactly 2^17 (8!)^4/(17 (16!)^2) = 4.65e-5: degree 15'); }
+
+  /* ---------- 9. superposition ---------- */
+  { const C=contributions(PRE('rows'),0.3,0.2);
+    REF.SUP.forEach(r=>{ const c=C[r[0]]; rel(c.V,r[1],1e-14,'charge '+r[0]+' at the probe: V_i (derive)'); rel(c.ex,r[2],1e-13,'E_i x (derive)'); rel(c.ey,r[3],1e-13,'E_i y (derive)'); });
+    const W=superWaterfall(C); rel(W.total,REF.SUPSUM[0],1e-14,'the waterfall ends at V (derive)'); rel(W.total,REF.SUPDIRECT[0],1e-13,'= V computed directly (derive)');
+    let sx=0, sy=0; for(const c of C){ sx+=c.ex; sy+=c.ey; } rel(sx,REF.SUPDIRECT[1],1e-12,'the chain of E_i closes on E_x (derive)'); rel(sy,REF.SUPDIRECT[2],1e-13,'and E_y (derive)');
+    const P=sensorReading(PRE('rows'),0.3,0.2), sc=superScale(C,P); let mx=0, ax=0, ay=0; for(const c of C){ ax+=c.ex; ay+=c.ey; mx=Math.max(mx,Math.hypot(ax,ay)*sc); }
+    ok(mx<=1.4+1e-12&&Math.hypot(P.ex,P.ey)*sc<=1.4+1e-12,'one arrow scale: the chain\'s farthest point is at most 1.4 m out'); }
+  eq(superScale(contributions(PRE('single'),0,0),sensorReading(PRE('single'),0,0)),null,'a probe on a charge has no finite scale');
+  /* the scale follows the longest thing in the chain, which is a single TERM only where the
+     terms cancel (the rows' and the dipole's chains never do, so they could not tell a
+     total-only scale apart): near the like pair's midpoint the nearer charge's 55 V/m
+     outruns the 31.5 V/m total */
+  { const ch=PRE('like'), C=contributions(ch,0.1,0.05), P=sensorReading(ch,0.1,0.05), sc=superScale(C,P);
+    const big=Math.max.apply(null,C.map(c=>Math.hypot(c.ex,c.ey)));
+    ok(big>1.5*P.mag,'near the like pair\'s midpoint one term outruns the total ('+fmt(big,1)+' vs '+fmt(P.mag,1)+' V/m)');
+    rel(big*sc,1.4,1e-12,'and it sets the scale: the longest arrow is exactly 1.4 m'); }
+  { const ch=PRE('rows'), f=fieldAt(ch,0,0); rel(f.ey,REF.ROWS_E0[1],1e-14,'between the rows E points from + to - (derive)'); ok(Math.abs(f.ex)<1e-13,'with no sideways part at the centre');
+    REF.ROWS_UNIF.forEach(([x,r])=>{ const e=fieldAt(ch,x,0); rel(Math.hypot(e.ex,e.ey)/Math.hypot(f.ex,f.ey),r,1e-13,'|E(x,0)|/|E(0,0)| at x = '+x+' (derive)'); }); }
+
+  /* ---------- 10. the landscape ---------- */
+  eq(landHeight(Infinity,40),1.25,'a positive charge\'s peak is clipped at the top, 1.25 m (absolute)'); eq(landHeight(-Infinity,40),-LAND_HZ,'a negative one\'s well at the bottom');
+  eq(landHeight(20,40),LAND_HZ/2,'20 V of 40 is half height'); eq(landHeight(NaN,40),0,'NaN draws flat');
+  { const G=landGrid(PRE('dipole'),40); eq(G.nx,64,'64 x 40 quads'); eq(G.v[20*65+36],Infinity,'the dipole\'s + charge sits on vertex (36, 20)');
+    eq(G.z[20*65+36],LAND_HZ,'so its height is the cap'); ok(G.clipped>2&&G.clipped<200,'a few vertices are clipped ('+G.clipped+')');
+    rel(G.z[10*65+50],landHeight(potentialAt(PRE('dipole'),2.25,-1.25),40),1e-15,'a vertex carries the clipped V at its point'); }
+  for(const [th,ph] of [[-1.05,0.62],[0.3,1.45],[2.5,0.1],[-2.9,0.9]]){
+    const b=box(40,60,900,600), C=landCamera(b,{camTheta:th,camPhi:ph,camZoom:1}); let inside=true, slack=Infinity;
+    for(const x of [PLANE.x0,PLANE.x1]) for(const y of [PLANE.y0,PLANE.y1]) for(const z of [-LAND_HZ,LAND_HZ]){ const q=C.P([x,y,z]);
+      if(!q){ inside=false; continue; } inside=inside&&q.x>=b.x+0.05*b.w-1e-6&&q.x<=b.x+0.95*b.w+1e-6&&q.y>=b.y+0.05*b.h-1e-6&&q.y<=b.y+0.95*b.h+1e-6;
+      slack=Math.min(slack,q.x-(b.x+0.05*b.w),(b.x+0.95*b.w)-q.x,q.y-(b.y+0.05*b.h),(b.y+0.95*b.h)-q.y); }
+    ok(inside,'the landscape camera at '+th+', '+ph+' puts all 8 corners of the box inside 90 % of the panel');
+    ok(slack<0.05,'and fits it tightly (one corner within '+fmt(slack,3)+' px of the margin)');
+    const C2=landCamera(b,{camTheta:th,camPhi:ph,camZoom:2}); rel(C2.cam.dist,C.cam.dist/2,1e-15,'zoom 2 halves the distance'); }
+
+  /* ---------- 10b. the rounding floor: a cancelled sum reads zero ---------- */
+  { const ch=PRE('dipole'), n=[Math.cos(90*DEG),Math.sin(90*DEG)], rs=farField(ch,90).rs;
+    const raw=rs.map(r=>potentialAt(ch,r*n[0],r*n[1])), nz=raw.filter(v=>v!==0), worst=Math.max.apply(null,raw.map(Math.abs));
+    ok(nz.length>0&&worst<1e-13,'on the far-field ray at 90° (x = r cos 90° = 6e-17 r) the plain sum leaves rounding residue at '+nz.length+' samples (up to '+worst.toExponential(2)+' V)');
+    ok(rs.every(r=>potentialClean(ch,r*n[0],r*n[1])===0),'the clean sum is exactly 0 at every one: the terms cancelled below 1e-12 of their size');
+    eq(potentialClean(ch,0.5,0),Infinity,'on a charge it is still infinite'); rel(potentialClean(ch,1.3,0.7),REF.VE.dipole[0][0],2e-14,'and elsewhere it is V (derive)');
+    const T=traceEquipotential(ch,0,0.7); eq(T.V0c,0,'the bisector equipotential is labelled 0 V');
+    const R=sensorReading(PRE('like'),0,0); eq(R.mag,0,'a sensor on the like pair\'s null reads 0 V/m'); eq(R.ang,0,'with no direction'); ok(!R.over,'and no dash');
+    const F=farField(ch,90); ok(F.Vs.every(v=>v===0),'along the bisector every far-field sample is exactly 0'); eq(farRange(F),null,'so the log plot has nothing to draw, and says so');
+    eq(tapeModel(PRE('dipole'),{ax:0,ay:1,bx:0,by:-2}).dV,0,'reads V(A) - V(B) = 0 exactly'); }
+  { LABELS=[]; const c=makeShot(800,600), n0=c.ops.length; ok(labPad(c,800,600,100,100,'12.3 V/m','#fff',SM_FONT,'center'),'labPad places a label');
+    eq(LABELS.length,1,'and registers its box'); ok(c.ops[n0].op==='fill'&&c.ops[n0+1].op==='text','the pad is drawn before the text');
+    ok(!labPad(c,800,600,100,100,'12.3 V/m','#fff',SM_FONT,'center')||LABELS.length===2,'a second label at the same place shifts or drops'); LABELS=[]; }
+
+  /* ---------- 11. sensors ---------- */
+  { const R=sensorReading(PRE('single'),1e-4,0); ok(R.over,'a sensor 0.1 mm from a charge reads a dash (> 1e6 V/m, PhET)'); ok(!sensorReading(PRE('single'),0.01,0).over,'at 1 cm it reads (9e4 V/m)');
+    const E0=sensorReading([],1,1); eq(E0.mag,0,'an empty plane has no field'); eq(E0.V,0,'and no potential'); }
+
+  /* ---------- 12. the scene: pointer and wheel, headless ---------- */
+  withState({},()=>{
+    const shot=makeShot(1400,820), S=makeScene({getContext:()=>shot}); S.W=1400; S.H=820;
+    const map=pointerMap(shot,S.W,S.H,'plane'), c1=ST.charges[1];
+    ok(S.pointer('down',map.X(c1.x),map.Y(c1.y)),'pointer-down on a charge grabs it'); eq(DRAG.what,'charge','it is a charge');
+    ST.eqSeeds=[{x:1.5,y:0.9}];
+    ok(S.pointer('move',map.X(1.2),map.Y(0.7)),'a move drags it'); close(ST.charges[1].x,1.2,1e-12,'to x = 1.2'); close(ST.charges[1].y,0.7,1e-12,'and y = 0.7'); eq(ST.eqSeeds.length,0,'clearing the equipotentials'); eq(ST.preset,'custom','and the preset');
+    S.pointer('move',map.X(9),map.Y(9)); ok(ST.charges[1].x===PLANE.x1&&ST.charges[1].y===PLANE.y1,'a charge stays on the plane'); S.pointer('up',0,0); eq(DRAG.what,null,'released');
+    const n0=ST.charges.length;
+    ok(S.pointer('down',map.X(-0.75),map.Y(BIN_GLYPH_Y)),'pointer-down on the +1 nC source'); eq(ST.charges.length,n0+1,'creates a charge'); eq(ST.charges[n0].q,1,'a positive one');
+    S.pointer('move',map.X(-2),map.Y(1)); S.pointer('up',0,0); eq(ST.charges.length,n0+1,'dragged out, it stays'); close(ST.charges[n0].x,-2,1e-12,'where it was dropped');
+    ST.eqSeeds=[{x:1.5,y:0.9}];
+    S.pointer('down',map.X(0),map.Y(BIN_GLYPH_Y)); eq(ST.charges[n0+1].q,-1,'the -1 nC source makes a negative charge'); S.pointer('up',0,0);
+    eq(ST.charges.length,n0+1,'dropped back unmoved, it is gone'); eq(ST.eqSeeds.length,1,'and a click on the bin clears nothing');
+    S.pointer('down',map.X(-2),map.Y(1)); S.pointer('move',map.X(0),map.Y(-2)); S.pointer('up',0,0); eq(ST.charges.length,n0,'a charge dragged into the bin is removed');
+    const ne=ST.esens.length; S.pointer('down',map.X(0.75),map.Y(BIN_GLYPH_Y)); eq(ST.esens.length,ne+1,'the sensor source makes an E-field sensor');
+    S.pointer('move',map.X(2.5),map.Y(-1)); S.pointer('up',0,0); close(ST.esens[ne].x,2.5,1e-12,'dropped on the plane'); S.pointer('down',map.X(2.5),map.Y(-1)); S.pointer('move',map.X(0.2),map.Y(-2.1)); S.pointer('up',0,0); eq(ST.esens.length,ne,'and dragged back into the bin, removed');
+    ST.eqSeeds=[]; const g=vsGeo(map,ST,S.W,S.H);
+    ok(S.pointer('down',g.plot.x+3,g.plot.y+3),'the sensor\'s plot button'); eq(ST.eqSeeds.length,1,'plots an equipotential'); eq(DRAG.what,null,'without starting a drag');
+    ok(S.pointer('down',g.clear.x+3,g.clear.y+3),'its clear button'); eq(ST.eqSeeds.length,0,'clears them');
+    ok(S.pointer('down',g.X,g.Y)&&DRAG.what==='vs','grabbing the crosshair drags the sensor'); S.pointer('move',map.X(-1),map.Y(1.5)); S.pointer('up',0,0); close(ST.vs.x,-1,1e-9,'the sensor followed'); close(ST.vs.y,1.5,1e-9,'in y too');
+    ST.showTape=true; ok(S.pointer('down',map.X(ST.tape.ax),map.Y(ST.tape.ay))&&DRAG.what==='tapeA','the tape\'s end A'); S.pointer('move',map.X(-3),map.Y(0)); S.pointer('up',0,0); ok(ST.tape.ax===-3&&ST.tape.ay===0,'moves');
+    const mx=(ST.tape.ax+ST.tape.bx)/2, my=(ST.tape.ay+ST.tape.by)/2, t0=clone(ST.tape);
+    ok(S.pointer('down',map.X(mx),map.Y(my))&&DRAG.what==='tape','grabbing the tape\'s middle'); S.pointer('move',map.X(mx+0.5),map.Y(my)); S.pointer('up',0,0);
+    close(ST.tape.ax-t0.ax,0.5,1e-9,'moves both ends'); close(ST.tape.bx-t0.bx,0.5,1e-9,'together');
+    ok(!S.pointer('down',map.X(3.5),map.Y(-2.2)),'empty plane grabs nothing');
+    ST.view='super'; const ms=pointerMap(shot,S.W,S.H,'super');
+    ok(S.pointer('down',ms.X(ST.probe.x),ms.Y(ST.probe.y))&&DRAG.what==='probe','the probe'); S.pointer('move',ms.X(-1),ms.Y(-1)); S.pointer('up',0,0); close(ST.probe.x,-1,1e-9,'follows the pointer');
+    ST.view='lines'; const ml=pointerMap(shot,S.W,S.H,'lines'); const c0=ST.charges[0];
+    ok(S.pointer('down',ml.X(c0.x),ml.Y(c0.y))&&DRAG.what==='charge','charges drag in the field-lines view'); S.pointer('up',0,0);
+    { const nb=ST.charges.length; S.pointer('down',ml.X(-0.75),ml.Y(BIN_GLYPH_Y)); S.pointer('up',0,0); eq(ST.charges.length,nb,'but it has no bin to take charges from'); }
+    { const nb=ST.charges.length, c=ST.charges[0]; S.pointer('down',ml.X(c.x),ml.Y(c.y)); S.pointer('move',ml.X(0),ml.Y(-2)); S.pointer('up',0,0);
+      eq(ST.charges.length,nb,'nor one to drop them into: a charge left where the bin would be stays'); close(ST.charges[0].y,-2,1e-9,'where it was dropped'); }
+    ST.view='land'; const th=ST.camTheta, ph=ST.camPhi;
+    ok(S.pointer('down',400,300),'the landscape grabs the camera'); S.pointer('move',500,340); ok(ST.camTheta<th&&ST.camPhi>ph,'a drag turns and raises it'); S.pointer('up',0,0);
+    const z=ST.camZoom; ok(S.wheel(-300)&&ST.camZoom>z,'the wheel zooms in');
+    ST.view='far'; ok(!S.pointer('down',400,300),'the far-field view ignores the pointer'); ok(!S.wheel(-300),'and the wheel'); ST.view='plane'; ok(!S.wheel(-300),'the wheel only zooms the landscape');
+    S.resetCam(); eq(ST.camTheta,DEFAULTS.camTheta,'reset puts the camera back');
+  });
+
+  /* ---------- 13. readouts ---------- */
+  const PCONF=[{},{preset:'empty',charges:[]},{preset:'triangle',charges:PRE('triangle')},{preset:'rows',charges:PRE('rows'),showTape:true},{preset:'single',charges:PRE('single'),vs:{x:0,y:0}}];
+  const panels=over=>withState(over,()=>{ const M=buildModel(); return readoutHTML(M)+eqbarHTML(M)+tagHTML(M); });
+  for(const [v] of TABS) for(const over of PCONF){
+    const html=panels(Object.assign({view:v},over));
+    ok(html.indexOf('NaN')<0&&html.indexOf('undefined')<0&&html.indexOf('Infinity')<0,'panels clean for '+v+' '+JSON.stringify(over).slice(0,40)); }
+  { const h1=panels({}); ok(h1.indexOf(sigf(potentialAt(PRE('dipole'),1.5,0.9),3)+' V')>=0,'the plane readout prints the voltage sensor\'s V off the model');
+    const R=sensorReading(PRE('dipole'),-1.8,1.2); ok(h1.indexOf(sigf(R.mag,3)+' V/m at '+fmt(R.ang,1))>=0,'and the E-field sensor\'s reading'); }
+  ok(panels({view:'far'}).indexOf(sigf(REF.FAR.dipole.rich,6))>=0,'the far-field readout prints the Richardson limit');
+  ok(panels({view:'lines',preset:'rows',charges:PRE('rows')}).indexOf('<td class="v good">112</td>')>=0,'the lines readout counts 112 lines ending on charges');
+
+  /* ---------- 14. layout sweep: every view x configuration x size ---------- */
+  const lcg=(()=>{ let s=12345; return ()=>{ s=(s*1103515245+12345)%2147483648; return s/2147483648; }; })();
+  const many=[]; for(let k=0;k<MAX_CHARGES;k++) many.push({x:-3.6+7.2*lcg(),y:-1.5+3.8*lcg(),q:k%2?1:-1});
+  const SIZES=[[1400,820],[1100,700],[820,520],[560,380]];
+  const CONFIGS=[
+    ['plane default',{}],['plane empty',{preset:'empty',charges:[],eqSeeds:[]}],
+    ['plane all on',{preset:'rows',charges:PRE('rows'),showV:true,showVals:true,showGrid:true,showTape:true,eqSeeds:[{x:1.5,y:0.9},{x:2.6,y:0}],esens:[{x:-1.8,y:1.2},{x:3,y:-1.5}]}],
+    ['plane dir only',{preset:'triangle',charges:PRE('triangle'),dirOnly:true,showVals:true,eqSeeds:[{x:0,y:0.05}]}],
+    ['plane 40 charges',{preset:'custom',charges:many,showV:true,eqSeeds:[]}],
+    ['plane sensor low',{vs:{x:3.5,y:-2.4},showVals:true,eqSeeds:[]}],['plane sensor on charge',{vs:{x:0.5,y:0},esens:[{x:-0.5,y:0}],showVals:true,eqSeeds:[]}],
+    ['lines dipole',{view:'lines'}],['lines rows 32',{view:'lines',preset:'rows',charges:PRE('rows'),nLines:32}],['lines triangle',{view:'lines',preset:'triangle',charges:PRE('triangle')}],
+    ['lines like no fam',{view:'lines',preset:'like',charges:PRE('like'),showFam:false}],['lines empty',{view:'lines',preset:'empty',charges:[]}],['lines 40',{view:'lines',preset:'custom',charges:many,nLines:4}],
+    ['land dipole',{view:'land'}],['land rows 10 V',{view:'land',preset:'rows',charges:PRE('rows'),vcap:10}],['land triangle 100 V',{view:'land',preset:'triangle',charges:PRE('triangle'),vcap:100,camPhi:1.5}],
+    ['land low zoomed',{view:'land',camPhi:0.05,camZoom:3}],['land empty',{view:'land',preset:'empty',charges:[],camZoom:0.4}],
+    ['super dipole',{view:'super'}],['super rows',{view:'super',preset:'rows',charges:PRE('rows')}],['super on charge',{view:'super',probe:{x:0.5,y:0}}],
+    ['super corner',{view:'super',probe:{x:3.95,y:2.45}}],['super empty',{view:'super',preset:'empty',charges:[]}],
+    ['far dipole',{view:'far'}],['far bisector',{view:'far',farTheta:90}],['far quad axis',{view:'far',preset:'quad',charges:PRE('quad'),farTheta:0}],
+    ['far rows',{view:'far',preset:'rows',charges:PRE('rows'),farTheta:60}],['far single',{view:'far',preset:'single',charges:PRE('single')}],['far empty',{view:'far',preset:'empty',charges:[]}],
+  ];
+  const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm,over] of CONFIGS) for(const [W,H] of SIZES){
+    withState(over,()=>{
+      const c=makeShot(W,H); let err=null;
+      try{ drawView(c,W,H,buildModel()); }catch(e){ err=e; }
+      ok(!err,nm+' '+W+'x'+H+' draws without throwing'+(err?': '+(err.stack||err):''));
+      if(err) return;
+      const texts=c.ops.filter(o=>o.op==='text'), fills=c.ops.filter(o=>o.op==='fill');
+      /* a sparse view is honest when it says why (Known-bad: an op floor punishes that) */
+      ok((fills.length>=3&&texts.length>=1)||texts.some(t=>/no charges/.test(t.t)),nm+' '+W+'x'+H+' draws substance or says why ('+fills.length+' fills)');
+      let bad=null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad='entity/tag: "'+t.t.slice(0,40)+'"'; break; }
+        if(/undefined|NaN|Infinity/.test(t.t)){ bad='NaN/undefined: "'+t.t.slice(0,40)+'"'; break; }
+        if(t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1){ bad='off-canvas: "'+t.t.slice(0,30)+'" ['+t.bb.map(v=>fmt(v,0))+']'; break; } }
+      ok(!bad,nm+' '+W+'x'+H+' text clean ('+(bad||'ok')+')');
+      let hit=null; const flat=texts.filter(t=>!t.rot);
+      for(let i2=0;i2<flat.length&&!hit;i2++) for(let j2=i2+1;j2<flat.length;j2++){
+        const a=flat[i2].bb,b=flat[j2].bb; const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+        if(ox>0.5&&oy>0.5){ hit='"'+flat[i2].t.slice(0,22)+'" vs "'+flat[j2].t.slice(0,22)+'"'; break; } }
+      ok(!hit,nm+' '+W+'x'+H+' no text collisions ('+(hit||'ok')+')');
+      let leg=null;
+      for(const r of LEGEND_RECTS) for(let i2=0;i2<POLY_SEGS.length;i2+=4){
+        const x0=POLY_SEGS[i2],y0=POLY_SEGS[i2+1],x1=POLY_SEGS[i2+2],y1=POLY_SEGS[i2+3];
+        if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+        leg='a curve crosses the legend'; break; }
+      ok(!leg,nm+' '+W+'x'+H+' legend clear');
+    });
+  }
+
+  const dt=(Date.now()-T0)/1000;
+  console.log(pass+' passed, '+fail+' failed  ('+fmt(dt,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

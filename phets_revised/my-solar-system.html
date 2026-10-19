@@ -1,0 +1,3055 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>My solar system &mdash; two to four bodies under gravity, and the orbits they make</title>
+<!--
+  ===================================================================
+  my-solar-system.html — gravity with two, three and four bodies:
+  drag them, weigh them, throw them, and watch what Newton's law
+  does with what you built
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' My Solar System (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0).  New code; no
+  PhET code or assets.  PhET's two screens are the first two views.
+
+  TWO BODIES: PhET's Intro screen — a star and a planet whose masses
+  you set and whose positions and velocities you drag, with the paths,
+  the centre of mass, the velocity and gravity arrows, a grid and a
+  measuring tape.  THE LAB: PhET's Lab screen — one to four bodies and
+  its eleven orbital systems (Sun and planet, a moon, a comet, trojan
+  asteroids, ellipses, "hyperbolic", the slingshots, a binary, the four
+  star ballet, the double double), the values table, and the same
+  controls.  THE EXACT ORBIT (an analysis view, not a PhET screen): two
+  bodies are the one case that has a closed-form answer, so the
+  integrated path is drawn against Kepler's — the relative orbit about
+  μ = G(m₁+m₂), the two similar ellipses about the centre of mass, and
+  the error between numerical and exact as it grows.  CONSERVATION
+  (also not a PhET screen): energy, momentum and angular momentum along
+  the run, the same system integrated by PhET's own shipped step beside
+  it, and the order of both methods measured by halving the step.
+
+  WHAT IS EXACT
+  -------------
+  Two-body runs, against Kepler's equation: the sim's own integration
+  tracks the closed-form solution to 1e-9 AU over 120 frames, and
+  build/my-solar-system/derive.py checks both against scipy's solve_ivp
+  (DOP853, rtol 1e-12).  Momentum and angular momentum are conserved to
+  rounding by construction (every kick is an equal and opposite pair,
+  every drift leaves r × v alone): measured |Δp|/p ≤ 7e-15 and |ΔL/L| ≤
+  1.3e-14 over 2,000 frames.  Energy is not a conserved quantity of the
+  scheme, only a nearly conserved one: measured |ΔE/E| ≤ 6.1e-10 over
+  the same run.  The four-star ballet is an exact homographic solution
+  and is asserted as one: the square stays square to 2e-14 of a side
+  and the whole configuration returns to its start after 0.2870 model
+  units to 1e-11 AU.
+
+  WHAT IS MODELLED
+  ----------------
+  Newton's law of gravitation, point masses, in the plane, with no
+  softening.  The integrator is PEFRL (Omelyan, Mryglod & Folk 2002),
+  fourth order, four force evaluations a step, substepped so that no
+  step exceeds 0.02 of the shortest pairwise crossing or free-fall
+  time.  A collision merges the pair: mass, momentum and the centre of
+  mass are all conserved (PhET instead keeps the heavier body's mass
+  and hands it the lighter one's momentum, which conserves momentum but
+  loses the mass — the difference is stated in the readout).
+
+  WHAT IS NOT MODELLED
+  --------------------
+  No relativity, no tides, no radiation pressure, no third dimension.
+  Bodies are points for the force and discs only for drawing and for
+  deciding when they touch.  Three bodies and more are chaotic, so a
+  long run is one possible history, not the history: the sim says so on
+  the canvas, and the conservation view is there to show how much of
+  the drift is the method and how much is the physics.
+
+  MEASURED NUMBERS, AND WHERE THEY COME FROM
+  ------------------------------------------
+  Everything dimensional is PhET's own, read out of
+  docs/phets/my-solar-system_en.html (1.3.16) and named as PhET's:
+  G = 4.4567 AU (km/s)² per 10²⁸ kg, the mass unit 10²⁸ kg, the mass
+  slider 0.1–300, the body radius max(0.03, 0.023 m^(1/3)) AU, the
+  engine time scale 0.05 per second with 4,000/N substeps, the zoom
+  levels 25–125 view units per AU, the 20-AU path cap, and the eleven
+  orbital systems' masses, positions and velocities.  The conversions
+  to years and true km/s use AU = 149,597,870.7 km (IAU 2012), the
+  Julian year and G = 6.6743e-11 (CODATA, PhET's own figure).
+
+  WHAT THIS FILE MEASURED ABOUT PhET (derive.py; stated on the page)
+  -----------------------------------------------------------------
+  * PhET's integrator is named PEFRL and carries its three
+    coefficients, but as shipped it evaluates the acceleration ONCE per
+    step and reuses it for all four kicks.  That composition is exactly
+    x + v h + ½a h², v + a h: first order, not fourth.  Measured by
+    halving the step: error ratios 1.9, 2.0, 2.0 (order 0.97) against
+    16.0, 16.0, 16.6 (order 4.02) for the real thing.  Its own substep
+    is small enough to hide it — 3.7e-6 of the energy in the first
+    second of running.
+  * PhET's G = 4.4567 is 0.107 % below the 4.4615 that CODATA's G gives
+    in these units, and PhET solves its time unit from its own G, so
+    its "km/s" is 1.000538 true km/s.  Kept, so the presets move as
+    PhET's do; the readout gives both.
+  * PhET's "Hyperbolic" orbital system is not hyperbolic.  Its three
+    test bodies fly past the star at 0.878, 0.929 and 0.995 of the
+    escape speed, on ellipses of e = 0.954, 0.926 and 0.990 that come
+    back after 12.6, 32.5 and 1,791 years.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed path and the conserved quantities, orange =
+       the exact (Kepler) solution or a warning, magenta = the live body or marker,
+       cyan = structure (the grid, the frame, the centre of mass). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>My solar system</h1>
+  <span class="sub" id="sub">Two, three or four bodies pulling on each other &mdash; PhET&rsquo;s orbital systems with their paths, vectors and centre of mass, the two-body case against its exact Kepler solution, and what the integrator does to the conserved quantities</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (sbs_sims.html via build_lagr/p1_utils.js, verbatim) *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  SOLAR_SYSTEM_COMMON, rebuilt: the two-body (Kepler) engine and the  *
+ *  N-body integrator.  Shared by keplers-laws.html and                 *
+ *  my-solar-system.html (my-solar-system's assemble.py reads this very  *
+ *  file, so the two cannot drift).  Units-agnostic: every function      *
+ *  takes mu = G M (or G and masses) in whatever units the caller uses.  *
+ *                                                                      *
+ *  Python twin: build/keplers-laws/derive.py (Kepler) and              *
+ *  build/my-solar-system/derive.py (N-body), both checked against      *
+ *  scipy (brentq, quad, solve_ivp at rtol 1e-13).                      *
+ * ================================================================== */
+
+/* ---- Kepler's equation ------------------------------------------------------------------
+   E - e sin E = M, solved by Newton safeguarded with the bracket [M - e, M + e]
+   (Numerical Recipes' rtsafe: bisect only when a Newton step leaves the bracket or is not
+   halving the interval).  The naive safeguard -- "reject a step that is not strictly inside
+   (lo, hi)" -- STALLS: the converged step lands exactly on the bracket end it has just set,
+   is rejected, and bisection then takes 46 more iterations (e = 0.99, M = 0.3, measured in
+   derive.py).  The tolerance is on the STEP, which is the error of the previous iterate. */
+const KEP_TOL = 1e-15, KEP_MAXIT = 100;
+function keplerSolve(M, e){
+  const turns = Math.round(M / TAU), Mr = M - TAU * turns;
+  if(e === 0) return {E: Mr + TAU * turns, it: 0};
+  let lo = Mr - e, hi = Mr + e;                    /* f(lo) <= 0 <= f(hi) for 0 < e <= 1 */
+  let E = e < 0.8 ? Mr + e * Math.sin(Mr) : Mr + (Mr >= 0 ? 0.85 * e : -0.85 * e);
+  E = clamp(E, lo, hi);
+  let dxold = hi - lo, dx = dxold;
+  let f = E - e * Math.sin(E) - Mr, fp = 1 - e * Math.cos(E), k = 0;
+  while(k < KEP_MAXIT){
+    k++;
+    if(((E - hi) * fp - f) * ((E - lo) * fp - f) > 0 || Math.abs(2 * f) > Math.abs(dxold * fp)){
+      dxold = dx; dx = 0.5 * (hi - lo); E = lo + dx;
+    } else {
+      dxold = dx; dx = f / fp; E = E - dx;
+    }
+    if(Math.abs(dx) <= KEP_TOL) break;
+    f = E - e * Math.sin(E) - Mr; fp = 1 - e * Math.cos(E);
+    if(f < 0) lo = E; else hi = E;
+  }
+  return {E: E + TAU * turns, it: k};
+}
+function keplerE(M, e){ return keplerSolve(M, e).E; }
+/* the hyperbolic twin: e sinh H - H = M (e > 1).  Newton from a start that is right in both
+   limits: H ~ M/(e-1) for small M, H ~ ln(2M/e) for large. */
+function keplerH(M, e){
+  const s = M < 0 ? -1 : 1, Ma = Math.abs(M);
+  let H = Ma < 1 ? Ma / (e - 1) : Math.log(2 * Ma / e + 1.8);
+  for(let k = 0; k < KEP_MAXIT; k++){
+    const f = e * Math.sinh(H) - H - Ma, fp = e * Math.cosh(H) - 1;
+    const d = f / fp; H -= d;
+    if(Math.abs(d) <= KEP_TOL * (1 + Math.abs(H))) break;
+  }
+  return s * H;
+}
+/* the anomalies.  Both keep the turn count, so nu(t) is continuous and increasing. */
+function trueFromE(E, e){
+  const turns = Math.round(E / TAU), Er = E - TAU * turns;
+  return 2 * Math.atan2(Math.sqrt(1 + e) * Math.sin(Er / 2), Math.sqrt(1 - e) * Math.cos(Er / 2)) + TAU * turns;
+}
+function eccFromTrue(nu, e){
+  const turns = Math.round(nu / TAU), nr = nu - TAU * turns;
+  return 2 * Math.atan2(Math.sqrt(1 - e) * Math.sin(nr / 2), Math.sqrt(1 + e) * Math.cos(nr / 2)) + TAU * turns;
+}
+function meanFromTrue(nu, e){ const E = eccFromTrue(nu, e); return E - e * Math.sin(E); }
+function trueFromH(H, e){ return 2 * Math.atan2(Math.sqrt(e + 1) * Math.tanh(H / 2), Math.sqrt(e - 1)); }
+function hypFromTrue(nu, e){ return 2 * Math.atanh(Math.sqrt((e - 1) / (e + 1)) * Math.tan(nu / 2)); }
+
+/* ---- the conic through a state ----------------------------------------------------------
+   Vis-viva for a, the eccentricity vector for e and the periapsis direction, the sign of the
+   angular momentum for the sense of travel.  An orbit rounder than E_CIRC is treated as a
+   circle and its "periapsis" put at the body's own position, so the sectors of the second
+   law start somewhere definite rather than at a direction made of rounding noise. */
+const E_CIRC = 1e-9;
+function conicFromState(x, y, vx, vy, mu){
+  const r = Math.hypot(x, y), v2 = vx * vx + vy * vy, rv = x * vx + y * vy;
+  const h = x * vy - y * vx, energy = 0.5 * v2 - mu / r;
+  const ex = ((v2 - mu / r) * x - rv * vx) / mu, ey = ((v2 - mu / r) * y - rv * vy) / mu;
+  let e = Math.hypot(ex, ey), w;
+  const dir = h >= 0 ? 1 : -1;
+  if(e < E_CIRC){ e = 0; w = Math.atan2(y, x); } else w = Math.atan2(ey, ex);
+  const cw = Math.cos(w), sw = Math.sin(w);
+  const nu0 = Math.atan2(dir * (y * cw - x * sw), x * cw + y * sw);
+  const el = {mu, r, v: Math.sqrt(v2), h, dir, energy, e, w, nu0, p: h * h / mu, ex, ey,
+              vesc: Math.sqrt(2 * mu / r)};
+  if(energy < 0){
+    const a = -mu / (2 * energy), n = Math.sqrt(mu / (a * a * a));
+    const E0 = eccFromTrue(nu0, e);
+    el.kind = 'ellipse'; el.a = a; el.b = a * Math.sqrt(Math.max(0, 1 - e * e)); el.c = a * e;
+    el.n = n; el.T = TAU / n; el.E0 = E0; el.M0 = E0 - e * Math.sin(E0);
+    el.q = a * (1 - e); el.Q = a * (1 + e);
+  } else {
+    const a = energy === 0 ? Infinity : -mu / (2 * energy);        /* a < 0 for a hyperbola */
+    el.kind = energy === 0 ? 'parabola' : 'hyperbola';
+    el.a = a; el.c = a * e; el.q = el.p / (1 + e); el.Q = Infinity; el.T = Infinity;
+    if(el.kind === 'hyperbola'){
+      el.n = Math.sqrt(mu / Math.pow(-a, 3));
+      el.H0 = hypFromTrue(nu0, e);
+      el.M0 = e * Math.sinh(el.H0) - el.H0;
+      el.b = -a * Math.sqrt(e * e - 1);
+      el.turn = 2 * Math.asin(1 / e);                              /* the asymptotes' angle */
+      el.nuInf = Math.acos(-1 / e);
+    }
+  }
+  return el;
+}
+/* the state on the conic a time t after the state it was built from */
+function stateOnConic(el, t){
+  const w = el.w, d = el.dir, cw = Math.cos(w), sw = Math.sin(w);
+  const Px = cw, Py = sw, Qx = -d * sw, Qy = d * cw;
+  let X, Y, VX, VY, anom, M;
+  if(el.kind === 'ellipse'){
+    M = el.M0 + el.n * t;
+    const E = keplerE(M, el.e), cE = Math.cos(E), sE = Math.sin(E);
+    const r = el.a * (1 - el.e * cE);
+    X = el.a * (cE - el.e); Y = el.b * sE;
+    VX = -el.n * el.a * el.a * sE / r; VY = el.n * el.a * el.b * cE / r;
+    anom = E;
+  } else {
+    M = el.M0 + el.n * t;
+    const H = keplerH(M, el.e), cH = Math.cosh(H), sH = Math.sinh(H), A = -el.a;
+    X = A * (el.e - cH); Y = A * Math.sqrt(el.e * el.e - 1) * sH;
+    /* dH/dt = n/(e cosh H - 1), so dX/dt = -A sinh H dH/dt */
+    VX = -A * el.n * sH / (el.e * cH - 1);
+    VY = A * Math.sqrt(el.e * el.e - 1) * el.n * cH / (el.e * cH - 1);
+    anom = H;
+  }
+  return {x: X * Px + Y * Qx, y: X * Py + Y * Qy, vx: VX * Px + VY * Qx, vy: VX * Py + VY * Qy,
+          anom, M, r: Math.hypot(X * Px + Y * Qx, X * Py + Y * Qy)};
+}
+/* a point of the conic at true anomaly nu (drawing) */
+function conicPoint(el, nu){
+  const r = el.p / (1 + el.e * Math.cos(nu));
+  const w = el.w, d = el.dir, cw = Math.cos(w), sw = Math.sin(w);
+  const cn = Math.cos(nu), sn = Math.sin(nu);
+  return [r * (cn * cw - d * sn * sw), r * (cn * sw + d * sn * cw)];
+}
+function periodOf(a, mu){ return TAU * Math.sqrt(a * a * a / mu); }
+function escapeSpeed(r, mu){ return Math.sqrt(2 * mu / r); }
+/* the area swept between two true anomalies of an ellipse: exactly 1/2 a b dM (Kepler's
+   second law is the statement that dM/dt is constant).  The caller passes nu2 > nu1. */
+function sectorArea(el, nu1, nu2){
+  return 0.5 * el.a * el.b * (meanFromTrue(nu2, el.e) - meanFromTrue(nu1, el.e));
+}
+/* the same area the long way, for the suite: 1/2 integral r^2 dnu by Gauss-Legendre (8-point
+   panels), which knows nothing about Kepler's equation */
+const GL8_X = [-0.9602898564975363, -0.7966664774136267, -0.5255324099163290, -0.1834346424956498,
+               0.1834346424956498, 0.5255324099163290, 0.7966664774136267, 0.9602898564975363];
+const GL8_W = [0.1012285362903763, 0.2223810344533745, 0.3137066458778873, 0.3626837833783620,
+               0.3626837833783620, 0.3137066458778873, 0.2223810344533745, 0.1012285362903763];
+function sectorAreaQuad(el, nu1, nu2, panels){
+  const N = panels || 24; let A = 0;
+  for(let i = 0; i < N; i++){
+    const a0 = nu1 + (nu2 - nu1) * i / N, a1 = nu1 + (nu2 - nu1) * (i + 1) / N;
+    const hm = 0.5 * (a1 - a0), mid = 0.5 * (a0 + a1);
+    for(let k = 0; k < 8; k++){
+      const nu = mid + hm * GL8_X[k], r = el.p / (1 + el.e * Math.cos(nu));
+      A += GL8_W[k] * hm * 0.5 * r * r;
+    }
+  }
+  return A;
+}
+
+/* ---- the N-body system ------------------------------------------------------------------
+   Flat arrays; every function takes G explicitly. */
+function nbodyMake(m, x, y, vx, vy){
+  const n = m.length;
+  return {n, m: Float64Array.from(m), x: Float64Array.from(x), y: Float64Array.from(y),
+          vx: Float64Array.from(vx), vy: Float64Array.from(vy),
+          ax: new Float64Array(n), ay: new Float64Array(n)};
+}
+function nbodyCopy(S){ const T = nbodyMake(S.m.slice(0, S.n), S.x.slice(0, S.n), S.y.slice(0, S.n),
+                                           S.vx.slice(0, S.n), S.vy.slice(0, S.n)); return T; }
+function nbodyAccel(S, G){
+  const n = S.n, ax = S.ax, ay = S.ay;
+  for(let i = 0; i < n; i++){ ax[i] = 0; ay[i] = 0; }
+  for(let i = 0; i < n; i++) for(let j = i + 1; j < n; j++){
+    const dx = S.x[j] - S.x[i], dy = S.y[j] - S.y[i];
+    const r2 = dx * dx + dy * dy, r = Math.sqrt(r2), f = G / (r2 * r);
+    ax[i] += f * S.m[j] * dx; ay[i] += f * S.m[j] * dy;
+    ax[j] -= f * S.m[i] * dx; ay[j] -= f * S.m[i] * dy;
+  }
+}
+function nbodyDrift(S, c){ for(let i = 0; i < S.n; i++){ S.x[i] += c * S.vx[i]; S.y[i] += c * S.vy[i]; } }
+function nbodyKick(S, G, c){ nbodyAccel(S, G); for(let i = 0; i < S.n; i++){ S.vx[i] += c * S.ax[i]; S.vy[i] += c * S.ay[i]; } }
+/* PEFRL (Omelyan, Mryglod & Folk 2002): fourth order, four force evaluations a step.  The
+   three coefficients are PhET's own (SOLAR_SYSTEM_COMMON's NumericalEngine carries them). */
+const PEFRL_XI = 0.1786178958448091, PEFRL_LAM = -0.2123418310626054, PEFRL_CHI = -0.06626458266981849;
+function pefrlStep(S, G, h){
+  nbodyDrift(S, PEFRL_XI * h);
+  nbodyKick(S, G, (1 - 2 * PEFRL_LAM) * h / 2);
+  nbodyDrift(S, PEFRL_CHI * h);
+  nbodyKick(S, G, PEFRL_LAM * h);
+  nbodyDrift(S, (1 - 2 * (PEFRL_CHI + PEFRL_XI)) * h);
+  nbodyKick(S, G, PEFRL_LAM * h);
+  nbodyDrift(S, PEFRL_CHI * h);
+  nbodyKick(S, G, (1 - 2 * PEFRL_LAM) * h / 2);
+  nbodyDrift(S, PEFRL_XI * h);
+}
+/* PhET's step AS SHIPPED, for the comparison in the conservation view: the same five drifts
+   and four kicks, but the acceleration is evaluated ONCE, at the start of the step, and
+   reused by all four kicks.  That composition is exactly x + v h + a h^2/2, v + a h: a
+   first-order method, not the fourth-order PEFRL it is named after.  derive.py measures both
+   orders (error ratios 2.0 and 16 per halving). */
+function phetStep(S, G, h){
+  nbodyAccel(S, G);
+  const n = S.n, ax = S.ax.slice(0, n), ay = S.ay.slice(0, n);
+  const kick = c => { for(let i = 0; i < n; i++){ S.vx[i] += c * ax[i]; S.vy[i] += c * ay[i]; } };
+  nbodyDrift(S, PEFRL_XI * h);
+  kick((1 - 2 * PEFRL_LAM) * h / 2);
+  nbodyDrift(S, PEFRL_CHI * h);
+  kick(PEFRL_LAM * h);
+  nbodyDrift(S, (1 - 2 * (PEFRL_CHI + PEFRL_XI)) * h);
+  kick(PEFRL_LAM * h);
+  nbodyDrift(S, PEFRL_CHI * h);
+  kick((1 - 2 * PEFRL_LAM) * h / 2);
+  nbodyDrift(S, PEFRL_XI * h);
+}
+/* the step a system can take: eta times the shortest of every pair's crossing time r/|dv|
+   and free-fall time sqrt(r^3/(G(mi+mj))).  A fixed step cannot serve both a 5-AU orbit and
+   a slingshot 0.06 AU from a star. */
+function nbodyStepLimit(S, G, eta){
+  let tau = Infinity;
+  for(let i = 0; i < S.n; i++) for(let j = i + 1; j < S.n; j++){
+    const dx = S.x[j] - S.x[i], dy = S.y[j] - S.y[i], r = Math.hypot(dx, dy);
+    const dvx = S.vx[j] - S.vx[i], dvy = S.vy[j] - S.vy[i], dv = Math.hypot(dvx, dvy);
+    const tff = Math.sqrt(r * r * r / (G * (S.m[i] + S.m[j])));
+    tau = Math.min(tau, tff);
+    if(dv > 0) tau = Math.min(tau, r / dv);
+  }
+  return isFinite(tau) ? eta * tau : Infinity;
+}
+/* advance by dt in equal substeps, at most the step limit long.  Returns the substep count
+   (the caller's tests pin it: a changed rule shows up there). */
+function nbodyAdvance(S, G, dt, eta, stepFn){
+  const lim = nbodyStepLimit(S, G, eta === undefined ? NBODY_ETA : eta);
+  const n = Math.max(1, Math.ceil(Math.abs(dt) / lim));
+  const h = dt / n, step = stepFn || pefrlStep;
+  for(let k = 0; k < n; k++) step(S, G, h);
+  return n;
+}
+const NBODY_ETA = 0.02;
+/* the constants of the motion */
+function nbodyEnergy(S, G){
+  let K = 0, U = 0;
+  for(let i = 0; i < S.n; i++) K += 0.5 * S.m[i] * (S.vx[i] * S.vx[i] + S.vy[i] * S.vy[i]);
+  for(let i = 0; i < S.n; i++) for(let j = i + 1; j < S.n; j++)
+    U -= G * S.m[i] * S.m[j] / Math.hypot(S.x[j] - S.x[i], S.y[j] - S.y[i]);
+  return K + U;
+}
+function nbodyMomentum(S){
+  let px = 0, py = 0;
+  for(let i = 0; i < S.n; i++){ px += S.m[i] * S.vx[i]; py += S.m[i] * S.vy[i]; }
+  return [px, py];
+}
+function nbodyAngular(S){
+  let L = 0;
+  for(let i = 0; i < S.n; i++) L += S.m[i] * (S.x[i] * S.vy[i] - S.y[i] * S.vx[i]);
+  return L;
+}
+function nbodyCom(S){
+  let M = 0, x = 0, y = 0, vx = 0, vy = 0;
+  for(let i = 0; i < S.n; i++){ M += S.m[i]; x += S.m[i] * S.x[i]; y += S.m[i] * S.y[i];
+                                vx += S.m[i] * S.vx[i]; vy += S.m[i] * S.vy[i]; }
+  return {M, x: x / M, y: y / M, vx: vx / M, vy: vy / M};
+}
+/* PhET's body radius: max(0.03, 0.023 m^(1/3)) AU, on its mass number (PhET's value) */
+function massToRadius(m){ return Math.max(0.03, 0.023 * Math.cbrt(m)); }
+/* a collision merges the pair: mass, momentum and the centre of mass are all conserved
+   (PhET instead keeps the heavier body's mass and position and gives it the lighter one's
+   momentum, which conserves momentum but destroys mass -- the difference is stated on the
+   page).  Returns the list of merges. */
+function nbodyCollide(S, radiusFn){
+  const rad = radiusFn || massToRadius;
+  const merges = [];
+  let again = true;
+  while(again){
+    again = false;
+    for(let i = 0; i < S.n && !again; i++) for(let j = i + 1; j < S.n && !again; j++){
+      const d = Math.hypot(S.x[j] - S.x[i], S.y[j] - S.y[i]);
+      if(d >= rad(S.m[i]) + rad(S.m[j])) continue;
+      const big = S.m[i] >= S.m[j] ? i : j, small = big === i ? j : i;
+      const M = S.m[i] + S.m[j];
+      merges.push({keep: big, gone: small, x: S.x[small], y: S.y[small], m: M});
+      S.x[big] = (S.m[i] * S.x[i] + S.m[j] * S.x[j]) / M;
+      S.y[big] = (S.m[i] * S.y[i] + S.m[j] * S.y[j]) / M;
+      S.vx[big] = (S.m[i] * S.vx[i] + S.m[j] * S.vx[j]) / M;
+      S.vy[big] = (S.m[i] * S.vy[i] + S.m[j] * S.vy[j]) / M;
+      S.m[big] = M;
+      for(let k = small; k < S.n - 1; k++){
+        S.m[k] = S.m[k + 1]; S.x[k] = S.x[k + 1]; S.y[k] = S.y[k + 1];
+        S.vx[k] = S.vx[k + 1]; S.vy[k] = S.vy[k + 1];
+      }
+      S.n--;
+      again = true;
+    }
+  }
+  return merges;
+}
+/* the two-body reduction: the relative orbit is a Kepler conic about mu = G(m1+m2) and the
+   centre of mass moves in a straight line.  Used by my-solar-system's exact view and by
+   both suites. */
+function twoBodyReduce(S, G){
+  const mu = G * (S.m[0] + S.m[1]);
+  const el = conicFromState(S.x[1] - S.x[0], S.y[1] - S.y[0], S.vx[1] - S.vx[0], S.vy[1] - S.vy[0], mu);
+  const com = nbodyCom(S);
+  return {mu, el, com, f1: S.m[1] / (S.m[0] + S.m[1]), f2: S.m[0] / (S.m[0] + S.m[1])};
+}
+function twoBodyAt(red, t){
+  const s = stateOnConic(red.el, t);
+  const cx = red.com.x + red.com.vx * t, cy = red.com.y + red.com.vy * t;
+  return {x1: cx - red.f1 * s.x, y1: cy - red.f1 * s.y,
+          x2: cx + red.f2 * s.x, y2: cy + red.f2 * s.y,
+          vx1: red.com.vx - red.f1 * s.vx, vy1: red.com.vy - red.f1 * s.vy,
+          vx2: red.com.vx + red.f2 * s.vx, vy2: red.com.vy + red.f2 * s.vy, rel: s};
+}
+
+/* ================================================================== *
+ *  REF -- every reference value selfTest pins against, generated by   *
+ *  gen_tables.py from build/my-solar-system/refvals.txt (derive.py's  *
+ *  output: scipy solve_ivp at rtol 1e-12, and its own PEFRL twin).    *
+ * ================================================================== */
+const REF = {"conserve":{"doubleDouble":{"dE":8.968479902601773e-11,"dL":1.3364214075661957e-14,"dP":5.3285187966185614e-15,"t":1.6666666666666667,"xend":[0.6369505595090048,-0.42714490323363563,0.7590470194520175,-0.1018463937746362],"yend":[-0.9901438437706913,1.1219327505117762,-1.6039073064449325,1.067552257175991]},"fourStar":{"dE":6.095883805968495e-10,"dL":3.588225902024601e-15,"dP":6.936910993439005e-15,"t":1.6666666666666667,"xend":[-0.2054023176374433,1.2548712982913846,0.19277786222175403,-1.2422468428754192],"yend":[1.2608428958649114,0.1868540200513099,-1.2362026991186845,-0.21149421679768765]},"sunPlanet":{"dE":2.773060752101069e-11,"dL":6.206638445928716e-15,"dP":3.3274445185349806e-15,"t":1.6666666666666667,"xend":[0.07088717521001736,1.2911282478997235],"yend":[0.15162663854172098,-1.5162663854172163]},"trojan":{"dE":4.6531670553197567e-11,"dL":1.035380298623351e-14,"dP":3.588751650891172e-15,"t":1.6666666666666667,"xend":[0.011426403419554513,1.0429439511431366,1.5190112748970455,-0.4586382297466515],"yend":[-0.02714539339245369,1.0858155163917622,-0.32784192510523497,1.4243730911139567]}},"facts":{"binary":{"T":0.4424085090559894,"T_yr":2.0960974079833785,"a":1.8136554711227342,"e":0.10274527430610075},"ellipses":[{"Q":0.85,"T":0.10894208291104134,"a":0.6944830873802991,"e":0.22393189329683388,"q":0.5389661747605982},{"Q":2.5,"T":0.3544052359573881,"a":1.524747666057389,"e":0.6396155610878003,"q":0.5494953321147783},{"Q":4.2,"T":0.6881840758256624,"a":2.373199803151985,"e":0.7697624929943679,"q":0.5463996063039698}],"fourStar":{"T":0.2869608745507904,"T_yr":1.3595985000876918,"a":1.0220690232902678,"e":0.3836771589265339,"mu_eff":511.8645350056903,"r0":1.4142135623730951,"ret":9.742540107993136e-12,"square":2.1538326677752416e-14,"v0":14.935650853578494},"hyperbolic":{"bodies":[{"Q":11.415482022607355,"T":2.657174521766124,"a":5.840875429331235,"e":0.9544128548405624,"energy":-95.37739791580952,"kind":"ellipse","q":0.2662688360551156,"r":2.6744158240632663,"ratio":0.8781004276475606,"v":25.3467,"vesc":28.865377127652756},{"Q":21.14645992390576,"T":6.849444843643702,"a":10.98082084856477,"e":0.9257631296907708,"energy":-50.732773777364116,"kind":"ellipse","q":0.815181773223783,"r":2.9954131601500316,"ratio":0.9293046040810147,"v":25.3467,"vesc":27.274910603789852},{"Q":316.74523393132404,"T":378.01251577019326,"a":159.17273444294923,"e":0.9899465510837975,"energy":-3.4998927545576066,"kind":"ellipse","q":1.60023495457446,"r":3.4311076928595523,"ratio":0.9945964317776506,"v":25.3467,"vesc":25.484406730373674}],"turn_measured":-115.86547270785341},"moon":{"T":0.07284470869575026,"a":0.18161424506781584,"dmax":0.20000000000000018,"dmin":0.12362897972170839,"e":0.10123520280757155,"hill":0.40869836394322834,"span":1.5},"slingshot":{"after":-50.13820715182105,"before":-541.6213471686932,"gain":0.9074294109456417},"trojan":{"2":{"hi":-57.0971424907139,"lo":-62.913786538362935},"3":{"hi":64.66863565053998,"lo":55.84534644128609}}},"merge":{"m":205.0,"vx":0.0,"vy":0.24390243902439024,"x":0.0012195121951219512,"y":0.0},"merge_phet_vy":0.25,"orders":{"pefrl":{"errs":[[200,5.1746465890012416e-08],[400,3.2337862387876726e-09],[800,2.0169721448581868e-10],[1600,1.2145062733281975e-11]],"order":4.018958225805398,"ratios":[16.00182017887857,16.03287505497524,16.607342334518663]},"phet":{"errs":[[200,0.5382494969894589],[400,0.28009694237387084],[800,0.1429049338077366],[1600,0.07217896571825311]],"order":0.9662082302062096,"ratios":[1.9216543116383198,1.9600228971150253,1.9798695144172431]}},"phet_drift":{"drift":3.6840276398921737e-06,"frames":60,"h":4.166666666666667e-07},"presets":{"binaryPlanet":{"E":-22115.723198078267,"L":3097.9199892302663,"comx":-0.11111111255144032,"comy":0.0,"lim":0.00026301946344029463,"m":[150.0,120.0,1e-06],"n":3,"pmag":1.3442172993195084e-13,"vx":[0.0,0.0,0.0],"vy":[-10.326400102568888,12.907999897431111,27.69359989743111],"x":[-1.0,1.0,-0.5],"y":[0.0,0.0,0.0]},"doubleDouble":{"E":-56537.039197098115,"L":3198.560778906882,"comx":0.17712550607287453,"comy":-0.01174089068825911,"lim":0.00015467871178722782,"m":[60.0,70.0,55.0,62.0],"n":4,"pmag":2.273806142312601e-13,"vx":[0.040187854251012144,0.2513878542510121,-0.17101214574898785,-0.17101214574898785],"vy":[-32.824163562753036,31.387536437246965,8.575436437246964,-11.279463562753035],"x":[-1.15,1.02,-0.77,1.35],"y":[-0.03,0.0,-0.02,0.0]},"doubleSlingshot":{"E":-3106.531449050431,"L":369.3064549949641,"comx":0.04428571740816325,"comy":-0.027857139295918387,"lim":0.0006741133440944398,"m":[200.0,5.0,5.0,1e-06],"n":4,"pmag":4.135234861955871e-14,"vx":[-0.678928520921769,27.62487147907823,-0.46772852092176903,-10.606428520921769],"vy":[-0.5682881569043421,-0.3570881569043421,23.088611843095656,12.949911843095657],"x":[0.0,0.0,1.86,0.7],"y":[0.0,-1.12,-0.05,0.72]},"ellipses":{"E":-0.0014022661951477752,"L":9.16174984180304e-05,"comx":-0.9999999698000004,"comy":0.0,"lim":0.0004695498202483368,"m":[250.0,1e-06,1e-06,1e-06],"n":4,"pmag":0.0,"vx":[0.0,0.0,0.0,0.0],"vy":[-2.0953239748561123e-07,31.894599790467602,12.673299790467603,7.815199790467602],"x":[-1.0,-0.15,1.5,3.2],"y":[0.0,0.0,0.0,0.0]},"fourStar":{"E":-120194.90425988281,"L":10138.655999999999,"comx":0.0,"comy":0.0,"lim":0.0017296676700133005,"m":[120.0,120.0,120.0,120.0],"n":4,"pmag":0.0,"vx":[-10.5611,-10.5611,10.5611,10.5611],"vy":[-10.5611,10.5611,10.5611,-10.5611],"x":[-1.0,1.0,1.0,-1.0],"y":[1.0,1.0,-1.0,-1.0]},"hyperbolic":{"E":-0.0001496100919287104,"L":0.00012546616349440602,"comx":-2.999999964e-08,"comy":0.24999998020000022,"lim":0.0021102674699769726,"m":[250.0,1e-06,1e-06,1e-06],"n":4,"pmag":6.776263578034403e-21,"vx":[-3.041603963500752e-07,25.346699695839604,25.346699695839604,25.346699695839604],"vy":[0.0,0.0,0.0,0.0],"x":[0.0,-2.5,-2.5,-2.5],"y":[0.25,-0.7,-1.4,-2.1]},"slingshot":{"E":-2813.160233203607,"L":364.2076427957238,"comx":0.071904761276644,"comy":0.02619046997052157,"lim":0.0009722902657949982,"m":[200.0,10.0,1e-06],"n":3,"pmag":4.973691221861683e-14,"vx":[0.5531999138823813,-11.06400008611762,18.084699913882382],"vy":[-1.1667523764021315,23.33504762359787,-0.9555523764021315],"x":[0.01,1.31,-0.06],"y":[0.0,0.55,-1.28]},"sunPlanet":{"E":-6368.783248977273,"L":1172.2863636363636,"comx":0.18181818181818182,"comy":0.0,"lim":0.0015509707137954967,"m":[250.0,25.0],"n":2,"pmag":1.1368683772161603e-13,"vx":[0.0,0.0],"vy":[-2.344572727272727,23.44572727272727],"x":[0.0,2.0],"y":[0.0,0.0]},"sunPlanetComet":{"E":-274.59752624254025,"L":37.83091761180573,"comx":0.007462675584762809,"comy":6.4676616593648675e-09,"lim":0.0011835860289505142,"m":[200.0,1.0,1e-06],"n":3,"pmag":3.2532426391999013e-15,"vx":[2.1016915318323804e-08,2.1016915318323804e-08,-4.224399978983085],"vy":[-0.1261029476671495,25.22059705233285,-7.51890294766715],"x":[0.0,1.5,-2.2],"y":[0.0,0.0,1.3]},"sunPlanetMoon":{"E":-2511.5653291996405,"L":386.23544179339217,"comx":0.07619048249433102,"comy":0.0,"lim":0.00026795894981944916,"m":[200.0,10.0,1e-06],"n":3,"pmag":4.2367713883658537e-14,"vx":[0.0,0.0,0.0],"vy":[-1.2069857618467346,24.139714238153264,9.987814238153266],"x":[0.0,1.6,1.4],"y":[0.0,0.0,0.0]},"trojan":{"E":-1430.1745168093564,"L":183.9183664561687,"comx":0.03658537281380124,"comy":0.0,"lim":0.0011921781413043089,"m":[200.0,5.0,1e-06,1e-06],"n":4,"pmag":3.27091360995211e-14,"vx":[0.0,0.0,21.7559,-21.7559],"vy":[-0.6130610932706236,24.522438906729377,12.060238906729376,12.060238906729376],"x":[0.0,1.5,0.75,0.75],"y":[0.0,0.0,-1.3,1.3]}},"radius":{"m200":0.13450481595779182,"m25":0.06725240797889592,"m250":0.1448909207379104,"tiny":0.03},"runs":{"binaryPlanet":{"300":{"dev":1.0848105524985385e-08,"nsub":3,"vx":[-5.531718756951348,6.914648259186038,22.44037907629101],"vy":[11.274782324658469,-14.093477849640985,-6.741857061948449],"x":[0.5304739793216776,-0.9130924806703398,0.282188821737048],"y":[0.35166103907064783,-0.43957629748674715,-0.16218788154377944]},"60":{"dev":2.62211685697622e-09,"nsub":3,"vx":[6.387501806730825,-7.984377372443166,13.68355705841884],"vy":[-8.39113714333673,10.488921790361188,-43.34283392658599],"x":[-0.8365611101800583,0.7957013948770717,-1.3582397287625583],"y":[-0.48401886784005743,0.6050235895834698,-0.5740075714013063]}},"doubleDouble":{"300":{"dev":8.196649248226606e-09,"nsub":6,"vx":[17.54868073462918,-12.862219167018855,-1.885369710105367,-0.7882285214617274],"vy":[16.095662992450134,13.670203556199684,-4.658655133945332,-26.877870905064228],"x":[1.3718598756777354,-0.817981008765383,0.9053340005491899,-0.5015530960853407],"y":[-1.2457770600211993,0.8741672708272222,-0.9041264010460677,0.9739010758210166]},"60":{"dev":1.7536198049228346e-09,"nsub":6,"vx":[6.594061555364206,-6.232965356699795,5.038501568745526,-3.8137694295785027],"vy":[1.0474068596185568,29.714212787021324,-24.582429232198923,-12.754930627381656],"x":[-0.5173379275234204,0.8886288081962892,-1.144781415071673,1.2185360791388289],"y":[-0.6664075917905327,0.530967639478387,-0.6234947860637982,0.551756999636349]}},"doubleSlingshot":{"300":{"dev":9.166988390596487e-08,"nsub":2,"vx":[-0.5133341477332515,28.507096223671073,-7.973726065955491,-21.241927316926304],"vy":[0.4432446742798229,0.5425494776112556,-18.272333384867697,-15.319681435182574],"x":[0.09565106067787094,-0.018719633913559124,-1.9473221128949483,-2.7015316454175506],"y":[-0.018545588277847917,-1.1071134306936978,0.6789368783141345,1.137467651570334]},"60":{"dev":3.3227238321886787e-10,"nsub":10,"vx":[0.1304403626758022,7.5213352573914465,-12.738951270730341,7.531533791569292],"vy":[-1.1528486094311068,26.94343200227636,19.17052708232012,-73.53676057169241],"x":[-0.01728285670944056,1.032601540730101,1.51871291972207,-0.2603727272195073],"y":[-0.046493334332566395,-0.35038419457875264,1.040117701088337,0.05396536858794346]}},"ellipses":{"300":{"dev":4.997452673904945e-09,"nsub":3,"vx":[1.599225101984223e-07,-40.51193960749724,21.258260131941395,-20.726948074049687],"vy":[-1.5933917984318415e-08,-2.289169535642183,5.520417128889355,0.7522319028325088],"x":[-0.9999999839603434,-0.884680605095288,0.4632539568677842,0.961511628812594],"y":[-4.310961662112622e-09,0.6757117900962712,-1.1104143682717549,1.5124429937036525]},"60":{"dev":2.4478606364120026e-09,"nsub":4,"vx":[1.1537706180830778e-07,-16.49326531482943,-9.166651457196915,-3.184348680050568],"vy":[1.1089186187114003e-07,-46.84603118522309,11.457560430574091,7.665505286864034],"x":[-0.9999999933735675,-1.5013709410374447,1.274041359033913,3.1207209417543957],"y":[-4.887820425889745e-09,0.21967577129917215,0.6139955425566739,0.38828379261659507]}},"fourStar":{"300":{"dev":6.188637380333262e-10,"nsub":1,"vx":[-15.910996062655741,-2.462113499028177,15.910996062655629,2.462113499028303],"vy":[-2.462113499028149,15.910996062655542,2.462113499028362,-15.910996062655807],"x":[-0.5022788357447197,1.2497980905739592,0.5022788357447133,-1.2497980905739512],"y":[1.2497980905739594,0.502278835744709,-1.2497980905739445,-0.5022788357447239]},"60":{"dev":3.894085054412244e-11,"nsub":1,"vx":[1.1897417535898398,-17.053081495839272,-1.1897417535898407,17.053081495839272],"vy":[-17.053081495839272,-1.1897417535898407,17.053081495839272,1.1897417535898398],"x":[-1.2586271858598506,0.2868454202915479,1.2586271858598506,-0.2868454202915479],"y":[0.2868454202915479,1.2586271858598506,-0.2868454202915479,-1.2586271858598506]}},"hyperbolic":{"300":{"dev":6.271423824699696e-09,"nsub":1,"vx":[1.3424617097538698e-07,-16.621155151602352,-15.134206012495795,-1.8061815797487317],"vy":[-1.8367831962975447e-07,4.663967527043683,15.61767470204528,25.63793767834975],"x":[-1.9508977160032197e-08,-3.802224949554208,-0.9635351729936933,2.143004412555967],"y":[0.24999994486940463,2.7656386080565274,4.007728160058241,2.8092820204058038]},"60":{"dev":4.798923480819894e-10,"nsub":2,"vx":[-4.016526964601158e-07,38.78629458049097,32.41718190432053,29.20969763021741],"vy":[-7.96674483497097e-08,7.920139783117829,6.844023998192166,5.152698306117411],"x":[-1.727892681829678e-08,-0.9679957578799003,-1.0735166425781066,-1.138755894967798],"y":[0.2499999985013682,-0.5684856966795409,-1.2667644194946766,-1.9900919599449878]}},"slingshot":{"300":{"dev":2.9965757653016567e-09,"nsub":2,"vx":[-0.9435115823212832,18.87023186928814,-2.2286259570607667],"vy":[0.4272066431857129,-8.544129685192674,-31.78521496876509],"x":[0.10933754251496441,-0.6767507952178632,-0.6108143613075714],"y":[0.10114935422554798,-1.4729871794876879,-0.3302325857506786]},"60":{"dev":4.5852333041551674e-10,"nsub":2,"vx":[1.2407995351950927,-24.815991075432535,3.7153064673458713],"vy":[-0.3273598820565916,6.547194367677988,32.73453911081352],"x":[0.05832085357270447,0.3435828551977697,0.6734814051735976],"y":[-0.04011296574595849,1.3522592428649305,-0.5594575834531149]}},"sunPlanet":{"300":{"dev":8.854050825846116e-10,"nsub":1,"vx":[0.7801826572318806,-7.801826572318815],"vy":[1.8297425354465977,-18.297425354465958],"x":[0.3817710618369308,-1.8177106183692946],"y":[-0.07744809526048135,0.7744809526048234]},"60":{"dev":6.589018219926857e-11,"nsub":1,"vx":[1.28649301328394,-12.864930132839392],"vy":[-1.9196784322220606,19.19678432222063],"x":[0.033468004905024475,1.665319950949754],"y":[-0.10998996023733318,1.0998996023733325]}},"sunPlanetComet":{"300":{"dev":3.1466756977849286e-09,"nsub":1,"vx":[-0.04705626242590794,9.411270013619314,-17.528437745955625],"vy":[0.09847669778201998,-19.69534499285813,5.436454179790807],"x":[0.015364052419798794,-1.5728116939431118,-0.9900166513157401],"y":[0.0034632045246362573,-0.6926411790838323,1.5741565877574386]},"60":{"dev":2.0390200639042177e-10,"nsub":1,"vx":[0.08662403245181982,-17.32480867296282,2.1825988608631497],"vy":[-0.08785623709523464,17.57125800251897,-10.583472048135025],"x":[0.0023166608735176513,1.036667881639188,-2.2563427187486798],"y":[-0.0056445772789179526,1.1289159115567764,0.8442268138503779]}},"sunPlanetMoon":{"300":{"dev":4.827439337162787e-09,"nsub":5,"vx":[-0.085144483935733,1.702891165477828,-14.867630559772259],"vy":[0.9875811250005531,-19.751620068006787,-24.32004135315817],"x":[0.16868798693940967,-1.7737594178715437,-1.80916628405427],"y":[0.0071882294776866385,-0.14376459052123372,0.009675018220160272]},"60":{"dev":7.957250414136752e-10,"nsub":5,"vx":[0.7713869574937254,-15.42773593778692,-32.12087575609835],"vy":[-0.8907514685213049,17.815028089810475,12.806156160375785],"x":[0.020490002509990477,1.1901999786330573,1.1116713311409268],"y":[-0.05489533217948225,1.0979065205847676,1.2300487531795292]}},"trojan":{"300":{"dev":3.987611241207389e-09,"nsub":1,"vx":[-0.37847194745479035,15.138874997942342,-8.304967067477582,22.806213588354826],"vy":[0.4319091383168653,-17.27636209422163,-21.494362053828713,4.302097062500501],"x":[0.06659262399778948,-1.1637044264071923,-1.4438265515069335,0.2763046577308263],"y":[0.02501813627944069,-1.000725260608217,0.6118816421055471,-1.564728731893805]},"60":{"dev":2.034621360280653e-10,"nsub":1,"vx":[0.43658626194888794,-17.46344706494997,6.372031474226815,-23.437059186486703],"vy":[-0.42041077279784367,16.81642757198026,23.80106575322208,-7.101398441662573],"x":[0.011633014337404626,1.0346795172665793,1.4931291358874086,-0.44694295686391705],"y":[-0.02734586361477712,1.0938343288314363,-0.348426606026091,1.4272248379040864]}}},"twobody":{"Q":2.3735787372686885,"T":0.5803864328738241,"T_yr":2.749826173487049,"a":2.186789368634344,"close":2.0516921495072893e-13,"e":0.08541717428917017,"mu":1225.5925,"q":1.9999999999999998,"steps":[{"frame":1,"ivp_x1":1.9999032844973128,"ivp_y1":0.019537759626419793,"nsub":1,"t":0.0008333333333333334,"vx1":-0.2321146212387603,"vy1":23.444480117479475,"x1":1.9999032844973115,"y1":0.019537759627630262},{"frame":30,"ivp_x1":1.9138201834701232,"ivp_y1":0.576867844864491,"nsub":1,"t":0.025,"vx1":-6.825764045238812,"vy1":22.33890677370395,"x1":1.9138201834692308,"y1":0.576867844899714},{"frame":60,"ivp_x1":1.6653199509481118,"ivp_y1":1.0998996023074423,"nsub":1,"t":0.05,"vx1":-12.864930132839392,"vy1":19.19678432222063,"x1":1.665319950949754,"y1":1.0998996023733325},{"frame":120,"ivp_x1":0.8041994271023098,"ivp_y1":1.8166685969047278,"nsub":1,"t":0.1,"vx1":-20.43470071439179,"vy1":8.845889886565432,"x1":0.8041994271468014,"y1":1.8166685970368415}],"subs":[1,1]},"units":{"G":4.4567,"G_si":4.461493983015628,"T_U_YR":4.737922904005685,"frame":0.0008333333333333334,"frame_yr":0.003948269086671404,"kms_true":1.000537695437279,"time_mult":0.004737922904005685,"vel_mult":10.00537695437279}};
+
+/* ================================================================== *
+ *  My Solar System: PhET's units, its orbital systems, and the state  *
+ *  of a running system (the bodies, their paths and their clock)      *
+ * ================================================================== */
+/* measured / defined */
+const AU_KM = 149597870.7;                 /* IAU 2012 B2, exact by definition */
+const AU_M = AU_KM * 1e3;
+const YR_S = 365.25 * 86400;               /* the Julian year, exact by definition */
+const G_SI = 6.6743e-11;                   /* CODATA; PhET writes it as 66743e-15 */
+const MASS_UNIT = 1e28;                    /* kg, PhET's mass unit */
+const DEG = PI / 180;                      /* DEG converts degrees INTO radians */
+
+/* PhET's values, read out of docs/phets/my-solar-system_en.html (1.3.16) */
+const G_MSS = 4.4567;                      /* SOLAR_SYSTEM_COMMON, AU (km/s)^2 per 1e28 kg */
+/* PhET solves its time unit from its own G, so a "km/s" here is 1.000538 true km/s */
+const TIME_MULT = Math.pow(0.01, 1.5) * Math.sqrt(G_MSS) * Math.pow(AU_M, 1.5)
+                  / (Math.sqrt(G_SI) * Math.sqrt(MASS_UNIT) * YR_S);
+const T_U_YR = 1000 * TIME_MULT;           /* one model time unit, in Julian years */
+const G_SI_UNITS = G_SI * MASS_UNIT / (AU_M * 1e6);   /* what G is in these units from CODATA */
+const KMS_TRUE = AU_KM / (T_U_YR * YR_S);  /* what one model velocity unit really is, km/s */
+const PHET = {
+  ENGINE_SCALE: 0.05,                      /* model units per second of wall clock */
+  FRAME: 0.05 / 60,                        /* ... so one 1/60-s frame at normal speed */
+  MASS_MIN: 0.1, MASS_MAX: 300,            /* the mass slider (1e28 kg) */
+  PATH_AU: 20, PATH_PTS: 5800,             /* MAX_PATH_DISTANCE, MAX_PATH_POINTS */
+  ZOOM_MIN: 1, ZOOM_MAX: 6, ZOOM_DEF: 4,   /* zoomLevelRange; scale 25..125 view units per AU */
+  ZOOM_LO: 25, ZOOM_HI: 125,
+  SUBSTEPS: 4000,                          /* its engine takes 4000/N substeps per call */
+  FORCE_POW_MIN: -2, FORCE_POW_MAX: 8      /* gravityForceScalePowerProperty */
+};
+const NBODY_ETA_MSS = NBODY_ETA;           /* 0.02, the shared engine's step limit */
+
+/* PhET's eleven orbital systems: [mass (1e28 kg), x, y (AU), vx, vy (km/s)] */
+const PRESETS = [
+  {id: 'sunPlanet', name: 'Sun, planet', bodies: [[250, 0, 0, 0, -2.3446], [25, 2, 0, 0, 23.4457]]},
+  {id: 'sunPlanetMoon', name: 'Sun, planet, moon',
+   bodies: [[200, 0, 0, 0, 0], [10, 1.6, 0, 0, 25.3467], [1e-6, 1.4, 0, 0, 11.1948]]},
+  {id: 'sunPlanetComet', name: 'Sun, planet, comet',
+   bodies: [[200, 0, 0, 0, 0], [1, 1.5, 0, 0, 25.3467], [1e-6, -2.2, 1.3, -4.2244, -7.3928]]},
+  {id: 'trojan', name: 'trojan asteroids',
+   bodies: [[200, 0, 0, 0, 0], [5, 1.5, 0, 0, 25.1355], [1e-6, 0.75, -1.3, 21.7559, 12.6733],
+            [1e-6, 0.75, 1.3, -21.7559, 12.6733]]},
+  {id: 'ellipses', name: 'ellipses',
+   bodies: [[250, -1, 0, 0, 0], [1e-6, -0.15, 0, 0, 31.8946], [1e-6, 1.5, 0, 0, 12.6733],
+            [1e-6, 3.2, 0, 0, 7.8152]]},
+  {id: 'hyperbolic', name: '\u201chyperbolic\u201d',      /* literal quotes: plain() has no &ldquo; */
+   bodies: [[250, 0, 0.25, 0, 0], [1e-6, -2.5, -0.7, 25.3467, 0], [1e-6, -2.5, -1.4, 25.3467, 0],
+            [1e-6, -2.5, -2.1, 25.3467, 0]]},
+  {id: 'slingshot', name: 'slingshot',
+   bodies: [[200, 0.01, 0, 0, -0.2112], [10, 1.31, 0.55, -11.6172, 24.2906], [1e-6, -0.06, -1.28, 17.5315, 0]]},
+  {id: 'doubleSlingshot', name: 'double slingshot',
+   bodies: [[200, 0, 0, 0, -0.2112], [5, 0, -1.12, 28.3038, 0], [5, 1.86, -0.05, 0.2112, 23.4457],
+            [1e-6, 0.7, 0.72, -9.9275, 13.307]]},
+  {id: 'binaryPlanet', name: 'binary star, planet',
+   bodies: [[150, -1, 0, 0, -12.6733], [120, 1, 0, 0, 10.5611], [1e-6, -0.5, 0, 0, 25.3467]]},
+  {id: 'fourStar', name: 'four star ballet',
+   bodies: [[120, -1, 1, -10.5611, -10.5611], [120, 1, 1, -10.5611, 10.5611], [120, 1, -1, 10.5611, 10.5611],
+            [120, -1, -1, 10.5611, -10.5611]]},
+  {id: 'doubleDouble', name: 'double double',
+   bodies: [[60, -1.15, -0.03, 0, -32.5283], [70, 1.02, 0, 0.2112, 31.6834], [55, -0.77, -0.02, -0.2112, 8.8713],
+            [62, 1.35, 0, -0.2112, -10.9836]]},
+  {id: 'custom', name: 'custom', bodies: null}
+];
+function presetById(id){ const p = PRESETS.find(p => p.id === id); if(!p) throw new Error('no orbital system ' + id); return p; }
+/* PhET's own colours for the four bodies (yellow, magenta, cyan, green) */
+const BODY_COL = ['#f2c14e', '#cd35c4', '#5ac8e0', '#b8ec4c'];
+/* the four bodies a Lab system falls back on when one is added (PhET's defaultBodyInfo) */
+const SPARE = [[0.1, 3, 0, 0, 10], [0.1, -3, 0, 0, -10], [0.1, 0, 3, -10, 0], [0.1, 0, -3, 10, 0]];
+
+function yrOf(t){ return t * T_U_YR; }                      /* model time -> Julian years */
+function kmsTrue(v){ return v * KMS_TRUE; }                 /* PhET's "km/s" -> true km/s */
+
+/* ---- a running system ------------------------------------------------------------------- */
+function sysFromBodies(list, followCom){
+  const m = list.map(b => b[0]), x = list.map(b => b[1]), y = list.map(b => b[2]),
+        vx = list.map(b => b[3]), vy = list.map(b => b[4]);
+  const S = nbodyMake(m, x, y, vx, vy);
+  if(followCom){                       /* PhET's followCenterOfMass on every preset it loads */
+    const c = nbodyCom(S);
+    for(let i = 0; i < S.n; i++){ S.vx[i] -= c.vx; S.vy[i] -= c.vy; }
+  }
+  const sys = {S, col: list.map((b, i) => i), t: 0, paths: list.map(() => []), plen: list.map(() => 0),
+               merged: [], start: [], startCom: followCom};
+  /* AFTER the subtraction, not before: the start is what restart returns to, and PhET's own
+     load leaves the centre of mass at rest */
+  sysSaveStart(sys);
+  return sys;
+}
+function sysLoad(id, nb){
+  const p = presetById(id);
+  /* a named system brings its own bodies and its own count; nb only sizes a custom one */
+  const list = p.bodies ? p.bodies.map(b => b.slice()) : SPARE.slice(0, nb || 2).map(b => b.slice());
+  return sysFromBodies(list, !!p.bodies);
+}
+/* the state the restart button returns to: PhET saves it whenever the user lets go */
+function sysSaveStart(sys){
+  sys.start = [];
+  for(let i = 0; i < sys.S.n; i++) sys.start.push([sys.S.m[i], sys.S.x[i], sys.S.y[i], sys.S.vx[i], sys.S.vy[i]]);
+  sys.startCol = sys.col.slice();
+  /* the clock reading this start was taken at.  The centre-of-mass button saves a start
+     WITHOUT stopping the clock, so a saved start is not always at t = 0, and the exact
+     two-body orbit anchored on it has to be read from here, not from zero. */
+  sys.t0 = sys.t;
+}
+function sysRestart(sys){
+  const list = sys.start.map(b => b.slice());
+  const S = nbodyMake(list.map(b => b[0]), list.map(b => b[1]), list.map(b => b[2]),
+                      list.map(b => b[3]), list.map(b => b[4]));
+  sys.S = S; sys.t = 0; sys.t0 = 0; sys.merged = [];
+  sys.col = sys.startCol ? sys.startCol.slice() : list.map((b, i) => i);
+  sys.paths = list.map(() => []); sys.plen = list.map(() => 0);
+}
+function sysSetN(sys, n){
+  const list = [];
+  for(let i = 0; i < n; i++){
+    if(i < sys.S.n) list.push([sys.S.m[i], sys.S.x[i], sys.S.y[i], sys.S.vx[i], sys.S.vy[i]]);
+    else list.push(SPARE[i].slice());
+  }
+  const keep = sys.col.slice(0, n);
+  while(keep.length < n) keep.push(keep.length);
+  sys.S = nbodyMake(list.map(b => b[0]), list.map(b => b[1]), list.map(b => b[2]), list.map(b => b[3]), list.map(b => b[4]));
+  sys.col = keep; sys.paths = list.map(() => []); sys.plen = list.map(() => 0); sys.merged = [];
+  sysSaveStart(sys);
+}
+/* the centre-of-mass frame: PhET's "Follow Center of Mass" subtracts both */
+function sysComFrame(sys){
+  const c = nbodyCom(sys.S);
+  for(let i = 0; i < sys.S.n; i++){
+    sys.S.x[i] -= c.x; sys.S.y[i] -= c.y; sys.S.vx[i] -= c.vx; sys.S.vy[i] -= c.vy;
+  }
+  sysClearPaths(sys); sysSaveStart(sys);
+}
+function sysClearPaths(sys){ sys.paths = []; sys.plen = []; for(let i = 0; i < sys.S.n; i++){ sys.paths.push([]); sys.plen.push(0); } }
+/* PhET keeps at most 20 AU of path (MAX_PATH_DISTANCE) and 5800 points */
+function sysAddPath(sys){
+  for(let i = 0; i < sys.S.n; i++){
+    const p = sys.paths[i], x = sys.S.x[i], y = sys.S.y[i];
+    if(p.length){
+      const last = p[p.length - 1], d = Math.hypot(x - last[0], y - last[1]);
+      if(d === 0) continue;
+      p.push([x, y]); sys.plen[i] += d;
+      while(sys.plen[i] > PHET.PATH_AU || p.length > PHET.PATH_PTS){
+        sys.plen[i] -= Math.hypot(p[1][0] - p[0][0], p[1][1] - p[0][1]); p.shift();
+      }
+    } else p.push([x, y]);
+  }
+}
+/* one frame: advance, merge anything touching, extend the paths */
+function sysStep(sys, dt, keepPaths){
+  const nsub = nbodyAdvance(sys.S, G_MSS, dt, NBODY_ETA_MSS);
+  const merges = nbodyCollide(sys.S);
+  for(const mg of merges){
+    sys.merged.push({x: mg.x, y: mg.y, t: sys.t, m: mg.m});
+    sys.col.splice(mg.gone, 1);
+    sys.paths.splice(mg.gone, 1); sys.plen.splice(mg.gone, 1);
+  }
+  sys.t += dt;
+  if(keepPaths) sysAddPath(sys);
+  return {nsub, merges};
+}
+/* PhET's own engine, as shipped, run beside ours for the comparison: 4000/N substeps a frame,
+   one force evaluation each, the PEFRL coefficients applied to that single acceleration */
+function phetShadowStep(S, dt){
+  const n = Math.max(1, Math.round(PHET.SUBSTEPS / S.n));
+  const h = dt / n;
+  for(let k = 0; k < n; k++) phetStep(S, G_MSS, h);
+  return n;
+}
+/* the two-body reduction, for the exact view and the suites */
+function sysTwoBody(sys){ return sys.S.n === 2 ? twoBodyReduce(sys.S, G_MSS) : null; }
+/* how far a body is from the centre of mass, in units of its own radius: used to decide
+   whether the "return bodies" button is offered (PhET offers it when one goes off screen) */
+function sysOffscreen(sys, R){
+  for(let i = 0; i < sys.S.n; i++) if(Math.abs(sys.S.x[i]) > R * 1.6 || Math.abs(sys.S.y[i]) > R * 1.6) return true;
+  return false;
+}
+
+/* ================================================================== *
+ *  state, the two running systems, the per-view model and the readout *
+ * ================================================================== */
+const TABS = [['intro', 'two bodies'], ['lab', 'the lab'], ['exact', 'the exact orbit'],
+              ['conserve', 'conservation']];
+const COL = {pos: '#b8ec4c', ref: '#e8843a', live: '#cd35c4', struct: '#5ac8e0', dim: '#8b93a6',
+             edge: '#242a3a', com: '#e8556d', path: '#7f88a0', warn: '#e8843a', phet: '#c9a7ff'};
+const RO_W = 300;
+const SPEEDS = [{id: 'slow', name: 'slow', f: 0.25}, {id: 'normal', name: 'normal', f: 1},
+                {id: 'fast', name: 'fast', f: 1.75}];       /* PhET's timeSpeedMap: 1/4, 1, 7/4 */
+const NBODIES = [{id: 1, name: '1'}, {id: 2, name: '2'}, {id: 3, name: '3'}, {id: 4, name: '4'}];
+const VSCALE = 4.2;             /* px per km/s for the velocity arrow (printed on the canvas) */
+const FSCALE = 60;              /* px for the gravity arrow at the reference pull, times 10^n */
+/* the reference pull the 60 px stands for: PhET's own star and planet at their starting
+   separation, G x 250 x 25 / 2^2 in these units */
+const F_REF = G_MSS * 250 * 25 / 4;
+
+const DEFAULTS = {
+  view: 'intro', preset: 'sunPlanet', nb: 2,
+  mass1: 250, mass2: 25, mass3: 0.1, mass4: 0.1,
+  /* PhET's defaults: the path and the velocity arrows on, everything else off */
+  com: false, speedLab: false, velocity: true, gravity: false, fpow: 0, path: true,
+  grid: false, tape: false, values: false, shadow: true,
+  running: false, speed: 'normal', zoom: PHET.ZOOM_DEF
+};
+const ST = Object.assign({}, DEFAULTS);
+const SIM = {intro: null, lab: null, tape: {ax: 0, ay: 1, bx: 1, by: 1}, hist: [], shadow: null,
+             shadowT: 0, base: null, order: null, ehist: [], exact: null, exactT0: 0};
+const DRAGM = {what: null, i: -1};
+const HIST_MAX = 1200;
+
+/* the intro system is PhET's Intro screen (its two bodies); the lab system is whichever
+   orbital system is chosen.  The analysis views ride along: "the exact orbit" reads the
+   intro system, "conservation" reads the lab one. */
+function sysKey(view){ return (view === 'lab' || view === 'conserve') ? 'lab' : 'intro'; }
+function curSys(){ return SIM[sysKey(ST.view)]; }
+function simReset(){
+  SIM.intro = sysLoad('sunPlanet');
+  SIM.lab = sysLoad(ST.preset, ST.nb);
+  ST.nb = SIM.lab.S.n;                     /* a named system sets the count, not the other way */
+  SIM.tape = {ax: 0, ay: 1, bx: 1, by: 1};
+  histReset(); ehistReset();
+  syncMasses();
+}
+function histReset(){
+  const sys = SIM.lab;
+  SIM.hist = [];
+  SIM.base = sys ? {E: nbodyEnergy(sys.S, G_MSS), L: nbodyAngular(sys.S), p: nbodyMomentum(sys.S),
+                    pscale: pScale(sys.S)} : null;
+  SIM.shadow = sys ? nbodyCopy(sys.S) : null;
+  SIM.shadowT = 0;
+  SIM.order = null;
+}
+/* the exact-orbit view's record: the two-body solution is anchored at the state the intro
+   system started from, so it is rebuilt whenever that start changes.  It is anchored at the
+   START's own clock reading too (sys.t0): the centre-of-mass button saves a start mid-run. */
+function ehistReset(){
+  SIM.ehist = [];
+  const sys = SIM.intro;
+  SIM.exactT0 = sys ? sys.t0 : 0;
+  SIM.exact = (sys && sys.S.n === 2)
+    ? twoBodyReduce({n: 2, m: sys.start.map(b => b[0]), x: sys.start.map(b => b[1]), y: sys.start.map(b => b[2]),
+                     vx: sys.start.map(b => b[3]), vy: sys.start.map(b => b[4])}, G_MSS)
+    : null;
+}
+function exactAge(sys){ return sys.t - SIM.exactT0; }
+function ehistSample(){
+  const sys = SIM.intro, red = SIM.exact;
+  if(!red || sys.S.n !== 2 || sys.merged.length) return;
+  const e = twoBodyAt(red, exactAge(sys));
+  const err = Math.max(Math.hypot(sys.S.x[0] - e.x1, sys.S.y[0] - e.y1),
+                       Math.hypot(sys.S.x[1] - e.x2, sys.S.y[1] - e.y2));
+  SIM.ehist.push({t: sys.t, err, rn: Math.hypot(sys.S.x[1] - sys.S.x[0], sys.S.y[1] - sys.S.y[0]),
+                  re: Math.hypot(e.rel.x, e.rel.y)});
+  if(SIM.ehist.length > HIST_MAX) SIM.ehist.shift();
+}
+function pScale(S){ let s = 0; for(let i = 0; i < S.n; i++) s += S.m[i] * Math.hypot(S.vx[i], S.vy[i]); return s || 1; }
+/* the mass sliders mirror whichever system is on screen */
+function syncMasses(){
+  const sys = curSys(); if(!sys) return;
+  for(let i = 0; i < 4; i++) ST['mass' + (i + 1)] = i < sys.S.n ? sys.S.m[i] : DEFAULTS['mass' + (i + 1)];
+}
+function setMass(i, m){
+  const sys = curSys();
+  if(!sys || i >= sys.S.n) return;
+  sys.S.m[i] = m;
+  ST.running = false;
+  sys.t = 0; sysClearPaths(sys);
+  sysSaveStart(sys);
+  if(sysKey(ST.view) === 'lab'){ ST.preset = 'custom'; histReset(); } else ehistReset();
+}
+function speedFactor(){ const s = SPEEDS.find(s => s.id === ST.speed); return s ? s.f : 1; }
+function frameDt(){ return PHET.FRAME * speedFactor(); }
+/* PhET's zoom: levels 1..6 map to 25..125 view units per AU; here that sets the half-height
+   of the world window, and the canvas prints the scale it ends up with */
+function viewRadius(){
+  const s = PHET.ZOOM_LO + (PHET.ZOOM_HI - PHET.ZOOM_LO) * (ST.zoom - PHET.ZOOM_MIN) / (PHET.ZOOM_MAX - PHET.ZOOM_MIN);
+  return 309 / s;
+}
+function viewAnimates(v){ return true; }
+/* one frame of the clock: the system, and (on the conservation view) PhET's own integrator
+   running the same system beside it */
+function runStep(){
+  if(!ST.running) return false;
+  const sys = curSys(), dt = frameDt();
+  const r = sysStep(sys, dt, ST.path);
+  if(sysKey(ST.view) === 'intro') ehistSample();
+  if(sysKey(ST.view) === 'lab'){
+    if(SIM.shadow && SIM.shadow.n === sys.S.n){ phetShadowStep(SIM.shadow, dt); SIM.shadowT += dt; }
+    histSample();
+  }
+  return true;
+}
+function histSample(){
+  const sys = SIM.lab, B = SIM.base;
+  if(!B || sys.merged.length) return;                 /* a merge is not a drift: stop sampling */
+  const E = nbodyEnergy(sys.S, G_MSS), L = nbodyAngular(sys.S), p = nbodyMomentum(sys.S);
+  let K = 0;
+  for(let i = 0; i < sys.S.n; i++) K += 0.5 * sys.S.m[i] * (sys.S.vx[i] * sys.S.vx[i] + sys.S.vy[i] * sys.S.vy[i]);
+  const s = {t: sys.t, K, U: E - K, dE: Math.abs(E - B.E) / Math.abs(B.E),
+             dL: Math.abs(L - B.L) / Math.max(1e-30, Math.abs(B.L)),
+             dP: Math.hypot(p[0] - B.p[0], p[1] - B.p[1]) / B.pscale, dPhet: null};
+  if(SIM.shadow && SIM.shadow.n === sys.S.n)
+    s.dPhet = Math.abs(nbodyEnergy(SIM.shadow, G_MSS) - B.E) / Math.abs(B.E);
+  SIM.hist.push(s);
+  if(SIM.hist.length > HIST_MAX) SIM.hist.shift();
+}
+/* the order of the two integrators, measured on the system now on the bench: the error after
+   a fixed time against a reference run, at four step counts.  Memoised per system. */
+function orderSweep(sys){
+  const key = [sys.S.n, sys.start.map(b => b.join(',')).join(';')].join('|');
+  if(SIM.order && SIM.order.key === key) return SIM.order;
+  const T = 0.4;
+  const make = () => nbodyMake(sys.start.map(b => b[0]), sys.start.map(b => b[1]), sys.start.map(b => b[2]),
+                               sys.start.map(b => b[3]), sys.start.map(b => b[4]));
+  const run = (N, step) => { const S = make(), h = T / N; for(let k = 0; k < N; k++) step(S, G_MSS, h); return S; };
+  const REFS = run(12800, pefrlStep);
+  const Ns = [200, 400, 800, 1600], out = {key, N: Ns, pefrl: [], phet: []};
+  for(const N of Ns){
+    for(const [nm, step] of [['pefrl', pefrlStep], ['phet', phetStep]]){
+      const S = run(N, step);
+      let d = 0;
+      for(let i = 0; i < S.n; i++) d = Math.max(d, Math.abs(S.x[i] - REFS.x[i]), Math.abs(S.y[i] - REFS.y[i]));
+      out[nm].push(d);
+    }
+  }
+  out.slope = nm => {
+    const e = out[nm];
+    let s = 0;
+    for(let i = 0; i + 1 < e.length; i++) s += Math.log2(e[i] / e[i + 1]);
+    return s / (e.length - 1);
+  };
+  SIM.order = out;
+  return out;
+}
+
+/* ---- the model each view draws from ------------------------------------------------------ */
+function bodyList(sys){
+  const out = [];
+  for(let i = 0; i < sys.S.n; i++) out.push({i, m: sys.S.m[i], x: sys.S.x[i], y: sys.S.y[i],
+    vx: sys.S.vx[i], vy: sys.S.vy[i], r: massToRadius(sys.S.m[i]), col: BODY_COL[sys.col[i] % 4]});
+  return out;
+}
+function forcesOn(sys){
+  const S = sys.S, out = [];
+  for(let i = 0; i < S.n; i++){
+    let fx = 0, fy = 0;
+    for(let j = 0; j < S.n; j++){
+      if(j === i) continue;
+      const dx = S.x[j] - S.x[i], dy = S.y[j] - S.y[i], r = Math.hypot(dx, dy);
+      const f = G_MSS * S.m[i] * S.m[j] / (r * r * r);
+      fx += f * dx; fy += f * dy;
+    }
+    out.push([fx, fy]);
+  }
+  return out;
+}
+function exactModel(sys){
+  if(sys.S.n !== 2) return null;
+  if(!SIM.exact) ehistReset();
+  const red = SIM.exact;
+  if(!red) return null;
+  const now = twoBodyAt(red, exactAge(sys));
+  const err = Math.max(Math.hypot(sys.S.x[0] - now.x1, sys.S.y[0] - now.y1),
+                       Math.hypot(sys.S.x[1] - now.x2, sys.S.y[1] - now.y2));
+  const el = red.el, pts1 = [], pts2 = [], rel = [];
+  if(el.kind === 'ellipse'){
+    for(let k = 0; k <= 240; k++){
+      const s = twoBodyAt(red, el.T * k / 240);
+      pts1.push([s.x1, s.y1]); pts2.push([s.x2, s.y2]); rel.push([s.rel.x, s.rel.y]);
+    }
+  } else {
+    for(let k = -120; k <= 120; k++){
+      const s = twoBodyAt(red, exactAge(sys) + k * 0.004);
+      pts1.push([s.x1, s.y1]); pts2.push([s.x2, s.y2]); rel.push([s.rel.x, s.rel.y]);
+    }
+  }
+  return {red, el, now, err, pts1, pts2, rel, com: red.com, mu: red.mu};
+}
+function conserveModel(sys){
+  const B = SIM.base;
+  if(!B) return null;
+  const E = nbodyEnergy(sys.S, G_MSS), L = nbodyAngular(sys.S), p = nbodyMomentum(sys.S);
+  let K = 0;
+  for(let i = 0; i < sys.S.n; i++) K += 0.5 * sys.S.m[i] * (sys.S.vx[i] * sys.S.vx[i] + sys.S.vy[i] * sys.S.vy[i]);
+  const sw = SIM.shadow && SIM.shadow.n === sys.S.n
+    ? {E: nbodyEnergy(SIM.shadow, G_MSS), t: SIM.shadowT,
+       dev: (() => { let d = 0; for(let i = 0; i < sys.S.n; i++)
+         d = Math.max(d, Math.hypot(SIM.shadow.x[i] - sys.S.x[i], SIM.shadow.y[i] - sys.S.y[i])); return d; })()}
+    : null;
+  return {E, L, p, K, U: E - K, base: B, hist: SIM.hist, shadow: sw, order: orderSweep(sys),
+          dE: Math.abs(E - B.E) / Math.abs(B.E), dL: Math.abs(L - B.L) / Math.max(1e-30, Math.abs(B.L)),
+          dP: Math.hypot(p[0] - B.p[0], p[1] - B.p[1]) / B.pscale, merged: sys.merged.length};
+}
+function buildModel(){
+  const st = ST, sys = curSys();
+  const M = {view: st.view, st, sys, key: sysKey(st.view), bodies: bodyList(sys), t: sys.t,
+             com: nbodyCom(sys.S), R: viewRadius(), E: nbodyEnergy(sys.S, G_MSS), L: nbodyAngular(sys.S),
+             P: nbodyMomentum(sys.S), forces: forcesOn(sys), merged: sys.merged,
+             preset: presetById(st.preset)};
+  M.chaotic = sys.S.n > 2;
+  if(st.view === 'exact') M.ex = exactModel(sys);
+  if(st.view === 'conserve') M.cn = conserveModel(sys);
+  if(sys.S.n === 2) M.two = twoBodyReduce(sys.S, G_MSS);
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / equation bar / tag                                       *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">' + t + '</td></tr>'; }
+function rrow(a, b, cls){ return '<tr><td>' + a + '</td><td class="v' + (cls ? ' ' + cls : '') + '">' + b + '</td></tr>'; }
+function yrStr(t){ const y = yrOf(t); return Math.abs(y) < 1 ? fmt(y * 365.25, 1) + ' d' : fmt(y, 3) + ' yr'; }
+function massStr(m){ return m < PHET.MASS_MIN ? '&le; ' + fmt(PHET.MASS_MIN, 1) : fmt(m, m < 10 ? 2 : 1); }
+function readoutHTML(M){
+  const st = ST, sys = M.sys;
+  let s = '<div class="rname">My solar system<small>' + plain(TABS.find(t => t[0] === M.view)[1]) + '</small></div><table>';
+  s += hd(M.key === 'lab' ? plain(M.preset.name) + ' — ' + sys.S.n + (sys.S.n === 1 ? ' body' : ' bodies') : 'PhET&rsquo;s two bodies')
+     + rrow('t', yrStr(sys.t) + ' <span class="dim">(' + fmt(sys.t, 3) + ' model)</span>')
+     + rrow('total mass', fmt(M.com.M, 1) + ' &times; 10&sup2;&#8312; kg')
+     + rrow('centre of mass', '(' + fmt(M.com.x, 3) + ', ' + fmt(M.com.y, 3) + ') AU', Math.hypot(M.com.x, M.com.y) < 1 ? 'good' : '')
+     + rrow('its velocity', fmt(Math.hypot(M.com.vx, M.com.vy), 4) + ' km/s', Math.hypot(M.com.vx, M.com.vy) < 0.01 ? 'good' : 'bad')
+     + rrow('energy E = K + U', sigf(M.E, 6))
+     + rrow('angular momentum L', sigf(M.L, 6));
+  if(M.merged.length) s += rrow('collisions', M.merged.length + ' merge' + (M.merged.length > 1 ? 's' : ''), 'bad');
+  if(st.values || M.view === 'lab'){
+    s += hd('the bodies (mass 10&sup2;&#8312; kg, AU, km/s)');
+    for(const b of M.bodies)
+      s += rrow('<span style="color:' + b.col + '">body ' + (b.i + 1) + '</span>',
+                massStr(b.m) + ' &nbsp; (' + fmt(b.x, 2) + ', ' + fmt(b.y, 2) + ') &nbsp; ('
+                + fmt(b.vx, 1) + ', ' + fmt(b.vy, 1) + ')');
+  }
+  if(M.two){
+    const el = M.two.el;
+    s += hd('two bodies: the exact orbit')
+       + rrow('&mu; = G(m&#8321;+m&#8322;)', sigf(M.two.mu, 6))
+       + rrow('relative orbit', el.kind === 'ellipse' ? 'an ellipse' : 'a ' + el.kind, 'good')
+       + rrow('a, e', el.kind === 'ellipse' ? sigf(el.a, 5) + ' AU, ' + fmt(el.e, 4) : '&mdash;, ' + fmt(el.e, 4))
+       + (el.kind === 'ellipse' ? rrow('period T', fmt(el.T, 5) + ' model = ' + fmt(yrOf(el.T), 4) + ' yr', 'good') : '')
+       + (el.kind === 'ellipse' ? rrow('periapsis, apoapsis', sigf(el.q, 4) + ', ' + sigf(el.Q, 4) + ' AU') : '');
+  }
+  if(M.view === 'exact' && M.ex){
+    s += hd('numerical against exact')
+       + rrow('|r<sub>num</sub> &minus; r<sub>Kepler</sub>|', M.ex.err === 0 ? '0' : M.ex.err.toExponential(2) + ' AU',
+              M.ex.err < 1e-6 ? 'good' : 'bad')
+       + rrow('after', yrStr(sys.t))
+       + rrow('the centre of mass moves', fmt(Math.hypot(M.ex.com.vx, M.ex.com.vy), 4) + ' km/s, in a straight line');
+  }
+  if(M.view === 'conserve' && M.cn){
+    const c = M.cn;
+    s += hd('the constants of the motion')
+       + rrow('|&Delta;E/E|', c.dE === 0 ? '0' : c.dE.toExponential(2), c.dE < 1e-6 ? 'good' : 'bad')
+       + rrow('|&Delta;L/L|', c.dL === 0 ? '0' : c.dL.toExponential(2), c.dL < 1e-10 ? 'good' : 'bad')
+       + rrow('|&Delta;p|/p', c.dP === 0 ? '0' : c.dP.toExponential(2), c.dP < 1e-10 ? 'good' : 'bad')
+       + rrow('K, U', sigf(c.K, 5) + ', ' + sigf(c.U, 5));
+    if(c.shadow) s += hd('PhET&rsquo;s own step, beside ours')
+       + rrow('its |&Delta;E/E|', Math.abs(c.shadow.E - c.base.E) / Math.abs(c.base.E) === 0 ? '0'
+              : (Math.abs(c.shadow.E - c.base.E) / Math.abs(c.base.E)).toExponential(2), 'bad')
+       + rrow('the two runs differ by', c.shadow.dev.toExponential(2) + ' AU')
+       + rrow('measured order', 'PEFRL ' + fmt(c.order.slope('pefrl'), 2) + ', PhET&rsquo;s ' + fmt(c.order.slope('phet'), 2), 'good');
+  }
+  s += hd('units (PhET&rsquo;s)')
+     + rrow('1 model time unit', fmt(T_U_YR, 4) + ' yr')
+     + rrow('G', fmt(G_MSS, 4) + ' AU(km/s)&sup2;/10&sup2;&#8312;kg')
+     + rrow('CODATA G in the same units', fmt(G_SI_UNITS, 4) + ' (PhET is 0.11 % low)', 'bad')
+     + rrow('so its &ldquo;km/s&rdquo; is', fmt(KMS_TRUE, 6) + ' true km/s');
+  s += '</table><div class="note">' + (M.chaotic
+    ? 'Three bodies and more are chaotic: this run is one possible history, and a different last digit gives another. '
+    : 'Two bodies have a closed-form answer, and the exact-orbit view draws it. ')
+    + 'Momentum and angular momentum are conserved to rounding by construction; the energy is not, and the '
+    + 'conservation view measures the difference. Pinned in selfTest to build/my-solar-system/derive.py (scipy '
+    + 'solve_ivp at rtol 1e-12).</div>';
+  return s;
+}
+function eqbarHTML(M){
+  const E = (eq, sm) => '<span class="lhs">' + eq + '</span><span class="sm">' + sm + '</span>';
+  if(M.view === 'intro') return E('<span class="hl">m<sub>i</sub> r&Prime;<sub>i</sub> = &minus;G &sum;<sub>j&ne;i</sub> m<sub>i</sub>m<sub>j</sub> (r<sub>i</sub> &minus; r<sub>j</sub>)/|r<sub>i</sub> &minus; r<sub>j</sub>|&sup3;</span> &nbsp;&middot;&nbsp; G = 4.4567 AU(km/s)&sup2;/10&sup2;&#8312;kg <span class="rm">(PhET&rsquo;s)</span>',
+    'one law, applied to every pair: drag a body or the tip of its velocity arrow and the whole future changes');
+  if(M.view === 'lab') return E('<span class="hl">E = &sum; &frac12;m<sub>i</sub>v<sub>i</sub>&sup2; &minus; &sum;<sub>i&lt;j</sub> Gm<sub>i</sub>m<sub>j</sub>/r<sub>ij</sub></span> &nbsp;&middot;&nbsp; p = &sum; m<sub>i</sub>v<sub>i</sub> &nbsp;&middot;&nbsp; L = &sum; m<sub>i</sub>(x<sub>i</sub>v<sub>yi</sub> &minus; y<sub>i</sub>v<sub>xi</sub>)',
+    'eleven systems built by PhET, one law behind all of them; with three bodies or more there is no closed-form answer and the motion is chaotic');
+  if(M.view === 'exact') return E('<span class="hl">r = r&#8322; &minus; r&#8321; obeys r&Prime; = &minus;&mu;r/|r|&sup3;, &nbsp; &mu; = G(m&#8321;+m&#8322;)</span> &nbsp;&middot;&nbsp; r&#8321; = R &minus; (m&#8322;/M)r, &nbsp; r&#8322; = R + (m&#8321;/M)r, &nbsp; R = R&#8320; + V t',
+    'two bodies reduce to one: the separation follows a Kepler conic about the total mass, and each body traces a similar conic about the centre of mass, which itself drifts in a straight line');
+  return E('<span class="hl">PEFRL: drift &xi;h, kick (1&minus;2&lambda;)h/2, drift &chi;h, kick &lambda;h, drift (1&minus;2(&chi;+&xi;))h, &hellip;</span> &nbsp;&middot;&nbsp; error &prop; h&#8308; <span class="rm">(PhET&rsquo;s shipped step reuses one acceleration: &prop; h)</span>',
+    'every kick is an equal and opposite pair, so momentum and angular momentum are exact; the energy is only nearly conserved, and how nearly is the order of the method');
+}
+function tagHTML(M){
+  const nm = plain(TABS.find(t => t[0] === M.view)[1]);
+  const sys = M.sys;
+  let s = '<b>' + nm + '</b> — ' + (M.key === 'lab' ? plain(M.preset.name) : 'a star and a planet')
+        + ', ' + sys.S.n + (sys.S.n === 1 ? ' body' : ' bodies') + ', t = ' + plain(yrStr(sys.t));
+  if(M.merged.length) s += ' — ' + M.merged.length + ' merged';
+  return s;
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — build_lagr/p4_views.js (lineage build_buoy, build_cycloid), its   *
+ *  generic block only; worldFill/worldPoly/arrowW from build_buoy      *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,x:0,y:0,th:0,ph:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+/* a world polyline from a list of points, clipped to the window in world space (segments that leave are cut) */
+function worldPath(ctx,map,pts,col,lw,dash,win){
+  ctx.beginPath(); let started=false, px=0,py=0, n=0;
+  for(let i=0;i<pts.length;i++){ const p=pts[i];
+    const inside=!win||(p[0]>=win.x0&&p[0]<=win.x1&&p[1]>=win.y0&&p[1]<=win.y1);
+    const X=map.X(p[0]), Y=map.Y(p[1]);
+    if(!inside){ started=false; continue; }
+    if(!started){ ctx.moveTo(X,Y); started=true; } else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); n++; }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  return n;
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+/* Liang-Barsky: the part of segment a-b inside the world window, or null */
+function clipToWin(a,b,win){ let t0=0,t1=1; const dx=b[0]-a[0], dy=b[1]-a[1];
+  const P=[-dx,dx,-dy,dy], Q=[a[0]-win.x0,win.x1-a[0],a[1]-win.y0,win.y1-a[1]];
+  for(let i=0;i<4;i++){ if(P[i]===0){ if(Q[i]<0) return null; } else { const t=Q[i]/P[i]; if(P[i]<0){ if(t>t1) return null; if(t>t0) t0=t; } else { if(t<t0) return null; if(t<t1) t1=t; } } }
+  return [[a[0]+t0*dx,a[1]+t0*dy],[a[0]+t1*dx,a[1]+t1*dy]]; }
+function segClip(ctx,map,a,b,win,col,lw,dash){ const c=clipToWin(a,b,win); if(c) seg(ctx,map,c[0],c[1],col,lw,dash); return !!c; }
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function diamond(ctx,x,y,r,fill,stroke){
+  ctx.beginPath(); ctx.moveTo(x,y-r); ctx.lineTo(x+r,y); ctx.lineTo(x,y+r); ctx.lineTo(x-r,y); ctx.closePath();
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); } if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=1.2; ctx.stroke(); }
+}
+function arrowPx(ctx,X0,Y0,X1,Y1,col,lw){
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+  POLY_SEGS.push(X0,Y0,X1,Y1);
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+/* legendAuto's candidates, but a candidate is also rejected over a registered label, and the box is registered */
+function legendR(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0; for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8, mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],[b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],[b.x+8,my],[b.x1-bw-8,my]];
+  let pick=null;
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){ const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue; hit=true; }
+    for(let i=0;i<LABELS.length&&!hit;i++){ const o=LABELS[i]; if(o[0]<cx+bw&&o[2]>cx&&o[1]<cy+bh&&o[3]>cy) hit=true; }
+    if(!hit){ pick=[cx,cy]; break; }
+  }
+  /* nothing clear: in a small box the legend is dropped rather than laid over a curve or a label */
+  if(!pick){ if(b.h<300||b.w<420) return; pick=cands[0]; }
+  legendBox(ctx,pick[0],pick[1],items);
+  LABELS.push([pick[0],pick[1],pick[0]+bw,pick[1]+bh]);
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+
+/* ================================================================== *
+ *  the shared view kit for this family: the hint-safe layout, axes    *
+ *  that register what they draw, and the pieces both sims paint (the  *
+ *  grid, the bodies, the velocity and gravity arrows, the measuring   *
+ *  tape, the trail, the stopwatch).  my-solar-system reads this file  *
+ *  from ../keplers-laws/, so the two sims draw the same furniture.    *
+ * ================================================================== */
+/* The house #hint sits at bottom:11px in 11px type, ON TOP of the last line of a caption
+   anchored at H - 12, and the canvas capture cannot see it because the hint is HTML
+   (wave-on-a-string's finding).  Every layout here is built for H - HINT_H, and the layout
+   sweep asserts no canvas text reaches the hint's corner. */
+const HINT_H = 18;
+function stageLayoutH(ctx, W, H, capFull, capShort, nBottom, bottomFrac, nBottomNarrow){
+  return stageLayout(ctx, W, H - HINT_H, capFull, capShort, nBottom, bottomFrac, nBottomNarrow);
+}
+/* tick labels follow the tick SPACING, not a fixed decimal count (Known-bad: fmt(t,2) prints
+   "318.00" whatever the range and six of those do not fit a narrow panel) */
+function tickFmt(ticks){
+  let g = Infinity;
+  for(let i = 1; i < ticks.length; i++) g = Math.min(g, Math.abs(ticks[i] - ticks[i - 1]));
+  if(!isFinite(g) || g <= 0) return v => sigf(v, 3);
+  let d = 0;
+  while(d < 6 && Math.abs(Math.round(g * Math.pow(10, d)) - g * Math.pow(10, d)) > 1e-6 * Math.max(1, g * Math.pow(10, d))) d++;
+  return v => fmt(Math.abs(v) < 1e-12 ? 0 : v, d);
+}
+/* axes() registers nothing, so a label placed later can land on a tick number (the
+   standard_model trap).  axesT registers every tick label and both axis titles. */
+function axesT(ctx, b, xlo, xhi, ylo, yhi, opt){
+  const o = Object.assign({}, opt || {});
+  if(o.xticks === undefined) o.xticks = ticksFor(Math.min(xlo, xhi), Math.max(xlo, xhi), o.nx || 6);
+  if(o.yticks === undefined) o.yticks = ticksFor(Math.min(ylo, yhi), Math.max(ylo, yhi), o.ny || 5);
+  if(!o.xfmt) o.xfmt = tickFmt(o.xticks);
+  if(!o.yfmt) o.yfmt = tickFmt(o.yticks);
+  axesR(ctx, b, xlo, xhi, ylo, yhi, o);
+  const fs = 10.5;
+  for(const t of o.xticks){
+    const X = b.x + b.w * (t - xlo) / (xhi - xlo || 1);
+    if(X < b.x - 0.5 || X > b.x1 + 0.5) continue;
+    const w = plain(o.xfmt(t)).length * fs * 0.52;
+    LABELS.push([X - w / 2, b.y1 + 5, X + w / 2, b.y1 + 5 + fs * 1.15]);
+  }
+  for(const t of o.yticks){
+    const Y = b.y1 - b.h * (t - ylo) / (yhi - ylo || 1);
+    if(Y < b.y - 0.5 || Y > b.y1 + 0.5) continue;
+    const w = plain(o.yfmt(t)).length * fs * 0.52;
+    LABELS.push([b.x - 6 - w, Y - fs * 0.6, b.x - 6, Y + fs * 0.6]);
+  }
+  if(o.xlab){ const w = plain(o.xlab).length * 11 * 0.52;
+    LABELS.push([b.x + b.w / 2 - w / 2, b.y1 + 21, b.x + b.w / 2 + w / 2, b.y1 + 21 + 13]); }
+  if(o.ylab) LABELS.push([b.x - 47, b.y, b.x - 33, b.y1]);
+}
+/* a label that is kept inside a box as well as on the canvas */
+function labIn(ctx, W, H, b, x, y, txt, col, font, align, base){
+  const fs = parseFloat((font || LAB_FONT).match(/([\d.]+)px/)[1]);
+  const w = plain(txt).length * fs * 0.52;
+  let X = clamp(x, b.x + (align === 'right' ? w + 3 : align === 'center' ? w / 2 + 3 : 3),
+                b.x1 - (align === 'right' ? 3 : align === 'center' ? w / 2 + 3 : w + 3));
+  const Y = clamp(y, b.y + fs, b.y1 - fs * 0.6);
+  return lab(ctx, W, H, X, Y, txt, col, font, align, base);
+}
+
+/* ---- the furniture ----------------------------------------------------------------------- */
+/* a grid of `step` world units, clipped to the box, with the axes through the origin bolder */
+function gridDraw(ctx, map, b, step, col){
+  const x0 = map.wx(b.x), x1 = map.wx(b.x1), y0 = map.wy(b.y1), y1 = map.wy(b.y);
+  const i0 = Math.ceil(x0 / step), i1 = Math.floor(x1 / step);
+  const j0 = Math.ceil(y0 / step), j1 = Math.floor(y1 / step);
+  if(i1 - i0 > 400 || j1 - j0 > 400) return 0;       /* far out, a grid is a grey wash */
+  let n = 0;
+  ctx.beginPath();
+  for(let i = i0; i <= i1; i++){ const X = map.X(i * step); ctx.moveTo(X, b.y); ctx.lineTo(X, b.y1); n++; }
+  for(let j = j0; j <= j1; j++){ const Y = map.Y(j * step); ctx.moveTo(b.x, Y); ctx.lineTo(b.x1, Y); n++; }
+  ctx.strokeStyle = col || '#161b28'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.beginPath();
+  if(0 >= x0 && 0 <= x1){ const X = map.X(0); ctx.moveTo(X, b.y); ctx.lineTo(X, b.y1); }
+  if(0 >= y0 && 0 <= y1){ const Y = map.Y(0); ctx.moveTo(b.x, Y); ctx.lineTo(b.x1, Y); }
+  ctx.strokeStyle = '#222a3c'; ctx.lineWidth = 1.2; ctx.stroke();
+  return n;
+}
+/* a body: drawn to scale when that is more than minPx, else at minPx, with a halo */
+function bodyDraw(ctx, map, x, y, rWorld, col, minPx){
+  const X = map.X(x), Y = map.Y(y), rp = Math.max(minPx || 3.5, rWorld * map.s);
+  dot(ctx, X, Y, rp + 2.5, rgba(col, 0.18), null);
+  dot(ctx, X, Y, rp, col, '#0b0f1a', 1);
+  return {X, Y, rp};
+}
+/* the velocity arrow: px per km/s is fixed and printed on the canvas, so the arrow is a
+   measurement rather than a decoration */
+function velArrow(ctx, map, x, y, vxk, vyk, scale, col){
+  const X = map.X(x), Y = map.Y(y), TX = X + vxk * scale, TY = Y - vyk * scale;
+  arrowPx(ctx, X, Y, TX, TY, col, 2);
+  return {X, Y, TX, TY};
+}
+/* the gravity arrow: 60 px at the reference pull, times 10^pow, and CAPPED to the box.  An
+   inverse-square force grows without bound as two bodies close, so an uncapped arrow leaves
+   the stage entirely (seen in the first capture of my-solar-system, 418 px of arrow off both
+   ends of the view).  A capped arrow is drawn hollow-tipped and reported, never silently. */
+function forceArrow(ctx, map, x, y, fx, fy, fref, pow, col, maxPx){
+  const X = map.X(x), Y = map.Y(y), f = Math.hypot(fx, fy);
+  if(!(f > 0)) return null;
+  const want = FSCALE * Math.pow(10, pow) * f / fref;
+  if(want < 2) return {small: true, X, Y};
+  const cap = maxPx || 1e9, L = Math.min(want, cap), capped = want > cap;
+  const TX = X + L * fx / f, TY = Y - L * fy / f;
+  arrowPx(ctx, X, Y, TX, TY, col, 2);
+  if(capped) dot(ctx, TX, TY, 4, null, col, 1.4);
+  return {X, Y, TX, TY, L, want, capped};
+}
+/* the measuring tape: two ends and the distance between them */
+function tapeDraw(ctx, W, H, map, tape, col){
+  const AX = map.X(tape.ax), AY = map.Y(tape.ay), BX = map.X(tape.bx), BY = map.Y(tape.by);
+  ctx.beginPath(); ctx.moveTo(AX, AY); ctx.lineTo(BX, BY);
+  ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.setLineDash([6, 4]); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(AX, AY, BX, BY);
+  ctx.beginPath(); ctx.rect(AX - 5, AY - 5, 10, 10); ctx.fillStyle = col; ctx.fill();
+  dot(ctx, BX, BY, 5, null, col, 2);
+  const d = Math.hypot(tape.bx - tape.ax, tape.by - tape.ay);
+  lab(ctx, W, H, (AX + BX) / 2, (AY + BY) / 2 - 10, sigf(d, 4) + ' AU', col, LAB_FONT, 'center', 'bottom');
+  return d;
+}
+function tapeHit(map, tape, px, py, tol){
+  const t = tol || 12;
+  if(Math.hypot(map.X(tape.bx) - px, map.Y(tape.by) - py) <= t) return 'tapeB';
+  if(Math.hypot(map.X(tape.ax) - px, map.Y(tape.ay) - py) <= t) return 'tapeA';
+  return null;
+}
+/* a world polyline, every segment CLIPPED IN WORLD SPACE (Liang-Barsky) to the window: the
+   siblings' worldPath drops a segment whose two ends are both outside even when it crosses
+   the box, which cuts a big orbit short at the frame (Known-bad, pupil_plane). */
+function worldPathClip(ctx, map, pts, col, lw, dash, win){
+  ctx.beginPath();
+  let n = 0, prevIn = false, px = 0, py = 0;
+  for(let i = 0; i + 1 < pts.length; i++){
+    const c = win ? clipToWin(pts[i], pts[i + 1], win) : [pts[i], pts[i + 1]];
+    if(!c){ prevIn = false; continue; }
+    const X0 = map.X(c[0][0]), Y0 = map.Y(c[0][1]), X1 = map.X(c[1][0]), Y1 = map.Y(c[1][1]);
+    if(!prevIn || Math.abs(X0 - px) > 0.01 || Math.abs(Y0 - py) > 0.01) ctx.moveTo(X0, Y0);
+    ctx.lineTo(X1, Y1);
+    POLY_SEGS.push(X0, Y0, X1, Y1);
+    px = X1; py = Y1; prevIn = true; n++;
+  }
+  ctx.strokeStyle = col; ctx.lineWidth = lw || 1.5; ctx.lineJoin = 'round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+  return n;
+}
+/* a clip to a box for FILLS (a polyline is clipped in data space instead; the display-list
+   recorder does record this rectangle, so the rasterised PNG shows what a browser shows) */
+function withClip(ctx, b, fn){
+  ctx.save(); ctx.beginPath(); ctx.rect(b.x, b.y, b.w, b.h); ctx.clip();
+  try{ fn(); } finally{ ctx.restore(); }
+}
+/* a trail of world points, clipped to the window */
+function trailDraw(ctx, map, pts, col, win, lw){
+  return worldPath(ctx, map, pts, col, lw || 1.3, null, win);
+}
+/* the stopwatch, drawn as a chip inside a box and registered so nothing lands on it */
+function swChip(ctx, W, H, b, txt, running){
+  const w = 116, hh = 30, x = b.x + 10, y = b.y1 - hh - 10;
+  ctx.fillStyle = 'rgba(10,12,18,.82)'; ctx.fillRect(x, y, w, hh);
+  frame(ctx, box(x, y, w, hh), running ? COL.pos : COL.edge);
+  LABELS.push([x, y, x + w, y + hh]);
+  ctx.fillStyle = running ? COL.pos : '#9aa2b4';
+  ctx.font = '12.5px "SF Mono", Menlo, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillText(plain(txt), x + 9, y + hh / 2);
+  return box(x, y, w, hh);
+}
+/* "1 AU = 84 px": every scale distortion (and every scale) is printed on the canvas */
+function scaleNote(map){ return '1 AU = ' + fmt(map.s, 1) + ' px'; }
+
+/* ================================================================== *
+ *  the stage both PhET screens share, and views 1-2                   *
+ * ================================================================== */
+function sysMap(b, R){ return worldFitUp(b, {xmin: -R, xmax: R, ymin: -R, ymax: R}, 0); }
+function winOf(map, b){ return {x0: map.wx(b.x), x1: map.wx(b.x1), y0: map.wy(b.y1), y1: map.wy(b.y)}; }
+function inWin(p, w){ return p[0] >= w.x0 && p[0] <= w.x1 && p[1] >= w.y0 && p[1] <= w.y1; }
+
+/* the bodies, their paths, their vectors, and the furniture.  Returns the map so the drags
+   and the tests can ask where things landed. */
+function drawSystem(ctx, W, H, M, b, show){
+  const st = M.st, sys = M.sys, map = sysMap(b, M.R), win = winOf(map, b);
+  frame(ctx, b, COL.edge);
+  /* the title and the scale claim their place first: drawn last, the label registry pushes them
+     out of the box when something else has taken that corner */
+  lab(ctx, W, H, b.x + 6, b.y + 8, (M.key === 'lab' ? plain(M.preset.name) : 'a star and a planet')
+      + ' — ' + sys.S.n + (sys.S.n === 1 ? ' body' : ' bodies') + ', t = ' + plain(yrStr(sys.t)),
+      '#aeb6c6', 'italic 13px Georgia, serif', 'left', 'top');
+  lab(ctx, W, H, b.x1 - 6, b.y + 8, plain(scaleNote(map)) + ' — true shape, both axes alike'
+      + (show.velocity ? '; v arrows ' + fmt(VSCALE, 1) + ' px per km/s' : ''), COL.dim, SM_FONT, 'right', 'top');
+  /* everything in world coordinates is CLIPPED to the stage: a body sitting one pixel inside
+     the window still draws a disc and a velocity arrow that reach past the frame, and the
+     capture of "hyperbolic" had both of them out on the page background.  Labels that ride on
+     a body are collected here and written once the clip is lifted, so none of them is cut. */
+  const marks = [], drawn = [];
+  let small = false, capped = false;
+  withClip(ctx, b, () => {
+    if(show.grid) gridDraw(ctx, map, b, 1, '#141a27');
+    /* the paths, oldest first, in each body's own colour */
+    if(show.path) for(const bd of M.bodies){
+      const p = sys.paths[bd.i];
+      if(p && p.length > 1) worldPathClip(ctx, map, p, rgba(bd.col, 0.5), 1.4, null, win);
+    }
+    /* where a merge happened */
+    for(const mg of sys.merged){
+      if(!inWin([mg.x, mg.y], win)) continue;
+      const X = map.X(mg.x), Y = map.Y(mg.y);
+      ctx.strokeStyle = COL.warn; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(X - 6, Y - 6); ctx.lineTo(X + 6, Y + 6);
+      ctx.moveTo(X - 6, Y + 6); ctx.lineTo(X + 6, Y - 6); ctx.stroke();
+    }
+    /* the bodies */
+    for(const bd of M.bodies){
+      if(!inWin([bd.x, bd.y], win)) continue;
+      const d = bodyDraw(ctx, map, bd.x, bd.y, bd.r, bd.col, 3);
+      drawn.push(d);
+      if(show.speedLab) marks.push({x: d.X + d.rp + 6, y: d.Y + 10, col: bd.col,
+                                    t: '|v| = ' + fmt(Math.hypot(bd.vx, bd.vy), 2) + ' km/s'});
+    }
+    /* the velocity arrows, with the handle each one is dragged by */
+    if(show.velocity) for(const bd of M.bodies){
+      if(!inWin([bd.x, bd.y], win)) continue;
+      const t = velArrow(ctx, map, bd.x, bd.y, bd.vx, bd.vy, VSCALE, COL.pos);
+      dot(ctx, t.TX, t.TY, 4.5, COL.pos, '#fff', 1.2);
+    }
+    /* the gravity arrows: the net pull on each body, at a scale the canvas states */
+    if(show.gravity){
+      const maxPx = 0.42 * Math.min(b.w, b.h);
+      for(const bd of M.bodies){
+        if(!inWin([bd.x, bd.y], win)) continue;
+        const f = M.forces[bd.i];
+        const a = forceArrow(ctx, map, bd.x, bd.y, f[0], f[1], F_REF, st.fpow, COL.ref, maxPx);
+        if(a && a.small) small = true;
+        if(a && a.capped) capped = true;
+      }
+    }
+    /* the centre of mass (PhET's red cross) */
+    if(show.com && inWin([M.com.x, M.com.y], win)){
+      const X = map.X(M.com.x), Y = map.Y(M.com.y);
+      ctx.strokeStyle = COL.com; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(X - 7, Y - 7); ctx.lineTo(X + 7, Y + 7);
+      ctx.moveTo(X - 7, Y + 7); ctx.lineTo(X + 7, Y - 7); ctx.stroke();
+      /* pushed clear of whichever body is nearest, along the line between them: the centre of
+         mass of a star and its planet sits INSIDE the star, and a label at its own height is
+         written across it -- it was, in three captures */
+      let near = null, best = Infinity;
+      for(const d of drawn){ const q = Math.hypot(d.X - X, d.Y - Y); if(q < best){ best = q; near = d; } }
+      let ux = 0, uy = 1, pad = 18;
+      if(near){
+        const dx = X - near.X, dy = Y - near.Y, L = Math.hypot(dx, dy);
+        pad = near.rp + 13;
+        if(L > 0.5){ ux = dx / L; uy = dy / L; }
+      }
+      marks.push({x: X + ux * pad, y: Y + uy * pad, t: 'centre of mass', col: COL.com,
+                  al: ux < -0.2 ? 'right' : (ux > 0.2 ? 'left' : 'center'),
+                  ba: uy < -0.2 ? 'bottom' : (uy > 0.2 ? 'top' : 'middle')});
+    }
+    if(show.tape) tapeDraw(ctx, W, H, map, SIM.tape, COL.struct);
+  });
+  for(const m of marks) lab(ctx, W, H, m.x, m.y, m.t, m.col, SM_FONT, m.al || 'left', m.ba || 'alphabetic');
+  if(small) lab(ctx, W, H, b.x + 8, b.y1 - 28, 'some gravity arrows are too small to draw — raise the power',
+                COL.warn, SM_FONT, 'left', 'bottom');
+  if(capped) lab(ctx, W, H, b.x + 8, b.y1 - 28, 'a gravity arrow is longer than the view and is drawn cut (hollow tip) — lower the power',
+                 COL.warn, SM_FONT, 'left', 'bottom');
+  /* anything that has left the view */
+  let off = 0;
+  for(const bd of M.bodies) if(!inWin([bd.x, bd.y], win)) off++;
+  if(off) lab(ctx, W, H, b.x + 6, b.y + 26, off + (off === 1 ? ' body is' : ' bodies are') + ' outside the view — zoom out, or return them',
+              COL.warn, SM_FONT, 'left', 'top');
+  return {map, win, off};
+}
+
+/* ================================================================== *
+ *  view 1: two bodies (PhET's Intro screen)                           *
+ * ================================================================== */
+const CAPI_FULL = 'PhET’s Intro screen: a star and a planet, and nothing but Newton’s law between them. Drag either '
+  + 'body, or the tip of its green velocity arrow, and set the masses on the right — the clock stops while you do, as '
+  + 'PhET’s does, and the run starts again from what you built. Two bodies are the one case with a closed-form answer, '
+  + 'so the third view draws this same orbit exactly and measures how far the integration has drifted from it.';
+const CAPI_SHORT = 'A star and a planet: drag them, drag their velocity arrows, set their masses, and let them go.';
+function drawIntro(ctx, W, H, M){
+  const L = stageLayoutH(ctx, W, H, CAPI_FULL, CAPI_SHORT, 0, 0, 0);
+  const st = M.st;
+  const S = drawSystem(ctx, W, H, M, L.main, {grid: st.grid, path: st.path, velocity: st.velocity,
+    speedLab: st.speedLab, gravity: st.gravity, com: st.com, tape: st.tape});
+  const items = [];
+  for(const bd of M.bodies) items.push([bd.col, 'body ' + (bd.i + 1) + ', ' + plain(massStr(bd.m)) + ' × 10²⁸ kg']);
+  if(st.velocity) items.push([COL.pos, 'v (drag the tip)']);
+  if(st.gravity) items.push([COL.ref, 'gravity ×10^' + st.fpow]);
+  if(st.com) items.push([COL.com, 'centre of mass']);
+  legendR(ctx, L.main, items);
+  drawCaption(ctx, L);
+}
+
+/* ================================================================== *
+ *  view 2: the lab (PhET's Lab screen)                                *
+ * ================================================================== */
+const CAPL_FULL = 'PhET’s Lab screen: one to four bodies, and its eleven orbital systems. Every system is loaded with '
+  + 'the centre of mass brought to rest, as PhET loads them. Touching anything makes the system “custom” and saves '
+  + 'the new start, which is where restart returns to. Bodies that touch merge — here keeping mass, momentum and the '
+  + 'centre of mass, where PhET keeps the heavier body’s mass and hands it the lighter one’s momentum.';
+const CAPL_SHORT = 'One to four bodies and PhET’s eleven orbital systems; anything you touch becomes a custom system.';
+function drawLab(ctx, W, H, M){
+  const L = stageLayoutH(ctx, W, H, CAPL_FULL, CAPL_SHORT, 0, 0, 0);
+  const st = M.st;
+  drawSystem(ctx, W, H, M, L.main, {grid: st.grid, path: st.path, velocity: st.velocity,
+    speedLab: st.speedLab, gravity: st.gravity, com: st.com, tape: st.tape});
+  const items = [];
+  for(const bd of M.bodies) items.push([bd.col, 'body ' + (bd.i + 1) + ', ' + plain(massStr(bd.m))]);
+  if(st.com) items.push([COL.com, 'centre of mass']);
+  if(M.merged.length) items.push([COL.warn, 'a collision']);
+  legendR(ctx, L.main, items);
+  /* the warning PhET's own presets earn: three bodies and more are chaotic.  It goes under
+     the title, not at the foot of the stage: down there the label registry shifts it out
+     of the box and into the caption (the audit caught that in nine captures). */
+  if(M.chaotic) lab(ctx, W, H, L.main.x + 6, L.main.y + 26,
+    'three bodies and more are chaotic: this is one possible history, not the history',
+    COL.dim, SM_FONT, 'left', 'top');
+  drawCaption(ctx, L);
+}
+
+/* ================================================================== *
+ *  views 3-4 (the analysis pair), the dispatch and the scene          *
+ * ================================================================== */
+const CAPE_FULL = 'Not a PhET screen. Two bodies are the one case Newton could solve in closed form: the separation '
+  + 'r = r₂ − r₁ moves as a single body about μ = G(m₁+m₂), so each body traces a similar conic about the '
+  + 'centre of mass while that centre drifts in a straight line for ever. The orange curves are that exact solution, '
+  + 'drawn from the state the run started at; the coloured trails are what the integrator has actually done. The panel '
+  + 'below is the distance between them — the integrator’s error — as it grows.';
+const CAPE_SHORT = 'The exact two-body solution (orange) against the integrated path: their difference is below.';
+function drawExact(ctx, W, H, M){
+  const L = stageLayoutH(ctx, W, H, CAPE_FULL, CAPE_SHORT, 2, 0.34, 1);
+  const st = M.st, b = L.main, ex = M.ex;
+  if(!ex){
+    frame(ctx, b, COL.edge);
+    lab(ctx, W, H, (b.x + b.x1) / 2, (b.y + b.y1) / 2,
+        M.sys.S.n === 1 ? 'one body has nowhere to fall: add a second on the lab view'
+                        : 'the exact solution is for two bodies; this system has ' + M.sys.S.n,
+        COL.warn, 'italic 15px Georgia, serif', 'center', 'middle');
+    drawCaption(ctx, L);
+    return;
+  }
+  const S = drawSystem(ctx, W, H, M, b, {grid: st.grid, path: st.path, velocity: st.velocity,
+    speedLab: st.speedLab, gravity: false, com: true, tape: st.tape});
+  /* the exact orbits of both bodies, and where each one should be now (clipped to the stage,
+     as the scene itself is: a ring whose centre is one pixel inside still draws 7 px out) */
+  withClip(ctx, b, () => {
+    worldPathClip(ctx, S.map, ex.pts1, COL.ref, 1.6, [6, 4], S.win);
+    worldPathClip(ctx, S.map, ex.pts2, COL.ref, 1.6, [6, 4], S.win);
+    for(const [x, y] of [[ex.now.x1, ex.now.y1], [ex.now.x2, ex.now.y2]])
+      if(inWin([x, y], S.win)) dot(ctx, S.map.X(x), S.map.Y(y), 7, null, COL.ref, 1.6);
+  });
+  lab(ctx, W, H, b.x + 6, b.y + 26, 'orange: Kepler’s own answer from the start state — rings are where it puts the bodies now',
+      COL.ref, SM_FONT, 'left', 'top');
+  legendR(ctx, b, [[COL.ref, 'the exact orbits'], [M.bodies[0].col, 'body 1'], [M.bodies[1].col, 'body 2'],
+                   [COL.com, 'centre of mass']]);
+  /* panel 1: the error against time */
+  const bb = L.bottom[0], h = SIM.ehist;
+  const xs = h.map(s => yrOf(s.t)), ys = h.map(s => Math.max(1e-16, s.err));
+  const thi = Math.max(1e-3, yrOf(M.sys.t));
+  const lo = -14, hi = Math.max(-6, Math.log10(Math.max(1e-14, Math.max.apply(null, ys.concat([1e-14])))) + 0.5);
+  axesT(ctx, bb, 0, thi, lo, hi, {title: titleFor(bb, 'how far the integration has drifted from the exact orbit',
+    'error vs exact'), xlab: 'years', ylab: 'log₁₀ |Δr| (AU)', nx: 4, ny: 4});
+  if(xs.length > 1) polyline(ctx, bb, xs, ys.map(v => Math.log10(v)), 0, thi, lo, hi, COL.pos, 1.8);
+  labIn(ctx, W, H, bb, bb.x + 8, bb.y + 10, 'now: ' + (ex.err === 0 ? '0' : ex.err.toExponential(2) + ' AU'),
+        COL.pos, SM_FONT, 'left', 'top');
+  /* panel 2: the separation, exact and numerical */
+  if(L.bottom.length > 1){
+    const cb = L.bottom[1];
+    const rn = h.map(s => s.rn), re = h.map(s => s.re);
+    const all = rn.concat(re);
+    const rlo = all.length ? Math.min.apply(null, all) * 0.95 : 0, rhi = all.length ? Math.max.apply(null, all) * 1.05 : 1;
+    axesT(ctx, cb, 0, thi, rlo, rhi, {title: titleFor(cb, 'the separation of the two bodies', 'separation'),
+      xlab: 'years', ylab: '|r| (AU)', nx: 4, ny: 4});
+    if(xs.length > 1){
+      polyline(ctx, cb, xs, re, 0, thi, rlo, rhi, COL.ref, 2.2, [6, 4]);
+      polyline(ctx, cb, xs, rn, 0, thi, rlo, rhi, COL.pos, 1.4);
+    }
+    if(ex.el.kind === 'ellipse'){
+      labIn(ctx, W, H, cb, cb.x + 8, cb.y + 10, 'T = ' + fmt(yrOf(ex.el.T), 4) + ' yr, e = ' + fmt(ex.el.e, 4),
+            COL.dim, SM_FONT, 'left', 'top');
+    }
+    legendR(ctx, cb, [[COL.ref, 'Kepler'], [COL.pos, 'integrated']]);
+  }
+  drawCaption(ctx, L);
+}
+
+const CAPC_FULL = 'Not a PhET screen either. Every kick this integrator takes is an equal and opposite pair and every '
+  + 'drift leaves r × v alone, so momentum and angular momentum are conserved to rounding — whatever the step. '
+  + 'The energy is not: it is conserved only to the order of the method, and the top panel shows all three drifting (or '
+  + 'not) as the run goes on. PhET’s own step is run beside ours on the same system, and the panel below halves the '
+  + 'step four times to measure both orders: four for PEFRL with its forces re-evaluated, one for PhET’s as shipped.';
+const CAPC_SHORT = 'Energy, momentum and angular momentum along the run, PhET’s integrator beside ours, and both orders.';
+function drawConserve(ctx, W, H, M){
+  const L = stageLayoutH(ctx, W, H, CAPC_FULL, CAPC_SHORT, 2, 0.42, 1);
+  const c = M.cn, b = L.main;
+  frame(ctx, b, COL.edge);
+  if(!c){ lab(ctx, W, H, (b.x + b.x1) / 2, (b.y + b.y1) / 2, 'no run yet', COL.dim, LAB_FONT, 'center', 'middle');
+          drawCaption(ctx, L); return; }
+  /* the drifts, on a log axis */
+  const h = c.hist, thi = Math.max(1e-3, yrOf(M.sys.t));
+  const lo = -17, hi = -3;
+  axesT(ctx, b, 0, thi, lo, hi, {title: titleFor(b, 'the constants of the motion, as the run goes on',
+    'the constants of the motion'), xlab: 'years', ylab: 'log₁₀ of the relative drift', nx: 5, ny: 5});
+  const xs = h.map(s => yrOf(s.t));
+  const put = (key, col, lw, dash) => {
+    if(h.length < 2) return;
+    const ys = h.map(s => Math.log10(Math.max(1e-17, s[key] || 1e-17)));
+    polyline(ctx, b, xs, ys, 0, thi, lo, hi, col, lw, dash);
+  };
+  put('dE', COL.pos, 2);
+  put('dL', COL.struct, 1.6);
+  put('dP', COL.live, 1.6);
+  if(M.st.shadow) put('dPhet', COL.phet, 1.8, [6, 4]);
+  const items = [[COL.pos, '|ΔE/E| (ours)'], [COL.struct, '|ΔL/L|'], [COL.live, '|Δp|/p']];
+  if(M.st.shadow) items.push([COL.phet, '|ΔE/E| (PhET’s step)']);
+  legendR(ctx, b, items);
+  labIn(ctx, W, H, b, b.x + 8, b.y + 10, 'now: |ΔE/E| = ' + (c.dE === 0 ? '0' : c.dE.toExponential(1))
+        + ', |ΔL/L| = ' + (c.dL === 0 ? '0' : c.dL.toExponential(1))
+        + ', |Δp|/p = ' + (c.dP === 0 ? '0' : c.dP.toExponential(1)), COL.dim, SM_FONT, 'left', 'top');
+  if(c.merged) labIn(ctx, W, H, b, b.x + 8, b.y + 26, 'a collision has merged two bodies: the energy dropped for a '
+    + 'physical reason and the sampling stopped there', COL.warn, SM_FONT, 'left', 'top');
+  /* panel 1: the order of both methods */
+  const bb = L.bottom[0], o = c.order;
+  const lx = o.N.map(n => Math.log10(n));
+  const ally = o.pefrl.concat(o.phet).map(v => Math.log10(Math.max(1e-16, v)));
+  const ylo = Math.min.apply(null, ally) - 0.5, yhi = Math.max.apply(null, ally) + 0.5;
+  /* the measured orders go in the TITLE: a floating label in this panel lands on PhET's own
+     curve, which runs across the top of it at every step count */
+  axesT(ctx, bb, lx[0] - 0.1, lx[lx.length - 1] + 0.1, ylo, yhi,
+    {title: titleFor(bb, 'error against steps: PEFRL ' + fmt(o.slope('pefrl'), 2) + ', PhET’s '
+       + fmt(o.slope('phet'), 2) + ' (the orders)', 'order: ' + fmt(o.slope('pefrl'), 2) + ' vs ' + fmt(o.slope('phet'), 2)),
+     xlab: 'log₁₀ steps', ylab: 'log₁₀ error (AU)', nx: 4, ny: 4});
+  polyline(ctx, bb, lx, o.pefrl.map(v => Math.log10(Math.max(1e-16, v))), lx[0] - 0.1, lx[lx.length - 1] + 0.1, ylo, yhi, COL.pos, 2);
+  polyline(ctx, bb, lx, o.phet.map(v => Math.log10(Math.max(1e-16, v))), lx[0] - 0.1, lx[lx.length - 1] + 0.1, ylo, yhi, COL.phet, 2, [6, 4]);
+  for(let i = 0; i < lx.length; i++){
+    marker(ctx, bb, lx[0] - 0.1, lx[lx.length - 1] + 0.1, ylo, yhi, lx[i], Math.log10(Math.max(1e-16, o.pefrl[i])), COL.pos);
+    marker(ctx, bb, lx[0] - 0.1, lx[lx.length - 1] + 0.1, ylo, yhi, lx[i], Math.log10(Math.max(1e-16, o.phet[i])), COL.phet);
+  }
+  legendR(ctx, bb, [[COL.pos, 'PEFRL (4 forces a step)'], [COL.phet, 'PhET’s (1 force a step)']]);
+  /* panel 2: where the energy sits */
+  if(L.bottom.length > 1){
+    const cb = L.bottom[1];
+    /* a five-digit tick label reaches the rotated axis title 40 px left of the frame, so the
+       energies are drawn in whatever power of ten keeps the numbers short, and the axis says so */
+    let big = 0;
+    for(const s2 of h) big = Math.max(big, Math.abs(s2.K), Math.abs(s2.U), Math.abs(s2.K + s2.U));
+    const pw = big > 0 ? Math.max(0, 3 * Math.floor(Math.log10(big) / 3)) : 0, sc = Math.pow(10, pw);
+    const Ks = h.map(s2 => s2.K / sc), Us = h.map(s2 => s2.U / sc), Es = h.map(s2 => (s2.K + s2.U) / sc);
+    const all = Ks.concat(Us).concat(Es);
+    const elo = all.length ? Math.min.apply(null, all) : -1, ehi = all.length ? Math.max.apply(null, all) : 1;
+    const pad = 0.08 * (ehi - elo || 1);
+    axesT(ctx, cb, 0, thi, elo - pad, ehi + pad, {title: titleFor(cb, 'kinetic, potential and total energy', 'the energy'),
+      xlab: 'years', ylab: 'energy' + (pw ? ' (10' + (pw === 3 ? '\u00b3' : '\u2078') + ')' : ''), nx: 4, ny: 4});
+    if(h.length > 1){
+      polyline(ctx, cb, xs, Ks, 0, thi, elo - pad, ehi + pad, COL.struct, 1.6);
+      polyline(ctx, cb, xs, Us, 0, thi, elo - pad, ehi + pad, COL.live, 1.6);
+      polyline(ctx, cb, xs, Es, 0, thi, elo - pad, ehi + pad, COL.pos, 2.2);
+    }
+    legendR(ctx, cb, [[COL.struct, 'K'], [COL.live, 'U'], [COL.pos, 'E = K + U']]);
+  }
+  drawCaption(ctx, L);
+}
+
+/* ================================================================== *
+ *  dispatch and the scene                                             *
+ * ================================================================== */
+function drawView(ctx, W, H, M){
+  LEGEND_RECTS = []; POLY_SEGS = []; LABELS = [];
+  ctx.fillStyle = '#070b18'; ctx.fillRect(0, 0, W, H);
+  if(M.view === 'intro') drawIntro(ctx, W, H, M);
+  else if(M.view === 'lab') drawLab(ctx, W, H, M);
+  else if(M.view === 'exact') drawExact(ctx, W, H, M);
+  else drawConserve(ctx, W, H, M);
+}
+function mainBox(ctx, W, H, view){
+  if(view === 'intro') return stageLayoutH(ctx, W, H, CAPI_FULL, CAPI_SHORT, 0, 0, 0).main;
+  if(view === 'lab') return stageLayoutH(ctx, W, H, CAPL_FULL, CAPL_SHORT, 0, 0, 0).main;
+  if(view === 'exact') return stageLayoutH(ctx, W, H, CAPE_FULL, CAPE_SHORT, 2, 0.34, 1).main;
+  return stageLayoutH(ctx, W, H, CAPC_FULL, CAPC_SHORT, 2, 0.42, 1).main;
+}
+function dragsHere(view){ return view === 'intro' || view === 'lab' || view === 'exact'; }
+function makeScene(canvas){
+  const S = {st: ST, W: 1100, H: 712};
+  S.model = buildModel;
+  S.draw = function(){ const ctx = canvas.getContext('2d'); drawView(ctx, S.W, S.H, buildModel()); };
+  S.step = function(){ return runStep(); };
+  /* the drags: any body, the tip of any velocity arrow, and the two ends of the tape.  A drag
+     pauses the clock and re-saves the starting state, as PhET does when the user takes hold. */
+  S.pointer = function(type, x, y){
+    if(type === 'up'){
+      const had = DRAGM.what !== null;
+      if(had){ const sys = curSys(); sysSaveStart(sys); if(sysKey(ST.view) === 'lab') histReset(); }
+      DRAGM.what = null; DRAGM.i = -1;
+      return had;
+    }
+    if(!dragsHere(ST.view)) return false;
+    const ctx = canvas.getContext('2d');
+    const b = mainBox(ctx, S.W, S.H, ST.view), map = sysMap(b, viewRadius());
+    const sys = curSys();
+    if(type === 'down'){
+      for(let i = 0; i < sys.S.n; i++){
+        if(ST.velocity){
+          const TX = map.X(sys.S.x[i]) + sys.S.vx[i] * VSCALE, TY = map.Y(sys.S.y[i]) - sys.S.vy[i] * VSCALE;
+          if(Math.hypot(TX - x, TY - y) <= 13){ DRAGM.what = 'vel'; DRAGM.i = i; ST.running = false; return true; }
+        }
+      }
+      for(let i = 0; i < sys.S.n; i++){
+        const X = map.X(sys.S.x[i]), Y = map.Y(sys.S.y[i]);
+        const rp = Math.max(9, massToRadius(sys.S.m[i]) * map.s);
+        if(Math.hypot(X - x, Y - y) <= rp + 4){ DRAGM.what = 'body'; DRAGM.i = i; ST.running = false; return true; }
+      }
+      if(ST.tape){ const t = tapeHit(map, SIM.tape, x, y); if(t){ DRAGM.what = t; return true; } }
+      return false;
+    }
+    if(type === 'move' && DRAGM.what){
+      const wx = map.wx(x), wy = map.wy(y);
+      if(DRAGM.what === 'body'){
+        const R = viewRadius();
+        sys.S.x[DRAGM.i] = clamp(wx, -R, R); sys.S.y[DRAGM.i] = clamp(wy, -R, R);
+        sys.t = 0; sysClearPaths(sys);
+        if(sysKey(ST.view) === 'lab') ST.preset = 'custom';
+        return true;
+      }
+      if(DRAGM.what === 'vel'){
+        const X = map.X(sys.S.x[DRAGM.i]), Y = map.Y(sys.S.y[DRAGM.i]);
+        sys.S.vx[DRAGM.i] = (x - X) / VSCALE; sys.S.vy[DRAGM.i] = -(y - Y) / VSCALE;
+        sys.t = 0; sysClearPaths(sys);
+        if(sysKey(ST.view) === 'lab') ST.preset = 'custom';
+        return true;
+      }
+      if(DRAGM.what === 'tapeA'){ SIM.tape.ax = wx; SIM.tape.ay = wy; return true; }
+      if(DRAGM.what === 'tapeB'){ SIM.tape.bx = wx; SIM.tape.by = wy; return true; }
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas = document.getElementById('scene');
+  const panel = document.getElementById('panel');
+  const tabsEl = document.getElementById('tabs');
+  const roEl = document.getElementById('readout');
+  const eqEl = document.getElementById('eqbar');
+  const tagEl = document.getElementById('tag');
+  const hintEl = document.getElementById('hint');
+  const errEl = document.getElementById('errbox');
+  const S = makeScene(canvas), st = S.st;
+  let dirty = false;
+
+  function fail(e){ errEl.style.display = 'block'; errEl.textContent = String(e && e.stack || e); }
+  window.addEventListener('error', ev => fail(ev.error || ev.message));
+
+  function setView(k){
+    if(st.view !== k){ st.view = k; syncMasses(); }
+    [].forEach.call(tabsEl.children, (b, i) => b.className = TABS[i][0] === st.view ? 'active' : '');
+    syncChips(); syncPanel(); dirty = true; refresh();
+  }
+  TABS.forEach(([k, lab2]) => {
+    tabsEl.appendChild(h('button', {class: st.view === k ? 'active' : '', onclick: () => setView(k), html: lab2}));
+  });
+
+  const rows = {};
+  function slider(key, lab2, lo, hi, step2, fmtf, onchg){
+    const inp = h('input', {type: 'range', min: lo, max: hi, step: step2, value: st[key]});
+    const val = h('span', {class: 'val'});
+    const rowEl = h('div', {class: 'sliderrow'}, h('label', null, lab2), inp, val);
+    const sync = () => { inp.value = st[key]; val.textContent = fmtf(st[key]); };
+    inp.addEventListener('input', () => {
+      st[key] = parseFloat(inp.value);
+      if(onchg) onchg();
+      val.textContent = fmtf(st[key]); syncPanel(); dirty = true; refresh();
+    });
+    rows[key] = {row: rowEl, sync, inp}; sync(); return rowEl;
+  }
+  function checkbox(key, lab2, onchg){
+    const inp = h('input', {type: 'checkbox'}); inp.checked = st[key];
+    const el = h('label', null, inp, lab2);
+    inp.addEventListener('change', () => {
+      st[key] = inp.checked; if(onchg) onchg(); syncPanel(); dirty = true; refresh();
+    });
+    rows['cb_' + key] = {row: el, inp, sync: () => { inp.checked = st[key]; }};
+    return el;
+  }
+  function chipRow(list, key, onPick){
+    const wrapEl = h('div', {class: 'chips'});
+    list.forEach(o => {
+      const c = h('button', {class: 'chip' + (st[key] === o.id ? ' on' : ''), html: o.name, onclick: () => {
+        st[key] = o.id; if(onPick) onPick(o);
+        [].forEach.call(wrapEl.children, (b, i) => b.className = 'chip' + (list[i].id === st[key] ? ' on' : ''));
+        syncChips(); syncPanel(); dirty = true; refresh(); }});
+      wrapEl.appendChild(c);
+    });
+    return wrapEl;
+  }
+  const CHIPROWS = [];
+  function trackChips(g, list, key){ CHIPROWS.push([g, list, key]); }
+  function enable(key, on){
+    const r = rows[key]; if(!r) return;
+    if(r.inp) r.inp.disabled = !on;
+    r.row.style.opacity = on ? '1' : '0.42';
+  }
+
+  const gSys = h('div', {class: 'grp'}, h('h3', null, 'the orbital system'));
+  const presetChips = chipRow(PRESETS, 'preset', o => {
+    if(o.id === 'custom') return;                    /* "custom" is the label, not a system */
+    SIM.lab = sysLoad(o.id);
+    st.nb = SIM.lab.S.n; st.running = false;
+    histReset(); syncMasses();
+  });
+  gSys.appendChild(presetChips); trackChips(gSys, PRESETS, 'preset');
+  const nbChips = chipRow(NBODIES, 'nb', o => {
+    sysSetN(SIM.lab, o.id); st.preset = 'custom'; st.running = false; histReset(); syncMasses();
+  });
+  gSys.appendChild(nbChips); trackChips(gSys, NBODIES, 'nb');
+  gSys.appendChild(h('div', {class: 'btnrow'},
+    h('button', {onclick: () => { const sys = curSys(); sysRestart(sys);
+      if(sysKey(st.view) === 'lab') histReset(); else ehistReset();
+      st.running = false; syncMasses(); dirty = true; refresh(); }}, 'return the bodies'),
+    h('button', {onclick: () => { const sys = curSys(); sysComFrame(sys);
+      if(sysKey(st.view) === 'lab') histReset(); else ehistReset();
+      dirty = true; refresh(); }}, 'centre-of-mass frame')));
+  const sysTag = h('div', {class: 'tag'}); gSys.appendChild(sysTag);
+
+  const gBodies = h('div', {class: 'grp'}, h('h3', null, 'the bodies'));
+  for(let i = 0; i < 4; i++)
+    gBodies.appendChild(slider('mass' + (i + 1), 'body ' + (i + 1) + ' mass', PHET.MASS_MIN, PHET.MASS_MAX, 0.1,
+      v => massStr(v) + ' &times;10&sup2;&#8312; kg', () => setMass(i, st['mass' + (i + 1)])));
+  const bodyTag = h('div', {class: 'tag'}); gBodies.appendChild(bodyTag);
+
+  const gShow = h('div', {class: 'grp'}, h('h3', null, 'show'));
+  gShow.appendChild(h('div', {class: 'checks'},
+    checkbox('path', 'paths'), checkbox('com', 'centre of mass'),
+    checkbox('velocity', 'velocity arrows (drag the tips)'), checkbox('speedLab', 'speed'),
+    checkbox('gravity', 'gravity arrows'), checkbox('grid', 'grid, 1 AU'),
+    checkbox('tape', 'measuring tape'), checkbox('values', 'the values table')));
+  gShow.appendChild(slider('fpow', 'gravity arrows &times;10^n', PHET.FORCE_POW_MIN, PHET.FORCE_POW_MAX, 1,
+    v => '&times;10^' + fmt(v, 0)));
+  gShow.appendChild(h('div', {class: 'btnrow'},
+    h('button', {onclick: () => { sysClearPaths(curSys()); dirty = true; refresh(); }}, 'clear the paths')));
+  const showTag = h('div', {class: 'tag'}); gShow.appendChild(showTag);
+
+  const gCmp = h('div', {class: 'grp'}, h('h3', null, 'the comparison'),
+    h('div', {class: 'checks'}, checkbox('shadow', 'run PhET&rsquo;s own step beside ours')));
+  const cmpTag = h('div', {class: 'tag'}); gCmp.appendChild(cmpTag);
+
+  const gClock = h('div', {class: 'grp'}, h('h3', null, 'the clock'));
+  gClock.appendChild(h('div', {class: 'checks'}, checkbox('running', 'time runs')));
+  const speedChips = chipRow(SPEEDS, 'speed'); gClock.appendChild(speedChips); trackChips(gClock, SPEEDS, 'speed');
+  gClock.appendChild(slider('zoom', 'zoom', PHET.ZOOM_MIN, PHET.ZOOM_MAX, 1,
+    v => fmt(PHET.ZOOM_LO + (PHET.ZOOM_HI - PHET.ZOOM_LO) * (v - 1) / 5, 0) + ' per AU'));
+  gClock.appendChild(h('div', {class: 'btnrow'},
+    h('button', {onclick: () => { const was = st.running; st.running = true; runStep(); st.running = was;
+                                  dirty = true; refresh(); }}, 'step'),
+    h('button', {onclick: () => { const sys = curSys(); sysRestart(sys); st.running = false;
+                                  if(sysKey(st.view) === 'lab') histReset(); else ehistReset();
+                                  syncMasses(); dirty = true; refresh(); }}, 'restart'),
+    h('button', {onclick: () => { const v = st.view; Object.assign(st, DEFAULTS); st.view = v; simReset();
+                                  syncChips(); syncPanel(); dirty = true; refresh(); }}, 'reset all')));
+  const clockTag = h('div', {class: 'tag'}); gClock.appendChild(clockTag);
+
+  const gInfo = h('div', {class: 'grp'}, h('h3', null, 'what you are looking at'), h('div', {id: 'info'}),
+    h('div', {class: 'src', html: 'Remake of PhET Interactive Simulations&rsquo; <b>My Solar System</b> '
+      + '(University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets. '
+      + 'PhET&rsquo;s values are read out of its published build and named as PhET&rsquo;s: G = 4.4567 AU(km/s)&sup2; per '
+      + '10&sup2;&#8312; kg, the mass slider 0.1&ndash;300, the radius rule max(0.03, 0.023 m<sup>1/3</sup>) AU, the '
+      + 'zoom 25&ndash;125 per AU, the 20-AU path cap and the eleven orbital systems. Years and true km/s use '
+      + 'AU = 149,597,870.7 km (IAU 2012), the Julian year and G = 6.6743e-11 (CODATA). Everything else is computed '
+      + 'here and pinned in selfTest to build/my-solar-system/derive.py (scipy solve_ivp, rtol 1e-12).'}));
+  const gPhys = h('div', {class: 'grp'}, h('h3', null, 'the physics'), h('div', {id: 'phys'}));
+  [gSys, gBodies, gShow, gCmp, gClock, gInfo, gPhys].forEach(g => panel.appendChild(g));
+  const infoEl = gInfo.querySelector('#info'), physEl = gPhys.querySelector('#phys');
+
+  function syncChips(){
+    for(const [g, list, key] of CHIPROWS){
+      const cws = g.querySelectorAll('.chips');
+      for(const cw of cws){
+        if(cw.children.length !== list.length) continue;
+        let match = 0;
+        for(let i = 0; i < list.length; i++) if(cw.children[i].textContent === plain(String(list[i].name))) match++;
+        if(match === list.length)
+          [].forEach.call(cw.children, (b, i) => b.className = 'chip' + (list[i].id === ST[key] ? ' on' : ''));
+      }
+    }
+  }
+  function syncPanel(){
+    const v = st.view, sys = curSys(), lab = sysKey(v) === 'lab';
+    gSys.hidden = !lab;
+    gCmp.hidden = (v !== 'conserve');
+    for(const k in rows) rows[k].sync();
+    for(let i = 0; i < 4; i++) rows['mass' + (i + 1)].row.hidden = i >= sys.S.n;
+    enable('fpow', st.gravity);
+    enable('cb_values', v !== 'lab');            /* the lab always lists its bodies */
+    sysTag.innerHTML = lab ? 'every system loads with its centre of mass brought to rest, as PhET loads them; touching '
+      + 'anything makes it custom.' : '';
+    bodyTag.innerHTML = 'a mass below ' + fmt(PHET.MASS_MIN, 1) + ' is a test body (PhET shows &le; 0.1); the radius is '
+      + 'PhET&rsquo;s max(0.03, 0.023 m<sup>1/3</sup>) AU, so a body is drawn to scale but never below 0.03 AU.';
+    showTag.innerHTML = 'velocity arrows are ' + fmt(VSCALE, 1) + ' px per km/s; gravity arrows are 60 px at a pull of '
+      + fmt(F_REF, 0) + ' in these units, times the power.';
+    cmpTag.innerHTML = 'PhET takes 4000/N substeps a frame with ONE force evaluation each; ours takes as many as the '
+      + 'closest pair needs, with four. Both are drawn from the same start.';
+    clockTag.innerHTML = 'space runs and pauses &nbsp; <b>r</b> returns the bodies &nbsp; 1&ndash;4 switch views. One frame '
+      + 'is ' + PHET.FRAME.toExponential(3) + ' model units = ' + fmt(yrOf(PHET.FRAME) * 365.25, 3) + ' d at normal speed.';
+  }
+
+  function refresh(){
+    try{
+      const M = S.model();
+      roEl.innerHTML = readoutHTML(M);
+      eqEl.innerHTML = eqbarHTML(M);
+      tagEl.innerHTML = tagHTML(M);
+      hintEl.textContent = dragsHere(st.view)
+        ? 'drag a body, or the tip of its velocity arrow · space runs · 1–4 switch views'
+        : 'space runs · r returns the bodies · 1–4 switch views';
+      infoEl.innerHTML = INFO[st.view] || '';
+      physEl.innerHTML = DERIV[st.view] || '';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown', e => {
+    canvas.setPointerCapture(e.pointerId);
+    const r = canvas.getBoundingClientRect();
+    if(S.pointer('down', e.clientX - r.left, e.clientY - r.top)){ canvas.classList.add('dragging'); dirty = true; syncPanel(); refresh(); }
+  });
+  canvas.addEventListener('pointermove', e => {
+    if(!canvas.classList.contains('dragging') && e.buttons === 0) return;
+    const r = canvas.getBoundingClientRect();
+    if(S.pointer('move', e.clientX - r.left, e.clientY - r.top)){ dirty = true; syncPanel(); roEl.innerHTML = readoutHTML(S.model()); }
+  });
+  const up = () => { canvas.classList.remove('dragging'); if(S.pointer('up', 0, 0)){ dirty = true; syncMasses(); syncPanel(); refresh(); } };
+  canvas.addEventListener('pointerup', up); canvas.addEventListener('pointercancel', up);
+
+  window.addEventListener('keydown', e => {
+    if(e.key === ' '){ e.preventDefault(); st.running = !st.running; syncPanel(); dirty = true; refresh(); }
+    else if(e.key === 'r'){ const sys = curSys(); sysRestart(sys); st.running = false;
+                            if(sysKey(st.view) === 'lab') histReset(); else ehistReset();
+                            syncMasses(); syncPanel(); dirty = true; refresh(); }
+    else if(e.key >= '1' && e.key <= String(TABS.length)) setView(TABS[+e.key - 1][0]);
+  });
+
+  function resize(){
+    const r = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(r.width * dpr); canvas.height = Math.round(r.height * dpr);
+    canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    S.W = r.width; S.H = r.height;
+  }
+  window.addEventListener('resize', () => { resize(); dirty = true; refresh(); });
+
+  let frameN = 0;
+  function frameLoop(){
+    frameN++;
+    const advanced = S.step();
+    if(advanced || dirty){
+      dirty = false;
+      try{ S.draw(); if(advanced && frameN % 10 === 0) roEl.innerHTML = readoutHTML(S.model()); }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  simReset(); resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO = {
+  intro: 'Two bodies, one law. Newton’s inverse square between them is all there is here, and everything you see — the '
+    + 'ellipse, the speeding up near periapsis, the two bodies wheeling about a point that never moves — comes out of '
+    + 'it. The centre of mass is the quiet one: with no outside force it either stays put or drifts in a straight line '
+    + 'for ever, whatever the two bodies do, because the forces they exert on each other are equal and opposite. Drag a '
+    + 'body or the tip of its green velocity arrow (the clock stops while you do, as PhET’s does) and the whole future '
+    + 'changes. PhET’s own default is a 250 and a 25, and it is the system the third view solves exactly.',
+  lab: 'PhET’s eleven orbital systems, and the room to build your own. Sun and planet is the two-body case; add a moon '
+    + 'and you have the oldest unsolved problem in mechanics. The trojan asteroids sit 60° ahead of and behind the '
+    + 'planet and stay there (Lagrange, 1772); the slingshot is how Voyager was thrown outward — the comet leaves with '
+    + '90 % more energy about the star than it arrived with, taken from the planet’s orbit; the four star ballet is an '
+    + 'exact homographic solution, four stars on four similar ellipses keeping a perfect square. "Hyperbolic" is worth '
+    + 'a look: its three fly-bys are at 0.878, 0.929 and 0.995 of the escape speed, so all three are bound — the last '
+    + 'one comes back after 1,791 years.',
+  exact: 'Two bodies are the case that can be solved, and Newton solved it. Write r for the separation and the two '
+    + 'equations collapse into one: r accelerates as −μr/|r|³ with μ = G(m₁+m₂), which is the one-body problem Kepler’s '
+    + 'laws describe. Each body then traces a scaled copy of that conic about the centre of mass — the heavier one '
+    + 'makes the smaller loop, in the ratio of the masses — while the centre of mass itself moves in a straight line. '
+    + 'The orange curves here are that answer, drawn from the state this run started at, and the panel below is the '
+    + 'distance between it and the integration. It grows, slowly, and the growth is the integrator, not the physics.',
+  conserve: 'Three things cannot change in an isolated system: its momentum, its angular momentum and its energy. A '
+    + 'numerical method keeps some of them exactly and some of them only nearly, and which is which is a property of '
+    + 'the method, not of the physics. This one (PEFRL, fourth order) applies its forces in equal and opposite pairs, '
+    + 'so momentum and angular momentum survive to the last bit — measured here at a few parts in 10¹⁵ over thousands '
+    + 'of frames. The energy is different: it wobbles by the order of the method and returns, which is what a '
+    + 'symplectic integrator buys you. PhET’s own step, run beside it on the same system, carries the PEFRL '
+    + 'coefficients but evaluates the force once a step instead of four times, which makes it first order — halve the '
+    + 'step and its error halves, while this one drops by sixteen.'
+};
+
+function FR(t, b){ return '<span class="frac"><span class="t">' + t + '</span><span class="b">' + b + '</span></span>'; }
+function EQ(n, body){ return '<div class="eq"><span class="n">[' + n + ']</span>' + body + '</div>'; }
+const DERIV = {
+  intro: '<h4>the law, and its units</h4>'
+    + EQ(1, 'm<sub>i</sub> <b>r</b>&Prime;<sub>i</sub> = &minus;G &sum;<sub>j&ne;i</sub> ' + FR('m<sub>i</sub>m<sub>j</sub>(<b>r</b><sub>i</sub> &minus; <b>r</b><sub>j</sub>)', '|<b>r</b><sub>i</sub> &minus; <b>r</b><sub>j</sub>|&sup3;'))
+    + EQ(2, '<span class="rm">units:</span> AU, 10&sup2;&#8312; kg, &ldquo;km/s&rdquo;; G = 4.4567 <span class="rm">(PhET&rsquo;s)</span>; 1 time unit = ' + fmt(T_U_YR, 4) + ' yr')
+    + EQ(3, '<span class="rm">CODATA gives</span> G = G<sub>SI</sub>&middot;10&sup2;&#8312;/(AU&middot;10&#8310;) = ' + fmt(G_SI_UNITS, 4) + ' <span class="rm">in the same units, so PhET&rsquo;s &ldquo;km/s&rdquo; is</span> ' + fmt(KMS_TRUE, 6) + ' km/s')
+    + '<p>PhET solves its time unit from its own G rather than from the AU and the km/s, which is where the 0.05 % comes from. Its presets are kept exactly, so they move here as they move there.</p>'
+    + '<div class="cite">pins: the constants, the eleven systems after the centre-of-mass subtraction, the body radii &mdash; derive.py</div>',
+  lab: '<h4>what each system is</h4>'
+    + EQ(1, '<span class="rm">every system loads with</span> &sum;m<sub>i</sub><b>v</b><sub>i</sub> = 0 <span class="rm">(PhET&rsquo;s followCenterOfMass)</span>')
+    + EQ(2, '<span class="rm">trojans:</span> L4, L5 <span class="rm">at</span> &plusmn;60&deg;; <span class="rm">measured libration</span> &minus;62.9&deg;&hellip;&minus;57.1&deg; <span class="rm">and</span> +55.8&deg;&hellip;+64.7&deg;')
+    + EQ(3, '<span class="rm">four star ballet:</span> &mu;<sub>eff</sub> = Gm(1/&radic;2 + &frac14;), e = 0.3837, T = 0.2870 <span class="rm">units; the square stays square to 2e-14</span>')
+    + EQ(4, '<span class="rm">&ldquo;hyperbolic&rdquo;:</span> v/v<sub>esc</sub> = 0.878, 0.929, 0.995 &nbsp;&rArr;&nbsp; e = 0.954, 0.926, 0.990 &mdash; <span class="rm">all three are bound</span>')
+    + '<p>A collision here merges the pair and conserves mass, momentum and the centre of mass. PhET instead keeps the heavier body&rsquo;s mass and gives it the lighter one&rsquo;s momentum, so its total mass falls; both conserve momentum.</p>'
+    + '<div class="cite">pins: every preset&rsquo;s energy, angular momentum and centre of mass; the trojan libration, the ballet&rsquo;s period and closure, the slingshot&rsquo;s 90.7 % energy gain, the &ldquo;hyperbolic&rdquo; eccentricities &mdash; derive.py (solve_ivp, rtol 1e-12)</div>',
+  exact: '<h4>two bodies, in closed form</h4>'
+    + EQ(1, '<b>r</b> = <b>r</b>&#8322; &minus; <b>r</b>&#8321; &nbsp;&rArr;&nbsp; <b>r</b>&Prime; = &minus;&mu;<b>r</b>/|<b>r</b>|&sup3;, &nbsp; &mu; = G(m&#8321; + m&#8322;)')
+    + EQ(2, '<b>R</b> = ' + FR('m&#8321;<b>r</b>&#8321; + m&#8322;<b>r</b>&#8322;', 'm&#8321; + m&#8322;') + ' &nbsp;&rArr;&nbsp; <b>R</b>&Prime; = 0: <span class="rm">the centre of mass drifts in a straight line</span>')
+    + EQ(3, '<b>r</b>&#8321; = <b>R</b> &minus; ' + FR('m&#8322;', 'M') + '<b>r</b>, &nbsp; <b>r</b>&#8322; = <b>R</b> + ' + FR('m&#8321;', 'M') + '<b>r</b> &nbsp;<span class="rm">— two similar conics, in the ratio of the masses</span>')
+    + EQ(4, '<span class="rm">and on that conic:</span> M = E &minus; e sin E = n(t &minus; t&#8320;), &nbsp; T = 2&pi;&radic;(a&sup3;/&mu;)')
+    + '<p>The same Kepler solver as keplers-laws.html, from the same engine file. The error drawn below is the integrator&rsquo;s alone: the exact solution is evaluated from the start state at the same instant.</p>'
+    + '<div class="cite">pins: a, e, T of PhET&rsquo;s Intro system; the integration against the closed form at four times to 1e-9 AU; the closure of the exact solution after one period &mdash; derive.py</div>',
+  conserve: '<h4>what the method keeps</h4>'
+    + EQ(1, '<span class="rm">a kick:</span> &Delta;<b>v</b><sub>i</sub> = c h <b>a</b><sub>i</sub>, <span class="rm">built pairwise, so</span> &sum;m<sub>i</sub>&Delta;<b>v</b><sub>i</sub> = 0 <span class="rm">and</span> &sum;m<sub>i</sub><b>r</b><sub>i</sub>&times;&Delta;<b>v</b><sub>i</sub> = 0')
+    + EQ(2, '<span class="rm">a drift:</span> <b>r</b><sub>i</sub> &rarr; <b>r</b><sub>i</sub> + c h <b>v</b><sub>i</sub> <span class="rm">leaves</span> <b>r</b>&times;<b>v</b> <span class="rm">alone &mdash; so p and L are exact, to rounding</span>')
+    + EQ(3, 'PEFRL: &xi; = 0.17861790, &lambda; = &minus;0.21234183, &chi; = &minus;0.06626458 &nbsp;<span class="rm">(four force evaluations a step; error &prop; h&#8308;)</span>')
+    + EQ(4, "PhET's step: <span class=\"rm\">the same coefficients, ONE acceleration &rArr;</span> x + vh + &frac12;ah&sup2;, v + ah &nbsp;<span class=\"rm\">(error &prop; h)</span>")
+    + '<p>Measured by halving the step four times on the Sun&ndash;planet system: ratios 16.0, 16.0, 16.6 (order 4.02) against 1.9, 2.0, 2.0 (order 0.97). PhET hides it with 4,000/N substeps a frame &mdash; even so its energy drifts 3.7e-6 in the first second.</p>'
+    + '<div class="cite">pins: both orders; |&Delta;E/E| &le; 6.1e-10, |&Delta;L/L| &le; 1.3e-14 and |&Delta;p|/p &le; 7e-15 over 2,000 frames of four systems &mdash; derive.py</div>'
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Values labelled (derive) come   *
+ *  from REF, generated by gen_tables.py from refvals.txt, which is    *
+ *  derive.py's printed output (scipy solve_ivp at rtol 1e-12 and its  *
+ *  own PEFRL twin), read in full.                                     *
+ * ================================================================== */
+function makeShot(W, H){
+  const ops = []; let Mx = [1, 0, 0, 1, 0, 0]; const stack = [];
+  const st2 = {font: '10px x', align: 'left', base: 'alphabetic'};
+  const mul = (A, B) => [A[0] * B[0] + A[2] * B[1], A[1] * B[0] + A[3] * B[1], A[0] * B[2] + A[2] * B[3],
+                         A[1] * B[2] + A[3] * B[3], A[0] * B[4] + A[2] * B[5] + A[4], A[1] * B[4] + A[3] * B[5] + A[5]];
+  const app = (x, y) => [Mx[0] * x + Mx[2] * y + Mx[4], Mx[1] * x + Mx[3] * y + Mx[5]];
+  const fsz = () => { const m = /([\d.]+)px/.exec(st2.font); return m ? parseFloat(m[1]) : 10; };
+  let pend = null;
+  const ctx = {ops,
+    save(){ stack.push({M: Mx.slice(), f: st2.font, a: st2.align, b: st2.base}); },
+    restore(){ const s = stack.pop(); if(s){ Mx = s.M; st2.font = s.f; st2.align = s.a; st2.base = s.b; } },
+    translate(x, y){ Mx = mul(Mx, [1, 0, 0, 1, x, y]); },
+    rotate(r){ const c = Math.cos(r), s3 = Math.sin(r); Mx = mul(Mx, [c, s3, -s3, c, 0, 0]); },
+    scale(x, y){ Mx = mul(Mx, [x, 0, 0, y, 0, 0]); }, setTransform(){ Mx = [1, 0, 0, 1, 0, 0]; },
+    beginPath(){ pend = null; }, moveTo(){}, lineTo(){ if(!pend) pend = {n: 0}; }, closePath(){},
+    rect(x, y, w, hh){ if(!pend) pend = {n: 0}; pend.n++; pend.r = [x, y, x + w, y + hh]; },
+    arc(){ if(!pend) pend = {n: 0}; pend.n++; },
+    fill(){ if(pend) ops.push({op: 'fill', n: pend.n || 1}); },
+    stroke(){ ops.push({op: 'stroke'}); },
+    /* recorded, because the scene's clip to the stage box is a thing the tests check */
+    clip(){ if(pend && pend.r) ops.push({op: 'clip', bb: pend.r.slice()}); },
+    fillRect(x, y, w, hh){ ops.push({op: 'fill', n: 1, bb: [x, y, x + w, y + hh], style: ctx.fillStyle}); },
+    strokeRect(){ ops.push({op: 'stroke'}); }, clearRect(){},
+    fillText(t, x, y){
+      const w = ('' + t).length * fsz() * 0.52, fh = fsz() * 1.15;
+      const lx = st2.align === 'center' ? x - w / 2 : (st2.align === 'right' ? x - w : x);
+      const ly = st2.base === 'top' ? y : (st2.base === 'middle' ? y - fh / 2 : (st2.base === 'bottom' ? y - fh : y - fh * 0.8));
+      const cs = [[lx, ly], [lx + w, ly], [lx, ly + fh], [lx + w, ly + fh]].map(c2 => app(c2[0], c2[1]));
+      const xs = cs.map(c2 => c2[0]), ys = cs.map(c2 => c2[1]);
+      ops.push({op: 'text', t: '' + t, bb: [Math.min.apply(0, xs), Math.min.apply(0, ys), Math.max.apply(0, xs), Math.max.apply(0, ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width: ('' + t).length * fsz() * 0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; }
+  };
+  let _fill = '#000';
+  Object.defineProperty(ctx, 'fillStyle', {get: () => _fill, set: v => _fill = '' + v});
+  for(const kk of ['strokeStyle', 'lineWidth', 'globalAlpha', 'lineJoin', 'lineCap']){ let v2; Object.defineProperty(ctx, kk, {get: () => v2, set: x => v2 = x}); }
+  Object.defineProperty(ctx, 'font', {get: () => st2.font, set: v => st2.font = '' + v});
+  Object.defineProperty(ctx, 'textAlign', {get: () => st2.align, set: v => st2.align = '' + v});
+  Object.defineProperty(ctx, 'textBaseline', {get: () => st2.base, set: v => st2.base = '' + v});
+  return ctx;
+}
+
+function selfTest(){
+  let pass = 0, fail = 0;
+  const ok = (c, name) => { if(c) pass++; else { fail++; console.log('FAIL — ' + name); } };
+  const eq = (a, b, name) => ok(a === b, name + ' [' + a + ' vs ' + b + ']');
+  const close = (a, b, tol, name) => ok(Math.abs(a - b) <= tol, name + ' [' + a + ' vs ' + b + ']');
+  const rel = (a, b, t, name) => ok(Math.abs(a - b) <= t * Math.abs(b || 1),
+    name + ' [' + a + ' vs ' + b + ', rel ' + (Math.abs(a - b) / Math.abs(b || 1)).toExponential(2) + ']');
+  const T0 = Date.now();
+  const stSave = Object.assign({}, ST);
+  function withState(over, fn){
+    const o = Object.assign({}, over), frames = o.frames;
+    delete o.frames;
+    Object.assign(ST, DEFAULTS, o); simReset();
+    if(frames){ ST.running = true; for(let k = 0; k < frames; k++) runStep(); ST.running = false; }
+    try{ return fn(); } finally{ Object.assign(ST, stSave); simReset(); }
+  }
+  /* a system built straight from a preset table, for the physics sections */
+  function bench(key){ return sysLoad(key); }
+
+  /* ---------- 0. the shared helpers and PhET's units ---------- */
+  ok(plain('&Delta;x &theta; &#955; M&#8321;') === 'Δx θ λ M₁', 'plain() decodes named, capital and numeric entities');
+  ok(plain('a<sub>B</sub>b') === 'aBb', 'plain() strips tags');
+  ok(ticksFor(0.8, 0.2, 5).length === 1 && ticksFor(0.2, 0.8, 5).length >= 3, 'axes() range-sort rescues an inverted axis');
+  { let threw = false; try{ toRgb('nope'); }catch(e){ threw = true; } ok(threw, 'toRgb throws on garbage'); }
+  { const stub = {beginPath(){}, moveTo(){}, lineTo(){}, stroke(){}, save(){}, restore(){}, setLineDash(){}};
+    const bb = box(100, 100, 200, 100); POLY_SEGS = [];
+    polyline(stub, bb, [-1, 2], [0.5, 0.5], 0, 1, 0, 1, '#fff', 1);
+    ok(POLY_SEGS.length === 4, 'polyline clips a both-ends-outside segment to the frame'); POLY_SEGS = []; }
+  close(90 * DEG, PI / 2, 1e-15, 'DEG converts degrees INTO radians');
+  eq(G_MSS, 4.4567, "PhET's G, read out of its build");
+  rel(TIME_MULT, REF.units.time_mult, 1e-15, "PhET's TIME_MULTIPLIER (derive)");
+  rel(T_U_YR, REF.units.T_U_YR, 1e-15, 'one model time unit is 4.7379 yr (derive)');
+  rel(G_SI_UNITS, REF.units.G_si, 1e-15, 'CODATA G in the same units (derive)');
+  rel(KMS_TRUE, REF.units.kms_true, 1e-15, "so PhET's km/s is 1.000538 true km/s (derive)");
+  ok(G_MSS < G_SI_UNITS && (1 - G_MSS / G_SI_UNITS) < 0.0011, "PhET's G is 0.107 % below CODATA's");
+  rel(PHET.FRAME, REF.units.frame, 1e-15, 'one frame at normal speed (derive)');
+  rel(yrOf(PHET.FRAME), REF.units.frame_yr, 1e-15, '... in years (derive)');
+  rel(massToRadius(200), REF.radius.m200, 1e-15, "PhET's radius rule at 200 (derive)");
+  eq(massToRadius(1e-6), REF.radius.tiny, '... and its 0.03 AU floor (derive)');
+
+  /* ---------- A. the N-body engine ---------- */
+  { /* Newton's third law, and the acceleration of a known pair */
+    const S = nbodyMake([2, 3], [0, 4], [0, 0], [0, 0], [0, 0]);
+    nbodyAccel(S, G_MSS);
+    close(S.ax[0], G_MSS * 3 / 16, 1e-15, 'the pull on body 1 is G m2 / r^2');
+    close(S.ax[1], -G_MSS * 2 / 16, 1e-15, '... and on body 2 is G m1 / r^2 the other way');
+    close(2 * S.ax[0] + 3 * S.ax[1], 0, 1e-15, '... so the forces are equal and opposite');
+    close(S.ay[0], 0, 0, 'no force across the line');
+    close(nbodyEnergy(S, G_MSS), -G_MSS * 6 / 4, 1e-15, 'the energy of a pair at rest is -G m1 m2 / r');
+    close(nbodyAngular(S), 0, 0, 'at rest there is no angular momentum');
+    const c = nbodyCom(S);
+    close(c.x, 12 / 5, 1e-15, 'the centre of mass sits at (m1 x1 + m2 x2)/M'); }
+  { /* one PhET step is exactly x + v h + a h^2/2, v + a h: that is the whole finding */
+    const S = nbodyMake([250, 25], [0, 2], [0, 0], [0, -2.3446], [0, 23.4457]);
+    nbodyAccel(S, G_MSS);
+    const ax0 = S.ax[1], ay0 = S.ay[1], x0 = S.x[1], y0 = S.y[1], vx0 = S.vx[1], vy0 = S.vy[1];
+    const h = 0.01;
+    phetStep(S, G_MSS, h);
+    close(S.x[1], x0 + vx0 * h + 0.5 * ax0 * h * h, 1e-12, "PhET's step moves x by v h + a h^2/2 exactly");
+    close(S.y[1], y0 + vy0 * h + 0.5 * ay0 * h * h, 1e-12, '... and y the same way');
+    close(S.vx[1], vx0 + ax0 * h, 1e-13, '... and v by a h: the acceleration of the START point only');
+    close(S.vy[1], vy0 + ay0 * h, 1e-13, '... in both components (so it is first order, not fourth)'); }
+  { /* the orders, measured here as derive.py measures them */
+    const sys = bench('sunPlanet'), o = orderSweep(sys);
+    for(let i = 0; i < o.N.length; i++){
+      /* at N = 1600 PEFRL's own error is 1.2e-11, where the two languages' rounding differs
+         by a couple of per cent: the claim is the ORDER, and that is asserted below */
+      rel(o.pefrl[i], REF.orders.pefrl.errs[i][1], 0.25, 'PEFRL error at N = ' + o.N[i] + ' (derive)');
+      rel(o.phet[i], REF.orders.phet.errs[i][1], 0.02, "PhET's error at N = " + o.N[i] + ' (derive)');
+    }
+    close(o.slope('pefrl'), REF.orders.pefrl.order, 0.05, 'PEFRL is fourth order (derive: 4.02)');
+    close(o.slope('phet'), REF.orders.phet.order, 0.05, "PhET's shipped step is first order (derive: 0.97)");
+    ok(o.slope('pefrl') > 3.8 && o.slope('phet') < 1.2, '... a difference of three orders, not a tolerance');
+    ok(o.phet[0] / o.pefrl[0] > 1e6, 'at 200 steps PhET\'s error is a million times ours'); }
+  { /* a circular two-body orbit comes back to itself */
+    const m = [1000, 1e-6], r = 3, v = Math.sqrt(G_MSS * 1000 / r);
+    const S = nbodyMake(m, [0, r], [0, 0], [0, 0], [0, v]);
+    const T = TAU * Math.sqrt(r * r * r / (G_MSS * (m[0] + m[1])));
+    const N = 4000, h = T / N;
+    for(let k = 0; k < N; k++) pefrlStep(S, G_MSS, h);
+    close(S.x[1], r, 1e-7, 'a circular orbit closes after one period (x)');
+    close(S.y[1], 0, 1e-7, '... and (y): the closure is the phase error of 4000 PEFRL steps');
+    close(Math.hypot(S.x[1], S.y[1]), r, 1e-12, '... having kept its radius throughout'); }
+  { /* the collision rule: mass, momentum and the centre of mass all survive */
+    const S = nbodyMake([200, 5], [0, 0.05], [0, 0], [0, 0], [0, 10]);
+    const p0 = nbodyMomentum(S), c0 = nbodyCom(S), M0 = c0.M;
+    const merges = nbodyCollide(S);
+    eq(merges.length, 1, 'two touching bodies merge');
+    eq(S.n, 1, '... into one');
+    rel(S.m[0], REF.merge.m, 1e-15, '... whose mass is the sum (derive)');
+    rel(S.x[0], REF.merge.x, 1e-12, '... at the centre of mass (derive)');
+    rel(S.vy[0], REF.merge.vy, 1e-12, '... moving with its momentum (derive)');
+    const p1 = nbodyMomentum(S), c1 = nbodyCom(S);
+    close(p1[0] - p0[0], 0, 1e-12, 'momentum is conserved across the merge (x)');
+    close(p1[1] - p0[1], 0, 1e-12, '... and (y)');
+    close(c1.M, M0, 1e-12, 'and so is the total mass');
+    ok(Math.abs(REF.merge_phet_vy - REF.merge.vy) > 1e-3, "PhET's rule would give a different speed (its mass is lost)"); }
+  { /* PhET's shadow takes ITS substeps: 4000/N of them, one force evaluation each */
+    const S = nbodyMake([250, 25], [0, 2], [0, 0], [0, -2.3446], [0, 23.4457]);
+    const n = phetShadowStep(S, PHET.FRAME);
+    eq(n, 2000, "PhET's own step takes 4000/N substeps a frame (2000 for two bodies)");
+    const S4 = nbodyMake([1, 1, 1, 1], [0, 1, 2, 3], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]);
+    eq(phetShadowStep(S4, PHET.FRAME), 1000, '... and 1000 for four');
+    /* and the view's zoom is PhET's own ladder, 25 to 125 view units per AU */
+    const zSave = ST.zoom;
+    ST.zoom = PHET.ZOOM_DEF;
+    close(viewRadius(), 309 / 85, 1e-12, "the default zoom is PhET's 85 view units per AU");
+    ST.zoom = PHET.ZOOM_MIN; close(viewRadius(), 309 / PHET.ZOOM_LO, 1e-12, '... 25 at the bottom of the ladder');
+    ST.zoom = PHET.ZOOM_MAX; close(viewRadius(), 309 / PHET.ZOOM_HI, 1e-12, '... and 125 at the top');
+    ST.zoom = zSave; }
+  { /* the step limit is the rule the sim's substepping is built on */
+    const sys = bench('sunPlanet');
+    rel(nbodyStepLimit(sys.S, G_MSS, NBODY_ETA), REF.presets.sunPlanet.lim, 1e-12, 'the step limit of the Sun-planet system (derive)');
+    const S2 = nbodyCopy(sys.S);
+    const n = nbodyAdvance(S2, G_MSS, PHET.FRAME, NBODY_ETA);
+    eq(n, REF.twobody.steps[0].nsub, 'and the substeps one frame needs (derive)'); }
+
+  /* ---------- B. PhET's orbital systems, as loaded ---------- */
+  for(const key in REF.presets){
+    const R = REF.presets[key], sys = bench(key), tag = key + ': ';
+    eq(sys.S.n, R.n, tag + 'the number of bodies');
+    for(let i = 0; i < sys.S.n; i++){
+      rel(sys.S.m[i], R.m[i], 1e-15, tag + 'mass ' + (i + 1));
+      close(sys.S.x[i], R.x[i], 1e-13, tag + 'x' + (i + 1));
+      close(sys.S.y[i], R.y[i], 1e-13, tag + 'y' + (i + 1));
+      close(sys.S.vx[i], R.vx[i], 1e-12, tag + 'vx' + (i + 1) + ' after the centre-of-mass subtraction (derive)');
+      close(sys.S.vy[i], R.vy[i], 1e-12, tag + 'vy' + (i + 1) + ' (derive)');
+    }
+    rel(nbodyEnergy(sys.S, G_MSS), R.E, 1e-12, tag + 'the energy it starts with (derive)');
+    rel(nbodyAngular(sys.S), R.L, 1e-12, tag + 'the angular momentum (derive)');
+    const c = nbodyCom(sys.S);
+    close(c.x, R.comx, 1e-12, tag + 'the centre of mass x (derive)');
+    close(Math.hypot(c.vx, c.vy), 0, 1e-13, tag + 'and it is at rest, as PhET loads it');
+  }
+  eq(PRESETS.length, 12, "PhET's eleven orbital systems, and custom");
+  { let threw = false; try{ presetById('nope'); }catch(e){ threw = true; } ok(threw, 'an unknown system throws'); }
+
+  { /* the path behind a body is cut: PhET keeps 20 AU of it (MAX_PATH_DISTANCE) and 5800
+       points, so a fast body trails a fading ribbon rather than filling the screen.  Walk a
+       body by hand instead of integrating, so the rule is tested and nothing else is. */
+    const sys = sysLoad('sunPlanet'); sysClearPaths(sys);
+    for(let k = 0; k <= 200; k++){ sys.S.x[0] = 0.5 * k; sys.S.y[0] = 0; sysAddPath(sys); }
+    const p = sys.paths[0];
+    let L = 0; for(let i = 1; i < p.length; i++) L += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+    ok(L <= PHET.PATH_AU + 1e-12, 'a body walked 100 AU keeps at most ' + PHET.PATH_AU + ' AU of path (PhET MAX_PATH_DISTANCE), not ' + fmt(L, 2));
+    ok(L > PHET.PATH_AU - 0.5 - 1e-12, 'and it keeps everything back to that cut (one step short at most)');
+    close(sys.plen[0], L, 1e-12, 'the running length it carries is the polyline it drew');
+    close(p[p.length - 1][0], 100, 1e-12, 'the newest point is where the body is');
+    close(p[0][0], 100 - L, 1e-12, 'and the oldest is exactly the cut behind it');
+    const s2 = sysLoad('sunPlanet'); sysClearPaths(s2);
+    for(let k = 0; k <= 6200; k++){ s2.S.x[0] = 1e-4 * k; s2.S.y[0] = 0; sysAddPath(s2); }
+    ok(s2.plen[0] < PHET.PATH_AU, 'steps of 1e-4 AU never reach the distance cap');
+    eq(s2.paths[0].length, PHET.PATH_PTS, 'so the 5800-point cap is what holds that path down');
+    const s3 = sysLoad('sunPlanet'); sysClearPaths(s3);
+    const x0 = s3.S.x[0]; for(let k = 0; k < 5; k++) sysAddPath(s3);
+    eq(s3.paths[0].length, 1, 'a body that has not moved adds no points');
+    close(s3.paths[0][0][0], x0, 1e-15, 'just the one it started at'); }
+
+  /* ---------- C. the runs, against solve_ivp ---------- */
+  for(const key in REF.runs){
+    const sys = bench(key), R = REF.runs[key], tag = key + ' run: ';
+    let worst = 0;
+    for(let k = 1; k <= 300; k++){
+      const r = sysStep(sys, PHET.FRAME, false);
+      const rec = R[String(k)];
+      if(!rec) continue;
+      eq(r.nsub, rec.nsub, tag + 'substeps at frame ' + k + ' (derive)');
+      for(let i = 0; i < sys.S.n; i++){
+        worst = Math.max(worst, Math.abs(sys.S.x[i] - rec.x[i]), Math.abs(sys.S.y[i] - rec.y[i]));
+        close(sys.S.x[i], rec.x[i], 2e-9, tag + 'x' + (i + 1) + ' at frame ' + k + ' (derive twin)');
+        close(sys.S.y[i], rec.y[i], 2e-9, tag + 'y' + (i + 1) + ' at frame ' + k + ' (derive twin)');
+      }
+      ok(rec.dev < 1e-6, tag + 'the twin itself is within ' + rec.dev.toExponential(1) + ' AU of solve_ivp at frame ' + k);
+    }
+    ok(worst < 2e-9, tag + 'the browser run tracks the Python twin to ' + worst.toExponential(2) + ' AU');
+  }
+
+  /* ---------- D. what the method keeps, over a long run ---------- */
+  for(const key in REF.conserve){
+    const R = REF.conserve[key], sys = bench(key), tag = key + ' 2000 frames: ';
+    const E0 = nbodyEnergy(sys.S, G_MSS), L0 = nbodyAngular(sys.S), p0 = nbodyMomentum(sys.S);
+    let ps = 0;
+    for(let i = 0; i < sys.S.n; i++) ps += sys.S.m[i] * Math.hypot(sys.S.vx[i], sys.S.vy[i]);
+    let wE = 0, wL = 0, wP = 0;
+    for(let k = 0; k < 2000; k++){
+      sysStep(sys, PHET.FRAME, false);
+      if(k % 50 === 0 || k === 1999){
+        wE = Math.max(wE, Math.abs(nbodyEnergy(sys.S, G_MSS) - E0) / Math.abs(E0));
+        wL = Math.max(wL, Math.abs(nbodyAngular(sys.S) - L0) / Math.max(1e-12, Math.abs(L0)));
+        const p = nbodyMomentum(sys.S);
+        wP = Math.max(wP, Math.hypot(p[0] - p0[0], p[1] - p0[1]) / ps);
+      }
+    }
+    ok(wE <= R.dE * 3 + 1e-12, tag + '|dE/E| ' + wE.toExponential(2) + ' (derive ' + R.dE.toExponential(2) + ')');
+    ok(wL < 1e-12, tag + 'angular momentum is exact to rounding (' + wL.toExponential(2) + ')');
+    ok(wP < 1e-12, tag + 'momentum is exact to rounding (' + wP.toExponential(2) + ')');
+    ok(wE > wL * 10, tag + 'and the energy is the one that drifts, as a symplectic method does');
+    for(let i = 0; i < sys.S.n; i++){
+      close(sys.S.x[i], R.xend[i], 2e-7, tag + 'x' + (i + 1) + ' at the end (derive twin)');
+      close(sys.S.y[i], R.yend[i], 2e-7, tag + 'y' + (i + 1) + ' at the end (derive twin)');
+    }
+  }
+
+  /* ---------- E. two bodies, exactly ---------- */
+  { const R = REF.twobody, sys = bench('sunPlanet');
+    const red = twoBodyReduce(sys.S, G_MSS), el = red.el;
+    rel(red.mu, R.mu, 1e-15, 'mu = G(m1 + m2) (derive)');
+    rel(el.a, R.a, 1e-12, 'the relative orbit a (derive)');
+    close(el.e, R.e, 1e-12, '... e (derive)');
+    rel(el.T, R.T, 1e-12, '... T in model units (derive)');
+    rel(yrOf(el.T), R.T_yr, 1e-12, '... which is 2.7498 yr (derive)');
+    rel(el.q, R.q, 1e-12, '... periapsis (derive)'); rel(el.Q, R.Q, 1e-12, '... apoapsis (derive)');
+    close(el.q, 2, 1e-9, 'PhET launches its planet exactly at periapsis');
+    /* the exact solution against the integration, frame by frame */
+    let worst = 0;
+    for(let k = 1; k <= 120; k++){
+      sysStep(sys, PHET.FRAME, false);
+      const e2 = twoBodyAt(red, sys.t);
+      worst = Math.max(worst, Math.hypot(sys.S.x[1] - e2.x2, sys.S.y[1] - e2.y2));
+      const rec = R.steps.find(s => s.frame === k);
+      if(rec){
+        close(sys.S.x[1], rec.x1, 2e-9, 'frame ' + k + ': x of body 2 (derive twin)');
+        close(sys.S.y[1], rec.y1, 2e-9, 'frame ' + k + ': y of body 2 (derive twin)');
+        close(sys.S.x[1], rec.ivp_x1, 1e-8, 'frame ' + k + ': ... and solve_ivp (derive)');
+      }
+    }
+    ok(worst < 1e-9, 'the integration tracks the exact Kepler solution to ' + worst.toExponential(2) + ' AU over 120 frames');
+    /* the two bodies move on similar conics about the centre of mass */
+    const s0 = twoBodyAt(red, 0), s1 = twoBodyAt(red, 0.37 * el.T);
+    const d0 = Math.hypot(s0.x1 - red.com.x, s0.y1 - red.com.y) / Math.hypot(s0.x2 - red.com.x, s0.y2 - red.com.y);
+    const d1 = Math.hypot(s1.x1 - red.com.x, s1.y1 - red.com.y) / Math.hypot(s1.x2 - red.com.x, s1.y2 - red.com.y);
+    close(d0, sys.S.m[1] / sys.S.m[0], 1e-12, 'the two orbits are in the inverse ratio of the masses');
+    close(d1, d0, 1e-12, '... at every instant, not just at the start');
+    /* and it closes */
+    const sT = twoBodyAt(red, el.T);
+    close(sT.x2, s0.x2, 1e-12, 'the exact solution closes after one period (x)');
+    close(sT.y2, s0.y2, 1e-12, '... and (y)'); }
+
+  { /* a system whose centre of mass is MOVING.  Every PhET preset loads with it at rest, so
+       without this case nothing in the suite can see the drift term of the exact solution --
+       the mutation sweep proved it by deleting that term and surviving. */
+    const S = nbodyMake([250, 25], [0, 2], [0, 0], [3, -2.3446 + 3], [1.5, 23.4457 + 1.5]);
+    const red = twoBodyReduce(S, G_MSS);
+    ok(Math.hypot(red.com.vx, red.com.vy) > 1, 'this system drifts: |V_com| = ' + fmt(Math.hypot(red.com.vx, red.com.vy), 3) + ' km/s');
+    const S2 = nbodyCopy(S);
+    const N = 200;
+    for(let k = 0; k < N; k++) nbodyAdvance(S2, G_MSS, PHET.FRAME, NBODY_ETA);
+    const t = N * PHET.FRAME, e2 = twoBodyAt(red, t);
+    close(S2.x[0], e2.x1, 1e-8, 'the exact solution follows the drifting system (body 1, x)');
+    close(S2.y[0], e2.y1, 1e-8, '... (body 1, y)');
+    close(S2.x[1], e2.x2, 1e-8, '... (body 2, x)');
+    close(S2.y[1], e2.y2, 1e-8, '... (body 2, y)');
+    const c2 = nbodyCom(S2);
+    close(c2.x, red.com.x + red.com.vx * t, 1e-9, 'and its centre of mass has moved in a straight line (x)');
+    close(c2.y, red.com.y + red.com.vy * t, 1e-9, '... (y)');
+    close(c2.vx, red.com.vx, 1e-12, '... at unchanged speed (x)');
+    close(c2.vy, red.com.vy, 1e-12, '... (y)'); }
+
+  { /* the exact orbit is anchored at the START state AND at the clock reading that start was
+       taken at.  The centre-of-mass button saves a start without stopping the clock, so those
+       two are not the same thing, and reading the exact solution from t = 0 would put it a
+       third of an orbit ahead of the bodies. */
+    Object.assign(ST, DEFAULTS, {view: 'exact'}); simReset();
+    const sys = SIM.intro;
+    ST.running = true;
+    for(let k = 0; k < 90; k++) runStep();
+    ST.running = false;
+    ok(sys.t > 0.05, 'the clock has run to t = ' + fmt(sys.t, 3) + ' (a quarter of the orbit)');
+    const before = exactModel(sys);
+    ok(before.err < 1e-9, 'the integration is still on its exact orbit, ' + before.err.toExponential(2) + ' AU off');
+    /* ehistReset's own contract: rebuild from the SAVED start, not from wherever the bodies
+       have got to.  Every button saves a start before calling it, so only a direct call can
+       tell those two apart -- and the sweep survived on exactly that. */
+    const moved = Math.hypot(sys.S.x[1] - sys.start[1][1], sys.S.y[1] - sys.start[1][2]);
+    ok(moved > 0.2, 'body 2 is ' + fmt(moved, 3) + ' AU from where it started');
+    ehistReset();
+    const e0 = twoBodyAt(SIM.exact, 0);
+    close(e0.x2, sys.start[1][1], 1e-10, 'the exact orbit at t = 0 is the START position (x), not the one on screen');
+    close(e0.y2, sys.start[1][2], 1e-10, '... (y)');
+    close(e0.x1, sys.start[0][1], 1e-10, '... and the star started there too (x)');
+    close(e0.y1, sys.start[0][2], 1e-10, '... (y)');
+    ok(Math.hypot(e0.x2 - sys.S.x[1], e0.y2 - sys.S.y[1]) > 0.2, 'which is nowhere near the body now');
+    ok(exactModel(sys).err < 1e-9, 'and the rebuilt record still tracks the run');
+    const tWas = sys.t;
+    sysComFrame(sys); ehistReset();
+    eq(sys.t, tWas, 'the centre-of-mass button does not stop the clock');
+    close(SIM.exactT0, tWas, 1e-15, 'so the new start carries that clock reading with it');
+    const after = exactModel(sys);
+    ok(after.err < 1e-12, 'and the exact orbit is re-anchored where the bodies are, '
+       + after.err.toExponential(2) + ' AU off (not a third of an orbit away)');
+    ST.running = true;
+    for(let k = 0; k < 60; k++) runStep();
+    ST.running = false;
+    const later = exactModel(sys);
+    ok(later.err < 1e-9, '... and it keeps following them afterwards, ' + later.err.toExponential(2) + ' AU off');
+    close(SIM.ehist[SIM.ehist.length - 1].t, sys.t, 1e-12, 'the drift record is stamped with the sim clock');
+    Object.assign(ST, DEFAULTS); simReset(); }
+
+  /* ---------- F. what each of PhET's systems does ---------- */
+  { const F = REF.facts.moon, sys = bench('sunPlanetMoon');
+    const rel2 = conicFromState(sys.S.x[2] - sys.S.x[1], sys.S.y[2] - sys.S.y[1],
+                                sys.S.vx[2] - sys.S.vx[1], sys.S.vy[2] - sys.S.vy[1], G_MSS * (sys.S.m[1] + sys.S.m[2]));
+    rel(rel2.a, F.a, 1e-11, 'the moon: its planetocentric a (derive)');
+    close(rel2.e, F.e, 1e-11, '... and e (derive)');
+    ok(rel2.a < F.hill, '... which is inside the planet\'s Hill radius ' + fmt(F.hill, 4) + ' AU (derive)');
+    let dmin = 1e9, dmax = 0;
+    for(let k = 0; k < 1600; k++){
+      sysStep(sys, 1.5 / 1600, false);
+      const d = Math.hypot(sys.S.x[2] - sys.S.x[1], sys.S.y[2] - sys.S.y[1]);
+      dmin = Math.min(dmin, d); dmax = Math.max(dmax, d);
+    }
+    /* a minimum read off a sampled trajectory is an UPPER bound on the true one, so the
+       assertion is one-sided against derive's finer sampling (Known-bad, lagrange_points) */
+    ok(dmin >= F.dmin - 1e-6 && dmin < F.dmin + 2e-3,
+       '... its closest approach to the planet over 1.5 units, ' + fmt(dmin, 5) + ' against derive\'s ' + fmt(F.dmin, 5));
+    close(dmax, F.dmax, 2e-4, '... and its farthest (derive)');
+    ok(dmax < F.hill, '... so it stays bound to the planet the whole time'); }
+  { const F = REF.facts.trojan, sys = bench('trojan');
+    const lo = {2: 1e9, 3: 1e9}, hi = {2: -1e9, 3: -1e9};
+    for(let k = 0; k <= 1200; k++){
+      const ap = Math.atan2(sys.S.y[1] - sys.S.y[0], sys.S.x[1] - sys.S.x[0]);
+      for(const i of [2, 3]){
+        const ai = Math.atan2(sys.S.y[i] - sys.S.y[0], sys.S.x[i] - sys.S.x[0]);
+        let d = ((ai - ap + PI) % TAU + TAU) % TAU - PI;
+        d = d / DEG;
+        lo[i] = Math.min(lo[i], d); hi[i] = Math.max(hi[i], d);
+      }
+      sysStep(sys, 3.0 / 1200, false);
+    }
+    close(lo[2], F['2'].lo, 0.2, 'the trojan at L5 librates down to ' + fmt(F['2'].lo, 2) + ' deg (derive)');
+    close(hi[2], F['2'].hi, 0.2, '... and up to ' + fmt(F['2'].hi, 2) + ' deg (derive)');
+    close(lo[3], F['3'].lo, 0.2, 'the trojan at L4 librates down to ' + fmt(F['3'].lo, 2) + ' deg (derive)');
+    close(hi[3], F['3'].hi, 0.2, '... and up to ' + fmt(F['3'].hi, 2) + ' deg (derive)');
+    ok(hi[2] < 0 && lo[3] > 0, 'they stay on opposite sides, 60 degrees ahead of and behind the planet');
+    ok(Math.abs(lo[2] + 60) < 5 && Math.abs(hi[3] - 60) < 6, '... never far from Lagrange\'s +-60'); }
+  { const F = REF.facts.ellipses, sys = bench('ellipses'), mu = G_MSS * sys.S.m[0];
+    for(let i = 1; i <= 3; i++){
+      const el = conicFromState(sys.S.x[i] - sys.S.x[0], sys.S.y[i] - sys.S.y[0],
+                                sys.S.vx[i] - sys.S.vx[0], sys.S.vy[i] - sys.S.vy[0], mu);
+      rel(el.a, F[i - 1].a, 1e-11, 'ellipses body ' + (i + 1) + ': a (derive)');
+      close(el.e, F[i - 1].e, 1e-11, '... e (derive)');
+      rel(el.T, F[i - 1].T, 1e-11, '... T (derive)');
+      rel(el.q, F[i - 1].q, 1e-11, '... and a periapsis of 0.54 AU, like the others (derive)');
+    }
+    ok(Math.abs(F[0].q - F[2].q) < 0.01, 'all three were launched to the same periapsis'); }
+  { const F = REF.facts.hyperbolic, sys = bench('hyperbolic'), mu = G_MSS * sys.S.m[0];
+    for(let i = 1; i <= 3; i++){
+      const R = F.bodies[i - 1];
+      const dx = sys.S.x[i] - sys.S.x[0], dy = sys.S.y[i] - sys.S.y[0];
+      const v = Math.hypot(sys.S.vx[i] - sys.S.vx[0], sys.S.vy[i] - sys.S.vy[0]);
+      const vesc = escapeSpeed(Math.hypot(dx, dy), mu);
+      const el = conicFromState(dx, dy, sys.S.vx[i] - sys.S.vx[0], sys.S.vy[i] - sys.S.vy[0], mu);
+      rel(v / vesc, R.ratio, 1e-11, '"hyperbolic" body ' + (i + 1) + ': v/v_esc = ' + fmt(R.ratio, 4) + ' (derive)');
+      ok(v < vesc, '... which is BELOW the escape speed');
+      eq(el.kind, 'ellipse', '... so the orbit is an ellipse, not a hyperbola');
+      close(el.e, R.e, 1e-10, '... of e = ' + fmt(R.e, 4) + ' (derive)');
+      rel(el.a, R.a, 1e-9, '... and a = ' + fmt(R.a, 3) + ' AU (derive)');
+    }
+    ok(F.bodies[2].ratio > 0.99 && F.bodies[2].ratio < 1, 'the outermost is within half a per cent of escaping'); }
+  { const F = REF.facts.slingshot, sys = bench('slingshot'), mu = G_MSS * sys.S.m[0];
+    const he = () => {
+      const dx = sys.S.x[2] - sys.S.x[0], dy = sys.S.y[2] - sys.S.y[0];
+      const dvx = sys.S.vx[2] - sys.S.vx[0], dvy = sys.S.vy[2] - sys.S.vy[0];
+      return 0.5 * (dvx * dvx + dvy * dvy) - mu / Math.hypot(dx, dy);
+    };
+    const before = he();
+    for(let k = 0; k < 800; k++) sysStep(sys, 2.0 / 800, false);
+    const after = he();
+    rel(before, F.before, 1e-9, 'the comet\'s energy about the star before the pass (derive)');
+    rel(after, F.after, 2e-3, '... and after it (derive)');
+    ok(after > before, '... which has gone UP: the slingshot took it from the planet');
+    ok((after - before) / Math.abs(before) > 0.5, '... by ' + fmt(100 * (after - before) / Math.abs(before), 0) + ' %'); }
+  { const F = REF.facts.fourStar, sys = bench('fourStar');
+    const mu_eff = G_MSS * sys.S.m[0] * (1 / Math.sqrt(2) + 0.25);
+    rel(mu_eff, F.mu_eff, 1e-12, 'the four star ballet: mu_eff = G m (1/sqrt2 + 1/4) (derive)');
+    const el = conicFromState(sys.S.x[0], sys.S.y[0], sys.S.vx[0], sys.S.vy[0], mu_eff);
+    close(el.e, F.e, 1e-11, '... each star is on an ellipse of e = 0.3837 (derive)');
+    rel(el.T, F.T, 1e-11, '... of period 0.2870 units (derive)');
+    const N = 1200, h = F.T / N;
+    let sq = 0;
+    for(let k = 0; k < N; k++){
+      sysStep(sys, h, false);
+      const s = [];
+      for(let i = 0; i < 4; i++) s.push(Math.hypot(sys.S.x[(i + 1) % 4] - sys.S.x[i], sys.S.y[(i + 1) % 4] - sys.S.y[i]));
+      sq = Math.max(sq, (Math.max.apply(null, s) - Math.min.apply(null, s)) / Math.max.apply(null, s));
+    }
+    ok(sq < 1e-9, 'the square stays square through a whole period (' + sq.toExponential(2) + ')');
+    let ret = 0;
+    const st0 = bench('fourStar');
+    for(let i = 0; i < 4; i++) ret = Math.max(ret, Math.hypot(sys.S.x[i] - st0.S.x[i], sys.S.y[i] - st0.S.y[i]));
+    ok(ret < 1e-7, 'and the whole configuration returns to its start (' + ret.toExponential(2) + ' AU)'); }
+  { const F = REF.facts.binary, sys = bench('binaryPlanet');
+    const el = conicFromState(sys.S.x[1] - sys.S.x[0], sys.S.y[1] - sys.S.y[0],
+                              sys.S.vx[1] - sys.S.vx[0], sys.S.vy[1] - sys.S.vy[0], G_MSS * (sys.S.m[0] + sys.S.m[1]));
+    rel(el.a, F.a, 1e-11, 'the binary: a (derive)');
+    close(el.e, F.e, 1e-11, '... e (derive)');
+    rel(yrOf(el.T), F.T_yr, 1e-11, '... and a period of 2.096 yr (derive)'); }
+
+  /* ---------- G. the model, the readouts and the clock ---------- */
+  withState({}, () => {
+    eq(curSys(), SIM.intro, 'the intro view reads the intro system');
+    ST.view = 'lab'; eq(curSys(), SIM.lab, 'the lab view reads the lab system');
+    ST.view = 'exact'; eq(curSys(), SIM.intro, 'the exact view rides along with the intro system');
+    ST.view = 'conserve'; eq(curSys(), SIM.lab, 'and conservation with the lab one');
+  });
+  withState({}, () => {
+    ok(!runStep(), 'the clock does not run while paused');
+    ST.running = true; ok(runStep(), 'and does when it is told to');
+    close(SIM.intro.t, frameDt(), 1e-18, 'one frame advances frameDt');
+    ST.speed = 'fast'; const t0 = SIM.intro.t; runStep();
+    close(SIM.intro.t - t0, PHET.FRAME * 1.75, 1e-18, 'fast is 7/4 of normal (PhET\'s map)');
+    ST.speed = 'slow'; const t1 = SIM.intro.t; runStep();
+    close(SIM.intro.t - t1, PHET.FRAME * 0.25, 1e-18, 'slow is 1/4');
+    eq(SIM.ehist.length, 3, 'the exact-orbit history grew with the run');
+    ok(SIM.ehist[2].err < 1e-9, '... and the integration is still on the exact orbit after three frames ('
+       + SIM.ehist[2].err.toExponential(2) + ' AU, the fourth-order step\'s own error)');
+  });
+  withState({view: 'conserve', preset: 'trojan', frames: 40}, () => {
+    const M = buildModel(), c = M.cn;
+    ok(c.hist.length === 40, 'the conservation history has one sample a frame');
+    ok(c.dL < 1e-12 && c.dP < 1e-12, 'L and p are exact over the run');
+    ok(c.shadow && c.shadow.t > 0, "PhET's own step ran beside ours");
+    ok(c.shadow.dev > 0, '... and the two runs have parted company');
+    ok(c.order.slope('pefrl') > 3.8, '... with the orders measured off this very system');
+  });
+  withState({}, () => {
+    /* the mass slider rewrites the system and its start */
+    setMass(1, 40);
+    close(SIM.intro.S.m[1], 40, 0, 'the mass slider sets the body mass');
+    close(SIM.intro.start[1][0], 40, 0, '... and the state restart returns to');
+    eq(SIM.intro.t, 0, '... and restarts the clock');
+  });
+  withState({view: 'lab', preset: 'fourStar'}, () => {
+    eq(SIM.lab.S.n, 4, 'the four star ballet loads four bodies');
+    sysSetN(SIM.lab, 2);
+    eq(SIM.lab.S.n, 2, 'the body-count control drops two');
+    sysSetN(SIM.lab, 4);
+    eq(SIM.lab.S.n, 4, '... and adds them back from PhET\'s spares');
+    close(SIM.lab.S.m[3], SPARE[3][0], 0, '... with the spare\'s own mass');
+  });
+  withState({view: 'lab', preset: 'sunPlanet'}, () => {
+    const c0 = nbodyCom(SIM.lab.S);
+    ok(Math.abs(c0.x) > 0.1, 'the Sun-planet system starts with its centre of mass off the origin');
+    sysComFrame(SIM.lab);
+    const c1 = nbodyCom(SIM.lab.S);
+    close(c1.x, 0, 1e-12, 'the centre-of-mass frame moves it to the origin');
+    close(Math.hypot(c1.vx, c1.vy), 0, 1e-12, '... and stops it');
+  });
+  /* every view x a spread of systems: the panels must be clean */
+  const CFG = [['default', {}], ['moon', {preset: 'sunPlanetMoon'}], ['comet', {preset: 'sunPlanetComet'}],
+               ['trojan', {preset: 'trojan'}], ['ellipses', {preset: 'ellipses'}], ['hyperbolic', {preset: 'hyperbolic'}],
+               ['slingshot', {preset: 'slingshot'}], ['double slingshot', {preset: 'doubleSlingshot'}],
+               ['binary', {preset: 'binaryPlanet'}], ['ballet', {preset: 'fourStar'}],
+               ['double double', {preset: 'doubleDouble'}], ['running', {frames: 80}],
+               ['everything on', {com: true, speedLab: true, gravity: true, grid: true, tape: true, values: true, frames: 20}]];
+  for(const [v] of TABS) for(const [nm, over] of CFG){
+    const html = withState(Object.assign({view: v}, over), () => {
+      const M = buildModel(); return readoutHTML(M) + eqbarHTML(M) + tagHTML(M);
+    });
+    ok(html.indexOf('NaN') < 0 && html.indexOf('undefined') < 0 && html.indexOf('Infinity') < 0 && html.indexOf('null') < 0,
+       'panels clean for ' + v + ' / ' + nm);
+  }
+  { const r = withState({}, () => readoutHTML(buildModel()));
+    ok(r.indexOf(fmt(yrOf(REF.twobody.T), 4)) >= 0, 'the readout prints the ' + fmt(yrOf(REF.twobody.T), 4)
+       + '-yr period of PhET\'s two bodies');
+    ok(r.indexOf('4.4567') >= 0, 'and names PhET\'s G');
+    const r2 = withState({view: 'lab', preset: 'fourStar'}, () => readoutHTML(buildModel()));
+    ok(r2.indexOf('four star ballet') >= 0, 'the lab readout names the system');
+    ok(r2.indexOf('body 4') >= 0, '... and lists all four bodies');
+    const r3 = withState({view: 'conserve', frames: 20}, () => readoutHTML(buildModel()));
+    ok(r3.indexOf('PhET') >= 0, 'the conservation readout compares against PhET\'s step'); }
+
+  /* ---------- H. the scene and the drags ---------- */
+  { const shot = makeShot(1400, 820);
+    const S = makeScene({getContext: () => shot});
+    S.W = 1400; S.H = 820;
+    Object.assign(ST, DEFAULTS); simReset();
+    ok(!S.step(), 'nothing moves while paused');
+    ST.running = true; ok(S.step(), 'and does when it runs'); ST.running = false;
+    const b = mainBox(shot, S.W, S.H, 'intro'), map = sysMap(b, viewRadius());
+    const x0 = SIM.intro.S.x[1];
+    ok(S.pointer('down', map.X(SIM.intro.S.x[1]), map.Y(SIM.intro.S.y[1])), 'pointer-down on a body grabs it');
+    eq(DRAGM.what, 'body', '... as a body drag'); eq(DRAGM.i, 1, '... the one under the pointer');
+    S.pointer('move', map.X(2.6), map.Y(0.4));
+    close(SIM.intro.S.x[1], 2.6, 1e-9, 'the body follows the pointer (x)');
+    close(SIM.intro.S.y[1], 0.4, 1e-9, '... and (y)');
+    eq(SIM.intro.t, 0, '... and the clock restarts');
+    ok(S.pointer('up', 0, 0), 'pointer-up lets go');
+    close(SIM.intro.start[1][1], 2.6, 1e-9, '... saving the new start');
+    Object.assign(ST, DEFAULTS); simReset();
+    const TX = map.X(SIM.intro.S.x[1]) + SIM.intro.S.vx[1] * VSCALE, TY = map.Y(SIM.intro.S.y[1]) - SIM.intro.S.vy[1] * VSCALE;
+    ok(S.pointer('down', TX, TY), 'pointer-down on an arrow tip grabs the velocity');
+    eq(DRAGM.what, 'vel', '... as a velocity drag');
+    const vy0 = SIM.intro.S.vy[1];
+    S.pointer('move', TX + 21, TY);
+    close(SIM.intro.S.vx[1], 21 / VSCALE, 1e-9, 'the tip sets v_x exactly: 21 px / ' + VSCALE + ' px per km/s');
+    close(SIM.intro.S.vy[1], vy0, 1e-12, '... leaving v_y exactly where it was');
+    S.pointer('up', 0, 0);
+    Object.assign(ST, DEFAULTS); ST.tape = true; simReset();
+    ok(S.pointer('down', map.X(SIM.tape.bx), map.Y(SIM.tape.by)), 'the tape tip can be grabbed');
+    S.pointer('move', map.X(3.1), map.Y(-1.2)); S.pointer('up', 0, 0);
+    close(SIM.tape.bx, 3.1, 1e-9, '... and dragged where the pointer goes');
+    Object.assign(ST, DEFAULTS); ST.view = 'conserve'; simReset();
+    ok(!S.pointer('down', map.X(0), map.Y(0)), 'the conservation view takes no drags (it is a chart)');
+    Object.assign(ST, stSave); simReset(); }
+
+  { /* the scene is CLIPPED to the stage box.  A body whose centre is one pixel inside the
+       window still draws a disc and a velocity arrow past the frame -- the capture of
+       "hyperbolic" had both of them out on the page background -- so everything drawn in world
+       coordinates goes through withClip, and the labels that ride on a body are written after
+       the clip is lifted. */
+    for(const v of ['intro', 'lab', 'exact']){
+      const c = makeShot(1400, 820);
+      Object.assign(ST, DEFAULTS, {view: v, preset: 'hyperbolic', zoom: 2, com: true, speedLab: true}); simReset();
+      ST.running = true; for(let k = 0; k < 150; k++) runStep(); ST.running = false;
+      drawView(c, 1400, 820, buildModel());
+      const b = mainBox(c, 1400, 820, v);
+      const clips = c.ops.filter(o => o.op === 'clip');
+      ok(clips.some(o => Math.abs(o.bb[0] - b.x) < 1 && Math.abs(o.bb[1] - b.y) < 1
+                      && Math.abs(o.bb[2] - b.x1) < 1 && Math.abs(o.bb[3] - b.y1) < 1),
+         v + ': the scene is clipped to the stage box (' + clips.length + ' clips drawn)');
+      const late = c.ops.slice(c.ops.map(o => o.op).lastIndexOf('clip') + 1).filter(o => o.op === 'text');
+      ok(late.length > 0, v + ': and the labels that ride on a body are written after it');
+    }
+    /* and the centre-of-mass label is pushed clear of the body it sits inside: in a star and
+       its planet the centre of mass is inside the star, and the label was written across it */
+    const c2 = makeShot(1400, 820);
+    Object.assign(ST, DEFAULTS, {view: 'intro', com: true}); simReset();
+    ST.running = true; for(let k = 0; k < 90; k++) runStep(); ST.running = false;
+    const M2 = buildModel(); drawView(c2, 1400, 820, M2);
+    const bx = mainBox(c2, 1400, 820, 'intro'), mp = sysMap(bx, M2.R);
+    const tx = c2.ops.filter(o => o.op === 'text' && o.t === 'centre of mass')[0];
+    ok(!!tx, 'the centre of mass is labelled');
+    if(tx){
+      const bd0 = M2.bodies[0], X = mp.X(bd0.x), Y = mp.Y(bd0.y), rp = Math.max(3, bd0.r * mp.s);
+      const qx = Math.max(tx.bb[0], Math.min(X, tx.bb[2])), qy = Math.max(tx.bb[1], Math.min(Y, tx.bb[3]));
+      const gap = Math.hypot(qx - X, qy - Y);
+      const dcom = Math.hypot(mp.X(M2.com.x) - X, mp.Y(M2.com.y) - Y);
+      ok(dcom < 2 * rp, 'the centre of mass is on the star here (' + fmt(dcom, 1) + ' px from its centre, radius '
+         + fmt(rp, 1) + ')');
+      ok(gap > rp + 8, '... and its label clears the disc by ' + fmt(gap - rp, 1) + ' px');
+    }
+    Object.assign(ST, stSave); simReset(); }
+
+  /* ---------- I. layout sweep ---------- */
+  const SIZES = [[1400, 820], [1100, 700], [820, 520], [560, 380]];
+  const LAY = [
+    ['intro', {view: 'intro'}, 8], ['intro running', {view: 'intro', frames: 90, com: true, grid: true}, 10],
+    ['intro everything', {view: 'intro', com: true, speedLab: true, gravity: true, grid: true, tape: true, values: true}, 10],
+    ['lab sunPlanet', {view: 'lab'}, 8], ['lab trojan', {view: 'lab', preset: 'trojan', frames: 60}, 10],
+    ['lab ballet', {view: 'lab', preset: 'fourStar', frames: 120, com: true}, 10],
+    ['lab ellipses', {view: 'lab', preset: 'ellipses', frames: 200}, 10],
+    ['lab hyperbolic', {view: 'lab', preset: 'hyperbolic', frames: 150, zoom: 2}, 8],
+    ['lab double double', {view: 'lab', preset: 'doubleDouble', frames: 100, gravity: true}, 10],
+    ['exact', {view: 'exact'}, 6], ['exact running', {view: 'exact', frames: 200}, 6],
+    ['exact one body', {view: 'exact', preset: 'sunPlanet'}, 6],
+    ['conserve', {view: 'conserve'}, 6], ['conserve running', {view: 'conserve', frames: 150}, 8],
+    ['conserve ballet', {view: 'conserve', preset: 'fourStar', frames: 120}, 8]
+  ];
+  const entRe = /&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+  for(const [nm, over, minFills] of LAY) for(const [W, H] of SIZES){
+    withState(over, () => {
+      const c = makeShot(W, H); let err = null;
+      try{ drawView(c, W, H, buildModel()); }catch(e){ err = e; }
+      ok(!err, nm + ' ' + W + 'x' + H + ' draws without throwing' + (err ? ': ' + (err.stack || err) : ''));
+      if(err) return;
+      const texts = c.ops.filter(o => o.op === 'text'), fills = c.ops.filter(o => o.op === 'fill');
+      ok(fills.length >= minFills && texts.length >= 1, nm + ' ' + W + 'x' + H + ' draws substance (' + fills.length + ' fills, floor ' + minFills + ')');
+      let bad = null;
+      for(const t of texts){
+        if(entRe.test(t.t)){ bad = 'entity/tag: "' + t.t.slice(0, 40) + '"'; break; }
+        if(/undefined|NaN/.test(t.t)){ bad = 'NaN/undefined: "' + t.t.slice(0, 40) + '"'; break; }
+        if(t.bb[0] < -1 || t.bb[2] > W + 1 || t.bb[1] < -1 || t.bb[3] > H + 1){ bad = 'off-canvas: "' + t.t.slice(0, 30) + '" [' + t.bb.map(v => fmt(v, 0)) + ']'; break; }
+      }
+      ok(!bad, nm + ' ' + W + 'x' + H + ' text clean (' + (bad || 'ok') + ')');
+      const inHint = texts.filter(t => t.bb[0] < 340 && t.bb[3] > H - 27);
+      ok(!inHint.length, nm + ' ' + W + 'x' + H + ' no canvas text under the #hint line'
+         + (inHint.length ? ' ("' + inHint[0].t.slice(0, 30) + '" to y ' + fmt(inHint[0].bb[3], 0) + ')' : ''));
+      let hit = null;
+      for(let i = 0; i < texts.length && !hit; i++) for(let j = i + 1; j < texts.length; j++){
+        const a = texts[i].bb, b2 = texts[j].bb;
+        const ox = Math.min(a[2], b2[2]) - Math.max(a[0], b2[0]), oy = Math.min(a[3], b2[3]) - Math.max(a[1], b2[1]);
+        if(ox > 3 && oy > 3){ hit = '"' + texts[i].t.slice(0, 22) + '" vs "' + texts[j].t.slice(0, 22) + '"'; break; }
+      }
+      ok(!hit, nm + ' ' + W + 'x' + H + ' no text collisions (' + (hit || 'ok') + ')');
+      let leg = null;
+      for(const r of LEGEND_RECTS) for(let i = 0; i < POLY_SEGS.length; i += 4){
+        const x0 = POLY_SEGS[i], y0 = POLY_SEGS[i + 1], x1 = POLY_SEGS[i + 2], y1 = POLY_SEGS[i + 3];
+        if(Math.max(x0, x1) < r.x || Math.min(x0, x1) > r.x + r.w || Math.max(y0, y1) < r.y || Math.min(y0, y1) > r.y + r.h) continue;
+        leg = 'a curve crosses the legend'; break;
+      }
+      ok(!leg, nm + ' ' + W + 'x' + H + ' legend clear');
+    });
+  }
+
+  const dt = (Date.now() - T0) / 1000;
+  console.log(pass + ' passed, ' + fail + ' failed  (' + fmt(dt, 1) + ' s)');
+  if(fail > 0) throw new Error(fail + ' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document === 'undefined'){
+  selfTest();
+} else {
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+}
+</script>
+</body>
+</html>

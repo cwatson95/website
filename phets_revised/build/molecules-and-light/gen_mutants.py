@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""Write mutants.json for molecules-and-light.html and check every pattern.
+
+mutate.py skips a mutant whose `old` does not appear EXACTLY once, so the
+check here is the point: a pattern that matches zero times is a mutant you
+think you ran and did not, and one that matches twice mutates two places.
+Every leading coefficient, exponent, unit conversion and sign in the model
+gets one, plus the eight UI mutants.
+"""
+import io
+import json
+import os
+import sys
+
+here = os.path.dirname(os.path.abspath(__file__))
+SIM = os.path.abspath(os.path.join(here, '..', '..', 'molecules-and-light.html'))
+
+M = [
+    # ---- PhET's constants (each is read out of its build; a wrong one is a
+    #      wrong claim about PhET, which is as bad as wrong physics) ----
+    ['P_ABSORB 0.5 -> 0.45', 'P_ABSORB: 0.5,', 'P_ABSORB: 0.45,', 'p'],
+    ['HOLD_MIN 1.1 -> 1.0', 'HOLD_MIN: 1.1,', 'HOLD_MIN: 1.0,', 'p'],
+    ['HOLD_MAX 1.3 -> 1.25', 'HOLD_MAX: 1.3,', 'HOLD_MAX: 1.25,', 'p'],
+    ['HYSTERESIS 0.2 -> 0.3', 'HYSTERESIS: 0.2,', 'HYSTERESIS: 0.3,', 'p'],
+    ['ABSORB_RADIUS 100 -> 130', 'ABSORB_RADIUS: 100,', 'ABSORB_RADIUS: 130,', 'p'],
+    ['PHOTON_SPEED 3000 -> 2500', 'PHOTON_SPEED: 3000,', 'PHOTON_SPEED: 2500,', 'p'],
+    ['EMITTER_X -1350 -> -1200', 'EMITTER_X: -1350,', 'EMITTER_X: -1200,', 'p'],
+    ['EMIT_PERIOD 0.8 -> 0.9', 'EMIT_PERIOD: 0.8,', 'EMIT_PERIOD: 0.9,', 'p'],
+    ['VIB_HZ 5 -> 4', 'VIB_HZ: 5.0,', 'VIB_HZ: 4.0,', 'p'],
+    ['ROT_HZ 1.1 -> 1.2', 'ROT_HZ: 1.1,', 'ROT_HZ: 1.2,', 'p'],
+    ['SLOW_FACTOR 0.5 -> 0.25', 'SLOW_FACTOR: 0.5,', 'SLOW_FACTOR: 0.25,', 'p'],
+    ['DT_CEILING 0.2 -> 0.3', 'DT_CEILING: 0.2,', 'DT_CEILING: 0.3,', 'p'],
+    ['FRAG_A 990 -> 900', 'FRAG_A: 990,', 'FRAG_A: 900,', 'p'],
+    ['FRAG_B 0.67 -> 0.5', 'FRAG_B: 0.67 * 3000,', 'FRAG_B: 0.5 * 3000,', 'p'],
+    ["PhET's oxygen mass is carbon's", 'O: {r: 73, m: 12.011}', 'O: {r: 73, m: 15.999}', 'p'],
+    ['CO2 bend amplitude 40 -> 30', 'if (mol === \'CO2\') return [[0, 40 * t]',
+     'if (mol === \'CO2\') return [[0, 30 * t]', 'p'],
+    ['CO2_SB drops the factor 2', 'const CO2_SB = 40 * PHET_ATOM.C.m / (2 * PHET_ATOM.O.m);',
+     'const CO2_SB = 40 * PHET_ATOM.C.m / PHET_ATOM.O.m;', 'p'],
+    ["PhET's microwave band edge 1e-1 -> 3e-1", "['microwave', 1e-1, 1e-3]", "['microwave', 3e-1, 1e-3]", 'p'],
+    ['a response cell: N2 gains an infrared one',
+     "N2:  {microwave: '', infrared: '', visible: '', ultraviolet: ''},",
+     "N2:  {microwave: '', infrared: 'vibrate', visible: '', ultraviolet: ''},", 'p'],
+    ['a response cell: O3 loses its break',
+     "O3:  {microwave: 'rotate', infrared: 'vibrate', visible: '', ultraviolet: 'break'},",
+     "O3:  {microwave: 'rotate', infrared: 'vibrate', visible: '', ultraviolet: ''},", 'p'],
+
+    # ---- the exact SI constants and the unit chain ----
+    ['h', 'const PLANCK_H = 6.62607015e-34;', 'const PLANCK_H = 6.62607e-34;', 'p'],
+    ['c', 'const LIGHT_C = 299792458;', 'const LIGHT_C = 299792500;', 'p'],
+    ['e', 'const ELEM_Q = 1.602176634e-19;', 'const ELEM_Q = 1.602e-19;', 'p'],
+    ['k', 'const BOLTZ_K = 1.380649e-23;', 'const BOLTZ_K = 1.3807e-23;', 'p'],
+    ['the atomic mass constant', 'const U_KG = 1.66053906892e-27;', 'const U_KG = 1.6605e-27;', 'p'],
+    ['hc/e: the nm conversion', 'ELEM_Q * 1e9;', 'ELEM_Q * 1e8;', 'p'],
+    ['cm per m in the wavenumber', 'nubar: 1 / (lam_m * 100)', 'nubar: 1 / (lam_m * 1000)', 'p'],
+    ['hc nubar: the cm conversion', 'return nubar_cm * 100 * HC_JM / ELEM_Q;',
+     'return nubar_cm * 10 * HC_JM / ELEM_Q;', 'p'],
+    ['um from cm-1', 'function nubarToUm(nubar_cm) { return 1e4 / nubar_cm; }',
+     'function nubarToUm(nubar_cm) { return 1e3 / nubar_cm; }', 'p'],
+    ['c in cm/s', 'const C_CM = LIGHT_C * 100;', 'const C_CM = LIGHT_C * 10;', 'p'],
+    ['the aJ/(A^2 u) -> s^-2 conversion', 'const CONV_S2 = 1e-18 / (1e-20 * U_KG);',
+     'const CONV_S2 = 1e-18 / (1e-19 * U_KG);', 'p'],
+    ['omega -> wavenumber: the 2 pi', 'Math.sqrt(lam * CONV_S2) / (2 * Math.PI * C_CM);',
+     'Math.sqrt(lam * CONV_S2) / (Math.PI * C_CM);', 'p'],
+
+    # ---- the force field and the Hessian ----
+    ['the stretch is 1/2 k x^2', 'for (const d of dr) V += 0.5 * f_r * d * d;',
+     'for (const d of dr) V += f_r * d * d;', 'p'],
+    ['the linear bend coordinate loses its 2', 'V += 0.5 * f_th * re * re * 2 * (1 + ct);',
+     'V += 0.5 * f_th * re * re * (1 + ct);', 'p'],
+    ['the bend coordinate is r*dtheta, not dtheta',
+     'for (const d of da) V += 0.5 * f_th * re * re * d * d;',
+     'for (const d of da) V += 0.5 * f_th * re * d * d;', 'p'],
+    ['the stretch-bend term loses its r', 'V += f_rth * re * (dr[0] + dr[1]) * da[0];',
+     'V += f_rth * (dr[0] + dr[1]) * da[0];', 'p'],
+    ['the finite-difference step', 'h = h || 2e-4;', 'h = h || 2e-2;', 'p'],
+    ['the second difference denominator', '/ (4 * h * h);', '/ (2 * h * h);', 'p'],
+    ['the mass weighting 1/sqrt(m)', 'w.push(1 / Math.sqrt(MASS[sym[i]]));', 'w.push(1 / MASS[sym[i]]);', 'p'],
+    ['the Eckart rotation cross product sign',
+     'const c = [e[1] * X[i][2] - e[2] * X[i][1], e[2] * X[i][0] - e[0] * X[i][2],',
+     'const c = [e[1] * X[i][2] + e[2] * X[i][1], e[2] * X[i][0] - e[0] * X[i][2],', 'p'],
+    ['the Eckart projection is dropped', 'Hw = mul(mul(P, Hw), P);', 'Hw = Hw;', 'p'],
+    # NOTE deliberately NOT mutating the Jacobi rotation angle itself: halving
+    # it fails to annihilate A[p][q] in one rotation but the cyclic sweep still
+    # converges to the same eigen-decomposition, so that mutant is EQUIVALENT
+    # (a true statement about any descent iteration, not a gap in the suite).
+    # The sweep cap and the convergence test are the load-bearing parts.
+    ['Jacobi: one sweep instead of a hundred', 'for (let sweep = 0; sweep < 100; sweep++) {',
+     'for (let sweep = 0; sweep < 1; sweep++) {', 'p'],
+    ['Jacobi: it stops before it has converged', 'if (off < 1e-30) break;', 'if (off < 1e30) break;', 'p'],
+    ['Jacobi: c and s swapped in the eigenvector update',
+     'Vv[k][p] = c * vkp - s * vkq; Vv[k][q] = s * vkp + c * vkq;',
+     'Vv[k][p] = c * vkp + s * vkq; Vv[k][q] = s * vkp - c * vkq;', 'p'],
+
+    # ---- the symmetry-exact closed forms ----
+    ['bent B2: cot(theta/2) becomes tan', 'const cot = 1 / Math.tan(GEOM[mol].ang * Math.PI / 360);',
+     'const cot = Math.tan(GEOM[mol].ang * Math.PI / 360);', 'p'],
+    ['bent B2: theta/2 becomes theta', 'const cot = 1 / Math.tan(GEOM[mol].ang * Math.PI / 360);',
+     'const cot = 1 / Math.tan(GEOM[mol].ang * Math.PI / 180);', 'p'],
+    ['bent B2: the central atom loses its 2', 'let d = [[1, cot, 0], [-2 * mY / mX, 0, 0], [1, -cot, 0]];',
+     'let d = [[1, cot, 0], [-mY / mX, 0, 0], [1, -cot, 0]];', 'p'],
+    ['linear XY2: the ratio loses its 2', 'const ratio = 2 * MASS[sym[0]] / MASS[sym[1]];',
+     'const ratio = MASS[sym[0]] / MASS[sym[1]];', 'p'],
+    ['linear XY2: the symmetric stretch stops being antisymmetric',
+     "if (which === 'sym') d = [[1, 0, 0], [0, 0, 0], [-1, 0, 0]];",
+     "if (which === 'sym') d = [[1, 0, 0], [0, 0, 0], [1, 0, 0]];", 'p'],
+    ['the diatomic shape loses its minus', 'let d = [[1, 0, 0], [-m1 / m2, 0, 0]];',
+     'let d = [[1, 0, 0], [m1 / m2, 0, 0]];', 'p'],
+    ['the diatomic force constant: the 2 pi', 'return (2 * Math.PI * C_CM * nub) ** 2 * mu;',
+     'return (Math.PI * C_CM * nub) ** 2 * mu;', 'p'],
+    ['B_e: the 8 pi^2', 'return PLANCK_H / (8 * Math.PI * Math.PI * C_CM * I);',
+     'return PLANCK_H / (4 * Math.PI * Math.PI * C_CM * I);', 'p'],
+    ['B_e: the angstrom', 'Math.pow(DIATOMIC[mol].re * 1e-10, 2);', 'Math.pow(DIATOMIC[mol].re * 1e-9, 2);', 'p'],
+    ['the reduced mass', 'const mu = MASS[sym[0]] * MASS[sym[1]] / (MASS[sym[0]] + MASS[sym[1]]) * U_KG;\n  const I',
+     'const mu = MASS[sym[0]] + MASS[sym[1]] / (MASS[sym[0]] + MASS[sym[1]]) * U_KG;\n  const I', 'p'],
+    ['the dissociation threshold', 'function threshNm(mol) { return HC_EV_NM / D0_EV[mol]; }',
+     'function threshNm(mol) { return HC_EV_NM / (2 * D0_EV[mol]); }', 'p'],
+
+    # ---- the selection rule ----
+    ['the dipole derivative drops the charges', 'x += q[i] * d[i][0]; y += q[i] * d[i][1]; z += q[i] * d[i][2];',
+     'x += d[i][0]; y += d[i][1]; z += d[i][2];', 'p'],
+    ['the inversion loses its minus sign', 'for (let k = 0; k < 3; k++) dp[perm[i]][k] = -d[i][k];',
+     'for (let k = 0; k < 3; k++) dp[perm[i]][k] = d[i][k];', 'p'],
+    ['the inversion permutation of CO2', 'CO2: [2, 1, 0]', 'CO2: [0, 1, 2]', 'p'],
+    ['the active/inactive threshold', 'm.active = m.dmu > 1e-9;', 'm.active = m.dmu > 1e9;', 'p'],
+
+    # ---- the measured data ----
+    ['16-O', "const MASS = {H: 1.00782503223, C: 12.0, N: 14.00307400443, O: 15.99491461957};",
+     "const MASS = {H: 1.00782503223, C: 12.0, N: 14.00307400443, O: 15.9};", 'p'],
+    ["the CO2 bend's measured wavenumber", "[667, '&Pi;u', 'bend', 2]", "[670, '&Pi;u', 'bend', 2]", 'p'],
+    ["water's measured bond angle", 'H2O: {r: 0.958, ang: 104.4776,', 'H2O: {r: 0.958, ang: 109.0,', 'p'],
+    ["CO2's measured bond length", 'CO2: {r: 1.162, ang: 180.0,', 'CO2: {r: 1.20, ang: 180.0,', 'p'],
+    ["CO's measured dipole moment", 'const DIPOLE = {CO: 0.112,', 'const DIPOLE = {CO: 0.0,', 'p'],
+    ["N2's bond energy", "const D0_EV = {O2: 5.1156, O3: 1.0520, NO2: 3.1163, N2: 9.7538,",
+     "const D0_EV = {O2: 5.1156, O3: 1.0520, NO2: 3.1163, N2: 14.0,", 'p'],
+    ["O2's alpha_e", 'O2: {we: 1580.193, wexe: 11.981, Bprint: 1.4376766, ae: 0.01593,',
+     'O2: {we: 1580.193, wexe: 11.981, Bprint: 1.4376766, ae: 0.0318,', 'p'],
+    ['the dry-air nitrogen fraction', "['N&#8322;', 78.084,", "['N&#8322;', 77.0,", 'p'],
+
+    # ---- the generator and the chamber ----
+    ['mulberry32: the increment', 'a = (a + 0x6D2B79F5) | 0;', 'a = (a + 0x6D2B79F4) | 0;', 'p'],
+    ['mulberry32: the first shift', 'Math.imul(a ^ (a >>> 15), 1 | a)', 'Math.imul(a ^ (a >>> 16), 1 | a)', 'p'],
+    ['mulberry32: the 61', 'Math.imul(t ^ (t >>> 7), 61 | t)', 'Math.imul(t ^ (t >>> 7), 60 | t)', 'p'],
+    ['mulberry32: the divisor', '/ 4294967296;', '/ 4294967295;', 'p'],
+    ['the hold time draw', 'ch.hold = PHET.HOLD_MIN + ch.rng() * (PHET.HOLD_MAX - PHET.HOLD_MIN);',
+     'ch.hold = PHET.HOLD_MIN + ch.rng() * PHET.HOLD_MAX;', 'p'],
+    ['the emission direction is no longer uniform on the circle',
+     'const a = ch.rng() * 2 * Math.PI;', 'const a = ch.rng() * Math.PI;', 'p'],
+    ['a failed trial no longer marks the photon to pass through',
+     '  p.pass = true; ch.passed++; return false;\n}', '  ch.passed++; return false;\n}', 'p'],
+    ['a busy molecule is allowed to absorb again',
+     "  const busy = ch.state !== 'idle';", '  const busy = false;', 'p'],
+    ['the absorption radius test becomes a half-plane',
+     'if (Math.hypot(p.x, p.y) >= PHET.ABSORB_RADIUS) return false;',
+     'if (p.x >= PHET.ABSORB_RADIUS) return false;', 'p'],
+    ['a long frame is clamped instead of discarded',
+     'if (dtRaw > PHET.DT_CEILING) return false;', 'if (dtRaw > 1e9) return false;', 'p'],
+    ['slow motion stops halving the step',
+     'const dt = slow ? dtRaw * PHET.SLOW_FACTOR : dtRaw;', 'const dt = dtRaw;', 'p'],
+    ['the hysteresis is no longer set after an emission',
+     "ch.state = 'idle'; ch.vibPhase = 0; ch.hyst = PHET.HYSTERESIS;",
+     "ch.state = 'idle'; ch.vibPhase = 0;", 'p'],
+    ['the renewal wait loses its half period',
+     'const wait = PHET.EMIT_PERIOD / 2 + (1 / PHET.P_ABSORB - 1) * PHET.EMIT_PERIOD;',
+     'const wait = PHET.EMIT_PERIOD + (1 / PHET.P_ABSORB - 1) * PHET.EMIT_PERIOD;', 'p'],
+
+    # ---- Planck ----
+    ['Planck: the leading 2', 'return 2 * PLANCK_H * nu * nu * nu', 'return PLANCK_H * nu * nu * nu', 'p'],
+    ['Planck: the cube', 'PLANCK_H * nu * nu * nu / (LIGHT_C * LIGHT_C)',
+     'PLANCK_H * nu * nu / (LIGHT_C * LIGHT_C)', 'p'],
+    ['Planck: expm1 becomes exp', '/ (Math.expm1(x)) * C_CM;', '/ (Math.exp(x)) * C_CM;', 'p'],
+    ['Planck: the per-wavenumber conversion', 'Math.expm1(x)) * C_CM;', 'Math.expm1(x));', 'p'],
+    ['Wien in wavenumber: the 3', 'const g = x => 3 * (1 - Math.exp(-x)) - x;',
+     'const g = x => 4 * (1 - Math.exp(-x)) - x;', 'p'],
+    ['the Planck peak uses c in m/s', 'return wienXWavenumber() * BOLTZ_K * T / (PLANCK_H * C_CM);',
+     'return wienXWavenumber() * BOLTZ_K * T / (PLANCK_H * LIGHT_C);', 'p'],
+    ['the trapezium rule loses its half-ends',
+     'let s = 0.5 * (planckNubar(lo, T) + planckNubar(hi, T));',
+     'let s = planckNubar(lo, T) + planckNubar(hi, T);', 'p'],
+    ['the band integral loses its pi', 'return Math.PI * s * h;', 'return s * h;', 'p'],
+
+    # ---- the UI ----
+    ['UI: the drag no longer marks the loop dirty',
+     "if (S.pointer('move', e.clientX - r.left, e.clientY - r.top)) dirty = true;",
+     "S.pointer('move', e.clientX - r.left, e.clientY - r.top);", 'u'],
+    ['UI: the wheel no longer marks the loop dirty',
+     'if (S.wheel(e.deltaY)) dirty = true;', 'S.wheel(e.deltaY);', 'u'],
+    ['UI: the camera theta is frozen', 'ST.camTheta -= dx * 0.0075;', 'ST.camTheta -= 0;', 'u'],
+    ['UI: the camera phi is frozen', 'ST.camPhi = clamp(ST.camPhi + dy * 0.006, -1.45, 1.45);',
+     'ST.camPhi = clamp(ST.camPhi, -1.45, 1.45);', 'u'],
+    ['UI: resetCam stops resetting the camera',
+     "    ST.camTheta = DEFAULTS.camTheta; ST.camPhi = DEFAULTS.camPhi; ST.zoom = 1;",
+     "    ST.zoom = ST.zoom;", 'u'],
+    ['UI: reset all forgets every default',
+     '      Object.assign(st, DEFAULTS);\n', '      Object.assign(st, {});\n', 'u'],
+    ['UI: a slider stops repainting',
+     "      val.textContent = fmtf(st[key]);\n      syncPanel(); refresh();",
+     "      val.textContent = fmtf(st[key]);\n      syncPanel();", 'u'],
+    ['UI: the step button advances two frames',
+     '  chamberStep(CH, 1 / 60, ST.slow);\n  stateRecord();',
+     '  chamberStep(CH, 1 / 60, ST.slow);\n  chamberStep(CH, 1 / 60, ST.slow);\n  stateRecord();', 'u'],
+    ['UI: firing a photon stops counting it', 'ch.fired++;', 'ch.fired += 0;', 'u'],
+    ['UI: the molecule chip stops rewinding the mode index',
+     "    ST.modeIdx = 0; chamberRebuild();", '    chamberRebuild();', 'u'],
+    ['UI: the paused view keeps stepping', "    if (!ST.running) return false;\n    chamberSync();",
+     '    chamberSync();', 'u'],
+]
+
+src = io.open(SIM, encoding='utf-8').read().split('<script>', 1)[1].rsplit('</script>', 1)[0]
+bad = 0
+seen = set()
+for label, old, new, suite in M:
+    n = src.count(old)
+    if n != 1:
+        print('PATTERN %-2s %-58s matches %d' % ('!!', label, n))
+        bad += 1
+    if label in seen:
+        print('DUPLICATE LABEL', label)
+        bad += 1
+    seen.add(label)
+    if old == new:
+        print('NO-OP MUTANT', label)
+        bad += 1
+io.open(os.path.join(here, 'mutants.json'), 'w', encoding='utf-8').write(json.dumps(M, indent=1))
+print('%d mutants (%d physics, %d ui); %d bad patterns'
+      % (len(M), sum(1 for m in M if m[3] == 'p'), sum(1 for m in M if m[3] == 'u'), bad))
+sys.exit(1 if bad else 0)

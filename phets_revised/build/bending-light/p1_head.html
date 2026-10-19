@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bending light &mdash; PhET&rsquo;s laser on a boundary, with Snell and Fresnel solved exactly</title>
+<!--
+  ===================================================================
+  bending-light.html — a laser meets the boundary between two media:
+  how far the transmitted ray bends, how much of the power comes
+  back, where it stops coming through at all, what the same picture
+  looks like as a wave, and what a prism does to white light
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Bending Light (University of
+  Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or
+  assets. The model, its constants and its controls follow PhET's build 1.2.5
+  (docs/phets/bending-light_en.html); every number taken from that build is
+  marked "PhET's value" in the code, in the panel and on the canvas.
+
+  SIX VIEWS.  THE BOUNDARY is PhET's Intro screen: a laser you swing about the
+  origin onto the interface between two media (air, water, glass, diamond,
+  Mystery A, Mystery B or a custom index), with the reflected and the
+  transmitted rays drawn in their own spectral colour at their own share of the
+  power, the normal, the angle arcs, PhET's protractor and PhET's intensity
+  meter, and the critical angle marked where the transmitted ray disappears.
+  THE WAVE is PhET's wave view and its More Tools meters: the same two media
+  with the field itself painted, the wavelength and the speed inside each
+  medium, and the evanescent tail past the critical angle that PhET does not
+  draw.  It is also where Snell's law comes from — the crest spacing along the
+  boundary has to match, and that single statement is the law.  THE PRISM is
+  PhET's Prisms screen: PhET's own five prism prototypes traced by exact
+  polygon and circle intersection with vector Snell at every face, total
+  internal reflection where it happens, the partial reflections when you ask
+  for them, and white light dispersed into a spectrum -- drawn white where the
+  thirty wavelengths still share one path and one at a time where they have
+  separated, because thirty translucent strokes on one line composite to the
+  colour of whichever was painted last, not to white.  THE REFLECTED FRACTION
+  is the Fresnel equations drawn: R and T for s and p polarisation against the
+  angle of incidence, with Brewster's angle where R_p is exactly zero, the
+  critical angle where R becomes exactly one, and R + T = 1 at every angle.
+  THE SPECTRUM is the dispersion model made visible: n against wavelength for
+  every substance, the true colour of each wavelength from the CIE 1931
+  observer, and the angular spread a 60-degree prism gives white light.  THE
+  RAINBOW is what all of it is for: Descartes' stationary deviation in a
+  spherical drop, the caustic drawn from the rays themselves, the primary bow
+  at 42.13 degrees and the secondary at 50.79, Alexander's dark band of 8.65
+  degrees between them, and the Fresnel weights that say why a rainbow is faint
+  and polarised -- including two identities derived here: the internal
+  reflectance at the stationary ray is exactly (k/(k+2))^2 WHATEVER the index,
+  so the k-th bow passes exactly (1-R)^2 R^k of s-polarised light, 64/729 for
+  the primary and 9/256 for the secondary.
+
+  WHAT IS EXACT HERE
+  ------------------
+  Snell's law, in both directions, at and past the critical angle: the suite
+  asserts theta_2 against derive.py over eight medium pairs and eight angles,
+  asserts that the refracted ray grazes at exactly 90 degrees at the critical
+  angle, and round-trips every refraction back to 1e-14 rad.  The Fresnel
+  equations for both polarisations: R + T = 1 holds to 6.7e-16 over eight pairs
+  x 601 angles, R_p is 0 at Brewster's angle (and theta_B + theta_2 = 90
+  degrees exactly), R = 1 at and past the critical angle in both
+  polarisations, and R at normal incidence agrees with ((n1-n2)/(n1+n2))^2.
+  The wave: lambda_medium = lambda_vacuum/n and v = c/n, the frequency is
+  the same on both sides, the crest spacing along the boundary matches to
+  1.8e-16, and the field is continuous — 1 + r_s = t_s and
+  n_1 cos th_1 (1 - r_s) = n_2 cos th_2 t_s both to 4.4e-16.  The world's
+  wavenumber is pinned at five wavelengths rather than only at the reference
+  one, where it is 2 pi whichever way round the ratio is written; and the
+  evanescent decay constant is pinned against derive.py and then RECOVERED by
+  measurement from the drawn field, because past the critical angle the
+  transmitted phase does not depend on depth, so the ratio of the field at two
+  depths is exactly exp(kappa dy).  The prism:
+  ray-polygon and ray-circle intersections in closed form, vector Snell at
+  every face, and the traced deviation through an equilateral prism agrees
+  with the two-surface closed form to 2.5e-14 degrees and with the
+  minimum-deviation law n = sin((A+D)/2)/sin(A/2) to 6.4e-15 degrees.  The
+  rainbow: the stationary condition cos^2 th = (n^2-1)/(k^2+2k) agrees with
+  scipy's bounded minimiser to 1.4e-6 degrees for k = 1, 2 and 3, and the
+  emergent ray the view DRAWS -- refracted at the exit face, not turned through
+  D by hand -- leaves at exactly that deviation.  The colour path is checked the
+  same way: derive.py parses the CIE 1931 table back out of this file and
+  re-evaluates it in Python, so the sRGB bytes of eight wavelengths are pinned
+  against an independent evaluation of the same published numbers rather than
+  against themselves.  Every reference value in selfTest is a printed line of
+  build/bending-light/refvals.txt, the output of derive.py, read in full.
+
+  WHAT IS PhET'S, AND WHERE IT CAME FROM
+  --------------------------------------
+  Read out of the minified build: the substances and their indices at 650 nm
+  (air 1.000293, water 1.333, glass 1.5, diamond 2.419, Mystery A 2.419,
+  Mystery B 1.4) and the custom substance's default 2.6 (= Mystery B + 1.2);
+  the reference wavelength WAVELENGTH_RED = 650 nm and the laser range
+  380-700 nm; the index slider's range 1.000293-1.6 with its ticks at air,
+  water and glass; the dispersion model — a Sellmeier curve for BK7 glass and
+  an Edlen curve for air, blended linearly so that the result passes through
+  the substance's stated index at 650 nm; the s-polarised Fresnel powers
+  R = ((n1 c1 - n2 c2)/(n1 c1 + n2 c2))^2 and T = 4 n1 n2 c1 c2/(n1 c1 +
+  n2 c2)^2, which is the pair PhET uses for its ray brightness and its
+  intensity meter; the 0.005 floor below which PhET stops drawing a reflected
+  ray and the 0.001 floor at which its prism tracer gives up; maxLightRaySteps
+  = 50; the wave view's MAX_ANGLE_IN_WAVE_MODE = 3.0194 rad (7.00 degrees from
+  the boundary); the default laser angle 3 pi/4, which is 45 degrees of
+  incidence; the Intro screen's air-over-water and the Prisms screen's
+  air-around-glass defaults; the model world 62 x 43.4 red wavelengths across;
+  the five prism prototypes and their vertices (an equilateral triangle,
+  trapezoid and square of side 10 red wavelengths, a circle and a semicircle
+  of radius 5); the five-ray fan spaced half a red wavelength apart; and the
+  white-light set _.range(400, 700, 10) = 400, 410, ... 690 nm.  One thing of
+  PhET's is deliberately NOT reproduced: its prism beam, aimed as PhET aims it,
+  takes a left-in, right-reflect, bottom-out path through the triangle, which is
+  a CONSTANT-DEVIATION arrangement and disperses white light by 0.037 degrees
+  instead of 1.6, so the beam here opens at the minimum-deviation angle instead
+  and selfTest pins both spreads.  The Sellmeier coefficients PhET carries are the published SCHOTT N-BK7 set and the air
+  coefficients are Edlen's; this file recomputes n_d = 1.51680 and V_d = 64.17
+  from them and checks both against SCHOTT's published values, so the numbers
+  are verified rather than copied.
+
+  WHAT IS MODELLED, AND WHAT IS NOT MODELLED AT ALL
+  -------------------------------------------------
+  Nothing here is absorbing: every index is real, so R + T = 1 exactly and a
+  medium never dims a beam that passes through it.  Nothing is dispersive in
+  TIME — the wave view draws a single frequency, so there is no pulse and no
+  group velocity.  PhET's intensity meter reads the s-polarised reflectance;
+  this file draws s, p and the unpolarised average and says which one the
+  reading is.  Diamond is offered as a medium chip because PhET ships the
+  constant (2.419), but PhET's own medium chooser in this build does not list
+  it and its custom-index slider stops at 1.6; both facts are printed.  PhET's
+  sixth prism prototype, the diverging lens (a rectangle with two circular
+  faces cut into it), is NOT implemented — its two arc radii could not be read
+  unambiguously out of the minified build, and a guessed shape is not a
+  remake.  The rainbow view models a sphere of water with geometric rays: no
+  diffraction, so no supernumerary bows, and the drop is a perfect sphere, so
+  there is no flattening and no rainbow of the shape a real large raindrop
+  makes.  The prism tracer stops at PhET's own limits (50 steps, power 0.001)
+  rather than tracing forever.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the transmitted ray's
+       angle, the reflected fraction, the traced path), orange = the
+       reference or analytic value (Brewster, the critical angle, the
+       closed-form deviation) or a warning, magenta = the live marker (the
+       laser, the cursor on a plot), cyan = structure (the normal, the
+       boundary, the prism faces, the axes).  Light itself is drawn in its
+       own spectral colour, from the CIE 1931 observer. */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Bending light</h1>
+  <span class="sub" id="sub">PhET&rsquo;s three screens &mdash; a laser on a boundary, the same picture as a wave, and a prism &mdash; with Snell&rsquo;s law, the Fresnel equations and the dispersion model solved exactly, and the rainbow they add up to</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';

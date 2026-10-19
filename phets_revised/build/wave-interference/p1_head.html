@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wave interference &mdash; ripples, two sources, slits and the far field</title>
+<!--
+  ===================================================================
+  wave-interference.html — a remake of PhET's Wave Interference:
+  waves on a 2-D lattice from one source, from two, through one or two
+  slits, and the far-field pattern of an aperture as its Fourier
+  transform; plus the geometry of the path difference and the lattice's
+  own dispersion relation
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Wave Interference (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets.  Built against PhET's wave-interference 2.0.22: its
+  four screens, their controls, and its model constants.
+
+  Six views.  THE RIPPLE TANK is PhET's Waves screen: one source on a
+  151 x 151 lattice (111 x 111 visible) in water, sound or light, with
+  frequency and amplitude, continuous or pulse, top or side view (water),
+  waves / particles / both (sound), the screen and intensity graph
+  (light), the graph of the centre line, the tape measure, the stopwatch
+  and the two-probe wave meter.  TWO SOURCES is the Interference screen,
+  with the nodal hyperbolae r1 - r2 = (m + 1/2) lambda drawn over the
+  lattice.  THE SLITS is the Slits screen: a plane wave, no barrier, one
+  slit or two, slit width, separation and a draggable barrier, and the
+  screen compared with the Rayleigh-Sommerfeld sum and the Fraunhofer
+  formula.  THE FAR FIELD is the Diffraction screen: PhET's ellipse,
+  rectangle, circle & square, disorder and a waving figure (PhET's is a
+  photograph; this one is drawn), plus a Gaussian and N slits, a
+  wavelength slider, the |FFT| pattern and its horizontal cut against the
+  closed forms.  PATH DIFFERENCE (analysis): the hyperbolae, their
+  asymptotes and the screen, near and far.  THE LATTICE (analysis): the
+  dispersion relation, phase and group speeds, the edge reflection and the
+  calibration against PhET's fixed time step.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The lattice is PhET's (5-point leapfrog, C = 1/2, 151 cells, 20-cell
+  pad) and its dispersion relation sin^2(w dt/2) = C^2 [sin^2(kx dx/2) +
+  sin^2(ky dx/2)] is exact for it; the time step is SOLVED from it at
+  every frequency, so the wavelength v/f and the period 1/f are exact
+  along the lattice axes (PhET keeps one step per medium and is 0.7 % to
+  3.2 % short).  The driven plane wave is an exact lattice solution
+  (5e-15 over 20 steps, axis and diagonal).  The engine is pinned against
+  a numpy twin that repeats every operation (five scenarios, 150 to 400
+  steps, 1e-11).  Mur's second-order boundary: its reflection from the
+  plane-wave ansatz (<= 3 % to 45 degrees), checked against a packet
+  simulation to 2 %.  Two sources: the nodal hyperbolae, their count
+  2 ceil(d/lambda - 1/2), exact and far-field screen positions.  At steady
+  state (numpy twin) the lattice's own nodal lines sit 0.85 cells outside
+  the hyperbolae on average, 1.4 at worst, all outward, where the
+  continuum 1/sqrt(r) formula sits within 0.08: the lattice's anisotropy,
+  stated on the view rather than hidden.  The far field: |FFT| of the
+  drawn aperture against numpy.fft.fft2 (eight apertures, six bins each)
+  and against a direct DFT; the pixel-snapped rectangle against the
+  Dirichlet kernel (1e-15); the sampled Gaussian against its continuous
+  transform (5e-16); the disc against the Airy pattern [2 J1(v)/v]^2
+  (1.2e-3 of the peak for k <= 10); J0, J1, sinc^2 and the N-slit factor
+  against scipy.  Every reference is a line of
+  build/wave-interference/refvals.txt, the output of derive.py.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  Waves are scalar and linear; the source is a hard (Dirichlet) cell, as
+  PhET's is; each 2-D source is a line source, so waves fade as 1/sqrt(r).
+  The slits' theory curves use the far-zone form of the 2-D kernels
+  (kr >> 1; kr >= 30 at the screen).  The lattice follows the
+  Rayleigh-Sommerfeld sum on the screen to 6 % (3 % rms) and misses the
+  Fraunhofer formula by 26 % at PhET's default (derive.py).  Sound's air
+  parcels are pushed along grad p (xi = grad p / rho omega^2 for one
+  frequency), exaggerated to at most 0.3 of their spacing.  Colours:
+  water and sound ramps are chosen; light's hue is the CIE 1931 colour of
+  the wavelength (desaturated into sRGB), its brightness the field.  The
+  disorder aperture is a new design (fixed random offsets, Park-Miller
+  seed 20260918), not PhET's table; the waving figure is new art.  The
+  clock advances a fixed 1/60 s per frame so the headless suites are
+  deterministic.
+
+  NOT MODELLED
+  ------------
+  PhET's falling water drops (here the source starts at once), the
+  animated rotation into the side view (here a switch), its interpolation
+  between lattice frames (here the picture changes once per step), its
+  temporal mask (a display trick hiding lattice ringing after a source
+  stops), sound output ("Play Tone") and light sonification, the
+  stopwatch and wave meter as draggable boxes (here: a readout box and a
+  fixed chart), and PhET's separate lattice per medium (one lattice per
+  view; changing the medium clears it).  Defaults differ in one way: the
+  sources and the laser start ON (PhET starts them off, which opens every
+  screen blank).
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's values, read from docs/phets/wave-interference_en.html: the
+  lattice (151, pad 20, C = 1/2, source column 25), 20 x 111/61 steps per
+  second, the amplitude calibration 1.2 and plane-wave factor 0.21, the
+  colour scale 2.14, the media (widths 10 cm / 500 cm / 5000 nm, speeds
+  1.65 cm/s / 34.3 cm/ms / 299.792458 nm/fs, frequency ranges, scale bars,
+  source and slit ranges and defaults, time scales), the 90-step screen
+  history, the barrier's range, the diffraction grid (256 over 4/3 mm),
+  the aperture ranges and defaults, the lambda0/lambda rescaling and the
+  log(0.01|F| + 1) display.  Colour: the CIE 1931 2-degree table (DOI
+  10.25039/CIE.DS.xvudnb9b) every 5 nm, read from the file the
+  blackbody-spectrum build fetched from the CIE; the sRGB matrix.
+  Nothing else is measured.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed field and curves (the lattice, the FFT),
+       orange = the reference (the closed forms, the hyperbolae, PhET's calibration),
+       magenta = the live marker (the sources, the tools, the operating point),
+       cyan = structure (the barrier's generator, the bands, the asymptotes). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Wave interference</h1>
+  <span class="sub" id="sub">A remake of PhET&rsquo;s Wave Interference: water, sound and light on PhET&rsquo;s own lattice &mdash; one source, two sources, one and two slits, and the far-field pattern of an aperture as its Fourier transform</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';

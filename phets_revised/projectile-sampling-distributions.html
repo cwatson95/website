@@ -1,0 +1,2930 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Projectile sampling distributions &mdash; one launcher, many samples, and why the mean of n is narrower by &radic;n</title>
+<!--
+  ===================================================================
+  projectile-sampling-distributions.html — Remake of PhET Interactive
+  Simulations' Projectile Sampling Distributions (University of
+  Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets.
+  ===================================================================
+
+  PhET's Projectile Sampling Distributions is one screen — the
+  Sampling screen of Projectile Data Lab, on its own — so this file
+  runs the SAME engine as projectile-data-lab.html, trimmed to that
+  screen's launchers and controls: six mystery launchers at a fixed
+  30° with cannonballs only, sample sizes 2, 5, 15 and 40, bin widths
+  0.5, 1, 2 and 5 m (PhET's PSD list, which drops the data lab's 10 m
+  and defaults to 0.5 rather than 1), no total-bins strategy, and at
+  most 200 samples a field.
+
+  Four views.  THE FIELD is PhET's screen: fire a sample of n and its
+  MEAN — one number — joins the histogram below.  THE FOUR SAMPLE
+  SIZES is PhET's thumbnail row at full size, all four distributions
+  on one axis so the narrowing is a picture.  ONE LAUNCH is the
+  parent the samples are drawn from, against the exact density that
+  PhET's mechanism implies, because a standard error means nothing
+  without the σ it divides.  THE LIMIT THEOREM measures the standard
+  error against σ/√n with the error bar it is entitled to.
+
+  THE RESULTS THIS FILE EXISTS FOR
+  --------------------------------
+  * σ/√n is exact for every n and every parent, and it is not the
+    central limit theorem: var(x̄) = σ²/n follows from independence
+    alone.  The theorem is the further claim about SHAPE, and this
+    file separates the two — the widths are asserted at n = 2, where
+    no theorem applies, and the skewness is asserted to fall as 1/√n.
+  * The parent σ comes from the exact law, not from the data: for
+    mystery launcher 1 it is 3.18105 m, and the four standard errors
+    are then 2.24934, 1.42261, 0.82134 and 0.50297 m.
+  * Over 2000 samples the measured standard errors sit inside their
+    own sampling spread σ_n√((κ_n+2)/4M) at all four sizes — the
+    tolerance is computed from the parent's kurtosis, not chosen.
+
+  WHAT IS EXACT
+  -------------
+  * The trajectory: PhET's closed form for the range, checked in
+    derive.py against v² sin2θ/g and against an independent route.
+  * The random stream: mulberry32 seeded per field, Box-Muller with
+    one pair of uniforms per value, bit-identical to derive.py, so
+    the page and the Python twin generate the SAME sample means, and
+    the page's means, standard deviations (ddof 1 and 0), medians and
+    every histogram bin count are pinned against numpy's on them.
+  * The parent distribution: PhET re-draws the angle while it falls
+    outside (0°, 90°) and the speed while it is ≤ 0, so both are
+    truncated normals; the moments come from a 96×96 Gauss-Legendre
+    product rule over the truncated z-ranges, checked in derive.py
+    against scipy's adaptive quadrature (1e-15) and a 6e6-draw Monte
+    Carlo of the actual re-draw mechanism.
+  * The statistics are PhET's: bins are floor(x/w)·w, the standard
+    deviation divides by n − 1 and is null below two values, the
+    standard error is s/√n.
+
+  WHAT IS MODELLED (PhET's choices, kept)
+  ---------------------------------------
+  * No air resistance, g = 9.81 m/s², a 100 m field, the launcher
+    fixed at 30° with a cannonball, and PhET's launcher table:
+    spring 23 ± 0.5 m/s, pressure 24 ± 0.2, explosion 25 ± 1.2, with
+    angle spreads 2.6°, 5°, 0.2°, 1.4°, 0.2° and 5°.
+  * A sample is paced by PhET's own totalSampleTime — 0.75 s at n = 2,
+    2 s at 5, 5 s at 15 and 9 s at 40 — with the n launches spread
+    evenly over it and their flights overlapping, so a bigger sample
+    fires faster per shot, not slower.  Continuous sampling starts the
+    next as soon as the last lands, and stops at PhET's 200.
+
+  WHAT IS NOT MODELLED
+  --------------------
+  * Drag, spin, wind, the projectile's size.  PhET's sound, its
+    keyboard help and its PhET-iO instrumentation are absent, and so
+    are the orientation, projectile-type and custom-launcher controls,
+    which belong to the data lab's other three screens.
+
+  WHERE THIS FILE DIFFERS FROM PHET
+  ---------------------------------
+  * The histogram's vertical scale opens on an AUTO rung rather than
+    on PhET's default.  PhET's ladder starts at 25 samples because its
+    fields hold 200; at the two dozen samples the screen opens with,
+    its tightest rung still leaves the histogram a sliver along the
+    bottom of an empty panel, and a default that hides the data is a
+    defect rather than a preference.  Auto picks the tightest ceiling
+    that holds the tallest bin, on a finer ladder (4, 6, 8, 10, 15, 20)
+    below PhET's own; every rung PhET offers is still there by hand.
+  * The field opens with samples already in it, and the barrel can be
+    dragged up and down to change launcher (PhET uses radio buttons,
+    which are here too).  The two analysis views are new.
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's constants are read from
+  docs/phets/projectile-sampling-distributions_en.html (g = 9.81, the
+  100 m field, the 0.2–5° angle spreads, the three mechanisms, the
+  six mystery launchers, the sample sizes, the bin widths, the zoom
+  ladder to 250 and the 200-sample ceiling) and cited as PhET's
+  values.  Everything else is derived and pinned in selfTest to
+  build/projectile-sampling-distributions/derive.py, whose printed
+  output is refvals.txt.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the simulated histogram, the
+       measured mean and standard deviation), orange = the exact law derived
+       from PhET's mechanism (the density, sigma/sqrt(n), PhET's own
+       delta-method spread) or a warning, magenta = the live marker (the
+       projectile in flight, the handle being dragged, the sample mean),
+       cyan = structure (the field, the launcher, the axes).  The six mystery
+       launchers have their own colour slots (COL.lau) rather than borrowing
+       a role colour. */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Projectile sampling distributions</h1>
+  <span class="sub" id="sub">One launcher, many samples &mdash; PhET&rsquo;s sampling screen, the distribution of the sample mean at n = 2, 5, 15 and 40, and why its width is &sigma;/&radic;n</span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
+/* ================================================================== *
+ *  small utilities  (extracted from sbs_sims.html, via                *
+ *  build_lagr/p1_utils.js, verbatim)                                  *
+ * ================================================================== */
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const TAU=Math.PI*2, PI=Math.PI;
+const smoothstep=t=>t*t*(3-2*t);
+
+/* Accepts '#rgb', '#rrggbb' AND 'rgb(r,g,b)' — mix() returns the latter, so its
+   own output must be a legal input or a two-stage blend silently turns black:
+   parseInt('rgb(58,111,142)', 16) is NaN, and NaN & 255 is 0, which yields a
+   perfectly well-formed rgb(0,0,0) and no error anywhere.  Unparseable input
+   THROWS rather than defaulting.  (Known-bad list, steam_carnot_cycle.html.) */
+function toRgb(c){
+  const s=''+c;
+  const m=s.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/);
+  if(m) return [Math.round(+m[1]),Math.round(+m[2]),Math.round(+m[3])];
+  let h=s.replace('#','');
+  if(h.length===3) h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  if(!/^[0-9a-fA-F]{6}$/.test(h)) throw new Error('toRgb: cannot parse colour "'+s+'"');
+  const n=parseInt(h,16); return [(n>>16)&255,(n>>8)&255,n&255];
+}
+function mix(a,b,t){ const A=toRgb(a),B=toRgb(b);
+  return 'rgb('+Math.round(A[0]+(B[0]-A[0])*t)+','+Math.round(A[1]+(B[1]-A[1])*t)+','
+              +Math.round(A[2]+(B[2]-A[2])*t)+')'; }
+function rgba(hex,a){ const c=toRgb(hex); return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')'; }
+function shade(col,sh){ return mix('#070b18',col,clamp(sh,0,1)); }
+/* Mathematica NeonColors — same table as the other sims in this collection */
+const NEON_STOPS=[
+  [0.0000,0.7203,0.9238,0.2976],[0.0667,0.7332,0.8250,0.2939],
+  [0.1333,0.7462,0.7263,0.2903],[0.2000,0.7591,0.6275,0.2866],
+  [0.2667,0.7720,0.5287,0.2830],[0.3333,0.7849,0.4300,0.2793],
+  [0.4000,0.8089,0.3632,0.2617],[0.4667,0.8316,0.3178,0.2550],
+  [0.5333,0.8515,0.3153,0.2700],[0.6000,0.8580,0.3213,0.3191],
+  [0.6667,0.8577,0.3317,0.3854],[0.7333,0.8473,0.3071,0.4623],
+  [0.8000,0.8369,0.2825,0.5391],[0.8667,0.8266,0.2578,0.6160],
+  [0.9333,0.8162,0.2332,0.6929],[1.0000,0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=clamp(t,0,1); const S=NEON_STOPS; let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){ const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')'; }
+
+/* tiny DOM helper (only touched when a document exists) */
+function h(tag,attrs){
+  const e=document.createElement(tag);
+  if(attrs) for(const k in attrs){
+    if(k==='class') e.className=attrs[k];
+    else if(k==='html') e.innerHTML=attrs[k];
+    else if(k.slice(0,2)==='on') e.addEventListener(k.slice(2),attrs[k]);
+    else e.setAttribute(k,attrs[k]);
+  }
+  for(let i=2;i<arguments.length;i++){
+    const c=arguments[i]; if(c==null) continue;
+    e.appendChild(typeof c==='string'?document.createTextNode(c):c);
+  }
+  return e;
+}
+function fmt(x,n){ return isFinite(x)?Number(x).toFixed(n===undefined?3:n):'—'; }
+function sigf(x,n){
+  if(!isFinite(x)) return '—';
+  if(x===0) return '0';
+  n=n||3;
+  const a=Math.abs(x);
+  if(a>=1e5||a<1e-4) return x.toExponential(n-1).replace('e','×10^');
+  const d=Math.max(0,n-1-Math.floor(Math.log10(a)));
+  return x.toFixed(Math.min(d,8));
+}
+const ENTS={'&rsquo;':'’','&lsquo;':'‘','&mdash;':'—','&ndash;':'–',
+            '&times;':'×','&deg;':'°','&nbsp;':' ','&minus;':'−',
+            '&amp;':'&','&lt;':'<','&gt;':'>','&hellip;':'…',
+            '&alpha;':'α','&beta;':'β','&gamma;':'γ','&delta;':'δ',
+            '&epsilon;':'ε','&eta;':'η','&kappa;':'κ','&lambda;':'λ',
+            '&mu;':'μ','&nu;':'ν','&pi;':'π','&rho;':'ρ',
+            '&sigma;':'σ','&tau;':'τ','&phi;':'φ','&omega;':'ω',
+            '&theta;':'θ','&Gamma;':'Γ','&Delta;':'Δ','&Lambda;':'Λ',
+            '&Pi;':'Π','&Sigma;':'Σ','&Phi;':'Φ','&Omega;':'Ω',
+            '&plusmn;':'±','&ne;':'≠','&asymp;':'≈','&equiv;':'≡',
+            '&prop;':'∝','&radic;':'√','&infin;':'∞','&middot;':'·',
+            '&rarr;':'→','&larr;':'←','&ell;':'ℓ','&sup2;':'²',
+            '&sup3;':'³','&frac12;':'½','&le;':'≤','&ge;':'≥',
+            '&prime;':'′','&Prime;':'″','&rArr;':'⇒','&hArr;':'⇔','&oint;':'∮','&int;':'∫','&perp;':'⊥','&ycirc;':'ŷ'};
+/* plain(): strips tags, decodes numeric + named entities.  The wide regex and
+   the numeric decode INSIDE its handler are both load-bearing: the narrow
+   /&[a-z]+;/ let &#955; and &Lambda; reach the canvas verbatim (wave_fronts
+   Known-bad), and a SEPARATE numeric pass makes narrowing the wide match an
+   equivalent mutant the sweep cannot see (sbs_state_surface Known-bad).
+   Unknown named entities pass through unchanged so the audits still see them. */
+function plain(s){
+  return String(s).replace(/<\/?[a-zA-Z][^>]*>/g,'')
+    .replace(/&#?[a-zA-Z0-9]+;/g,m=>{
+      if(ENTS[m]!==undefined) return ENTS[m];
+      let d=/^&#([0-9]+);$/.exec(m);
+      if(d) return String.fromCodePoint(+d[1]);
+      d=/^&#x([0-9a-fA-F]+);$/.exec(m);
+      if(d) return String.fromCodePoint(parseInt(d[1],16));
+      return m;
+    });
+}
+function wrapText(ctx,txt,maxW,font){
+  if(font) ctx.font=font;
+  const words=plain(txt).split(/\s+/), out=[]; let line='';
+  for(const w of words){
+    const t=line?line+' '+w:w;
+    if(line&&ctx.measureText(t).width>maxW){ out.push(line); line=w; }
+    else line=t;
+  }
+  if(line) out.push(line);
+  return out;
+}
+function caption(ctx,x,y,txt,maxW,col,font){
+  const f=font||'11.5px -apple-system, sans-serif';
+  const ls=wrapText(ctx,txt,maxW,f);
+  ctx.fillStyle=col||'#767e92'; ctx.textAlign='left'; ctx.textBaseline='top';
+  for(let i=0;i<ls.length;i++) ctx.fillText(ls[i],x,y+i*14);
+  return ls.length*14;
+}
+function box(x,y,w,hh){ return {x,y,w,h:hh,x1:x+w,y1:y+hh}; }
+function frame(ctx,b,col){
+  ctx.strokeStyle=col||'#232838'; ctx.lineWidth=1;
+  ctx.strokeRect(Math.round(b.x)+0.5,Math.round(b.y)+0.5,Math.round(b.w),Math.round(b.h));
+}
+function ticksFor(lo,hi,want){
+  const span=hi-lo; if(!(span>0)) return [lo];
+  const raw=span/Math.max(2,want);
+  const mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  const norm=raw/mag;
+  const step=(norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+  const out=[];
+  for(let t=Math.ceil(lo/step)*step;t<=hi+step*1e-6;t+=step) out.push(t);
+  return out;
+}
+/* log-axis ticks (decades), guarded: a non-positive bound is an infinite loop
+   in a naive generator (sbs_sims Known-bad) — return [] instead */
+function logTicks(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  const e0=Math.floor(Math.log10(lo)), e1=Math.ceil(Math.log10(hi));
+  const step=(e1-e0)>7?2:1;
+  for(let e=e0;e<=e1;e+=step){ const v=Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out;
+}
+function axes(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=opt||{};
+  ctx.save();
+  frame(ctx,b,'#242a3a');
+  ctx.font='10.5px -apple-system, sans-serif';
+  /* ticksFor returns a SINGLE value when hi < lo, so an inverted axis silently
+     gets one tick and no grid.  Sort the range before asking for ticks; the
+     placement below already handles either direction. (standard_candle.html) */
+  const xt=o.xticks||ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),o.nx||6);
+  const yt=o.yticks||ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),o.ny||5);
+  ctx.strokeStyle='#181d29'; ctx.lineWidth=1;
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#6f7789';
+  for(const t of xt){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke();
+    ctx.fillText(o.xfmt?o.xfmt(t):fmt(t,2),X,b.y1+5);
+  }
+  ctx.textAlign='right'; ctx.textBaseline='middle';
+  for(const t of yt){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    ctx.beginPath(); ctx.moveTo(b.x,Y); ctx.lineTo(b.x1,Y); ctx.stroke();
+    ctx.fillText(o.yfmt?o.yfmt(t):fmt(t,2),b.x-6,Y);
+  }
+  /* labels go through plain() too — axis titles have carried '&ndash;' raw
+     onto the canvas before (drum_head.html, Known-bad) */
+  if(o.xlab){ ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.xlab),b.x+b.w/2,b.y1+21); }
+  if(o.ylab){ ctx.save(); ctx.translate(b.x-40,b.y+b.h/2); ctx.rotate(-PI/2);
+    ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle='#8b93a6';
+    ctx.font='11px -apple-system, sans-serif'; ctx.fillText(plain(o.ylab),0,0); ctx.restore(); }
+  /* title baseline at b.y-9, not b.y-6: the topmost y-tick label is centred on
+     b.y and a 10.5px font spans +/-5.25 px, so a 6 px gap collides with it. */
+  if(o.title){ ctx.textAlign='left'; ctx.textBaseline='bottom'; ctx.fillStyle='#aeb6c6';
+    ctx.font='italic 13px Georgia, serif'; ctx.fillText(plain(o.title),b.x,b.y-9); }
+  ctx.restore();
+}
+/* Polyline, CLIPPED IN DATA SPACE to the y-range AND the x-range (the
+   siblings clip y only).  A canvas ctx.clip() would fix the browser but NOT
+   the audit — the display-list recorder treats clip() as a no-op, so the
+   captured geometry would still lie.  Crossings are interpolated so a clipped
+   curve still meets the frame edge exactly.
+   Every emitted segment is also recorded in POLY_SEGS (screen coords), which
+   is what lets selfTest assert that no data curve crosses a legend box. */
+let POLY_SEGS=[];
+function polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){
+  ctx.save();
+  ctx.beginPath();
+  const n=Math.min(xs.length,ys.length);
+  const px=x=>b.x+b.w*(x-xlo)/(xhi-xlo||1);
+  const py=y=>b.y1-b.h*(y-ylo)/(yhi-ylo||1);
+  const xa=Math.min(xlo,xhi), xb=Math.max(xlo,xhi), ya=Math.min(ylo,yhi), yb=Math.max(ylo,yhi);
+  let started=false;
+  for(let i=0;i<n-1;i++){
+    const X0=xs[i], Y0=ys[i], X1=xs[i+1], Y1=ys[i+1];
+    if(!isFinite(X0)||!isFinite(Y0)||!isFinite(X1)||!isFinite(Y1)){ started=false; continue; }
+    /* Liang-Barsky: the parameter range [t0,t1] of the segment inside the box.
+       A segment whose BOTH endpoints lie outside can still cross the box; the
+       endpoint-only test the siblings used dropped it. */
+    let t0=0,t1=1; const dx=X1-X0, dy=Y1-Y0; let out=false;
+    for(const [p,q] of [[-dx,X0-xa],[dx,xb-X0],[-dy,Y0-ya],[dy,yb-Y0]]){
+      if(p===0){ if(q<0){ out=true; break; } continue; }
+      const t=q/p;
+      if(p<0){ if(t>t1){ out=true; break; } if(t>t0) t0=t; }
+      else { if(t<t0){ out=true; break; } if(t<t1) t1=t; }
+    }
+    if(out||t0>t1){ started=false; continue; }
+    const x0=X0+t0*dx, y0=Y0+t0*dy, x1=X0+t1*dx, y1=Y0+t1*dy;
+    if(t0>0) started=false;                 /* enters the box part-way: new stroke */
+    if(!started){ ctx.moveTo(px(x0),py(y0)); started=true; }
+    ctx.lineTo(px(x1),py(y1));
+    POLY_SEGS.push(px(x0),py(y0),px(x1),py(y1));
+    if(t1<1) started=false;                 /* leaves the box: the next stroke restarts */
+  }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6;
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+/* legend that RECORDS its own text rectangle, so selfTest can assert no data
+   polyline runs through one (adiabatic_expansion lesson).  Reset per draw. */
+let LEGEND_RECTS=[];
+function legendBox(ctx,x,y,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  ctx.fillStyle='rgba(10,12,18,.78)'; ctx.fillRect(x,y,bw,bh);
+  frame(ctx,box(x,y,bw,bh),'#242a3a');
+  ctx.textAlign='left'; ctx.textBaseline='middle';
+  items.forEach((it,i)=>{
+    const yy=y+11+i*15;
+    ctx.fillStyle=it[0]; ctx.fillRect(x+7,yy-3.5,10,7);
+    ctx.fillStyle='#9aa2b4'; ctx.fillText(plain(it[1]),x+22,yy);
+  });
+  LEGEND_RECTS.push({x:x+22,y,w:bw-22,h:bh});
+  return box(x,y,bw,bh);
+}
+/* pick the first corner of panel b that no already-recorded curve segment
+   crosses — call AFTER the panel's polylines are drawn (Known-bad: deciding
+   which corner is empty by looking at one configuration keeps being wrong) */
+function legendAuto(ctx,b,items){
+  ctx.font='10.5px -apple-system, sans-serif';
+  let w=0;
+  for(const it of items) w=Math.max(w,ctx.measureText(plain(it[1])).width);
+  const bw=w+26, bh=items.length*15+8;
+  const mx=b.x+(b.w-bw)/2, my=b.y+(b.h-bh)/2;
+  const cands=[[b.x1-bw-8,b.y+8],[b.x+8,b.y1-bh-8],[b.x+8,b.y+8],
+               [b.x1-bw-8,b.y1-bh-8],[mx,b.y+8],[mx,b.y1-bh-8],
+               [b.x+8,my],[b.x1-bw-8,my]];
+  for(const [cx,cy] of cands){
+    let hit=false;
+    for(let i=0;i<POLY_SEGS.length&&!hit;i+=4){
+      const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+      if(Math.max(x0,x1)<cx||Math.min(x0,x1)>cx+bw||
+         Math.max(y0,y1)<cy||Math.min(y0,y1)>cy+bh) continue;
+      hit=true;
+    }
+    /* a corner clear of the CURVES can still be full of their LABELS: the bar
+       chart's value labels sit where no bar is, which is exactly where this
+       used to put the legend.  A legend is a label like any other. */
+    for(let i=0;i<LABELS.length&&!hit;i++){
+      const L=LABELS[i];
+      if(L[2]<=cx||L[0]>=cx+bw||L[3]<=cy||L[1]>=cy+bh) continue;
+      hit=true;
+    }
+    if(!hit) return legendBox(ctx,cx,cy,items);
+  }
+  /* every spot is crossed: draw no legend rather than a lying one — the
+     caption names the colours */
+  return null;
+}
+
+function stageTop(){ return 46; }
+/* measure a caption BEFORE laying out the panel above it (Known-bad: wrapped
+   text has no fixed height) — returns {capY, lines} for a bottom-anchored cap */
+function capFit(ctx,W,H,txt,capW){
+  const lines=wrapText(ctx,txt,capW,'11.5px -apple-system, sans-serif').length;
+  return {capY:H-12-lines*14,lines};
+}
+function sparseTicks(lo,hi,hpx){
+  return ticksFor(lo,hi,hpx<90?2:(hpx<140?3:5));
+}
+/* choose the full caption if the panel above it keeps at least minTop of
+   height, else a one-line fallback (sparse-view honesty at tiny sizes).
+   capW is floored: at very narrow widths text may run under the floating
+   readout, which the audit reports as advisory, like the siblings. */
+function fitCaption(ctx,W,H,fullTxt,shortTxt,capWraw,minTop){
+  const capW=Math.max(300,Math.min(capWraw,W-148));
+  let fit=capFit(ctx,W,H,fullTxt,capW);
+  if(fit.capY>=minTop) return {capY:fit.capY,txt:fullTxt,capW};
+  fit=capFit(ctx,W,H,shortTxt,capW);
+  return {capY:fit.capY,txt:shortTxt,capW};
+}
+function intTicks(lo,hi){
+  const out=[];
+  for(let t=Math.ceil(lo);t<=Math.floor(hi);t++) out.push(t);
+  return out.length?out:[Math.round(lo)];
+}
+
+
+/* ================================================================== *
+ *  the engine: PhET's constants, its launch mechanism, the exact      *
+ *  distribution of the landing distance, and the statistics.  This is *
+ *  the data lab remake's engine, trimmed by build/projectile-         *
+ *  sampling-distributions/make_engine.py to the Sampling screen's own *
+ *  controls — PhET ships one bundle for both sims and branches on the *
+ *  sim name for exactly these values.  Read from the minified         *
+ *  original docs/phets/projectile-sampling-distributions_en.html and  *
+ *  cited as PhET's; everything derived is pinned in selfTest.         *
+ * ================================================================== */
+const PDL={
+  G:9.81,                 /* PDLConstants.FREEFALL_ACCELERATION      */
+  FIELD:100,              /* PDLConstants.MAX_FIELD_DISTANCE, metres */
+  RAISED_H:12,            /* PDLConstants.RAISED_LAUNCHER_HEIGHT     */
+  ANG_SD:[0.2,5],         /* ANGLE_STANDARD_DEVIATION_RANGE, degrees */
+  LAUNCH_GAP:0.7,         /* MINIMUM_TIME_BETWEEN_LAUNCHES, seconds  */
+  MAX_PROJ:500,           /* MAX_PROJECTILES_VSM_FIELD_DEFAULT       */
+  MAX_SAMPLES:200,        /* the maxSamples query parameter          */
+  SAMPLE_TIME:{2:0.75,5:2,15:5,40:9}, /* SamplingField.totalSampleTime */
+  N_FIELDS:6,             /* six fields on the VSM screens           */
+  SIZES:[2,5,15,40],      /* the Sampling screen's sample sizes      */
+  BINW:[0.5,1,2,5],       /* selectedBinWidthProperty validValues     */
+  BINW_DEF:0.5,           /* PSD defaults to 0.5 m; the data lab to 1 */
+  ZOOM_MAX:[250,200,150,100,75,50,25], /* the samples-per-bin ladder  */
+  SPEED_MEAN_MIN:20,      /* the speed-mean range floor (data lab: 15)*/
+  ZCAP:12,                /* beyond 12 sd a normal density is <1e-32 */
+  TIME_SPEED_FAST:6,      /* PDLConstants.TIME_SPEED_FAST            */
+  NGL:96,                 /* Gauss-Legendre nodes (derive.py's rule) */
+  /* panels for the density's theta integral.  The MOMENTS are a product rule
+     over a smooth integrand and one panel is exact to 1e-15, but the density
+     at a FIXED r is not: only the angles whose v*(r,theta) lands within a few
+     sd of the mean speed contribute, so a small speed spread beside a large
+     angle spread makes the integrand a narrow spike that one 96-node rule
+     rings around (29 % on mystery launcher 2, 292 % raised).  Eight panels
+     take every case tested to 0.000 % against a 64-panel reference, and
+     selfTest asserts that convergence rather than assuming it. */
+  NPANEL:8
+};
+/* LauncherMechanism(tandem, speedMean, speedStandardDeviation) */
+const MECH={spring:{id:'spring',name:'spring',mean:23,sd:0.5},
+            pressure:{id:'pressure',name:'pressure',mean:24,sd:0.2},
+            explosion:{id:'explosion',name:'explosion',mean:25,sd:1.2},
+            custom:{id:'custom',name:'custom',mean:24,sd:0.5}};
+const MECH_LIST=[MECH.spring,MECH.pressure,MECH.explosion];
+/* ProjectileType(tandem, speedMultiplier) — the Sampling screen fires
+   cannonballs only, so its table has one row */
+const PTYPES=[{id:'cannonball',name:'cannonball',mult:1}];
+/* launcherOrientation — the Sampling screen fixes angle30 (its fields are
+   built with validValues:['angle30']), so its table has one row.  The engine
+   below still carries the general launch height h, because the closed forms
+   are the general ones and selfTest exercises them. */
+const ORIENTS=[{id:'angle30',name:'30°',ang:30,h:0}];
+/* the six mystery launchers: Range.getCenter(), max, min, min+length/4, min, max */
+const ANG_C=0.5*(PDL.ANG_SD[0]+PDL.ANG_SD[1]);
+const ANG_Q=PDL.ANG_SD[0]+(PDL.ANG_SD[1]-PDL.ANG_SD[0])/4;
+const LAUNCHERS=[{n:1,mech:'spring',sdAng:ANG_C},{n:2,mech:'pressure',sdAng:PDL.ANG_SD[1]},
+                 {n:3,mech:'explosion',sdAng:PDL.ANG_SD[0]},{n:4,mech:'spring',sdAng:ANG_Q},
+                 {n:5,mech:'pressure',sdAng:PDL.ANG_SD[0]},{n:6,mech:'explosion',sdAng:PDL.ANG_SD[1]}];
+
+/* ---- the random stream: mulberry32 + Box-Muller (bit-exact twin in
+   derive.py).  One pair of uniforms per normal, never cached: a draw count
+   that does not depend on history is what keeps the stream reproducible. */
+function pdlRng(seed){
+  let a=seed>>>0;
+  const R={
+    next(){
+      a=(a+0x6D2B79F5)>>>0;
+      let t=Math.imul(a^(a>>>15),a|1);
+      t=((t+Math.imul(t^(t>>>7),t|61))>>>0)^t;
+      return ((t^(t>>>14))>>>0)/4294967296;
+    },
+    gauss(){ const u1=1-R.next(), u2=R.next(); return Math.sqrt(-2*Math.log(u1))*Math.cos(2*Math.PI*u2); }
+  };
+  return R;
+}
+
+/* ---- the trajectory --------------------------------------------------------
+   y(t) = h + v sinθ t − g t²/2 = 0  ⇒  t = [v s + √(v²s² + 2gh)]/g,
+   x(t) = v cosθ t  ⇒  R = (v cosθ/g)(v s + √(v²s² + 2gh)).  PhET's two
+   closed forms; derive.py re-derives them and checks both against the root
+   of y(t) = 0 and against a marched trajectory. */
+function pdlRange(v,thDeg,h){
+  const th=thDeg*Math.PI/180, s=Math.sin(th);
+  return v*Math.cos(th)/PDL.G*(v*s+Math.sqrt(v*v*s*s+2*PDL.G*h));
+}
+/* the same range, multiplied through by the conjugate.  For a DOWNWARD launch
+   (sin θ < 0) PhET's form adds two nearly equal numbers of opposite sign and
+   loses digits — at v = 10⁶ m/s from 12 m it loses the answer entirely —
+   whereas 2gh/(√(v²s²+2gh) − v s) is a quotient of positives and cannot.
+   The two agree to 1e-15 over everything the sliders reach; PhET's form is the
+   one the sim and derive.py evaluate, so that the bit-level pins hold. */
+function pdlRangeStable(v,thDeg,h){
+  const th=thDeg*Math.PI/180, s=Math.sin(th), Q=Math.sqrt(v*v*s*s+2*PDL.G*h);
+  if(h===0) return s<=0?0:v*Math.cos(th)/PDL.G*2*v*s;
+  return v*Math.cos(th)/PDL.G*(2*PDL.G*h)/(Q-v*s);
+}
+function pdlFlight(v,thDeg,h){
+  const s=Math.sin(thDeg*Math.PI/180), a=v*s/PDL.G;
+  return a+Math.sqrt(a*a+2*h/PDL.G);
+}
+function pdlHeight(v,thDeg,h,t){ return h+v*Math.sin(thDeg*Math.PI/180)*t-0.5*PDL.G*t*t; }
+/* ∂R/∂v at fixed θ — positive for every v, so R is monotone in the speed */
+function pdlDRdv(v,thDeg,h){
+  const th=thDeg*Math.PI/180, s=Math.sin(th), c=Math.cos(th);
+  const Q=Math.sqrt(v*v*s*s+2*PDL.G*h);
+  return c/PDL.G*(2*v*s+(2*v*v*s*s+2*PDL.G*h)/Q);
+}
+/* the angle of maximum range from a height: cos 2θ* = gh/(v² + gh) */
+function pdlMaxAngle(v,h){ return 0.5*Math.acos(PDL.G*h/(v*v+PDL.G*h))*180/Math.PI; }
+/* the speed that lands at r from angle θ.  R(v) rises monotonically but from
+   a height a DOWNWARD launch saturates: as v grows the path straightens and
+   the range tends to h/tan|θ|, so beyond that no speed reaches r and the
+   answer is null rather than a Newton step that divides by nothing. */
+function pdlVStar(r,thDeg,h){
+  const th=thDeg*Math.PI/180, s=Math.sin(th), c=Math.cos(th);
+  if(!(c>1e-9)||!(r>0)) return null;
+  if(h===0) return s<=0?null:Math.sqrt(r*PDL.G/Math.sin(2*th));
+  if(s<0&&r>=h*c/(-s)) return null;
+  let v=s>1e-4?Math.sqrt(r*PDL.G/Math.sin(2*th)):r*Math.sqrt(PDL.G/(2*h))/c;
+  for(let i=0;i<120;i++){
+    const d=pdlDRdv(v,thDeg,h);
+    if(!(d>1e-12)) return null;
+    const step=(pdlRange(v,thDeg,h)-r)/d;
+    v=Math.max(1e-9,v-step);
+    if(Math.abs(step)<1e-15*Math.max(1,v)) break;
+  }
+  return Math.abs(pdlRange(v,thDeg,h)-r)<1e-9*Math.max(1,r)?v:null;
+}
+
+/* PhET's angle stabiliser (standardDeviationAngle = linear(1, 0, sdMin,
+   sdMax, stability)) belongs to the Sources screen and is NOT here: the
+   Sampling screen's six launchers carry their angle spreads directly. */
+
+/* ---- one launch, exactly PhET's createProjectile ---------------------------
+   the angle first (re-drawn up to 100 times while it is outside (0°, 90°),
+   and not re-drawn at all on the raised launcher, which PhET exempts), then
+   the speed (re-drawn while it is ≤ 0).  Both are therefore truncated
+   normals; section 4 of derive.py measures how much that truncation moves
+   the answer (5.5e-8 m at worst). */
+function pdlDraw(rng,cfg){
+  let a=cfg.meanAng+rng.gauss()*cfg.sdAng;
+  if(!cfg.raised){ let k=0; while(k<100&&(a<=0||a>=90)){ a=cfg.meanAng+rng.gauss()*cfg.sdAng; k++; } }
+  const mu=cfg.meanSpeed*cfg.mult;
+  let v=mu+rng.gauss()*cfg.sdSpeed;
+  while(v<=0) v=mu+rng.gauss()*cfg.sdSpeed;
+  return {v,ang:a};
+}
+function pdlConfig(mechId,sdAng,orientId,typeId,speedMean,speedSd){
+  const M=MECH[mechId], O=ORIENTS.find(o=>o.id===orientId)||ORIENTS[0];
+  const T=PTYPES.find(t=>t.id===typeId)||PTYPES[0];
+  return {mech:mechId, sdAng, meanAng:O.ang, h:O.h, raised:O.h>0,
+          mult:T.mult, meanSpeed:speedMean===undefined?M.mean:speedMean,
+          sdSpeed:speedSd===undefined?M.sd:speedSd, orient:O.id, type:T.id};
+}
+
+/* ================================================================== *
+ *  the exact distribution                                             *
+ * ================================================================== */
+/* Gauss-Legendre nodes and weights on [-1,1] by Newton on P_n (the standard
+   three-term recurrence).  Computed here rather than pasted: selfTest asserts
+   them against numpy's leggauss(96), which is a stronger check than a table
+   of literals could be. */
+function pdlGauleg(n,seed){
+  const sd=seed===undefined?0.75:seed;
+  const x=new Array(n), w=new Array(n), m=(n+1)>>1;
+  for(let i=0;i<m;i++){
+    let z=Math.cos(Math.PI*(i+sd)/(n+0.5)), pp=1, z1;
+    for(let it=0;it<100;it++){
+      let p1=1, p2=0;
+      for(let j=0;j<n;j++){ const p3=p2; p2=p1; p1=((2*j+1)*z*p2-j*p3)/(j+1); }
+      pp=n*(z*p1-p2)/(z*z-1);
+      z1=z; z=z1-p1/pp;
+      if(Math.abs(z-z1)<=1e-16) break;
+    }
+    x[i]=-z; x[n-1-i]=z;
+    w[i]=2/((1-z*z)*pp*pp); w[n-1-i]=w[i];
+  }
+  return {x,w};
+}
+const GL=pdlGauleg(PDL.NGL);
+const NORM=1/Math.sqrt(2*Math.PI);
+function pdlPhi(z){ return NORM*Math.exp(-0.5*z*z); }
+/* nodes z and weights carrying φ(z) dz over [a,b]; Σw = Φ(b) − Φ(a) */
+function pdlZRule(a,b){
+  const n=PDL.NGL, z=new Array(n), w=new Array(n);
+  for(let i=0;i<n;i++){ z[i]=0.5*(b-a)*GL.x[i]+0.5*(a+b); w[i]=0.5*(b-a)*GL.w[i]*pdlPhi(z[i]); }
+  return {z,w};
+}
+/* the z-interval of N(mu, sd) truncated to (lo, hi), capped at 12 sd */
+function pdlZRange(mu,sd,lo,hi){
+  return [lo===null?-PDL.ZCAP:Math.max(-PDL.ZCAP,(lo-mu)/sd),
+          hi===null? PDL.ZCAP:Math.min( PDL.ZCAP,(hi-mu)/sd)];
+}
+/* the moments of the landing distance, over the SAME 96×96 product rule
+   derive.py uses.  TWO passes: the mean first, then the central moments about
+   it.  Assembling mu3 from the raw moments cancels five to seven digits
+   (m3 ~ 2e5 against mu3 ~ 0.02) and the two languages round that cancellation
+   differently — with the second pass they agree to 1e-15, and selfTest pins
+   the difference between the two forms so the shortcut cannot come back. */
+function pdlMomentGrid(cfg){
+  const mu=cfg.meanSpeed*cfg.mult, sv=cfg.sdSpeed;
+  const rv=pdlZRule.apply(null,pdlZRange(mu,sv,0,null));
+  const rt=cfg.raised?pdlZRule(-PDL.ZCAP,PDL.ZCAP):pdlZRule.apply(null,pdlZRange(cfg.meanAng,cfg.sdAng,0,90));
+  let wsum=0;
+  for(let i=0;i<PDL.NGL;i++) for(let j=0;j<PDL.NGL;j++) wsum+=rv.w[i]*rt.w[j];
+  const R=new Array(PDL.NGL*PDL.NGL), P=new Array(PDL.NGL*PDL.NGL);
+  for(let j=0;j<PDL.NGL;j++){
+    const th=(cfg.meanAng+cfg.sdAng*rt.z[j])*Math.PI/180, s=Math.sin(th), c=Math.cos(th);
+    for(let i=0;i<PDL.NGL;i++){
+      const v=mu+sv*rv.z[i], k=j*PDL.NGL+i;
+      R[k]=v*c/PDL.G*(v*s+Math.sqrt(v*v*s*s+2*PDL.G*cfg.h));
+      P[k]=rv.w[i]*rt.w[j]/wsum;
+    }
+  }
+  return {R,P};
+}
+function pdlMoments(cfg){
+  const {R,P}=pdlMomentGrid(cfg), N=R.length;
+  const m=[0,0,0,0];
+  for(let k=0;k<N;k++){ let q=R[k]; m[0]+=P[k]*q; q*=R[k]; m[1]+=P[k]*q; q*=R[k]; m[2]+=P[k]*q; q*=R[k]; m[3]+=P[k]*q; }
+  const mean=m[0];
+  let c2=0,c3=0,c4=0;
+  for(let k=0;k<N;k++){ const d=R[k]-mean, d2=d*d; c2+=P[k]*d2; c3+=P[k]*d2*d; c4+=P[k]*d2*d2; }
+  return {m1:m[0],m2:m[1],m3:m[2],m4:m[3],mean,varr:c2,sd:Math.sqrt(c2),mu3:c3,mu4:c4};
+}
+/* the same central moments assembled from the RAW ones — kept only so
+   selfTest can measure the cancellation it suffers (it is not used to draw
+   or report anything) */
+function pdlMomentsRaw(cfg){
+  const M=pdlMoments(cfg), m1=M.m1;
+  return {varr:M.m2-m1*m1, mu3:M.m3-3*m1*M.m2+2*m1*m1*m1,
+          mu4:M.m4-4*m1*M.m3+6*m1*m1*M.m2-3*Math.pow(m1,4)};
+}
+/* memoised on the configuration: the readout, the captions and the drawing
+   all ask for the same moments many times a frame, and the rule is 9216
+   evaluations (about 7 ms for six configurations) */
+const EXACT_CACHE={};
+function pdlCfgKey(cfg){
+  return [cfg.meanSpeed,cfg.sdSpeed,cfg.mult,cfg.meanAng,cfg.sdAng,cfg.h,cfg.raised?1:0].join('/');
+}
+function pdlExact(cfg){
+  const k=pdlCfgKey(cfg);
+  if(EXACT_CACHE[k]) return EXACT_CACHE[k];
+  const M=pdlMoments(cfg);
+  M.skew=M.mu3/Math.pow(M.sd,3); M.kurt=M.mu4/Math.pow(M.sd,4)-3;
+  EXACT_CACHE[k]=M;
+  return M;
+}
+/* the UNtruncated model in closed form, h = 0 only: R = v² sin2θ/g, and both
+   E[v^2k] and E[sin^k 2θ] are exact for a normal —
+   E[e^{iaθ}] = e^{iam − a²w²/2} gives every sine moment. */
+function pdlClosed(mu,s,mDeg,wDeg){
+  const m=mDeg*Math.PI/180, w=wDeg*Math.PI/180, g=PDL.G;
+  const C=a=>Math.cos(a*m)*Math.exp(-0.5*a*a*w*w);
+  const S=a=>Math.sin(a*m)*Math.exp(-0.5*a*a*w*w);
+  const v2=mu*mu+s*s;
+  const v4=Math.pow(mu,4)+6*mu*mu*s*s+3*Math.pow(s,4);
+  const v6=Math.pow(mu,6)+15*Math.pow(mu,4)*s*s+45*mu*mu*Math.pow(s,4)+15*Math.pow(s,6);
+  const v8=Math.pow(mu,8)+28*Math.pow(mu,6)*s*s+210*Math.pow(mu,4)*Math.pow(s,4)
+          +420*mu*mu*Math.pow(s,6)+105*Math.pow(s,8);
+  const s1=S(2), s2=0.5*(1-C(4)), s3=0.25*(3*S(2)-S(6)), s4=0.125*(3-4*C(4)+C(8));
+  return [v2*s1/g, v4*s2/(g*g), v6*s3/(g*g*g), v8*s4/Math.pow(g,4)];
+}
+/* PhET's own spread estimate — SampleSizeThumbnailNode.calculateRangeStdDev,
+   which is the first-order (delta-method) propagation through v² sin2θ/g and
+   is what sets the Sampling thumbnails' x-range. */
+function pdlDeltaSd(v,sdv,thDeg,sdthDeg){
+  const s=thDeg*Math.PI/180, r=sdthDeg*Math.PI/180;
+  const a=2*v/PDL.G*Math.sin(2*s), b=2*v*v/PDL.G*Math.cos(2*s);
+  return Math.sqrt(a*a*sdv*sdv+b*b*r*r);
+}
+/* the exact density: f(r) = ∫ f_θ(θ) f_v(v*(r,θ))/|∂R/∂v| dθ over the
+   accepted angles, on the same rule */
+function pdlPdf(r,cfg,panels){
+  const K=panels||PDL.NPANEL;
+  const mu=cfg.meanSpeed*cfg.mult, sv=cfg.sdSpeed;
+  const zr=cfg.raised?[-PDL.ZCAP,PDL.ZCAP]:pdlZRange(cfg.meanAng,cfg.sdAng,0,90);
+  const rv=pdlZRule.apply(null,pdlZRange(mu,sv,0,null));
+  let vw=0;
+  for(let i=0;i<PDL.NGL;i++) vw+=rv.w[i];
+  let tot=0, tw=0;
+  for(let k=0;k<K;k++){
+    const a=zr[0]+(zr[1]-zr[0])*k/K, b=zr[0]+(zr[1]-zr[0])*(k+1)/K;
+    for(let j=0;j<PDL.NGL;j++){
+      const z=0.5*(b-a)*GL.x[j]+0.5*(a+b), w=0.5*(b-a)*GL.w[j]*pdlPhi(z);
+      tw+=w;
+      const th=cfg.meanAng+cfg.sdAng*z, vs=pdlVStar(r,th,cfg.h);
+      if(vs===null||!(vs>0)) continue;
+      const zz=(vs-mu)/sv;
+      tot+=w*(NORM*Math.exp(-0.5*zz*zz)/sv)/pdlDRdv(vs,th,cfg.h);
+    }
+  }
+  return tot/(tw*vw);
+}
+/* the drawn curve is the same 201 points every frame while the launcher and
+   the axis hold still, and it costs 8x96 integrand evaluations a point */
+const PDF_CACHE={};
+function pdlPdfCurve(cfg,lo,hi,n){
+  const k=pdlCfgKey(cfg)+'/'+lo+'/'+hi+'/'+n;
+  if(PDF_CACHE[k]) return PDF_CACHE[k];
+  const xs=[], ys=[];
+  for(let i=0;i<=n;i++){ const x=lo+(hi-lo)*i/n; xs.push(x); ys.push(pdlPdf(x,cfg)); }
+  PDF_CACHE[k]={xs,ys};
+  return PDF_CACHE[k];
+}
+
+/* ================================================================== *
+ *  the statistics — PhET's conventions, pinned against numpy          *
+ * ================================================================== */
+/* PhET bins by Math.floor(x/w)*w, so a bin is [k w, (k+1) w) */
+function pdlBinIndex(x,w){ return Math.floor(x/w); }
+function pdlHistogram(xs,w){
+  if(!xs.length) return {lo:0,counts:[],max:0,w};
+  let lo=Infinity, hi=-Infinity;
+  for(const x of xs){ const k=pdlBinIndex(x,w); if(k<lo) lo=k; if(k>hi) hi=k; }
+  const counts=new Array(hi-lo+1).fill(0);
+  for(const x of xs) counts[pdlBinIndex(x,w)-lo]++;
+  let mx=0; for(const c of counts) if(c>mx) mx=c;
+  return {lo,counts,max:mx,w};
+}
+function pdlMean(xs){ if(!xs.length) return null; let s=0; for(const x of xs) s+=x; return s/xs.length; }
+/* PhET's getStandardDeviationDistance: Σ(x−x̄)²/(n−1), null below two
+   projectiles.  ddof = 0 is offered beside it because the difference between
+   the two conventions is exactly what a statistics sim is about. */
+function pdlSd(xs,ddof){
+  const d=ddof===undefined?1:ddof, n=xs.length;
+  if(n<=d) return null;
+  const m=pdlMean(xs);
+  let s=0; for(const x of xs){ const e=x-m; s+=e*e; }
+  return Math.sqrt(s/(n-d));
+}
+function pdlSe(xs){ const s=pdlSd(xs,1); return s===null?null:s/Math.sqrt(xs.length); }
+function pdlMedian(xs){
+  const n=xs.length; if(!n) return null;
+  const a=xs.slice().sort((p,q)=>p-q);
+  return n%2?a[(n-1)/2]:0.5*(a[n/2-1]+a[n/2]);
+}
+/* the interval tool: PhET counts x >= lo && x <= hi, both ends closed */
+function pdlFraction(xs,lo,hi){
+  if(!xs.length) return 0;
+  const a=Math.min(lo,hi), b=Math.max(lo,hi);
+  let k=0; for(const x of xs) if(x>=a&&x<=b) k++;
+  return k/xs.length;
+}
+/* the probability the exact law puts in [a,b] — Simpson on the density */
+function pdlProbIn(cfg,a,b,n){
+  const N=(n||200)*2, dx=(b-a)/N;
+  let s=0;
+  for(let i=0;i<=N;i++){ const c=(i===0||i===N)?1:(i%2?4:2); s+=c*pdlPdf(a+i*dx,cfg); }
+  return s*dx/3;
+}
+
+/* ================================================================== *
+ *  a field: PhET's Field — one launcher, its projectiles, its stats   *
+ * ================================================================== */
+function fieldMake(seed,cfg){
+  return {rng:pdlRng(seed),seed,cfg,landed:[],air:[],t:0,sinceLaunch:PDL.LAUNCH_GAP,
+          n:0,samples:[],sampleN:0,firing:false,pending:0,size:0,lau:0,
+          launched:0,tSample:0};
+}
+function fieldLaunch(F){
+  if(F.landed.length+F.air.length>=PDL.MAX_PROJ) return null;
+  const d=pdlDraw(F.rng,F.cfg);
+  const p={v:d.v,ang:d.ang,x:pdlRange(d.v,d.ang,F.cfg.h),T:pdlFlight(d.v,d.ang,F.cfg.h),
+           t:0,id:++F.n,type:F.cfg.type,sample:F.sampleN};
+  F.air.push(p); F.sinceLaunch=0;
+  return p;
+}
+function fieldStep(F,dt){
+  F.t+=dt; F.sinceLaunch+=dt;
+  let landedAny=false;
+  for(let i=F.air.length-1;i>=0;i--){
+    const p=F.air[i]; p.t+=dt;
+    if(p.t>=p.T){ p.t=p.T; F.air.splice(i,1); F.landed.push(p); landedAny=true; }
+  }
+  return landedAny;
+}
+function fieldXs(F){ return F.landed.map(p=>p.x); }
+function fieldClear(F){ F.landed.length=0; F.air.length=0; F.t=0; F.n=0;
+  F.sinceLaunch=PDL.LAUNCH_GAP; F.rng=pdlRng(F.seed); F.samples.length=0; F.sampleN=0;
+  F.firing=false; F.pending=0; F.launched=0; F.tSample=0; }
+/* launch n at once and land them immediately (PhET's autoGenerateData) */
+function fieldBatch(F,n){
+  for(let k=0;k<n;k++){
+    if(F.landed.length+F.air.length>=PDL.MAX_PROJ) break;
+    const d=pdlDraw(F.rng,F.cfg);
+    F.landed.push({v:d.v,ang:d.ang,x:pdlRange(d.v,d.ang,F.cfg.h),
+                   T:pdlFlight(d.v,d.ang,F.cfg.h),t:pdlFlight(d.v,d.ang,F.cfg.h),
+                   id:++F.n,type:F.cfg.type,sample:F.sampleN});
+  }
+}
+/* starting a sample is ONE operation in ONE place: it was written twice — in
+   fireField and again where continuous sampling rolls into the next one — and
+   two guards on one path make each other's mutant invisible (Known-bad).  The
+   field the sample will fill is emptied here and nowhere else. */
+function sampleStart(F){ F.landed.length=0; F.air.length=0; F.launched=0; F.tSample=0; }
+/* the interval between the launches of one sample: PhET spreads them evenly
+   over totalSampleTime rather than waiting for each to land */
+function sampleStep(size){ return (PDL.SAMPLE_TIME[size]||2)/size; }
+/* the Sampling screen: one sample is `size` launches, and its MEAN is the
+   datum that goes into the histogram (PhET's SamplingField.getHistogramData) */
+function sampleBatch(F,size,count){
+  const out=[];
+  for(let k=0;k<count&&F.samples.length<PDL.MAX_SAMPLES;k++){
+    const xs=[], ps=[];
+    for(let i=0;i<size;i++){
+      const d=pdlDraw(F.rng,F.cfg), T=pdlFlight(d.v,d.ang,F.cfg.h);
+      const p={v:d.v,ang:d.ang,x:pdlRange(d.v,d.ang,F.cfg.h),T,t:T,id:++F.n,
+               type:F.cfg.type,sample:F.sampleN+1};
+      xs.push(p.x); ps.push(p);
+    }
+    F.sampleN++;
+    F.samples.push({n:F.sampleN,xs,mean:pdlMean(xs)});
+    /* the field shows the LAST sample, which is the one whose mean just
+       joined the histogram — a field strip with nothing on it is a view that
+       draws nothing */
+    F.landed=ps; F.size=size;
+    out.push(F.samples[F.samples.length-1]);
+  }
+  return out;
+}
+function sampleMeans(F){ return F.samples.map(s=>s.mean); }
+
+/* ================================================================== *
+ *  state: four views — PhET's one screen, its thumbnail row at full   *
+ *  size, the parent distribution the samples come from, and the       *
+ *  theorem that ties the two together                                 *
+ * ================================================================== */
+const TABS=[['field','the field'],['sizes','the four sample sizes'],
+            ['parent','one launch'],['clt','the limit theorem']];
+const COL={pos:'#b8ec4c', ref:'#e8843a', live:'#cd35c4', struct:'#5ac8e0', dim:'#8b93a6',
+           edge:'#242a3a', text:'#aeb6c6', sky:'#0a1020', ground:'#141d16', bar:'#6c9cff',
+           /* the six mystery launchers keep their own colour slots rather than
+              borrowing a role colour, and none of them is the reference
+              orange the σ/√n curve owns */
+           lau:['#e6c84a','#4fb0c6','#d76a9b','#7fc97f','#9b8ee0','#59a6d8'],
+           sizes:['#6c9cff','#38c6b4','#b8ec4c','#a98ae8']};
+const RO_W=300;
+const MODES=[{id:'single',name:'single'},{id:'continuous',name:'continuous'}];
+const BINW_LIST=PDL.BINW.map(w=>({id:w,name:w+' m'}));
+const LAU_LIST=LAUNCHERS.map(l=>({id:l.n,name:''+l.n}));
+const SIZE_LIST=PDL.SIZES.map(n=>({id:n,name:'n = '+n}));
+/* PhET's zoom ladder, plus an auto rung at the front: PhET opens at its
+   widest and lets the user zoom in, but a default that draws 24 samples
+   against a ceiling of 50 leaves the histogram a sliver at the bottom of an
+   empty panel, and a default that hides the data is a defect, not a
+   preference.  Auto picks the tightest rung of PhET's OWN ladder that holds
+   the tallest bin. */
+const ZOOM_LIST=[{id:-1,name:'auto'}].concat(PDL.ZOOM_MAX.map((z,i)=>({id:i,name:'0–'+z})));
+/* PhET's rungs are built for a full 200 samples, so its tightest (0–25) still
+   leaves two dozen samples a sliver along the bottom.  The auto rung carries
+   a finer ladder below PhET's, stepped so the axis does not jitter as the
+   samples arrive; every rung PhET offers is still reachable by hand. */
+const ZOOM_FINE=[4,6,8,10,15,20];
+function autoZoom(maxCount){
+  const want=Math.max(4,Math.ceil(maxCount*1.15));
+  for(const z of ZOOM_FINE) if(z>=want) return z;
+  for(let i=PDL.ZOOM_MAX.length-1;i>=0;i--) if(PDL.ZOOM_MAX[i]>=want) return PDL.ZOOM_MAX[i];
+  return PDL.ZOOM_MAX[0];
+}
+const SEEDS={field:5101,sizes:5201,parent:5301,clt:5401};
+
+const DEFAULTS={view:'field', running:true, speedUp:false,
+  /* the field (PhET's Sampling screen) */
+  pLau:1, pN:5, mode:'single', binW:PDL.BINW_DEF, zoom:-1,
+  showSe:true, paths:true, blocks:false, showAng:false, showSpd:false,
+  /* the four sample sizes */
+  sLau:1, sM:60,
+  /* one launch */
+  xLau:1, xN:300, showDensity:true,
+  /* the limit theorem */
+  cLau:1, cM:400, showNormal:true};
+const ST=Object.assign({},DEFAULTS);
+
+/* ---- the worlds ------------------------------------------------------------ */
+const WORLD={};
+function cfgMystery(n){
+  const L=LAUNCHERS[n-1];
+  return pdlConfig(L.mech,L.sdAng,'angle30','cannonball');
+}
+function makeWorld(view,st){
+  if(view==='parent'){
+    const F=fieldMake(SEEDS.parent,cfgMystery(st.xLau)); fieldBatch(F,st.xN);
+    return {F};
+  }
+  if(view==='clt') return {sets:null};
+  return {fields:{}};
+}
+function worldOf(view){ if(!WORLD[view]) WORLD[view]=makeWorld(view,ST); return WORLD[view]; }
+function resetWorld(view){ WORLD[view]=makeWorld(view,ST); return WORLD[view]; }
+function resetAllWorlds(){ for(const k in WORLD) delete WORLD[k]; }
+/* PhET keeps one field per (launcher, sample size) — 24 of them, made when
+   first asked for.  The thumbnail row uses its own set, so filling it cannot
+   move the screen the user is firing on. */
+function sampFieldOf(view,lau,n,fill){
+  const w=worldOf(view), key=lau+'/'+n;
+  if(!w.fields[key]){
+    const F=fieldMake(SEEDS[view]+lau*100+n,cfgMystery(lau));
+    F.size=n; F.lau=lau;
+    sampleBatch(F,n,fill);
+    w.fields[key]=F;
+  }
+  return w.fields[key];
+}
+function curField(st){
+  if(st.view==='field') return sampFieldOf('field',st.pLau,st.pN,24);
+  if(st.view==='parent') return worldOf('parent').F;
+  return null;
+}
+function cltSets(st){
+  const w=worldOf('clt');
+  if(w.sets&&w.lau===st.cLau&&w.M===st.cM) return w.sets;
+  const cfg=cfgMystery(st.cLau), rng=pdlRng(SEEDS.clt+st.cLau);
+  const sets=PDL.SIZES.map(n=>{
+    const means=[];
+    for(let k=0;k<st.cM;k++){
+      let s=0;
+      for(let i=0;i<n;i++){ const d=pdlDraw(rng,cfg); s+=pdlRange(d.v,d.ang,cfg.h); }
+      means.push(s/n);
+    }
+    return {n,means,mean:pdlMean(means),sd:pdlSd(means,1)};
+  });
+  w.sets=sets; w.lau=st.cLau; w.M=st.cM; w.exact=pdlExact(cfg);
+  return sets;
+}
+
+/* ---- the clock ------------------------------------------------------------ */
+const FRAME_DT=1/60;
+function viewDt(st){ return FRAME_DT*(st.speedUp?PDL.TIME_SPEED_FAST:1); }
+function worldStep(st,dt){
+  const F=curField(st);
+  if(!F) return false;
+  let moved=fieldStep(F,dt);
+  if(F.firing){
+    if(st.view==='parent'){
+      if(F.sinceLaunch>=PDL.LAUNCH_GAP){
+        fieldLaunch(F); moved=true;
+        if(st.mode==='single') F.firing=false;
+        if(F.landed.length+F.air.length>=PDL.MAX_PROJ) F.firing=false;
+      }
+    } else {
+      /* PhET's pace: the n launches are spread evenly over totalSampleTime
+         and their flights overlap; the sample completes when the last lands */
+      F.tSample+=dt;
+      const step=sampleStep(F.size);
+      while(F.launched<F.size&&F.tSample>=F.launched*step){ fieldLaunch(F); F.launched++; moved=true; }
+      if(F.launched>=F.size&&F.air.length===0){
+        const xs=F.landed.slice(-F.size).map(p=>p.x);
+        F.sampleN++; F.samples.push({n:F.sampleN,xs,mean:pdlMean(xs)});
+        F.firing=st.mode==='continuous'&&F.samples.length<PDL.MAX_SAMPLES;
+        if(F.firing) sampleStart(F); else { F.launched=0; F.tSample=0; }
+        moved=true;
+      }
+    }
+  }
+  return moved||F.air.length>0;
+}
+function fireField(st){
+  const F=curField(st); if(!F) return;
+  if(st.view==='parent'){
+    if(F.firing&&st.mode==='continuous'){ F.firing=false; return; }
+    F.firing=true; F.sinceLaunch=PDL.LAUNCH_GAP; return;
+  }
+  if(F.firing){ F.firing=false; F.launched=0; F.tSample=0; return; }
+  if(F.samples.length>=PDL.MAX_SAMPLES) return;
+  F.firing=true; sampleStart(F);
+}
+
+/* ---- the model each view and the readout read ------------------------------ */
+function statsOf(xs){
+  return {n:xs.length, mean:pdlMean(xs), median:pdlMedian(xs),
+          sd1:pdlSd(xs,1), sd0:pdlSd(xs,0), se:pdlSe(xs),
+          min:xs.length?Math.min.apply(null,xs):null, max:xs.length?Math.max.apply(null,xs):null};
+}
+function buildModel(){
+  const st=ST, view=st.view;
+  const M={view,st};
+  if(view==='field'){
+    M.F=curField(st); M.lau=st.pLau; M.cfg=M.F.cfg; M.size=st.pN;
+    M.means=sampleMeans(M.F); M.mstat=statsOf(M.means);
+    M.xs=fieldXs(M.F); M.stat=statsOf(M.xs);
+  } else if(view==='sizes'){
+    M.lau=st.sLau; M.cfg=cfgMystery(st.sLau);
+    M.sets=PDL.SIZES.map(n=>{
+      const F=sampFieldOf('sizes',st.sLau,n,st.sM);
+      const means=sampleMeans(F);
+      return {n,F,means,stat:statsOf(means)};
+    });
+  } else if(view==='parent'){
+    M.F=worldOf('parent').F; M.lau=st.xLau; M.cfg=M.F.cfg;
+    M.xs=fieldXs(M.F); M.stat=statsOf(M.xs);
+  } else {
+    M.sets=cltSets(st); M.exact=worldOf('clt').exact; M.lau=st.cLau; M.cfg=cfgMystery(st.cLau);
+  }
+  M.exact=M.exact||pdlExact(M.cfg);
+  M.binW=st.binW;
+  if(M.xs) M.hist=pdlHistogram(M.xs,M.binW);
+  M.zoomMax=st.zoom>=0?PDL.ZOOM_MAX[st.zoom]
+    :autoZoom(M.means?pdlHistogram(M.means,M.binW).max:0);
+  return M;
+}
+
+/* ================================================================== *
+ *  readout / eqbar / tag                                              *
+ * ================================================================== */
+function hd(t){ return '<tr><td class="hd" colspan="2">'+t+'</td></tr>'; }
+function rrow(a,b,cls){ return '<tr><td>'+a+'</td><td class="v'+(cls?' '+cls:'')+'">'+b+'</td></tr>'; }
+function mfmt(x,n){ return x===null||x===undefined||!isFinite(x)?'—':fmt(x,n===undefined?2:n)+' m'; }
+function launcherLabel(M){ return 'mystery launcher '+M.lau+' ('+MECH[LAUNCHERS[M.lau-1].mech].name+')'; }
+function readoutHTML(M){
+  const st=M.st, E=M.exact;
+  let s='<div class="rname">sampling distributions<small>'+TABS.find(t=>t[0]===M.view)[1]+'</small></div><table>';
+  s+=hd(launcherLabel(M))
+    +rrow('mean launch speed',fmt(M.cfg.meanSpeed,2)+' &plusmn; '+fmt(M.cfg.sdSpeed,2)+' m/s')
+    +rrow('launch angle',fmt(M.cfg.meanAng,0)+'&deg; &plusmn; '+fmt(M.cfg.sdAng,2)+'&deg;');
+  s+=hd('one launch, exactly')
+    +rrow('mean &mu;',mfmt(E.mean,3),'good')
+    +rrow('standard deviation &sigma;',mfmt(E.sd,4),'good')
+    +rrow('skewness, excess kurtosis',fmt(E.skew,4)+', '+fmt(E.kurt,4));
+  if(M.view==='field'){
+    const q=M.mstat, se=E.sd/Math.sqrt(st.pN);
+    s+=hd('samples of n = '+st.pN)
+      +rrow('samples completed',q.n+' of '+PDL.MAX_SAMPLES)
+      +rrow('this sample&rsquo;s mean',M.F.samples.length?mfmt(M.F.samples[M.F.samples.length-1].mean,3):'—','good')
+      +rrow('mean of the sample means',mfmt(q.mean,3),'good')
+      +rrow('their standard deviation',mfmt(q.sd1,4),'good')
+      +rrow('&sigma;/&radic;n, the standard error',mfmt(se,4))
+      +rrow('their median',mfmt(q.median,3))
+      +rrow('bin width',fmt(M.binW,2)+' m, scale 0&ndash;'+M.zoomMax+(st.zoom<0?' (auto)':''));
+    s+='</table><div class="note">A sample contributes ONE point: its mean. '
+      +(q.n>2?'At '+q.n+' samples the measured spread is '+fmt(q.sd1/se,3)+' of &sigma;/&radic;n; the sampling sd of that ratio is '+fmt(Math.sqrt(((E.kurt/st.pN)+2)/(4*q.n)),3)+'.'
+             :'Two samples are not a distribution &mdash; fire more.')+'</div>';
+    return s;
+  }
+  if(M.view==='sizes'){
+    s+=hd(st.sM+' samples at each size');
+    M.sets.forEach(S=>{
+      const want=E.sd/Math.sqrt(S.n);
+      s+=rrow('n = '+S.n+': measured spread',mfmt(S.stat.sd1,4),'good')
+        +rrow('&nbsp;&nbsp;&sigma;/&radic;n',mfmt(want,4));
+    });
+    s+='</table><div class="note">One axis for all four, so the widths can be read against each other: every step up in n narrows the distribution by &radic;(n&#8322;/n&#8321;), and nothing else about it moves.</div>';
+    return s;
+  }
+  if(M.view==='parent'){
+    const S=M.stat;
+    s+=hd(S.n+' single launches'+(M.F.air.length?' (+'+M.F.air.length+' in flight)':''))
+      +rrow('mean x&#772;',mfmt(S.mean,3),'good')
+      +rrow('median',mfmt(S.median,3),'good')
+      +rrow('standard deviation s (n&minus;1)',mfmt(S.sd1,4),'good')
+      +rrow('the n convention, for contrast',mfmt(S.sd0,4))
+      +rrow('standard error s/&radic;n',mfmt(S.se,4))
+      +rrow('smallest, largest',S.n?fmt(S.min,2)+', '+fmt(S.max,2)+' m':'—')
+      +rrow('bin width',fmt(M.binW,2)+' m');
+    s+='</table><div class="note">This is the parent the samples are drawn from. Its &sigma; is what every standard error on the other views divides by &radic;n &mdash; and it is known exactly, so nothing here is fitted.</div>';
+    return s;
+  }
+  s+=hd(st.cM+' samples at each size');
+  M.sets.forEach(S=>{
+    const want=E.sd/Math.sqrt(S.n);
+    const tol=want*Math.sqrt((E.kurt/S.n+2)/(4*st.cM));
+    s+=rrow('n = '+S.n+': measured SE',mfmt(S.sd,4),'good')
+      +rrow('&nbsp;&nbsp;&sigma;/&radic;n',mfmt(want,4))
+      +rrow('&nbsp;&nbsp;difference, in its own sd',fmt((S.sd-want)/tol,2));
+  });
+  s+='</table><div class="note">The sampling sd of a standard error measured over M samples is &sigma;<sub>n</sub>&radic;((&kappa;<sub>n</sub>+2)/4M) with &kappa;<sub>n</sub> = &kappa;/n &mdash; the tolerance, computed rather than chosen.</div>';
+  return s;
+}
+function eqbarHTML(M){
+  const E=(eq,sm)=>'<span class="lhs">'+eq+'</span><span class="sm">'+sm+'</span>';
+  if(M.view==='field') return E('x&#772; = <span class="hl">(1/n) &Sigma;<sub>i=1</sub><sup>n</sup> x<sub>i</sub></span> &nbsp;&rArr;&nbsp; E[x&#772;] = &mu;, &nbsp; <span class="hl2">sd(x&#772;) = &sigma;/&radic;n</span>',
+    'one dot per sample, and the dot is its mean: the sampling distribution of the sample mean');
+  if(M.view==='sizes') return E('sd(x&#772;<sub>n&#8322;</sub>)/sd(x&#772;<sub>n&#8321;</sub>) = <span class="hl">&radic;(n&#8321;/n&#8322;)</span> &nbsp;&middot;&nbsp; E[x&#772;<sub>n</sub>] = &mu; <span class="rm">for every n</span>',
+    'four sample sizes on one axis: the centre never moves, only the width');
+  if(M.view==='parent') return E('x = <span class="hl">(v cos&theta;/g)</span> (v sin&theta; + &radic;(v&sup2;sin&sup2;&theta; + 2gh)) &nbsp;&middot;&nbsp; h = 0: x = v&sup2; sin2&theta;/g',
+    'one launch, one distance — and its whole distribution follows from the two Gaussians that made it');
+  return E('sd(x&#772;<sub>n</sub>) = <span class="hl">&sigma;/&radic;n</span> <span class="rm">exactly, for every n</span> &nbsp;&middot;&nbsp; skew(x&#772;<sub>n</sub>) = skew(x)/&radic;n',
+    'the width is not the theorem — independence alone gives it; the theorem is what happens to the shape');
+}
+function tagHTML(M){
+  const p=t=>'<b>'+t+'</b> — ';
+  if(M.view==='field') return p('the field')+'PhET&rsquo;s Sampling screen: samples of n = '+M.st.pN+' from launcher '+M.st.pLau;
+  if(M.view==='sizes') return p('the four sample sizes')+'launcher '+M.st.sLau+', '+M.st.sM+' samples at each of n = 2, 5, 15, 40';
+  if(M.view==='parent') return p('one launch')+'the parent distribution of launcher '+M.st.xLau+', against its exact density';
+  return p('the limit theorem')+'the measured standard error against &sigma;/&radic;n';
+}
+
+/* ================================================================== *
+ *  drawing helpers shared by the views (y is UP in the world, so the  *
+ *  map flips; layouts are built bottom-up from a measured caption)    *
+ *  — from build_cycloid via build_buoy/p4_views.js, unchanged              *
+ * ================================================================== */
+const CAP_FONT='11.5px -apple-system, sans-serif';
+const LAB_FONT='11px -apple-system, sans-serif';
+const SM_FONT='10.5px -apple-system, sans-serif';
+function isNarrow(W){ return W<900; }
+const DRAG={what:null,off:0};
+
+function worldFitUp(b,ext,pad){
+  const dx=ext.xmax-ext.xmin+2*pad, dy=ext.ymax-ext.ymin+2*pad;
+  const s=Math.min(b.w/dx,b.h/dy);
+  const ox=b.x+(b.w-s*dx)/2-(ext.xmin-pad)*s, oy=b.y+(b.h-s*dy)/2+(ext.ymax+pad)*s;
+  return {s,ox,oy,X:x=>ox+s*x,Y:y=>oy-s*y,wx:X=>(X-ox)/s,wy:Y=>(oy-Y)/s};
+}
+function worldCurve(ctx,map,fn,t0,t1,n,col,lw,dash){
+  ctx.beginPath(); let px=0,py=0;
+  for(let i=0;i<=n;i++){ const p=fn(t0+(t1-t0)*i/n), X=map.X(p[0]), Y=map.Y(p[1]);
+    if(i===0) ctx.moveTo(X,Y); else { ctx.lineTo(X,Y); POLY_SEGS.push(px,py,X,Y); }
+    px=X; py=Y; }
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.lineJoin='round';
+  if(dash) ctx.setLineDash(dash);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function worldFill(ctx,map,pts,col){
+  ctx.beginPath();
+  pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+}
+/* a closed polygon: optional fill, optional stroke, every edge recorded */
+function worldPoly(ctx,map,pts,fill,stroke,lw,dash){
+  if(pts.length<2) return;
+  if(fill) worldFill(ctx,map,pts,fill);
+  if(stroke){ ctx.beginPath();
+    pts.forEach((p,i)=>{ if(i===0) ctx.moveTo(map.X(p[0]),map.Y(p[1])); else ctx.lineTo(map.X(p[0]),map.Y(p[1])); });
+    ctx.closePath(); ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.4; ctx.lineJoin='round';
+    if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<pts.length;i++){ const a=pts[i], b=pts[(i+1)%pts.length]; POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1])); } }
+}
+function seg(ctx,map,a,b,col,lw,dash){
+  ctx.beginPath(); ctx.moveTo(map.X(a[0]),map.Y(a[1])); ctx.lineTo(map.X(b[0]),map.Y(b[1]));
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]);
+  POLY_SEGS.push(map.X(a[0]),map.Y(a[1]),map.X(b[0]),map.Y(b[1]));
+}
+function circleW(ctx,map,c,r,col,lw,dash,fill){
+  ctx.beginPath(); ctx.arc(map.X(c[0]),map.Y(c[1]),r*map.s,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(col){ ctx.strokeStyle=col; ctx.lineWidth=lw||1.2; if(dash) ctx.setLineDash(dash); ctx.stroke(); ctx.setLineDash([]); }
+}
+function dot(ctx,x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,TAU);
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||1.2; ctx.stroke(); }
+}
+function arrowW(ctx,map,a,v,col,lw){
+  const X0=map.X(a[0]),Y0=map.Y(a[1]),X1=map.X(a[0]+v[0]),Y1=map.Y(a[1]+v[1]);
+  const L=Math.hypot(X1-X0,Y1-Y0); if(L<2) return;
+  const ux=(X1-X0)/L, uy=(Y1-Y0)/L, hh=Math.min(9,L*0.4);
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X1,Y1);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux+0.5*hh*uy,Y1-hh*uy-0.5*hh*ux);
+  ctx.moveTo(X1,Y1); ctx.lineTo(X1-hh*ux-0.5*hh*uy,Y1-hh*uy+0.5*hh*ux);
+  ctx.strokeStyle=col; ctx.lineWidth=lw||1.6; ctx.stroke();
+}
+/* the label registry: the audit's half-pixel overlap rule, shift or drop */
+let LABELS=[];
+function labFits(bx){
+  for(const o of LABELS) if(bx[0]<o[2]-0.5&&bx[2]>o[0]+0.5&&bx[1]<o[3]-0.5&&bx[3]>o[1]+0.5) return false;
+  return true;
+}
+function lab(ctx,W,H,x,y,txt,col,font,align,base){
+  ctx.fillStyle=col||'#aeb6c6'; ctx.font=font||LAB_FONT;
+  const al=align||'left', bl=base||'middle';
+  ctx.textAlign=al; ctx.textBaseline=bl;
+  const t=plain(txt), fs=parseFloat((font||LAB_FONT).match(/([\d.]+)px/)[1]), w=t.length*fs*0.52, hh=fs*1.15;
+  for(const dy of [0,16,-16,32,-32]){
+    let X=x, Y=y+dy;
+    if(al==='left') X=clamp(X,2,W-w-2); else if(al==='right') X=clamp(X,w+2,W-2); else X=clamp(X,w/2+2,W-w/2-2);
+    Y=clamp(Y,hh,H-hh);
+    const lx=al==='center'?X-w/2:(al==='right'?X-w:X);
+    const ly=bl==='top'?Y:(bl==='middle'?Y-hh/2:(bl==='bottom'?Y-hh:Y-hh*0.8));
+    const bx=[lx,ly,lx+w,ly+hh];
+    if(labFits(bx)){ LABELS.push(bx); ctx.fillText(t,X,Y); return true; }
+  }
+  return false;
+}
+function titleFor(b,longT,shortT){ return (b.w<330||plain(longT).length*13*0.52+10>b.w)?shortT:longT; }
+function axesR(ctx,b,xlo,xhi,ylo,yhi,opt){
+  axes(ctx,b,xlo,xhi,ylo,yhi,opt);
+  if(opt&&opt.title){ const t=plain(opt.title), w=t.length*13*0.52; LABELS.push([b.x,b.y-9-13*1.15,b.x+w,b.y-9]); }
+}
+function stageLayout(ctx,W,H,capFull,capShort,nBottom,bottomFrac,nBottomNarrow){
+  const narrow=isNarrow(W);
+  const left=56, right=narrow?W-26:W-RO_W-44;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+30;
+  const fit=fitCaption(ctx,W,H,capFull,capShort,capW,top+220);
+  const avail=fit.capY-16-top;
+  const nB=narrow?(nBottomNarrow===undefined?1:nBottomNarrow):nBottom;
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[]};
+  let mainH=avail;
+  if(nB>0){
+    const rowH=Math.max(90,Math.floor(avail*bottomFrac));
+    mainH=avail-rowH-56;
+    const gut=52, span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),fit.capY-16-rowH+10,w,rowH-34));
+  }
+  out.main=box(left,top,right-left,Math.max(80,mainH));
+  return out;
+}
+function drawCaption(ctx,L){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); }
+function marker(ctx,b,xlo,xhi,ylo,yhi,x,y,col){
+  const X=b.x+b.w*(x-xlo)/(xhi-xlo), Y=b.y1-b.h*(y-ylo)/(yhi-ylo);
+  dot(ctx,clamp(X,b.x,b.x1),clamp(Y,b.y,b.y1),4.5,col||COL.live,'#fff');
+}
+
+/* ================================================================== *
+ *  the shared picture layer — EXTRACTED from                          *
+ *  build/projectile-data-lab/p4_views.js by make_views.py, unchanged: *
+ *  the stage layout, the field map (true aspect wherever it fits),    *
+ *  PhET's 10 m markers, the launcher and its spread fan, the          *
+ *  trajectories.                                                      *
+ * ================================================================== */
+/* the house #hint sits at bottom:11px, on top of the last line of a caption
+   anchored at H - 12: every caption here ends HINT_H higher, clear of it */
+const HINT_H=18;
+/* the room a panel needs below itself: ticks only, and ticks plus an x title */
+const AX_PAD=22, AX_PAD_LAB=38;
+/* tick labels follow the tick SPACING, not a fixed decimal count (Known-bad:
+   fmt(t,2) prints 318.00 whatever the range, and six of those do not fit) */
+function tickFmt(ticks){
+  let g=Infinity; for(let i=1;i<ticks.length;i++) g=Math.min(g,Math.abs(ticks[i]-ticks[i-1]));
+  if(!isFinite(g)||g<=0) return v=>sigf(v,3);
+  let d=0; while(d<6&&Math.abs(Math.round(g*Math.pow(10,d))-g*Math.pow(10,d))>1e-6*Math.max(1,g*Math.pow(10,d))) d++;
+  return v=>fmt(Math.abs(v)<1e-12?0:v,d);
+}
+function axesT(ctx,b,xlo,xhi,ylo,yhi,opt){
+  const o=Object.assign({},opt||{});
+  /* a 10.5 px label is 12 px tall and up to ~48 px wide, so the tick count is
+     capped by the panel: a 52 px histogram asked for four y ticks and drew
+     them 13 px apart, which the layout sweep caught as an overlap */
+  const nyMax=Math.max(2,Math.floor(b.h/26)), nxMax=Math.max(2,Math.floor(b.w/56));
+  if(o.xticks===undefined) o.xticks=ticksFor(Math.min(xlo,xhi),Math.max(xlo,xhi),Math.min(o.nx||6,nxMax));
+  if(o.yticks===undefined) o.yticks=ticksFor(Math.min(ylo,yhi),Math.max(ylo,yhi),Math.min(o.ny||5,nyMax));
+  if(!o.xfmt) o.xfmt=tickFmt(o.xticks);
+  if(!o.yfmt) o.yfmt=tickFmt(o.yticks);
+  axesR(ctx,b,xlo,xhi,ylo,yhi,o);
+  const tw=t=>plain(t).length*10.5*0.52, th=12;
+  for(const t of o.xticks){
+    const X=b.x+b.w*(t-xlo)/(xhi-xlo||1);
+    if(X<b.x-0.5||X>b.x1+0.5) continue;
+    const w=tw(o.xfmt(t)); LABELS.push([X-w/2,b.y1+5,X+w/2,b.y1+5+th]);
+  }
+  for(const t of o.yticks){
+    const Y=b.y1-b.h*(t-ylo)/(yhi-ylo||1);
+    if(Y<b.y-0.5||Y>b.y1+0.5) continue;
+    const w=tw(o.yfmt(t)); LABELS.push([b.x-6-w,Y-th/2,b.x-6,Y+th/2]);
+  }
+  if(o.xlab){ const w=tw(o.xlab); LABELS.push([b.x+b.w/2-w/2,b.y1+21,b.x+b.w/2+w/2,b.y1+21+th]); }
+}
+function pl(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash){ polyline(ctx,b,xs,ys,xlo,xhi,ylo,yhi,col,lw,dash); }
+/* legendAuto records its text box in LEGEND_RECTS (for the curve check) but
+   NOT in LABELS, so a note drawn afterwards has no idea it is there and lands
+   on it.  Register it. */
+function legendReg(ctx,b,items){
+  const r=legendAuto(ctx,b,items);
+  if(r) LABELS.push([r.x,r.y,r.x1,r.y1]);
+  return r;
+}
+/* logTicks() gives whole decades only, and this axis spans 1.1 of them: it
+   returned ONE tick and the panel had no scale.  1-2-5 per decade instead. */
+function logTicks125(lo,hi){
+  if(!(lo>0)||!(hi>0)||!isFinite(lo)||!isFinite(hi)) return [];
+  const out=[];
+  for(let e=Math.floor(Math.log10(lo))-1;e<=Math.ceil(Math.log10(hi))+1;e++)
+    for(const m of [1,2,5]){ const v=m*Math.pow(10,e); if(v>=lo*0.999&&v<=hi*1.001) out.push(v); }
+  return out.sort((a,b)=>a-b);
+}
+
+/* ---- the stage split: a field strip on top, a histogram under it ---------- */
+function labStage(ctx,W,H,capFull,capShort,opt){
+  const o=opt||{};
+  const narrow=isNarrow(W), left=54, right=narrow?W-22:W-RO_W-40;
+  const capW=Math.max(260,Math.min(W-148,right-left));
+  const top=stageTop()+28;
+  const fit=fitCaption(ctx,W,H-HINT_H,capFull,capShort,capW,top+200);
+  const avail=Math.max(150,fit.capY-16-top);
+  const out={narrow,left,right,capY:fit.capY,capTxt:fit.txt,capW,bottom:[],top,avail};
+  /* axes() puts its x tick labels at b.y1 + 5 and its x axis title at
+     b.y1 + 21, so a panel needs AX_PAD below it or the labels land in the
+     caption — which is exactly how the first sweep failed */
+  /* a narrow stage cannot carry a row of small panels: below 900 px the
+     bottom row is dropped to one, or to none where it was a set of four
+     (pupil_plane Known-bad — a 32 px panel with a 170 px legend is
+     off-canvas by construction).  Every view checks L.bottom.length. */
+  const nB=narrow?Math.min(o.nBottomNarrow===undefined?(o.nBottom>1?0:o.nBottom||0):o.nBottomNarrow,o.nBottom||0)
+                 :(o.nBottom||0);
+  let rowH=0;
+  if(nB>0){
+    rowH=Math.max(90,Math.floor(avail*0.30));
+    const gut=Math.max(30,Math.min(50,(right-left)*0.055)), span=right-left, w=(span-gut*nB)/nB;
+    for(let i=0;i<nB;i++) out.bottom.push(box(left+gut+i*(w+gut),top+avail-rowH+10,w,rowH-10-AX_PAD));
+  }
+  const bodyH=avail-(nB>0?rowH+14:0);
+  if(o.histFrac===undefined){ out.main=box(left,top,right-left,Math.max(60,bodyH-AX_PAD_LAB)); return out; }
+  /* from the bottom up: the x labels first, then the histogram, then whatever
+     is left for the field — never the other way round */
+  const inner=Math.max(100,bodyH-34-AX_PAD_LAB);
+  let histH=Math.max(52,Math.round(inner*o.histFrac));
+  let fh=inner-histH;
+  /* a 30° trajectory tops out at 10 m over a 100 m field, so at true aspect it
+     needs a tenth of the width and no more: giving it half the stage leaves
+     two thirds of the picture as empty sky.  The view says how tall it wants
+     to be; whatever it does not use goes to the histogram. */
+  if(o.fieldWant){
+    const want=o.fieldWant(right-left);
+    if(want<fh){ histH=Math.min(inner-Math.max(90,want),Math.round(inner*0.62)); fh=inner-histH; }
+  }
+  if(fh<64){ fh=Math.max(40,Math.min(64,inner-40)); histH=inner-fh; }
+  out.field=box(left,top,right-left,fh);
+  out.hist=box(left,top+fh+34,right-left,histH);
+  return out;
+}
+/* the field's own map: ONE scale for both axes wherever it fits (the picture
+   is a trajectory, and a trajectory's shape is the thing being drawn), with
+   the compression printed on the canvas when a narrow stage cannot afford it */
+function fieldApex(cfg){
+  return cfg.h+Math.pow(cfg.meanSpeed*cfg.mult*Math.sin((cfg.meanAng+2.5*cfg.sdAng)*Math.PI/180),2)/(2*PDL.G);
+}
+/* the field height that puts the trajectory at true aspect on a stage w wide */
+function fieldWantH(M){ return w=>Math.max(4,fieldApex(M.cfg)*1.14)*(w/PDL.FIELD)+32; }
+function fieldMap(b,M){
+  const sx=b.w/PDL.FIELD;
+  const apex=fieldApex(M.cfg);
+  const ymax=Math.max(4,apex*1.14);
+  const ground=Math.min(26,Math.max(12,b.h*0.14));
+  const sy=Math.min(sx,(b.h-ground-6)/ymax);
+  const y0=b.y1-ground;
+  return {sx,sy,ratio:sy/sx,y0,ymax,ground,X:x=>b.x+sx*x,Y:y=>y0-sy*y,
+          wx:X=>(X-b.x)/sx, wy:Y=>(y0-Y)/sy};
+}
+/* the six field markers PhET paints every 10 m (FIELD_LABEL_INCREMENT) */
+function drawGround(ctx,b,map){
+  ctx.fillStyle=COL.sky; ctx.fillRect(b.x,b.y,b.w,map.y0-b.y);
+  ctx.fillStyle=COL.ground; ctx.fillRect(b.x,map.y0,b.w,b.y1-map.y0);
+  ctx.strokeStyle='#2e3a46'; ctx.lineWidth=1.2;
+  ctx.beginPath(); ctx.moveTo(b.x,map.y0+0.5); ctx.lineTo(b.x1,map.y0+0.5); ctx.stroke();
+  ctx.font=SM_FONT; ctx.textAlign='center'; ctx.textBaseline='top';
+  /* PhET numbers every 10 m; a narrow stage gets every 20 or 25 instead, so
+     the labels never touch */
+  const step=map.sx*10>=34?10:(map.sx*20>=34?20:25);
+  for(let d=0;d<=PDL.FIELD;d+=10){
+    const X=map.X(d);
+    ctx.strokeStyle=d%50===0?'#4a5a66':'#2b343e'; ctx.lineWidth=d%50===0?1.4:1;
+    ctx.beginPath(); ctx.moveTo(X,map.y0); ctx.lineTo(X,b.y1-11); ctx.stroke();
+    if(d%step===0){ ctx.fillStyle='#78838f'; ctx.fillText(''+d,X,b.y1-10);
+      /* registered, so a value label placed later dodges the marker rather
+         than being shifted on top of it */
+      const w=(''+d).length*10.5*0.52; LABELS.push([X-w/2,b.y1-10,X+w/2,b.y1+2]); }
+  }
+}
+/* the launcher: a frame, a barrel at the mean angle, and (on the raised
+   orientation) the 12 m tower PhET's model puts it on */
+function drawLauncher(ctx,map,M){
+  const cfg=M.cfg, X0=map.X(0), Y0=map.Y(cfg.h);
+  const col=M.lau?COL.lau[M.lau-1]:COL.struct;
+  if(cfg.h>0){
+    ctx.fillStyle='#233041'; ctx.fillRect(X0-7,Y0,14,map.y0-Y0);
+    ctx.strokeStyle='#3b4a5c'; ctx.lineWidth=1; ctx.strokeRect(X0-7.5,Y0+0.5,15,map.y0-Y0);
+  }
+  const th=cfg.meanAng*Math.PI/180, L=Math.max(16,Math.min(34,map.sx*3.2));
+  ctx.strokeStyle=col; ctx.lineWidth=5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X0+L*Math.cos(th),Y0-L*Math.sin(th)); ctx.stroke();
+  ctx.lineCap='butt';
+  /* the spread: the mean angle ± 2 sd, drawn as a fan so an unequal launcher
+     announces itself before a single shot is fired */
+  ctx.strokeStyle=rgba(col,0.35); ctx.lineWidth=1.2;
+  for(const k of [-2,2]){
+    const a=(cfg.meanAng+k*cfg.sdAng)*Math.PI/180;
+    ctx.beginPath(); ctx.moveTo(X0,Y0); ctx.lineTo(X0+L*1.25*Math.cos(a),Y0-L*1.25*Math.sin(a)); ctx.stroke();
+  }
+  dot(ctx,X0,Y0,4.5,col,'#0a0c12',1.2);
+}
+/* one projectile's path, from the launcher to where it is now */
+function drawPath(ctx,map,cfg,p,col,alpha,lw){
+  const n=26, T=Math.min(p.t,p.T);
+  const xs=[], ys=[];
+  for(let i=0;i<=n;i++){
+    const t=T*i/n;
+    xs.push(p.v*Math.cos(p.ang*Math.PI/180)*t);
+    ys.push(pdlHeight(p.v,p.ang,cfg.h,t));
+  }
+  ctx.beginPath();
+  for(let i=0;i<=n;i++){ const X=map.X(xs[i]), Y=map.Y(Math.max(0,ys[i])); if(i===0) ctx.moveTo(X,Y); else ctx.lineTo(X,Y); }
+  ctx.strokeStyle=rgba(col,alpha); ctx.lineWidth=lw||1.2; ctx.stroke();
+}
+/* the launch-angle and launch-speed flags: PhET marks each landed projectile
+   with the value it flew at; here the marker carries a tick coloured on the
+   house scalar ramp, with the range named in the caption */
+function flagRange(xs,key){
+  let lo=Infinity, hi=-Infinity;
+  for(const p of xs){ const v=p[key]; if(v<lo) lo=v; if(v>hi) hi=v; }
+  if(!isFinite(lo)) return null;
+  if(hi-lo<1e-9){ lo-=0.5; hi+=0.5; }
+  return [lo,hi];
+}
+function drawField(ctx,b,M,opt){
+  const o=opt||{}, st=M.st, map=fieldMap(b,M), cfg=M.cfg;
+  drawGround(ctx,b,map);
+  const col=M.lau?COL.lau[M.lau-1]:COL.struct;
+  /* the landed projectiles */
+  const key=st.showAng?'ang':(st.showSpd?'v':null);
+  const rng=key?flagRange(M.F.landed,key):null;
+  const r=Math.max(2,Math.min(4.2,map.sx*0.38));
+  for(const p of M.F.landed){
+    const X=map.X(p.x), Y=map.y0;
+    if(key&&rng){
+      const t=clamp((p[key]-rng[0])/(rng[1]-rng[0]),0,1);
+      ctx.strokeStyle=neonCss(t); ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(X,Y-2); ctx.lineTo(X,Y-2-9*(0.35+0.65*t)); ctx.stroke();
+    }
+    dot(ctx,X,Y-r*0.6,r,rgba(col,0.5),null);
+  }
+  /* the paths, then the airborne projectiles */
+  if(st.paths) for(const p of M.F.landed.slice(-14)) drawPath(ctx,map,cfg,p,col,0.16,1);
+  for(const p of M.F.air){
+    if(st.paths) drawPath(ctx,map,cfg,p,COL.live,0.85,1.5);
+    const X=map.X(p.v*Math.cos(p.ang*Math.PI/180)*p.t), Y=map.Y(Math.max(0,pdlHeight(p.v,p.ang,cfg.h,p.t)));
+    dot(ctx,X,Y,4,COL.live,'#fff',1);
+  }
+  drawLauncher(ctx,map,M);
+  /* the exact mean, drawn on the field itself */
+  if(o.showExactMean!==false){
+    const X=map.X(M.exact.mean);
+    ctx.strokeStyle=rgba(COL.ref,0.8); ctx.lineWidth=1.3; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.moveTo(X,b.y+6); ctx.lineTo(X,map.y0); ctx.stroke(); ctx.setLineDash([]);
+    /* an unlabelled dashed rule in the same family of colours as the shots is
+       a question, not an answer */
+    lab(ctx,b.x1+2,b.y1+2,X+5,b.y+8,'μ = '+fmt(M.exact.mean,2)+' m, exact',COL.ref,SM_FONT,'left','top');
+  }
+  return map;
+}
+
+/* ================================================================== *
+ *  the histogram of sample MEANS, and the four views                  *
+ * ================================================================== */
+/* the field's aspect sentence — a fixed-width number, so a caption can be
+   measured with a placeholder before the map that fills it in exists */
+function aspectNote(rTxt){
+  return ' The field’s vertical scale is ×'+rTxt+' of its horizontal (1.00 is true aspect, and anything less is the stage being too short for the trajectory).';
+}
+/* one sample-mean histogram.  `own` fits the panel to this n; without it the
+   axis is the parent's, which is what makes the four sizes comparable. */
+function drawMeanHist(ctx,b,M,means,size,opt){
+  const o=opt||{}, E=M.exact, se=E.sd/Math.sqrt(size), w=o.w||M.binW;
+  const half=o.own?Math.max(4.6*se,3*w):4.2*E.sd;
+  const lo=E.mean-half, hi=E.mean+half;
+  const H=pdlHistogram(means,w);
+  const ymax=o.ymax||Math.max(4,Math.ceil(Math.max(4,H.max)*1.2));
+  const col=o.col||COL.sizes[PDL.SIZES.indexOf(size)];
+  axesT(ctx,b,lo,hi,0,ymax,{title:o.title,xlab:o.xlab,ylab:o.ylab,nx:o.nx||5,ny:3});
+  const px=x=>b.x+b.w*(x-lo)/(hi-lo), py=y=>b.y1-b.h*y/ymax;
+  const bw=b.w*w/(hi-lo);
+  for(let i=0;i<H.counts.length;i++){
+    const c=H.counts[i]; if(!c) continue;
+    const X0=Math.max(b.x,px((H.lo+i)*w)), X1=Math.min(b.x1,px((H.lo+i+1)*w));
+    if(X1<=X0) continue;
+    if(M.st.blocks&&bw>=3.5&&c<=ymax&&b.h/ymax>=5){
+      const cellH=b.h/ymax, gap=clamp(0.18*cellH,2.2,7), gx=Math.min(gap,(X1-X0)*0.3);
+      for(let k=0;k<c;k++){ ctx.fillStyle=rgba(col,0.85);
+        ctx.fillRect(X0+gx/2,py(k+1)+gap/2,X1-X0-gx,Math.max(1.5,cellH-gap)); }
+    } else { ctx.fillStyle=rgba(col,0.75); ctx.fillRect(X0,py(c),X1-X0,b.y1-py(c)); }
+    POLY_SEGS.push(X0,py(c),X1,py(c));
+  }
+  /* the exact sampling law: a normal of sd σ/√n, scaled to the counts — not
+     a fit, and drawn only when there are enough samples for a shape */
+  if(o.showNormal!==false&&means.length>2){
+    const xs=[], ys=[];
+    for(let i=0;i<=180;i++){ const x=lo+(hi-lo)*i/180; xs.push(x);
+      ys.push(means.length*w*Math.exp(-0.5*Math.pow((x-E.mean)/se,2))/(se*Math.sqrt(2*Math.PI))); }
+    pl(ctx,b,xs,ys,lo,hi,0,ymax,COL.ref,1.6);
+  }
+  if(o.showSe!==false){
+    const a=px(E.mean-se), c=px(E.mean+se), y=b.y+9;
+    ctx.strokeStyle=COL.ref; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(a,y); ctx.lineTo(c,y); ctx.moveTo(a,y-4); ctx.lineTo(a,y+4);
+    ctx.moveTo(c,y-4); ctx.lineTo(c,y+4); ctx.stroke();
+  }
+  const mx=px(E.mean);
+  ctx.strokeStyle=rgba(COL.ref,0.8); ctx.lineWidth=1.2; ctx.setLineDash([5,4]);
+  ctx.beginPath(); ctx.moveTo(mx,b.y); ctx.lineTo(mx,b.y1); ctx.stroke(); ctx.setLineDash([]);
+  /* the measured spread, so the comparison is a number and not an impression */
+  if(o.showSe!==false&&means.length>2){
+    const s1=pdlSd(means,1);
+    const a2=px(E.mean-s1), c2=px(E.mean+s1), y2=b.y+20;
+    ctx.strokeStyle=COL.pos; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(a2,y2); ctx.lineTo(c2,y2); ctx.moveTo(a2,y2-4); ctx.lineTo(a2,y2+4);
+    ctx.moveTo(c2,y2-4); ctx.lineTo(c2,y2+4); ctx.stroke();
+  }
+  return {px,py,lo,hi,ymax,se};
+}
+
+/* ================================================================== *
+ *  view 1: the field — PhET's Sampling screen                         *
+ * ================================================================== */
+function fieldCaptionS(M,rTxt){
+  const se=M.exact.sd/Math.sqrt(M.st.pN);
+  return {full:'A sample is '+M.st.pN+' launches, and only one number survives it: the mean. That number joins the histogram below, and the histogram is NOT the histogram of landing distances — it is far narrower. With σ = '
+            +fmt(M.exact.sd,3)+' m for one launch, the exact standard error at n = '+M.st.pN+' is σ/√n = '+fmt(se,3)
+            +(M.mstat.n>1
+              ?' m (the orange bar; the green bar below it is the spread actually measured so far).'
+              :' m (the orange bar). The green bar beside it is the spread the samples themselves show, and one sample has no spread — it appears with the second.')+aspectNote(rTxt),
+          short:'One dot per sample, and the dot is its mean: σ/√n = '+fmt(se,3)+' m at n = '+M.st.pN+'.'+aspectNote(rTxt)};
+}
+function drawFieldView(ctx,W,H,M){
+  const ph=fieldCaptionS(M,'1.00');
+  const L=labStage(ctx,W,H,ph.full,ph.short,{histFrac:0.52,fieldWant:fieldWantH(M)});
+  const map=drawField(ctx,L.field,M,{showExactMean:true});
+  const F=M.F;
+  if(F.landed.length){
+    const xs=F.landed.slice(-(F.size||1)).map(p=>p.x), m=pdlMean(xs);
+    const X=map.X(m);
+    ctx.strokeStyle=COL.live; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(X,map.y0+4); ctx.lineTo(X,map.y0-26); ctx.stroke();
+    lab(ctx,W,H,X,map.y0-29,'x̄ = '+fmt(m,2)+' m',COL.live,LAB_FONT,'center','bottom');
+  }
+  drawMeanHist(ctx,L.hist,M,M.means,M.st.pN,{title:'the sample means, n = '+M.st.pN,
+    xlab:'sample mean x̄, m',ylab:'samples',own:true,ymax:M.zoomMax,
+    showNormal:M.st.showSe,showSe:M.st.showSe,nx:6});
+  lab(ctx,W,H,L.hist.x1-4,L.hist.y+9,M.mstat.n+(M.mstat.n===1?' sample · bin ':' samples · bin ')+fmt(M.binW,2)+' m',COL.dim,SM_FONT,'right','middle');
+  const cap=fieldCaptionS(M,fmt(map.ratio,2));
+  caption(ctx,L.left,L.capY,L.capTxt===ph.full?cap.full:cap.short,L.capW,'#767e92',CAP_FONT);
+  return {map,L};
+}
+
+/* ================================================================== *
+ *  view 2: the four sample sizes — PhET's thumbnail row, full size    *
+ * ================================================================== */
+function sizesCaption(M,few){
+  const E=M.exact;
+  const note=few?' This stage is too narrow for four panels, so it shows the two ends of the range; a wider one shows all four.':'';
+  return {full:'The same launcher at every sample size PhET offers, '+M.st.sM+' samples each, all of them on ONE axis. The centre never moves — averaging biases nothing — and the width falls as 1/√n: from σ = '
+            +fmt(E.sd,3)+' m for a single launch to '+fmt(E.sd/Math.sqrt(40),3)+' m at n = 40, a factor of √40 = 6.32. The orange bar on each is σ/√n from the exact law; the green bar is the spread these '
+            +M.st.sM+' samples actually show.'+note,
+          short:'Sample sizes on one axis: the width falls as 1/√n, the centre does not move.'+note};
+}
+function drawSizesView(ctx,W,H,M){
+  /* a narrow stage cannot carry four stacked panels: four 24 px boxes with
+     their own titles and tick labels overrun the caption.  Show the two ends
+     of the range instead, and say so. */
+  const few=isNarrow(W);
+  const sets=few?[M.sets[0],M.sets[M.sets.length-1]]:M.sets;
+  const ph=sizesCaption(M,few);
+  const L=labStage(ctx,W,H,ph.full,ph.short,{nBottom:0});
+  const b=L.main, n=sets.length;
+  /* each panel needs room for its own title above and its tick labels below,
+     or panel i's ticks land in panel i+1's title — which is how the first
+     layout sweep failed */
+  const gap=10, titleH=24, tickH=20, slot=(b.h-gap*(n-1))/n;
+  const boxH=Math.max(28,slot-titleH-tickH);
+  sets.forEach((S,i)=>{
+    const p=box(b.x,b.y+i*(slot+gap)+titleH,b.w,boxH);
+    const k=PDL.SIZES.indexOf(S.n);
+    drawMeanHist(ctx,p,M,S.means,S.n,{title:'n = '+S.n+'  ·  σ/√n = '+fmt(M.exact.sd/Math.sqrt(S.n),3)+' m',
+      xlab:(i===n-1&&boxH>=46)?'sample mean x̄, m':null,ylab:null,w:M.binW,
+      showNormal:M.st.showNormal,showSe:true,nx:7,col:COL.sizes[k]});
+    lab(ctx,W,H,p.x1-4,p.y+9,'measured '+fmt(S.stat.sd1,3)+' m',COL.pos,SM_FONT,'right','middle');
+  });
+  caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT);
+  return {b,L};
+}
+
+/* ================================================================== *
+ *  view 3: one launch — the parent the samples come from              *
+ * ================================================================== */
+function parentCaption(M){
+  const E=M.exact;
+  return {full:'Before the samples, the parent. These are '+M.stat.n+' single launches'
+            +(M.st.showDensity
+              ?'; the orange curve is not fitted to them but computed from the two Gaussians PhET launches with, ∫f_θ(θ)f_v(v*(r,θ))/|∂x/∂v| dθ.'
+              :', with the exact density switched off, so nothing here is fitted or computed — the bars are the data alone.')
+            +' Its standard deviation is σ = '
+            +fmt(E.sd,4)+' m, and that is the σ every standard error on the other views divides by √n. '
+            +(Math.abs(E.skew)>0.05||Math.abs(E.kurt)>0.05
+              ? 'It is also visibly not a normal: its skewness is '+fmt(E.skew,3)+' and its excess kurtosis '+fmt(E.kurt,3)+', which is why the limit theorem has anything to say.'
+              : 'This launcher’s parent happens to be very nearly normal already — skewness '+fmt(E.skew,3)+', excess kurtosis '+fmt(E.kurt,3)+' — so there is little for the theorem to do here; launchers 2 and 6 are the ones with a shape to lose.'),
+          short:'The parent distribution: σ = '+fmt(E.sd,4)+' m, skewness '+fmt(E.skew,3)+'.'
+            +(M.st.showDensity?' The curve is computed, not fitted.':' Its exact density is switched off.')};
+}
+function drawParentView(ctx,W,H,M){
+  const ph=parentCaption(M);
+  const L=labStage(ctx,W,H,ph.full,ph.short,{histFrac:0.56,fieldWant:fieldWantH(M)});
+  const map=drawField(ctx,L.field,M,{showExactMean:true});
+  const b=L.hist, E=M.exact, w=M.binW;
+  const lo=Math.max(0,E.mean-5*E.sd), hi=E.mean+5*E.sd;
+  const xs=[], ys=[];
+  { const C=pdlPdfCurve(M.cfg,lo,hi,200); xs.push.apply(xs,C.xs); ys.push.apply(ys,C.ys); }
+  let ymax=0; for(const y of ys) ymax=Math.max(ymax,y);
+  const dens=M.hist.counts.map(c=>c/Math.max(1,M.stat.n)/w);
+  for(const d of dens) ymax=Math.max(ymax,d);
+  ymax=Math.max(1e-6,ymax*1.2);
+  axesT(ctx,b,lo,hi,0,ymax,{title:M.stat.n+(M.st.showDensity?' launches against the exact density':' launches'),
+    xlab:'landing distance x, m',ylab:'density, 1/m',nx:6,ny:4});
+  const px=x=>b.x+b.w*(x-lo)/(hi-lo), py=y=>b.y1-b.h*y/ymax;
+  for(let i=0;i<M.hist.counts.length;i++){
+    const c=M.hist.counts[i]; if(!c) continue;
+    const X0=Math.max(b.x,px((M.hist.lo+i)*w)), X1=Math.min(b.x1,px((M.hist.lo+i+1)*w));
+    if(X1<=X0) continue;
+    ctx.fillStyle=rgba(COL.pos,0.55); ctx.fillRect(X0,py(dens[i]),X1-X0,b.y1-py(dens[i]));
+    POLY_SEGS.push(X0,py(dens[i]),X1,py(dens[i]));
+  }
+  if(M.st.showDensity) pl(ctx,b,xs,ys,lo,hi,0,ymax,COL.ref,2);
+  for(const [v,col,tx] of [[E.mean,COL.ref,'μ = '+fmt(E.mean,3)+' m'],
+                           [M.stat.mean,COL.live,'x̄ = '+(M.stat.mean===null?'—':fmt(M.stat.mean,3)+' m')]]){
+    if(v===null) continue;
+    const X=px(v);
+    ctx.strokeStyle=col; ctx.lineWidth=1.4; ctx.setLineDash(col===COL.ref?[5,4]:[]);
+    ctx.beginPath(); ctx.moveTo(X,b.y); ctx.lineTo(X,b.y1); ctx.stroke(); ctx.setLineDash([]);
+    lab(ctx,W,H,X,b.y+6,tx,col,SM_FONT,'center','top');
+  }
+  /* ±σ, so the number the other views divide is on the picture */
+  const y=b.y+24;
+  ctx.strokeStyle=COL.ref; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(px(E.mean-E.sd),y); ctx.lineTo(px(E.mean+E.sd),y);
+  ctx.moveTo(px(E.mean-E.sd),y-4); ctx.lineTo(px(E.mean-E.sd),y+4);
+  ctx.moveTo(px(E.mean+E.sd),y-4); ctx.lineTo(px(E.mean+E.sd),y+4); ctx.stroke();
+  lab(ctx,W,H,px(E.mean+E.sd)+6,y,'μ ± σ',COL.ref,SM_FONT,'left','middle');
+  legendReg(ctx,b,[[COL.pos,M.stat.n+' launches']].concat(M.st.showDensity?[[COL.ref,'the exact density']]:[]));
+  const cap=parentCaption(M);
+  caption(ctx,L.left,L.capY,L.capTxt===ph.full?cap.full:cap.short,L.capW,'#767e92',CAP_FONT);
+  return {map,b,L};
+}
+
+/* ================================================================== *
+ *  view 4: the limit theorem                                          *
+ * ================================================================== */
+function cltCaption(M){
+  const E=M.exact;
+  return {full:'The theorem, measured. '+M.st.cM+' samples at each of n = 2, 5, 15 and 40, drawn as densities on one axis'
+            +(M.st.showNormal
+              ?'; the orange curves are normals of standard deviation σ/√n with σ = '+fmt(E.sd,3)+' m from the exact law, nothing fitted.'
+              :'. The σ/√n normals are switched off, so the histograms stand alone — σ = '+fmt(E.sd,3)+' m from the exact law is still what the panels below measure against.')
+            +' The left panel below puts the measured standard errors against σ/√n on log axes, where the law is a straight line of slope −½. On that axis the error bars are half a pixel long, so the right panel gives the same four residuals in units of their own sampling spread, σ_n√((κ_n+2)/4M). The width half of the theorem is exact at every n and needs no theorem at all; the shape half is the one to watch — a single launch is skewed by '
+            +fmt(E.skew,3)+' and the mean of 40 by '+fmt(E.skew/Math.sqrt(40),4)+'.',
+          short:M.st.cM+' samples at each n'+(M.st.showNormal?'; the orange curves are σ/√n, not fits.':'; the σ/√n normals are off.')};
+}
+function drawCltView(ctx,W,H,M){
+  const ph=cltCaption(M);
+  const L=labStage(ctx,W,H,ph.full,ph.short,{nBottom:2,nBottomNarrow:1});
+  const b=L.main, E=M.exact;
+  const lo=E.mean-4.4*E.sd, hi=E.mean+4.4*E.sd;
+  let ymax=0;
+  const built=M.sets.map(S=>{
+    const w=Math.max(0.08,E.sd/Math.sqrt(S.n)/3);
+    const Hh=pdlHistogram(S.means,w);
+    const d=Hh.counts.map(c=>c/S.means.length/w);
+    for(const v of d) ymax=Math.max(ymax,v);
+    const se=E.sd/Math.sqrt(S.n);
+    ymax=Math.max(ymax,1/(se*Math.sqrt(2*Math.PI)));
+    return {S,w,Hh,d,se};
+  });
+  ymax*=1.14;
+  axesT(ctx,b,lo,hi,0,ymax,{title:'the sample mean at four sample sizes, as densities',
+    xlab:'sample mean x̄, m',ylab:'density, 1/m',nx:6,ny:4});
+  built.forEach((B,i)=>{
+    const xs=[], ys=[];
+    for(let k=0;k<B.Hh.counts.length;k++){
+      xs.push((B.Hh.lo+k)*B.w,(B.Hh.lo+k+1)*B.w); ys.push(B.d[k],B.d[k]);
+    }
+    pl(ctx,b,xs,ys,lo,hi,0,ymax,COL.sizes[i],1.5);
+    if(M.st.showNormal){
+      const gx=[], gy=[];
+      for(let k=0;k<=220;k++){ const x=lo+(hi-lo)*k/220; gx.push(x);
+        gy.push(Math.exp(-0.5*Math.pow((x-E.mean)/B.se,2))/(B.se*Math.sqrt(2*Math.PI))); }
+      pl(ctx,b,gx,gy,lo,hi,0,ymax,COL.ref,1.2,[5,4]);
+    }
+  });
+  legendReg(ctx,b,PDL.SIZES.map((n,i)=>[COL.sizes[i],'n = '+n+'  (SE '+fmt(built[i].S.sd,3)+' m)'])
+    .concat(M.st.showNormal?[[COL.ref,'σ/√n, the theorem']]:[]));
+  const p=L.bottom[0];
+  if(!p){ caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT); return {b,L}; }
+  const nlo=1.4, nhi=60, slo=E.sd/Math.sqrt(nhi)*0.7, shi=E.sd/Math.sqrt(nlo)*1.35;
+  axesT(ctx,p,Math.log10(nlo),Math.log10(nhi),Math.log10(slo),Math.log10(shi),
+    {title:titleFor(p,'standard error, m, against sample size n (log–log: slope −½)','SE, m, against n (log–log)'),
+     ylab:null,xticks:[2,5,15,40].map(Math.log10),xfmt:v=>fmt(Math.pow(10,v),0),
+     yticks:logTicks125(slo,shi).map(Math.log10),yfmt:v=>sigf(Math.pow(10,v),2),ny:3});
+  const lx=[], ly=[];
+  for(let i=0;i<=60;i++){ const n=nlo*Math.pow(nhi/nlo,i/60); lx.push(Math.log10(n)); ly.push(Math.log10(E.sd/Math.sqrt(n))); }
+  pl(ctx,p,lx,ly,Math.log10(nlo),Math.log10(nhi),Math.log10(slo),Math.log10(shi),COL.ref,1.8);
+  built.forEach((B,i)=>{
+    const X=p.x+p.w*(Math.log10(B.S.n)-Math.log10(nlo))/(Math.log10(nhi)-Math.log10(nlo));
+    const Y=p.y1-p.h*(Math.log10(B.S.sd)-Math.log10(slo))/(Math.log10(shi)-Math.log10(slo));
+    dot(ctx,X,Y,4,COL.sizes[i],'#0a0c12',1);
+  });
+  /* the residual panel: on the log axis the error bars are shorter than the
+     dots, so the agreement is only visible in units of the tolerance itself */
+  const q=L.bottom[1];
+  if(q){
+    let hiz=3;
+    const zs=built.map(B=>(B.S.sd-B.se)/(B.se*Math.sqrt((E.kurt/B.S.n+2)/(4*M.st.cM))));
+    for(const z of zs) hiz=Math.max(hiz,Math.abs(z)*1.25);
+    axesT(ctx,q,0.4,4.6,-hiz,hiz,{title:titleFor(q,'(measured SE − σ/√n) in units of its own sampling sd','the residual, in units of its sd'),
+      ylab:null,xticks:[1,2,3,4],xfmt:v=>''+PDL.SIZES[v-1],ny:3});
+    const qx=i=>q.x+q.w*(i+1-0.4)/4.2, qy=z=>q.y1-q.h*(z+hiz)/(2*hiz);
+    for(const k of [-1,1]){ ctx.strokeStyle='rgba(232,132,58,.35)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(q.x,qy(k)); ctx.lineTo(q.x1,qy(k)); ctx.stroke(); }
+    ctx.strokeStyle='#3b4250'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(q.x,qy(0)); ctx.lineTo(q.x1,qy(0)); ctx.stroke();
+    zs.forEach((z,i)=>{ const X=qx(i);
+      ctx.strokeStyle=COL.sizes[i]; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(X,qy(0)); ctx.lineTo(X,qy(clamp(z,-hiz,hiz))); ctx.stroke();
+      dot(ctx,X,qy(clamp(z,-hiz,hiz)),4,COL.sizes[i],'#0a0c12',1);
+      POLY_SEGS.push(X,qy(0),X,qy(clamp(z,-hiz,hiz)));
+    });
+    lab(ctx,q.x1+2,q.y1+2,q.x+4,q.y+6,'the orange rules are ±1 sd',COL.dim,SM_FONT,'left','top');
+  }
+  caption(ctx,L.left,L.capY,L.capTxt,L.capW,'#767e92',CAP_FONT);
+  return {b,L};
+}
+
+/* ================================================================== *
+ *  dispatch, scene object                                             *
+ * ================================================================== */
+let LAST_GEO=null;
+function drawView(ctx,W,H,M){
+  LEGEND_RECTS=[]; POLY_SEGS=[]; LABELS=[];
+  ctx.fillStyle='#070b18'; ctx.fillRect(0,0,W,H);
+  if(M.view==='field') LAST_GEO=drawFieldView(ctx,W,H,M);
+  else if(M.view==='sizes') LAST_GEO=drawSizesView(ctx,W,H,M);
+  else if(M.view==='parent') LAST_GEO=drawParentView(ctx,W,H,M);
+  else LAST_GEO=drawCltView(ctx,W,H,M);
+  return LAST_GEO;
+}
+/* the one thing on the canvas you can drag: the launcher's barrel on the two
+   field views, which scrubs the launcher through 1..6 (PhET selects them with
+   its radio buttons; dragging the barrel is this remake's own shortcut, and
+   it is the drag the harness proves moves the picture) */
+function launcherHit(S,x,y){
+  const M=buildModel();
+  if(M.view!=='field'&&M.view!=='parent') return null;
+  const ctx=S.measure();
+  const ph=M.view==='field'?fieldCaptionS(M,'1.00'):parentCaption(M);
+  const L=labStage(ctx,S.W,S.H,ph.full,ph.short,
+    {histFrac:M.view==='field'?0.52:0.56,fieldWant:fieldWantH(M)});
+  const map=fieldMap(L.field,M);
+  const X0=map.X(0), Y0=map.Y(M.cfg.h);
+  if(Math.abs(x-X0)>44||y<Y0-44||y>Y0+16) return null;
+  return {what:'launcher',X0,Y0};
+}
+function makeScene(canvas){
+  const S={st:ST,W:1100,H:712};
+  S.model=buildModel;
+  S.measure=()=>canvas.getContext('2d');
+  S.draw=function(){ const ctx=canvas.getContext('2d'); drawView(ctx,S.W,S.H,buildModel()); };
+  S.step=function(){ return ST.running?worldStep(ST,viewDt(ST)):false; };
+  S.fire=function(){ fireField(ST); };
+  S.pointer=function(type,x,y){
+    if(type==='up'){ const had=DRAG.what!==null; DRAG.what=null; return had; }
+    if(type==='down'){
+      const hit=launcherHit(S,x,y);
+      if(!hit) return false;
+      DRAG.what='launcher'; DRAG.yDown=y; DRAG.key=ST.view==='field'?'pLau':'xLau';
+      DRAG.start=ST[DRAG.key];
+      return true;
+    }
+    if(type==='move'&&DRAG.what==='launcher'){
+      /* the barrel sweeps upward through the six launchers: 14 px each */
+      /* measured from where the pointer went DOWN, not from the pivot: a
+         grab eight pixels above the pivot would otherwise jump the launcher
+         on before the pointer had moved at all */
+      const n=clamp(Math.round(DRAG.start+(DRAG.yDown-y)/14),1,PDL.N_FIELDS);
+      if(n===ST[DRAG.key]) return false;
+      ST[DRAG.key]=n;
+      if(DRAG.key==='xLau') resetWorld('parent');
+      return true;
+    }
+    return false;
+  };
+  return S;
+}
+
+/* ================================================================== *
+ *  boot — panel, tabs, handlers, frame loop                           *
+ * ================================================================== */
+function boot(){
+  const canvas=document.getElementById('scene');
+  const panel=document.getElementById('panel');
+  const tabsEl=document.getElementById('tabs');
+  const roEl=document.getElementById('readout');
+  const eqEl=document.getElementById('eqbar');
+  const tagEl=document.getElementById('tag');
+  const hintEl=document.getElementById('hint');
+  const errEl=document.getElementById('errbox');
+  const S=makeScene(canvas), st=S.st;
+  let dirty=false;
+
+  function fail(e){ errEl.style.display='block'; errEl.textContent=String(e&&e.stack||e); }
+  window.addEventListener('error',ev=>fail(ev.error||ev.message));
+
+  function setView(k){
+    st.view=k; DRAG.what=null;
+    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?'active':'');
+    syncChips(); syncPanel(); dirty=true; refresh();
+  }
+  TABS.forEach(([k,lab2])=>{ tabsEl.appendChild(h('button',{class:st.view===k?'active':'',onclick:()=>setView(k)},lab2)); });
+
+  const rows={};
+  function slider(key,lab2,lo,hi,step2,fmtf,onchg){
+    const inp=h('input',{type:'range',min:lo,max:hi,step:step2,value:st[key]});
+    const val=h('span',{class:'val'});
+    const rowEl=h('div',{class:'sliderrow'},h('label',null,lab2),inp,val);
+    const sync=()=>{ inp.value=st[key]; val.textContent=fmtf(st[key]); };
+    inp.addEventListener('input',()=>{ st[key]=parseFloat(inp.value);
+      val.textContent=fmtf(st[key]); if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows[key]={row:rowEl,sync,inp}; sync(); return rowEl;
+  }
+  function checkbox(key,lab2,onchg){
+    const inp=h('input',{type:'checkbox'}); inp.checked=st[key];
+    const el=h('label',null,inp,lab2);
+    inp.addEventListener('change',()=>{ st[key]=inp.checked;
+      if(onchg) onchg(); syncPanel(); dirty=true; refresh(); });
+    rows['cb_'+key]={row:el,sync:()=>{ inp.checked=st[key]; }};
+    return el;
+  }
+  const CHIPROWS=[];
+  /* every chip row carries a data-key: four of them are labelled 1..6 and a
+     match-by-word finder would drive the wrong one (lenses.html Known-bad) */
+  function chipRow(list,key,onPick){
+    const wrapEl=h('div',{class:'chips','data-key':key});
+    list.forEach(o=>{
+      const c=h('button',{class:'chip'+(st[key]===o.id?' on':''),onclick:()=>{
+        if(c.disabled) return;
+        st[key]=o.id; if(onPick) onPick(o);
+        syncChips(); syncPanel(); dirty=true; refresh(); }},o.name);
+      wrapEl.appendChild(c);
+    });
+    CHIPROWS.push([wrapEl,list,key]);
+    return wrapEl;
+  }
+  function button(lab2,fn){ return h('button',{onclick:()=>{ fn(); syncChips(); syncPanel(); dirty=true; refresh(); }},lab2); }
+  const reParent=()=>{ const w=worldOf('parent'); w.F.cfg=cfgMystery(st.xLau);
+    fieldClear(w.F); fieldBatch(w.F,st.xN); };
+
+  /* ---- the launcher and the sample size (PhET's Sampling screen) ---- */
+  const gSamp=h('div',{class:'grp'},h('h3',null,'the sampling'));
+  gSamp.appendChild(h('div',{class:'tag'},'mystery launcher:'));
+  gSamp.appendChild(chipRow(LAU_LIST,'pLau'));
+  gSamp.appendChild(h('div',{class:'tag'},'sample size:'));
+  gSamp.appendChild(chipRow(SIZE_LIST,'pN'));
+  gSamp.appendChild(h('div',{class:'checks'},checkbox('showSe','σ/√n and the measured spread')));
+  gSamp.appendChild(h('div',{class:'btnrow'},
+    button('+20 samples',()=>{ const F=curField(st); sampleBatch(F,st.pN,20); }),
+    button('clear',()=>{ const F=curField(st); fieldClear(F); })));
+  const sampTag=h('div',{class:'tag'}); gSamp.appendChild(sampTag);
+
+  /* ---- the four sample sizes ---- */
+  const gSizes=h('div',{class:'grp'},h('h3',null,'the four sample sizes'));
+  gSizes.appendChild(h('div',{class:'tag'},'mystery launcher:'));
+  gSizes.appendChild(chipRow(LAU_LIST,'sLau'));
+  gSizes.appendChild(slider('sM','samples at each n',20,200,20,v=>fmt(v,0),
+    ()=>{ resetWorld('sizes'); }));
+  gSizes.appendChild(h('div',{class:'checks'},checkbox('showNormal','σ/√n, the theorem')));
+  const sizesTag=h('div',{class:'tag'}); gSizes.appendChild(sizesTag);
+
+  /* ---- one launch ---- */
+  const gParent=h('div',{class:'grp'},h('h3',null,'one launch'));
+  gParent.appendChild(h('div',{class:'tag'},'mystery launcher:'));
+  gParent.appendChild(chipRow(LAU_LIST,'xLau',reParent));
+  gParent.appendChild(slider('xN','launches drawn',50,PDL.MAX_PROJ,50,v=>fmt(v,0),reParent));
+  gParent.appendChild(h('div',{class:'checks'},checkbox('showDensity','the exact density')));
+  const parentTag=h('div',{class:'tag'}); gParent.appendChild(parentTag);
+
+  /* ---- the limit theorem ---- */
+  const gClt=h('div',{class:'grp'},h('h3',null,'the limit theorem'));
+  gClt.appendChild(h('div',{class:'tag'},'mystery launcher:'));
+  gClt.appendChild(chipRow(LAU_LIST,'cLau'));
+  gClt.appendChild(slider('cM','samples at each n ',100,2000,100,v=>fmt(v,0)));
+  const cltTag=h('div',{class:'tag'}); gClt.appendChild(cltTag);
+
+  /* ---- the histogram ---- */
+  const gHist=h('div',{class:'grp'},h('h3',null,'the histogram'));
+  gHist.appendChild(h('div',{class:'tag'},'bin width (PhET&rsquo;s list for this sim):'));
+  gHist.appendChild(chipRow(BINW_LIST,'binW'));
+  gHist.appendChild(h('div',{class:'tag'},'vertical scale, samples:'));
+  gHist.appendChild(chipRow(ZOOM_LIST,'zoom'));
+  gHist.appendChild(h('div',{class:'checks'},checkbox('blocks','blocks, one per sample'),
+    checkbox('paths','paths'),checkbox('showAng','launch angle'),checkbox('showSpd','launch speed')));
+  const histTag=h('div',{class:'tag'}); gHist.appendChild(histTag);
+
+  /* ---- firing ---- */
+  const gFire=h('div',{class:'grp'},h('h3',null,'firing'));
+  gFire.appendChild(chipRow(MODES,'mode'));
+  const fireBtn=h('button',{onclick:()=>{ S.fire(); syncPanel(); dirty=true; refresh(); }},'launch');
+  gFire.appendChild(h('div',{class:'btnrow'},fireBtn));
+  /* +50 at once only means anything on the parent view, where a launch IS the
+     datum; on the sampling screen the datum is a whole sample */
+  const batchRow=h('div',{class:'btnrow'},
+    button('+50 launches',()=>{ const F=curField(st); if(F) fieldBatch(F,50); }));
+  gFire.appendChild(batchRow);
+  const fireTag=h('div',{class:'tag'}); gFire.appendChild(fireTag);
+
+  /* ---- time ---- */
+  const gRun=h('div',{class:'grp'},h('h3',null,'time'));
+  gRun.appendChild(h('div',{class:'checks'},checkbox('running','time runs'),
+    checkbox('speedUp','×6 (PhET’s fast)')));
+  gRun.appendChild(h('div',{class:'btnrow'},button('reset this view',()=>{ resetView(); })));
+  const runTag=h('div',{class:'tag'}); gRun.appendChild(runTag);
+
+  const gInfo=h('div',{class:'grp'},h('h3',null,'what you are looking at'),
+    h('div',{id:'info'}),
+    h('div',{class:'src',html:'Remake of PhET Interactive Simulations&rsquo; Projectile Sampling Distributions (University of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET code or assets. '
+      +'PhET&rsquo;s constants (g = 9.81, the 100 m field, the 0.2&ndash;5&deg; angle spreads, the three mechanisms, the six mystery launchers, the sample sizes, the bin widths and the 200-sample ceiling) are read from its published build; '
+      +'everything else is derived and pinned in selfTest to build/projectile-sampling-distributions/derive.py (the exact moments by a 96-node Gauss&ndash;Legendre rule against scipy and a Monte Carlo, bit-exact mulberry32, and every sample statistic against numpy).'}));
+  const gPhys=h('div',{class:'grp'},h('h3',null,'the mathematics'),h('div',{id:'phys'}));
+  [gSamp,gSizes,gParent,gClt,gHist,gFire,gRun,gInfo,gPhys].forEach(g=>panel.appendChild(g));
+  const infoEl=gInfo.querySelector('#info'), physEl=gPhys.querySelector('#phys');
+
+  function resetView(){
+    const v=st.view;
+    for(const k in DEFAULTS) if(k!=='view') st[k]=DEFAULTS[k];
+    st.view=v; resetAllWorlds();
+  }
+  function syncChips(){
+    for(const [cw,list,key] of CHIPROWS)
+      [].forEach.call(cw.children,(b,i)=>b.className='chip'+(list[i].id===st[key]?' on':'')+(b.disabled?' off':''));
+  }
+  function syncPanel(){
+    const v=st.view;
+    gSamp.hidden=(v!=='field');
+    gSizes.hidden=(v!=='sizes');
+    gParent.hidden=(v!=='parent');
+    gClt.hidden=(v!=='clt');
+    gHist.hidden=(v==='clt');
+    gFire.hidden=!(v==='field'||v==='parent');
+    batchRow.hidden=(v!=='parent');
+    gRun.hidden=!(v==='field'||v==='parent');
+    /* the vertical-scale chips only mean anything on the screen that uses
+       them: a live control that is ignored is worse than no control */
+    const zoomLive=(v==='field');
+    const zr=CHIPROWS.find(c=>c[2]==='zoom')[0];
+    [].forEach.call(zr.children,b=>{ b.disabled=!zoomLive; b.style.opacity=zoomLive?'1':'0.4'; });
+    const F=curField(st);
+    fireBtn.textContent=F&&F.firing?'stop':(st.mode==='continuous'
+      ?(v==='parent'?'launch continuously':'sample continuously'):(v==='parent'?'launch':'take a sample'));
+    if(rows.cb_blocks) rows.cb_blocks.row.hidden=(v==='clt');
+    for(const k in rows) rows[k].sync();
+    const M0=buildModel();
+    sampTag.innerHTML='At most '+PDL.MAX_SAMPLES+' samples a field, as PhET allows; each (launcher, n) pair keeps its own.';
+    sizesTag.innerHTML='More samples sharpen the four measured spreads; they do not narrow the distributions.';
+    parentTag.innerHTML='The orange curve is computed from the two input Gaussians, not fitted to the bars.';
+    cltTag.innerHTML='The error bars shrink as 1/&radic;M &mdash; that is the tolerance, not the theorem.';
+    histTag.innerHTML='PhET bins by floor(x/w)&middot;w, so a bin is [k w, (k+1) w). This sim&rsquo;s widths are 0.5, 1, 2 and 5 m, and it has no total-bins setting.';
+    fireTag.innerHTML=(F&&F.samples&&F.samples.length>=PDL.MAX_SAMPLES)?'this field is full ('+PDL.MAX_SAMPLES+' samples, PhET&rsquo;s limit)'
+      :'space launches &middot; <b>c</b> clears &middot; <b>p</b> pauses &middot; 1&ndash;4 switch views';
+    runTag.innerHTML='A shot takes '+fmt(pdlFlight(M0.cfg.meanSpeed,M0.cfg.meanAng,M0.cfg.h),2)
+      +' s to land; a sample of '+st.pN+' takes about '+fmt(st.pN*Math.max(PDL.LAUNCH_GAP*0.5,pdlFlight(M0.cfg.meanSpeed,M0.cfg.meanAng,M0.cfg.h)),1)+' s.';
+  }
+
+  function refresh(){
+    try{
+      const M=S.model();
+      roEl.innerHTML=readoutHTML(M);
+      eqEl.innerHTML=eqbarHTML(M);
+      tagEl.innerHTML=tagHTML(M);
+      hintEl.textContent=(st.view==='field'||st.view==='parent')
+        ?'drag the launcher up and down to change launcher · space launches · 1–4 switch views'
+        :'space launches · c clears · 1–4 switch views';
+      infoEl.innerHTML=INFO[st.view]||'';
+      physEl.innerHTML=DERIV[st.view]||'';
+      S.draw();
+    }catch(e){ fail(e); }
+  }
+
+  canvas.addEventListener('pointerdown',e=>{
+    canvas.setPointerCapture(e.pointerId);
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('down',e.clientX-r.left,e.clientY-r.top)){ canvas.classList.add('dragging'); dirty=true; }
+  });
+  canvas.addEventListener('pointermove',e=>{
+    if(!canvas.classList.contains('dragging')&&e.buttons===0) return;
+    const r=canvas.getBoundingClientRect();
+    if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true; syncChips(); roEl.innerHTML=readoutHTML(S.model()); }
+  });
+  const up=()=>{ canvas.classList.remove('dragging'); if(S.pointer('up',0,0)){ syncChips(); syncPanel(); dirty=true; refresh(); } };
+  canvas.addEventListener('pointerup',up); canvas.addEventListener('pointercancel',up);
+
+  window.addEventListener('keydown',e=>{
+    if(e.key===' '){ e.preventDefault(); S.fire(); syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='p'){ st.running=!st.running; syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='c'){ const F=curField(st); if(F) fieldClear(F); syncPanel(); dirty=true; refresh(); }
+    else if(e.key==='r'){ resetView(); syncChips(); syncPanel(); dirty=true; refresh(); }
+    else if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);
+  });
+
+  function resize(){
+    const r=canvas.getBoundingClientRect(), dpr=window.devicePixelRatio||1;
+    canvas.width=Math.round(r.width*dpr); canvas.height=Math.round(r.height*dpr);
+    canvas.getContext('2d').setTransform(dpr,0,0,dpr,0,0);
+    S.W=r.width; S.H=r.height;
+  }
+  window.addEventListener('resize',()=>{ resize(); dirty=true; refresh(); });
+
+  let frameN=0;
+  function frameLoop(){
+    frameN++;
+    const advanced=S.step();
+    if(advanced||dirty){
+      dirty=false;
+      try{
+        S.draw();
+        if(advanced&&frameN%8===0){ const M=S.model(); roEl.innerHTML=readoutHTML(M); tagEl.innerHTML=tagHTML(M); }
+      }catch(e){ fail(e); }
+    }
+    requestAnimationFrame(frameLoop);
+  }
+  resize(); syncChips(); syncPanel(); refresh(); requestAnimationFrame(frameLoop);
+  return S;
+}
+
+const INFO={
+  field:'PhET&rsquo;s whole sim, in one screen. Pick a launcher and a sample size, fire a sample, and watch what survives it: not the n landing distances, but their single mean. That mean is one dot in the histogram below, and the histogram is far narrower than the landing distances that made it &mdash; averaging cancels. How much narrower is the only question the screen asks, and it has an exact answer: σ/√n, with σ the standard deviation of one launch, known outright from the launcher&rsquo;s own mechanism (see <b>one launch</b>). The orange bar across the top of the histogram is that exact σ/√n; the green bar under it is the spread the samples have actually shown so far, which wanders toward it. Drag the launcher itself to change launchers without leaving the field.',
+  sizes:'PhET&rsquo;s thumbnail row, at a size you can read. The same launcher, the same number of samples, four sample sizes, and &mdash; the part that matters &mdash; one axis for all four. Nothing about the centre changes: E[x̄] = μ for every n, exactly, and averaging never biases anything. Only the width moves, and it moves as 1/√n: four times the sample halves the spread. Notice that n = 2 is already narrower than a single launch by √2, with no theorem involved at all.',
+  parent:'Where σ comes from. Every standard error on the other views is σ/√n, and σ belongs to the parent: the distribution of one launch. PhET launches with two independent Gaussians &mdash; a speed and an angle &mdash; pushed through x = (v cosθ/g)(v sinθ + √(v²sin²θ + 2gh)), so that distribution is a closed problem, not something to be sampled. The orange curve is it, computed on eight panels of a 96-node quadrature rather than fitted to the bars (at a fixed distance only the angles whose v* lands within a few standard deviations of the mean speed contribute, so the integrand is a spike and one panel of the rule rings around it &mdash; by 29 % at launcher 2); the bars are however many launches the slider asks for. It is not a normal: it is skewed, and its tails are not Gaussian tails. That is exactly what makes the central limit theorem worth stating.',
+  clt:'The theorem has two halves and they are usually run together. The width half &mdash; sd(x̄) = σ/√n &mdash; is exact for every n and every parent with a variance, and it follows from independence alone; no theorem is needed and none is used. The shape half is the theorem: whatever the parent looks like, the mean of n of them approaches a normal. For mystery launcher 1 the parent is skewed by −0.098 and the mean of 40 by −0.0155; every launcher has its own pair, and the readout and the caption carry the live ones. The panels below hold the first half to account: the measured standard errors against σ/√n on log axes, and then the same four residuals in units of the spread a measured standard error is entitled to, so that "they agree" comes with an error bar.'
+};
+
+function FR(t,b){ return '<span class="frac"><span class="t">'+t+'</span><span class="b">'+b+'</span></span>'; }
+function EQ(n,body){ return '<div class="eq"><span class="n">['+n+']</span>'+body+'</div>'; }
+const DERIV={
+  field:'<h4>the sampling distribution of the mean</h4>'
+    +EQ(1,'x&#772; = '+FR('1','n')+' &Sigma;<sub>i=1</sub><sup>n</sup> x<sub>i</sub>, &nbsp; E[x&#772;] = &mu;, &nbsp; var(x&#772;) = '+FR('&sigma;&sup2;','n'))
+    +EQ(2,'<span class="rm">PhET&rsquo;s bins:</span> &lfloor;x/w&rfloor;&middot;w, &nbsp; w &isin; {0.5, 1, 2, 5} m &nbsp;<span class="rm">(this sim; the data lab adds 10)</span>')
+    +EQ(3,'<span class="rm">the measured spread:</span> s = &radic;('+FR('&Sigma;(x&#772;<sub>k</sub> &minus; &lang;x&#772;&rang;)&sup2;','M &minus; 1')+'), &nbsp; sd(s) &asymp; '+FR('&sigma;','&radic;n')+'&radic;('+FR('&kappa;<sub>n</sub>+2','4M')+'))')
+    +'<p>[1] needs only independence, so it is exact at n = 2. The tolerance in [3] is what makes a comparison between s and σ/√n a statement rather than an impression.</p>'
+    +'<div class="cite">pins: reference sampling runs at all four sizes, the same bit-exact stream as the page, against numpy&rsquo;s mean, sd (both conventions), median and bin counts &mdash; derive.py</div>',
+  sizes:'<h4>four sizes, one axis</h4>'
+    +EQ(1,FR('sd(x&#772;<sub>n&#8322;</sub>)','sd(x&#772;<sub>n&#8321;</sub>)')+' = &radic;('+FR('n&#8321;','n&#8322;')+') &nbsp;&rArr;&nbsp; <span class="rm">2 &rarr; 40 narrows by</span> &radic;20 = 4.472')
+    +EQ(2,'E[x&#772;<sub>n</sub>] = &mu; <span class="rm">for every n &mdash; the centre is fixed by construction</span>')
+    +'<p>Drawing them on separate axes would make all four look the same, which is the one thing they are not. The shared axis is the content of the view.</p>'
+    +'<div class="cite">pins: σ/√n at each size from the exact law; each measured spread inside its own sampling sd &mdash; derive.py</div>',
+  parent:'<h4>the parent, exactly</h4>'
+    +EQ(1,'v ~ N(&mu;<sub>v</sub>, &sigma;<sub>v</sub>&sup2;) <span class="rm">re-drawn while v &le; 0</span>, &nbsp; &theta; ~ N(&mu;<sub>&theta;</sub>, &sigma;<sub>&theta;</sub>&sup2;) <span class="rm">re-drawn while outside (0&deg;, 90&deg;)</span>')
+    +EQ(2,'f<sub>X</sub>(r) = &int; f<sub>&theta;</sub>(&theta;) '+FR('f<sub>v</sub>(v*(r,&theta;))','|&part;x/&part;v|(v*,&theta;)')+' d&theta;, &nbsp; x(v*(r,&theta;), &theta;) = r')
+    +EQ(3,'<span class="rm">h = 0:</span> E[x<sup>k</sup>] = '+FR('E[v<sup>2k</sup>] E[sin<sup>k</sup>2&theta;]','g<sup>k</sup>')+', &nbsp; E[sin2&theta;] = sin2&mu; e<sup>&minus;2&sigma;&sup2;</sup>')
+    +'<p>Both truncations sit six standard deviations out or more; derive.py measures what they are worth (5.5&times;10<sup>&minus;8</sup> m on the mean at worst), which is what lets the closed form of [3] stand beside the quadrature.</p>'
+    +'<div class="cite">pins: the 96&times;96 rule against scipy&rsquo;s adaptive quadrature (1e-15) and 6e6 simulated launches; the density integrated to 1 and to the exact mean &mdash; derive.py</div>',
+  clt:'<h4>the two halves of the theorem</h4>'
+    +EQ(1,'sd(x&#772;<sub>n</sub>) = &sigma;/&radic;n &nbsp;<span class="rm">exactly, for every n and every parent with a variance</span>')
+    +EQ(2,'skew(x&#772;<sub>n</sub>) = '+FR('skew(x)','&radic;n')+', &nbsp; &kappa;(x&#772;<sub>n</sub>) = '+FR('&kappa;(x)','n')+' &nbsp;&rArr;&nbsp; <span class="rm">the shape goes normal</span>')
+    +EQ(3,'<span class="rm">a measured SE over M samples has sd</span> &asymp; '+FR('&sigma;','&radic;n')+' &radic;('+FR('&kappa;<sub>n</sub> + 2','4M')+'))')
+    +'<p>[1] is algebra; [2] is the theorem. Keeping them apart is the point of this view: a sim that only shows the widths narrowing has demonstrated [1] and called it [2].</p>'
+    +'<div class="cite">pins: 2000-sample reference runs at each size, each within its own sd of σ/√n; the skewness law at all four sizes &mdash; derive.py</div>'
+};
+/* ================================================================== *
+ *  reference values — WRITTEN BY derive.py (build/projectile-        *
+ *  sampling-distributions); the same numbers are in refvals.txt.     *
+ * ================================================================== */
+const REF={
+  G:9.81,
+  FIELD:100.0,
+  MEAN_ANGLE:30.0,
+  BINW_DEFAULT:0.5,
+  MAX_SAMPLES:200,
+  MAX_PROJ:500,
+  SAMPLE_TIME:{'2':0.75,'5':2.0,'15':5.0,'40':9.0},
+  BINW:[0.5,1.0,2.0,5.0],
+  ZOOM_MAX:[250,200,150,100,75,50,25],
+  SAMPLE_SIZES:[2,5,15,40],
+  MECH:{'spring':[23.0,0.5],'pressure':[24.0,0.2],'explosion':[25.0,1.2]},
+  LAUNCH_SD:[2.6,5.0,0.2,1.4,0.2,5.0],
+  LAUNCH_MECH:['spring','pressure','explosion','spring','pressure','explosion'],
+  rangeCases:[[23.0,30.0,0.0,46.70004470968073,2.3445463812436285],[24.0,30.0,0.0,50.8491980203707,2.446483180428134],[25.0,30.0,0.0,55.174911046409186,2.54841997961264]],
+  rngStream:[0.2602658597752452,0.04491165722720325,0.7027387674897909,0.7858214983716607,0.9351771264337003,0.9097544143442065],
+  gaussStream:[0.7457737124382012,0.3476336676673043,1.9731761859086643,0.36179570806246086,-0.9854192422185815,1.4659468639757414],
+  glX:[-0.9996895038832307,-0.9983643758631817,-0.9959818429872093,-0.9925439003237626,-0.9880541263296237,-0.9825172635630147,-0.9759391745851365,-0.9683268284632642,-0.9596882914487426,-0.9500327177844377,-0.9393703397527552,-0.9277124567223087,-0.9150714231208981,-0.9014606353158523,-0.8868945174024204,-0.8713885059092965,-0.8549590334346014,-0.8376235112281871,-0.8194003107379316,-0.8003087441391408,-0.7803690438674332,-0.7596023411766475,-0.7380306437444001,-0.7156768123489676,-0.6925645366421715,-0.6687183100439161,-0.6441634037849671,-0.6189258401254686,-0.593032364777572,-0.5665104185613972,-0.5393881083243575,-0.5116941771546677,-0.48345797392059636,-0.454709422167743,-0.42547898840730053,-0.3957976498289086,-0.3656968614723136,-0.3352085228926254,-0.30436494435449635,-0.2731988125910491,-0.24174315616384,-0.2100313104605672,-0.17809688236761861,-0.14597371465489695,-0.11369585011066592,-0.08129749546442556,-0.04881298513604973,-0.016276744849602967,0.016276744849602967,0.04881298513604973,0.08129749546442556,0.11369585011066592,0.14597371465489695,0.17809688236761861,0.2100313104605672,0.24174315616384,0.2731988125910491,0.30436494435449635,0.3352085228926254,0.3656968614723136,0.3957976498289086,0.42547898840730053,0.454709422167743,0.48345797392059636,0.5116941771546677,0.5393881083243575,0.5665104185613972,0.593032364777572,0.6189258401254686,0.6441634037849671,0.6687183100439161,0.6925645366421715,0.7156768123489676,0.7380306437444001,0.7596023411766475,0.7803690438674332,0.8003087441391408,0.8194003107379316,0.8376235112281871,0.8549590334346014,0.8713885059092965,0.8868945174024204,0.9014606353158523,0.9150714231208981,0.9277124567223087,0.9393703397527552,0.9500327177844377,0.9596882914487426,0.9683268284632642,0.9759391745851365,0.9825172635630147,0.9880541263296237,0.9925439003237626,0.9959818429872093,0.9983643758631817,0.9996895038832307],
+  glW:[0.0007967920655527372,0.001853960788944483,0.0029107318179354903,0.003964554338444547,0.005014202742928729,0.006058545504235186,0.00709647079115387,0.008126876925698334,0.009148671230783025,0.010160770535008317,0.01116210209983862,0.012151604671088029,0.01312822956696153,0.01409094177231525,0.015038721026994906,0.01597056290256232,0.016885479864245174,0.017782502316045265,0.0186606796274117,0.019519081140145365,0.02035679715433334,0.02117293989219133,0.021966644438744545,0.022737069658329417,0.02348339908592622,0.02420484179236478,0.02490063322248378,0.025570036005349316,0.026212340735672517,0.026826866725591765,0.027412962726029173,0.027970007616848296,0.02849741106508537,0.028994614150555254,0.029461089958167933,0.02989634413632844,0.03029991542082768,0.030671376123669207,0.03101033258631386,0.03131642559686139,0.03158933077072719,0.03182875889441104,0.03203445623199272,0.03220620479403027,0.03234382256857595,0.03244716371406432,0.03251611871386886,0.032550614492363204,0.032550614492363204,0.03251611871386886,0.03244716371406432,0.03234382256857595,0.03220620479403027,0.03203445623199272,0.03182875889441104,0.03158933077072719,0.03131642559686139,0.03101033258631386,0.030671376123669207,0.03029991542082768,0.02989634413632844,0.029461089958167933,0.028994614150555254,0.02849741106508537,0.027970007616848296,0.027412962726029173,0.026826866725591765,0.026212340735672517,0.025570036005349316,0.02490063322248378,0.02420484179236478,0.02348339908592622,0.022737069658329417,0.021966644438744545,0.02117293989219133,0.02035679715433334,0.019519081140145365,0.0186606796274117,0.017782502316045265,0.016885479864245174,0.01597056290256232,0.015038721026994906,0.01409094177231525,0.01312822956696153,0.012151604671088029,0.01116210209983862,0.010160770535008317,0.009148671230783025,0.008126876925698334,0.00709647079115387,0.006058545504235186,0.005014202742928729,0.003964554338444547,0.0029107318179354903,0.001853960788944483,0.0007967920655527372],
+  NGL:96,
+  ZCAP:12.0,
+  launcherStats:[[46.530088725337635,3.1810532964909295,-3.1560742112696296,311.5435237123513],[50.08406646895171,5.228972378657813,-114.44345059772525,2826.012454839256],[55.30068638084752,5.304441070415468,21.566292291877176,2397.2461850099126],[46.66635708032942,2.4201122867916514,0.8826824058706073,103.09754231194427],[50.851489979604445,0.8719226200874625,0.01846509980116051,1.7345728727324072],[54.46611797585257,7.683634131427451,-38.42726741559693,10790.38558637556]],
+  generalCases:[[24.0,0.2,60.0,5.0,50.08406646895171,5.228972378657811,50.084066417938104,2535.7558637064703],[23.0,0.5,45.0,2.6,53.72831850198172,2.356099874290085,53.72831850198171,2892.2834156680206],[25.0,1.2,75.0,5.0,31.492790385487442,9.962921326531557,31.44602784304274,1089.6081480339756]],
+  pdfAtMean:[0.12583801901212413,0.0734195110501651,0.07514503062821688,0.1648228641757128,0.45753228462532014,0.052480790637494154],
+  sampSeed:20260923,
+  sampCount:200,
+  sampRuns:[{'n':2,'first3':[46.148837347707115,46.194029825229556,49.434665155655665],'mean':46.56458099123868,'sd1':2.306361396069337,'sd0':2.3005882671248474,'median':46.74184522369701,'se':0.1630843783027501,'binLo':77,'bins':[1,0,0,0,0,2,2,1,3,8,11,10,14,18,15,10,12,21,16,15,10,10,9,6,1,4,0,0,1]},{'n':5,'first3':[47.26451755988598,44.17894518907697,46.1444403647111],'mean':46.48915952359195,'sd1':1.4872656388509984,'sd0':1.4835428153930488,'median':46.59330868588694,'se':0.10516556186572837,'binLo':85,'bins':[2,1,6,9,16,19,22,20,36,16,22,14,8,6,2,0,0,1]},{'n':15,'first3':[47.15657131009745,46.466754836034845,45.976678704873315],'mean':46.556103923399895,'sd1':0.83701090244374,'sd0':0.8349157529689062,'median':46.49598170335473,'se':0.05918560850450403,'binLo':88,'bins':[1,5,13,30,52,41,30,21,4,2,1]},{'n':40,'first3':[47.46421084607654,46.8742425247006,46.52554390370432],'mean':46.496162988041476,'sd1':0.5161007555186163,'sd0':0.5148088867702773,'median':46.50773698411073,'se':0.03649383440027141,'binLo':89,'bins':[1,6,21,72,72,22,6]}],
+  clSigma:3.1810532964909295,
+  clMean:46.530088725337635,
+  clSkew:-0.09804701360022611,
+  clKurt:0.042530536319790535,
+  clSe:[2.2493443572645573,1.4226102822007023,0.8213444293805049,0.5029686887649123],
+  clM:2000,
+  clSeTol:[0.035753833296992235,0.02254122573246921,0.012995797889376536,0.007954746896323785],
+};
+
+/* ================================================================== *
+ *  selfTest — headless verification.  Values labelled (derive) are    *
+ *  lines of build/projectile-sampling-distributions/refvals.txt, the  *
+ *  printed output of derive.py, read in full; REF (p7a_refs.js) is    *
+ *  the same numbers, written by derive.py so none is retyped.         *
+ * ================================================================== */
+function makeShot(W,H){
+  const ops=[]; let Mx=[1,0,0,1,0,0]; const stack=[];
+  const st2={font:'10px x',align:'left',base:'alphabetic'};
+  const mul=(A,B)=>[A[0]*B[0]+A[2]*B[1],A[1]*B[0]+A[3]*B[1],A[0]*B[2]+A[2]*B[3],A[1]*B[2]+A[3]*B[3],
+                    A[0]*B[4]+A[2]*B[5]+A[4],A[1]*B[4]+A[3]*B[5]+A[5]];
+  const app=(x,y)=>[Mx[0]*x+Mx[2]*y+Mx[4],Mx[1]*x+Mx[3]*y+Mx[5]];
+  const fsz=()=>{ const m=/([\d.]+)px/.exec(st2.font); return m?parseFloat(m[1]):10; };
+  let pend=null;
+  const ctx={ops,
+    save(){ stack.push({M:Mx.slice(),f:st2.font,a:st2.align,b:st2.base}); },
+    restore(){ const s=stack.pop(); if(s){ Mx=s.M; st2.font=s.f; st2.align=s.a; st2.base=s.b; } },
+    translate(x,y){ Mx=mul(Mx,[1,0,0,1,x,y]); },
+    rotate(r){ const c=Math.cos(r),s3=Math.sin(r); Mx=mul(Mx,[c,s3,-s3,c,0,0]); },
+    scale(x,y){ Mx=mul(Mx,[x,0,0,y,0,0]); }, setTransform(){ Mx=[1,0,0,1,0,0]; },
+    beginPath(){ pend=null; }, moveTo(){}, lineTo(){ if(!pend) pend={n:0}; }, closePath(){},
+    rect(){ if(!pend) pend={n:0}; pend.n++; }, arc(){ if(!pend) pend={n:0}; pend.n++; },
+    fill(){ if(pend) ops.push({op:'fill',n:pend.n||1}); },
+    stroke(){ ops.push({op:'stroke'}); }, clip(){},
+    fillRect(x,y,w,hh){ ops.push({op:'fill',n:1,bb:[x,y,x+w,y+hh],style:ctx.fillStyle}); },
+    strokeRect(){ ops.push({op:'stroke'}); }, clearRect(){},
+    fillText(t,x,y){
+      const w=(''+t).length*fsz()*0.52, fh=fsz()*1.15;
+      const lx=st2.align==='center'?x-w/2:(st2.align==='right'?x-w:x);
+      const ly=st2.base==='top'?y:(st2.base==='middle'?y-fh/2:(st2.base==='bottom'?y-fh:y-fh*0.8));
+      const cs=[[lx,ly],[lx+w,ly],[lx,ly+fh],[lx+w,ly+fh]].map(c2=>app(c2[0],c2[1]));
+      const xs=cs.map(c2=>c2[0]), ys=cs.map(c2=>c2[1]);
+      ops.push({op:'text',t:''+t,bb:[Math.min.apply(0,xs),Math.min.apply(0,ys),Math.max.apply(0,xs),Math.max.apply(0,ys)]});
+    },
+    strokeText(){}, setLineDash(){},
+    measureText(t){ return {width:(''+t).length*fsz()*0.52}; },
+    createLinearGradient(){ return {addColorStop(){}}; },
+  };
+  let _fill='#000';
+  Object.defineProperty(ctx,'fillStyle',{get:()=>_fill,set:v=>_fill=''+v});
+  for(const kk of ['strokeStyle','lineWidth','globalAlpha','lineJoin','lineCap']){ let v2; Object.defineProperty(ctx,kk,{get:()=>v2,set:x=>v2=x}); }
+  Object.defineProperty(ctx,'font',{get:()=>st2.font,set:v=>st2.font=''+v});
+  Object.defineProperty(ctx,'textAlign',{get:()=>st2.align,set:v=>st2.align=''+v});
+  Object.defineProperty(ctx,'textBaseline',{get:()=>st2.base,set:v=>st2.base=''+v});
+  return ctx;
+}
+/* the 0th, 1st and 2nd moments of f from ONE sampling of it */
+function simp3(f,a,b,n){
+  const h=(b-a)/n, out=[0,0,0];
+  for(let i=0;i<=n;i++){
+    const x=a+i*h, c=(i===0||i===n)?1:(i%2?4:2), y=f(x)*c;
+    out[0]+=y; out[1]+=y*x; out[2]+=y*x*x;
+  }
+  return out.map(s=>s*h/3);
+}
+function simp(f,a,b,n){
+  const N=2*Math.max(1,Math.round(n/2)), dx=(b-a)/N;
+  let s=f(a)+f(b);
+  for(let i=1;i<N;i++) s+=(i%2?4:2)*f(a+i*dx);
+  return s*dx/3;
+}
+/* a deterministic stand-in for the random stream: gauss() walks a fixed list,
+   so PhET's re-draw windows can be pinned at the exact values that decide
+   them instead of waited for */
+function stubRng(list){
+  let i=0;
+  return {next(){ return 0.5; }, gauss(){ return i<list.length?list[i++]:0; }};
+}
+const CONFIGS=[
+  ['field default',{view:'field'}],
+  ['field n = 2, launcher 6',{view:'field',pN:2,pLau:6,binW:1}],
+  ['field n = 40, blocks',{view:'field',pN:40,pLau:3,blocks:true,binW:2}],
+  ['field empty',{view:'field',pLau:4},()=>{ fieldClear(curField(ST)); }],
+  ['field one sample',{view:'field',pLau:5},()=>{ const F=curField(ST); fieldClear(F); sampleBatch(F,ST.pN,1); }],
+  ['field no standard error',{view:'field',showSe:false,pLau:2,zoom:0}],
+  ['sizes default',{view:'sizes'}],
+  ['sizes launcher 6, 200 samples',{view:'sizes',sLau:6,sM:200,binW:1}],
+  ['sizes launcher 5, 20 samples',{view:'sizes',sLau:5,sM:20,binW:0.5}],
+  ['sizes no normals',{view:'sizes',sLau:3,showNormal:false}],
+  ['parent default',{view:'parent'}],
+  ['parent launcher 6, 500',{view:'parent',xLau:6,xN:500,binW:2}],
+  ['parent launcher 5, 50',{view:'parent',xLau:5,xN:50,binW:0.5}],
+  ['parent empty',{view:'parent'},()=>{ fieldClear(worldOf('parent').F); }],
+  ['parent no density',{view:'parent',xLau:4,showDensity:false}],
+  ['clt default',{view:'clt'}],
+  ['clt launcher 6, 200',{view:'clt',cLau:6,cM:200}],
+  ['clt launcher 5, no normals',{view:'clt',cLau:5,cM:100,showNormal:false}],
+];
+function applyConfig(cfg){
+  Object.assign(ST,DEFAULTS);
+  Object.assign(ST,cfg[1]);
+  resetAllWorlds();
+  if(cfg[2]) cfg[2]();
+}
+
+function selfTest(){
+  let pass=0, fail=0;
+  const T0=Date.now(), TIMES={};
+  const ok=(c,n)=>{ if(c) pass++; else { fail++; console.log('FAIL — '+n); } };
+  const close=(a,b,t,n)=>ok(Math.abs(a-b)<=t,n+'  ('+a+' vs '+b+', |d| '+Math.abs(a-b).toExponential(2)+' > '+t+')');
+  const rel=(a,b,t,n)=>ok(Math.abs(a-b)<=t*Math.max(1e-300,Math.abs(b)),
+    n+'  ('+a+' vs '+b+', rel '+(Math.abs(a-b)/Math.max(1e-300,Math.abs(b))).toExponential(2)+' > '+t+')');
+  const eq=(a,b,n)=>ok(a===b,n+'  ('+a+' vs '+b+')');
+  const stSave=Object.assign({},ST);
+
+  /* ============ A. PhET's constants, this sim's branch of them ============ */
+  rel(PDL.G,REF.G,0,'g is PhET’s 9.81 (derive)');
+  rel(PDL.FIELD,REF.FIELD,0,'the field is PhET’s 100 m (derive)');
+  eq(JSON.stringify(PDL.BINW),JSON.stringify(REF.BINW),'the bin widths are PhET’s [0.5, 1, 2, 5] for THIS sim (derive)');
+  ok(PDL.BINW.indexOf(10)<0,'… and not the data lab’s 10 m');
+  rel(PDL.BINW_DEF,REF.BINW_DEFAULT,0,'the default bin width is 0.5 m, not the data lab’s 1 (derive)');
+  eq(JSON.stringify(PDL.ZOOM_MAX),JSON.stringify(REF.ZOOM_MAX),'the vertical-scale ladder runs to 250 samples (derive)');
+  { /* the auto rung picks the TIGHTEST of PhET's own rungs that holds the
+       tallest bin — a ceiling PhET offers, never a number of its own */
+    for(const [m,want] of [[0,4],[3,4],[4,6],[6,8],[9,15],[18,25],[22,50],[43,50],[44,75],[200,250],[400,250]])
+      eq(autoZoom(m),want,'auto zoom at a tallest bin of '+m+' picks 0–'+want);
+    for(const m of [30,60,90,140,190]) ok(PDL.ZOOM_MAX.indexOf(autoZoom(m))>=0,
+      'above 20 samples every rung it picks is one of PhET’s ('+autoZoom(m)+')');
+    ok(autoZoom(10)>=10*1.15,'and every rung holds the bin it was chosen for');
+    /* a bin can never hold more than a full field, which PhET caps at 200, so
+       the ladder only has to reach that far — and it does */
+    for(let m=0;m<=PDL.MAX_SAMPLES;m+=7) ok(autoZoom(m)>=Math.max(4,m),'auto zoom never crops the tallest bin (at '+m+')');
+    ok(autoZoom(PDL.MAX_SAMPLES)>=PDL.MAX_SAMPLES,'and the top rung holds a whole field of '+PDL.MAX_SAMPLES+' samples in one bin'); }
+  eq(JSON.stringify(PDL.SIZES),JSON.stringify(REF.SAMPLE_SIZES),'the sample sizes are PhET’s 2, 5, 15, 40 (derive)');
+  rel(PDL.MAX_SAMPLES,REF.MAX_SAMPLES,0,'at most 200 samples a field (derive)');
+  /* against derive.py, not against itself: the first sweep survived a mutant
+     on this ceiling because the assertion read PDL.MAX_PROJ on both sides */
+  rel(PDL.MAX_PROJ,REF.MAX_PROJ,0,'and 500 projectiles (derive)');
+  rel(PDL.SPEED_MEAN_MIN,20,0,'the speed-mean range floor is 20 m/s here, 15 in the data lab');
+  const SAMPVIEW='field', SAMPMODE='mode';
+  { /* PhET's SamplingField.totalSampleTime: a sample of n is spread evenly
+       over it, and the launches overlap rather than queueing */
+    for(const n of PDL.SIZES) rel(PDL.SAMPLE_TIME[n],REF.SAMPLE_TIME[''+n],0,
+      'a sample of '+n+' takes PhET’s '+REF.SAMPLE_TIME[''+n]+' s (derive)');
+    for(const n of PDL.SIZES) rel(sampleStep(n),PDL.SAMPLE_TIME[n]/n,0,
+      'so its launches are '+fmt(PDL.SAMPLE_TIME[n]/n,4)+' s apart at n = '+n);
+    ok(sampleStep(40)<sampleStep(2),'a bigger sample fires FASTER, not slower (9 s for 40, 0.75 for 2)');
+    /* and the model really does that */
+    Object.assign(ST,DEFAULTS); ST.view=SAMPVIEW; ST.running=true; resetAllWorlds();
+    const F=curField(ST); fieldClear(F); fireField(ST);
+    const step=sampleStep(F.size);
+    let atHalf=0;
+    for(let k=0;k<Math.round(F.size*step*60/2);k++) worldStep(ST,1/60);
+    atHalf=F.n;
+    ok(Math.abs(atHalf-F.size/2)<=1,'half way through a sample about half its '+F.size+' launches are away ('+atHalf+')');
+    for(let k=0;k<4000&&F.samples.length===0;k++) worldStep(ST,1/60);
+    eq(F.samples.length,1,'and the sample completes when the last of them lands');
+    eq(F.samples[0].xs.length,F.size,'with exactly n landing distances in it');
+    ok(F.t<PDL.SAMPLE_TIME[F.size]+6,'inside '+fmt(PDL.SAMPLE_TIME[F.size],2)+' s + one flight ('+fmt(F.t,2)+' s)');
+    F.firing=false;
+    Object.assign(ST,DEFAULTS); resetAllWorlds(); }
+  { /* the second sample of a continuous run is paced by sampleStart's clock
+       rewind and by nothing else: every other route into a sample comes
+       through fieldClear, which zeroes the same clock, so a test that starts
+       from a cleared field cannot see it (Known-bad: two guards on one path
+       make each other's mutant equivalent — this is the second pair in this
+       file, one level out from the first). */
+    Object.assign(ST,DEFAULTS); ST.view=SAMPVIEW; ST.running=true; ST[SAMPMODE]='continuous';
+    resetAllWorlds();
+    const F=curField(ST); fieldClear(F); fireField(ST);
+    let guard=0;
+    while(F.samples.length<1&&guard++<8000) worldStep(ST,1/60);
+    eq(F.samples.length,1,'the first sample of a continuous run completes');
+    ok(F.firing===true,'and the next one starts by itself');
+    const n0=F.n, half=Math.round(PDL.SAMPLE_TIME[F.size]*60/2);
+    for(let k=0;k<half;k++) worldStep(ST,1/60);
+    const made=F.n-n0;
+    ok(Math.abs(made-F.size/2)<=1,'the SECOND sample is paced too — '+made+' of its '+F.size
+      +' away half way through its '+PDL.SAMPLE_TIME[F.size]+' s, not all of them at once');
+    ok(F.samples.length===1,'… and it has not completed yet');
+    F.firing=false;
+    Object.assign(ST,DEFAULTS); resetAllWorlds(); }
+  eq(ORIENTS.length,1,'the Sampling screen has ONE orientation (its fields carry validValues:[angle30])');
+  rel(ORIENTS[0].ang,REF.MEAN_ANGLE,0,'and it is 30° (derive)');
+  eq(ORIENTS[0].h,0,'so nothing here is launched from a height');
+  eq(PTYPES.length,1,'and one projectile type, the cannonball');
+  rel(PTYPES[0].mult,1,0,'whose speed multiplier is 1');
+  for(const k in REF.MECH){
+    rel(MECH[k].mean,REF.MECH[k][0],0,'mechanism '+k+': PhET’s mean speed (derive)');
+    rel(MECH[k].sd,REF.MECH[k][1],0,'mechanism '+k+': PhET’s speed sd (derive)');
+  }
+  LAUNCHERS.forEach((l,i)=>{
+    rel(l.sdAng,REF.LAUNCH_SD[i],0,'mystery launcher '+(i+1)+': PhET’s angle sd (derive)');
+    eq(l.mech,REF.LAUNCH_MECH[i],'mystery launcher '+(i+1)+': PhET’s mechanism (derive)');
+  });
+
+  /* ============ B. the random stream ============ */
+  { const r=pdlRng(REF.sampSeed);
+    /* next() is integer arithmetic all the way, so it is bit-identical across
+       the two languages; everything downstream passes through log, cos and
+       sqrt, where a libm may differ in the last bit, so those are pinned at
+       four ulp rather than at zero */
+    for(let i=0;i<6;i++) rel(r.next(),REF.rngStream[i],0,'mulberry32 draw '+i+' is bit-identical to Python (derive)');
+    const r2=pdlRng(REF.sampSeed);
+    for(let i=0;i<6;i++) rel(r2.gauss(),REF.gaussStream[i],1e-15,'Box–Muller value '+i+' matches Python to 4 ulp (derive)');
+    const N=200000, u=new Array(N), r3=pdlRng(11);
+    for(let i=0;i<N;i++) u[i]=r3.next();
+    close(pdlMean(u),0.5,4/Math.sqrt(12*N),'200k uniforms average 0.5 within 4 se');
+    close(Math.pow(pdlSd(u,1),2),1/12,4*(1/12)*Math.sqrt(2/N),'their variance is 1/12 within 4 se');
+    const g=new Array(N), r4=pdlRng(11);
+    for(let i=0;i<N;i++) g[i]=r4.gauss();
+    close(pdlMean(g),0,4/Math.sqrt(N),'200k normals average 0 within 4 se');
+    close(Math.pow(pdlSd(g,1),2),1,4*Math.sqrt(2/N),'their variance is 1 within 4 se');
+  }
+  TIMES.A=Date.now();
+
+  /* ============ C. the trajectory and PhET's launch mechanism ============ */
+  REF.rangeCases.forEach(c=>{
+    rel(pdlRange(c[0],c[1],c[2]),c[3],1e-15,'the range at v = '+c[0]+', 30° (derive)');
+    rel(pdlFlight(c[0],c[1],c[2]),c[4],1e-15,'the flight time there (derive)');
+  });
+  for(const th of [5,15,30,45,60,75,85]) rel(pdlRange(23,th,0),23*23*Math.sin(2*th*Math.PI/180)/PDL.G,1e-15,
+    'h = 0: the range is v² sin2θ/g at θ = '+th+'°');
+  for(const [v,th,h] of [[23,30,0],[25,60,0],[23,0,12],[24,-7,12]]){
+    const T=pdlFlight(v,th,h);
+    rel(v*Math.cos(th*Math.PI/180)*T,pdlRange(v,th,h),1e-14,'x(T) is the range at v='+v+', θ='+th+', h='+h);
+    close(pdlHeight(v,th,h,T),0,1e-11*Math.max(1,h),'and the projectile is on the ground at T');
+  }
+  rel(pdlMaxAngle(23,0),45,1e-13,'from the ground the best angle is 45°');
+  ok(pdlMaxAngle(23,12)<45,'from a height it is below 45° (the engine keeps the general form)');
+  { /* v* round-trips the range */
+    let worst2=0;
+    for(const th of [3,12,30,45,60,80]) for(const r of [4,18,37,63,96]){
+      const v=pdlVStar(r,th,0); if(v===null) continue;
+      worst2=Math.max(worst2,Math.abs(pdlRange(v,th,0)/r-1));
+    }
+    ok(worst2<1e-13,'v*(r, θ) round-trips the range (worst '+worst2.toExponential(2)+')');
+  }
+  { /* PhET's re-draw windows, pinned at the values that DECIDE them rather
+       than waited for: a stub stream puts the angle exactly where the window
+       matters, which is the only way a 10-sigma guard can be tested */
+    const cfg=pdlConfig('pressure',5,'angle30','cannonball');
+    const a=pdlDraw(stubRng([11,0,0]),cfg);              /* 30 + 11×5 = 85° */
+    rel(a.ang,85,1e-12,'an 85° draw is ACCEPTED: PhET’s angle window closes at 90, not lower');
+    const b=pdlDraw(stubRng([12.1,0,0]),cfg);            /* 30 + 12.1×5 = 90.5 */
+    rel(b.ang,30,1e-12,'a 90.5° draw is re-drawn (the window is open at 90)');
+    const c=pdlDraw(stubRng([-6.1,0,0]),cfg);            /* 30 − 30.5 = −0.5 */
+    rel(c.ang,30,1e-12,'and a −0.5° draw is re-drawn too');
+    const d=pdlDraw(stubRng([-6,0,0]),cfg);              /* exactly 0 */
+    rel(d.ang,30,1e-12,'0° itself is re-drawn: PhET’s test is a <= 0, not a < 0');
+    /* the speed's own window */
+    const e=pdlDraw(stubRng([0,-120,0.5]),cfg);          /* 24 − 24 = 0, then 24 + 0.1 */
+    rel(e.v,cfg.meanSpeed+0.5*cfg.sdSpeed,1e-12,'a speed of 0 is re-drawn (PhET’s test is v <= 0)');
+    const f=pdlDraw(stubRng([0,2]),cfg);
+    rel(f.v,cfg.meanSpeed+2*cfg.sdSpeed,1e-12,'and an ordinary speed is taken as drawn');
+    /* the order of the draws is the angle first, then the speed */
+    const g=pdlDraw(stubRng([1,2]),cfg);
+    rel(g.ang,cfg.meanAng+1*cfg.sdAng,1e-12,'the angle is drawn FIRST from the stream');
+    rel(g.v,cfg.meanSpeed+2*cfg.sdSpeed,1e-12,'and the speed second');
+  }
+  TIMES.B=Date.now();
+
+  /* ============ D. the quadrature and the exact law ============ */
+  { let wx=0, ww=0;
+    for(let i=0;i<PDL.NGL;i++){ wx=Math.max(wx,Math.abs(GL.x[i]-REF.glX[i])); ww=Math.max(ww,Math.abs(GL.w[i]-REF.glW[i])); }
+    ok(wx<1e-14,'the 96 Gauss–Legendre nodes match numpy’s leggauss to '+wx.toExponential(2)+' (derive)');
+    ok(ww<1e-13,'and the weights to '+ww.toExponential(2)+' (derive)');
+    let s0=0,s2=0;
+    for(let i=0;i<PDL.NGL;i++){ s0+=GL.w[i]; s2+=GL.w[i]*GL.x[i]*GL.x[i]; }
+    rel(s0,2,1e-14,'Σw = 2'); rel(s2,2/3,1e-13,'Σw x² = 2/3');
+    const R1=pdlZRule(-PDL.ZCAP,PDL.ZCAP);
+    let tw=0, tz2=0;
+    for(let i=0;i<PDL.NGL;i++){ tw+=R1.w[i]; tz2+=R1.w[i]*R1.z[i]*R1.z[i]; }
+    rel(tw,1,1e-13,'the ±12 sd normal rule integrates the density to 1');
+    rel(tz2,1,1e-12,'and its second moment is 1');
+  }
+  REF.launcherStats.forEach((o,i)=>{
+    const E=pdlExact(cfgMystery(i+1));
+    rel(E.mean,o[0],1e-14,'launcher '+(i+1)+': the exact mean landing distance (derive)');
+    rel(E.sd,o[1],1e-13,'launcher '+(i+1)+': the exact standard deviation (derive)');
+    close(E.mu3,o[2],1e-12*Math.pow(o[1],3),'launcher '+(i+1)+': the third central moment (derive)');
+    close(E.mu4,o[3],1e-12*Math.pow(o[1],4),'launcher '+(i+1)+': the fourth (derive)');
+    ok(E.varr>0&&isFinite(E.skew)&&isFinite(E.kurt),'launcher '+(i+1)+': variance positive, shape finite');
+  });
+  REF.generalCases.forEach((c,i)=>{
+    /* the screen fixes 30°, where the (0, 90) re-draw window sits six sigma
+       out and nothing can see it.  The ENGINE is the general one, and at 60°
+       with a 5° spread the window is four sigma out — which is where a test
+       of it bites.  The first sweep survived a mutant that moved that window
+       to 80° precisely because nothing was evaluated anywhere near it. */
+    const cfg={meanSpeed:c[0],sdSpeed:c[1],meanAng:c[2],sdAng:c[3],h:0,raised:false,mult:1};
+    const E=pdlExact(cfg);
+    rel(E.mean,c[4],1e-14,'general case '+i+' (θ = '+c[2]+'° ± '+c[3]+'°): the exact mean (derive)');
+    rel(E.sd,c[5],1e-13,'general case '+i+': the exact sd (derive)');
+    const cf=pdlClosed(c[0],c[1],c[2],c[3]);
+    rel(cf[0],c[6],1e-14,'general case '+i+': the untruncated closed-form mean (derive)');
+    /* the second moment is the one that carries E[cos 4θ]; asserting only the
+       first left the closed form's cosine term untested, and the sweep said so */
+    rel(cf[1],c[7],1e-14,'general case '+i+': its second moment, which is where E[cos4θ] lives (derive)');
+    rel(Math.sqrt(cf[1]-cf[0]*cf[0]),Math.sqrt(c[7]-c[6]*c[6]),1e-12,'general case '+i+': and the sd it implies');
+  });
+  { /* and the truncation is visible at 60°: six sigma to the window there, so
+       the closed form and the quadrature part company by 5e-8 m, not by 0 */
+    const c=REF.generalCases[0];
+    const cfg={meanSpeed:c[0],sdSpeed:c[1],meanAng:c[2],sdAng:c[3],h:0,raised:false,mult:1};
+    const gap=Math.abs(pdlClosed(c[0],c[1],c[2],c[3])[0]-pdlExact(cfg).mean);
+    ok(gap>1e-9&&gap<1e-6,'at 60° ± 5° the (0, 90) window really does move the mean, by '+gap.toExponential(2)+' m'); }
+  { /* the untruncated closed form stands beside the truncated quadrature, and
+       the gap between them is what the re-draws are worth */
+    let worst3=0;
+    for(let n=1;n<=6;n++){
+      const cfg=cfgMystery(n), E=pdlExact(cfg);
+      const cf=pdlClosed(cfg.meanSpeed,cfg.sdSpeed,cfg.meanAng,cfg.sdAng);
+      worst3=Math.max(worst3,Math.abs(cf[0]-E.mean));
+      /* and it factorises exactly: the speed spread lengthens, the angle
+         spread shortens */
+      const w=cfg.sdAng*Math.PI/180;
+      const naive=cfg.meanSpeed*cfg.meanSpeed*Math.sin(2*cfg.meanAng*Math.PI/180)/PDL.G;
+      rel(E.mean/naive,(1+Math.pow(cfg.sdSpeed/cfg.meanSpeed,2))*Math.exp(-2*w*w),1e-8,
+        'launcher '+n+': the mean is exactly (1 + σ_v²/μ²)·e^{−2σ_θ²} × v²sin2θ/g');
+    }
+    ok(worst3<1e-7&&worst3>0,'the truncation moves the mean by at most '+worst3.toExponential(2)+' m — measured, not assumed');
+  }
+  { /* the sampler and the quadrature must agree, which is the one thing that
+       ties PhET's mechanism to the law drawn over it */
+    /* drawn straight from the sampler, not through fieldBatch: a field stops
+       at PhET's 500 projectiles, and a tolerance written for 20000 draws
+       against 500 of them is a test that fails on correct code */
+    const NB=20000;
+    for(const n of [1,6]){
+      const cfg=cfgMystery(n), E=pdlExact(cfg), rng=pdlRng(4242+n), xs=new Array(NB);
+      for(let k=0;k<NB;k++){ const d=pdlDraw(rng,cfg); xs[k]=pdlRange(d.v,d.ang,cfg.h); }
+      const se=E.sd/Math.sqrt(NB);
+      ok(Math.abs(pdlMean(xs)-E.mean)<4*se,'launcher '+n+': '+NB+' launches average within 4 σ/√n of the exact mean ('
+         +fmt(pdlMean(xs),4)+' vs '+fmt(E.mean,4)+')');
+      const sdTol=E.sd*Math.sqrt((E.mu4/Math.pow(E.sd,4)-1)/(4*NB));
+      ok(Math.abs(pdlSd(xs,1)-E.sd)<4*sdTol,'launcher '+n+': and their sd within 4 of its own sampling sd');
+    }
+    { /* and that cap is PhET's own MAX_PROJECTILES_VSM_FIELD_DEFAULT */
+      const F=fieldMake(1,cfgMystery(1)); fieldBatch(F,REF.MAX_PROJ+200);
+      eq(F.landed.length,REF.MAX_PROJ,'a field stops at PhET’s '+REF.MAX_PROJ+' projectiles (derive)');
+      eq(fieldLaunch(F),null,'and refuses one more'); }
+    /* the projectile's speed multiplier reaches the SAMPLER, not only the
+       quadrature (this sim launches cannonballs, so the test builds the case
+       the engine still supports) */
+    const cfg2=pdlConfig('spring',ANG_C,'angle30','cannonball');
+    const heavy=Object.assign({},cfg2,{mult:1.1});
+    const E2=pdlExact(heavy);
+    const rngH=pdlRng(77), xh=new Array(NB);
+    for(let k=0;k<NB;k++){ const d=pdlDraw(rngH,heavy); xh[k]=pdlRange(d.v,d.ang,heavy.h); }
+    ok(Math.abs(pdlMean(xh)-E2.mean)<4*E2.sd/Math.sqrt(NB),
+       'a ×1.1 speed multiplier moves the SAMPLED mean to the exact law’s '+fmt(E2.mean,3)+' m ('+fmt(pdlMean(xh),3)+')');
+    ok(E2.mean/pdlExact(cfg2).mean>1.2,'… which is 1.1² further than the ×1 one, not the same place');
+  }
+  TIMES.C=Date.now();
+
+  /* ============ E. the density ============ */
+  REF.launcherStats.forEach((o,i)=>{
+    const cfg=cfgMystery(i+1);
+    /* the VALUE, not only the integral: dropping the truncation normaliser
+       moves the density by 1e-9, which an integral asserted at 2e-6 cannot
+       see and a value asserted at 1e-12 can (the first sweep survived it) */
+    rel(pdlPdf(o[0],cfg),REF.pdfAtMean[i],1e-12,'launcher '+(i+1)+': the density at its own mean (derive)');
+    const lo=Math.max(1e-9,o[0]-9*o[1]), hi=o[0]+9*o[1];
+    /* ONE pass for both moments: the density costs 8x96 evaluations a point
+       now, and calling it twice over the same abscissae was twice the work */
+    const [I0,I1]=simp3(x=>pdlPdf(x,cfg),lo,hi,200);
+    rel(I0,1,2e-6,'launcher '+(i+1)+': the exact density integrates to 1');
+    rel(I1,o[0],2e-6,'launcher '+(i+1)+': and to the exact mean');
+    ok(pdlPdf(o[0],cfg)>0,'launcher '+(i+1)+': and is positive at that mean');
+  });
+  { /* a label that says "1 samples", and a caption promising a green bar the
+       first sample cannot have (a spread needs two) */
+    Object.assign(ST,DEFAULTS); ST.view='field'; resetAllWorlds();
+    const F=curField(ST); fieldClear(F); fireField(ST);
+    let g=0; while(F.samples.length<1&&g++<8000) worldStep(ST,1/60);
+    eq(F.samples.length,1,'one sample taken');
+    const one=fieldCaptionS(buildModel(),'1.00').full;
+    ok(/appears with the second/.test(one),'at one sample the caption does not promise a green bar');
+    F.firing=true;
+    g=0; while(F.samples.length<2&&g++<8000) worldStep(ST,1/60);
+    F.firing=false;
+    ok(F.samples.length>=2&&/actually measured so far/.test(fieldCaptionS(buildModel(),'1.00').full),
+      'and from the second it does');
+    Object.assign(ST,DEFAULTS); resetAllWorlds(); }
+  { /* and the limit-theorem view's own normals checkbox */
+    Object.assign(ST,DEFAULTS); ST.view='clt'; resetAllWorlds();
+    const on=cltCaption(buildModel()).full;
+    ok(/orange curves are normals/.test(on),'with the normals on, the caption names them');
+    ST.showNormal=false;
+    const off=cltCaption(buildModel()).full;
+    ok(/switched off/.test(off)&&!/orange curves are normals/.test(off),
+      'with them off it says so instead of describing curves that are not there');
+    Object.assign(ST,DEFAULTS); resetAllWorlds(); }
+  { /* a caption that describes a curve the checkbox has switched off says
+       something the picture does not: assert BOTH branches */
+    Object.assign(ST,DEFAULTS); ST.view='parent'; resetAllWorlds();
+    const on=parentCaption(buildModel()).full;
+    ok(/the orange curve is not fitted/.test(on),'with the density on, the caption names the curve');
+    ST.showDensity=false;
+    const off=parentCaption(buildModel()).full;
+    ok(/switched off/.test(off)&&!/the orange curve is not fitted/.test(off),
+      'with it off the caption says so instead of describing a curve that is not drawn');
+    ok(/standard deviation is σ/.test(off),'and σ is still named either way');
+    Object.assign(ST,DEFAULTS); resetAllWorlds(); }
+  { /* the panel count is a measurement, not a taste.  The density at a FIXED
+       r integrates a SPIKE in theta — only the angles whose v*(r,theta) lands
+       within a few sd of the mean speed contribute — so one 96-node rule rings
+       around it wherever a small speed spread meets a large angle spread, which
+       is launcher 2 exactly (0.2 m/s beside 5°).  The shipped rule must be
+       converged AND the coarse ones must not be, or the constant is free. */
+    let wK=0,w1=0,w2=0,whereK='',where1='';
+    for(let L=1;L<=6;L++){
+      const cfg=cfgMystery(L), M=pdlExact(cfg);
+      const lo=Math.max(0,M.mean-4*M.sd), hi=M.mean+4*M.sd, np=L===2?31:9;
+      for(let i=0;i<=np;i++){
+        const r=lo+(hi-lo)*i/np, ref=pdlPdf(r,cfg,64);
+        if(!(ref>0.02/M.sd)) continue;
+        const dK=Math.abs(pdlPdf(r,cfg)-ref)/ref;
+        const d1=Math.abs(pdlPdf(r,cfg,1)-ref)/ref;
+        const d2=Math.abs(pdlPdf(r,cfg,2)-ref)/ref;
+        if(dK>wK){ wK=dK; whereK='launcher '+L+' at r = '+fmt(r,1)+' m'; }
+        if(d1>w1){ w1=d1; where1='launcher '+L+' at r = '+fmt(r,1)+' m'; }
+        if(d2>w2) w2=d2;
+      }
+    }
+    ok(wK<1e-9,'the density is converged in the panel count: worst '+wK.toExponential(1)
+      +' against 64 panels ('+whereK+')');
+    ok(w1>0.25,'and ONE panel is out by '+fmt(100*w1,0)+' % at '+where1
+      +' — the ringing the panels exist to kill');
+    ok(w2>0.005,'two panels are still '+fmt(100*w2,2)+' % out, so eight is not a round number');
+    /* the drawn curve comes from a cache: it must be the same numbers */
+    const cq=cfgMystery(4), Mq=pdlExact(cq), lq=Mq.mean-3*Mq.sd, hq=Mq.mean+3*Mq.sd;
+    const C1=pdlPdfCurve(cq,lq,hq,20), C2=pdlPdfCurve(cq,lq,hq,20);
+    ok(C1===C2,'the drawn density curve is cached, not recomputed every frame');
+    let cw=0;
+    for(let i=0;i<=20;i++) cw=Math.max(cw,Math.abs(C1.ys[i]-pdlPdf(lq+(hq-lq)*i/20,cq)));
+    rel(cw,0,1e-18,'and the cached curve IS the density (worst '+cw.toExponential(1)+')');
+    const C3=pdlPdfCurve(cfgMystery(6),lq,hq,20);
+    ok(Math.abs(C3.ys[10]-C1.ys[10])>1e-4,'a different launcher gets a different curve out of it'); }
+  { /* the density divides by BOTH acceptance probabilities.  At every launcher
+       PhET ships, mu_v/sigma_v is 20 or more, so the speed one is 1 to machine
+       precision and a mutant that drops it is equivalent — which is the sweep
+       saying the code carries meaning the tests do not.  Pin the contract
+       where it bites instead: a configuration the ENGINE supports in which one
+       launch in 44 would be drawn at a negative speed. */
+    const wsum=r=>{ let s2=0; for(let i=0;i<PDL.NGL;i++) s2+=r.w[i]; return s2; };
+    rel(wsum(pdlZRule.apply(null,pdlZRange(23,0.5,0,null))),1,1e-14,
+      'at PhET’s launchers the speed truncation is unreachable: its acceptance is 1');
+    const vw2=wsum(pdlZRule.apply(null,pdlZRange(2,1,0,null)));
+    ok(vw2>0.976&&vw2<0.978,'at 2 ± 1 m/s it is 0.977 — and there the divisor is doing something ('+fmt(vw2,4)+')');
+    const cfgT={meanSpeed:2,sdSpeed:1,meanAng:30,sdAng:0.2,h:0,raised:false,mult:1};
+    const ET=pdlExact(cfgT);
+    const I1=simp(r=>r*pdlPdf(r,cfgT),0,ET.mean+9*ET.sd,2000);
+    rel(I1,ET.mean,3e-3,'and with it the density’s first moment is still the exact mean ('
+      +fmt(I1,4)+' vs '+fmt(ET.mean,4)+'; r·f goes as √r at the origin, so Simpson stalls at 2.3e-5 however fine the grid)');
+    ok(Math.abs(I1/vw2-ET.mean)/ET.mean>0.02,'… while dropping the divisor would put it 2 % out'); }
+  TIMES.D=Date.now();
+
+  /* ============ F. the statistics, against numpy ============ */
+  REF.sampRuns.forEach(R=>{
+    const F=fieldMake(REF.sampSeed+R.n,cfgMystery(1));
+    sampleBatch(F,R.n,REF.sampCount);
+    const M=sampleMeans(F);
+    eq(M.length,REF.sampCount,'n = '+R.n+': the reference run holds 200 sample means');
+    for(let i=0;i<3;i++) rel(M[i],R.first3[i],1e-15,'n = '+R.n+': sample mean #'+i+' matches Python (derive)');
+    rel(pdlMean(M),R.mean,1e-14,'n = '+R.n+': their mean equals numpy’s (derive)');
+    rel(pdlSd(M,1),R.sd1,1e-13,'n = '+R.n+': their ddof=1 sd equals numpy’s (derive)');
+    rel(pdlSd(M,0),R.sd0,1e-13,'n = '+R.n+': their ddof=0 sd equals numpy’s (derive)');
+    rel(pdlMedian(M),R.median,1e-15,'n = '+R.n+': their median equals numpy’s (derive)');
+    rel(pdlSd(M,1)/pdlSd(M,0),Math.sqrt(REF.sampCount/(REF.sampCount-1)),1e-14,
+      'n = '+R.n+': the two sd conventions differ by exactly √(M/(M−1))');
+    /* the standard error is on the readout and was asserted nowhere, which
+       the first sweep found by surviving a divide-by-n mutant */
+    rel(pdlSe(M),R.se,1e-13,'n = '+R.n+': their standard error equals numpy’s sd/√M (derive)');
+    rel(pdlSe(M),pdlSd(M,1)/Math.sqrt(M.length),0,'n = '+R.n+': … which is s/√M, not s/M');
+    ok(pdlSe(M)<pdlSd(M,1),'n = '+R.n+': and it is SMALLER than s, by a factor √M');
+    const H=pdlHistogram(M,0.5);
+    eq(H.lo,R.binLo,'n = '+R.n+': the histogram starts where numpy’s does (derive)');
+    eq(JSON.stringify(H.counts),JSON.stringify(R.bins),'n = '+R.n+': and every count matches (derive)');
+    let s=0; for(const c of H.counts) s+=c;
+    eq(s,REF.sampCount,'n = '+R.n+': the counts add to 200');
+    /* a sample mean is the mean of its own sample, and a sample is n launches */
+    let worstM=0;
+    for(const sm of F.samples) worstM=Math.max(worstM,Math.abs(sm.mean-pdlMean(sm.xs)));
+    ok(worstM===0,'n = '+R.n+': every stored mean is the mean of the sample it came from');
+    eq(F.samples[0].xs.length,R.n,'n = '+R.n+': and each sample holds n launches');
+  });
+  /* the estimators' own contracts */
+  ok(pdlSd([],1)===null&&pdlSd([5],1)===null,'the n−1 standard deviation is null below two values, as PhET returns null');
+  rel(pdlSd([5,7],1),Math.sqrt(2),1e-15,'s of {5, 7} is √2');
+  rel(pdlSd([5,7],0),1,1e-15,'and the n convention gives 1');
+  rel(pdlSe([5,7]),Math.sqrt(2)/Math.sqrt(2),1e-15,'the standard error of {5, 7} is √2/√2 = 1');
+  ok(pdlSe([5])===null,'and it is null where s is');
+  rel(pdlMedian([4,1,3,2]),2.5,0,'the median of an even sample is the mean of the middle two');
+  eq(pdlBinIndex(46,2),23,'floor(x/w): 46 m at w = 2 is bin 23');
+  eq(pdlBinIndex(46-1e-12,2),22,'and a hair below 46 is bin 22 — the left edge belongs to the upper bin');
+  eq(JSON.stringify(pdlHistogram([1,1.5,3.5],1).counts),'[2,0,1]','a histogram carries the empty bins between');
+  TIMES.E=Date.now();
+
+  /* ============ G. the central limit theorem ============ */
+  { const cfg=cfgMystery(1), E=pdlExact(cfg);
+    rel(E.mean,REF.clMean,1e-14,'the parent mean μ (derive)');
+    rel(E.sd,REF.clSigma,1e-13,'the parent σ (derive)');
+    rel(E.skew,REF.clSkew,1e-11,'its skewness (derive)');
+    rel(E.kurt,REF.clKurt,1e-10,'its excess kurtosis (derive)');
+    const M=REF.clM, rng=pdlRng(90210);
+    PDL.SIZES.forEach((n,i)=>{
+      const means=new Array(M);
+      for(let k=0;k<M;k++){
+        let s=0;
+        for(let j=0;j<n;j++){ const d=pdlDraw(rng,cfg); s+=pdlRange(d.v,d.ang,cfg.h); }
+        means[k]=s/n;
+      }
+      const se=pdlSd(means,1), want=E.sd/Math.sqrt(n);
+      rel(want,REF.clSe[i],1e-13,'n = '+n+': σ/√n is derive.py’s '+fmt(REF.clSe[i],5)+' m');
+      const tol=REF.clSeTol[i];
+      rel(tol,want*Math.sqrt((E.kurt/n+2)/(4*M)),1e-9,'n = '+n+': the tolerance is σ_n√((κ_n+2)/4M) (derive)');
+      ok(Math.abs(se-want)<4*tol,'n = '+n+': '+M+' samples measure SE = '+fmt(se,4)+' m against σ/√n = '
+         +fmt(want,4)+' m, inside 4 × '+fmt(tol,4));
+      ok(Math.abs(pdlMean(means)-E.mean)<4*want/Math.sqrt(M),
+         'n = '+n+': and the sample means are still centred on μ');
+      let m3=0; const mm=pdlMean(means);
+      for(const x of means){ const d=x-mm; m3+=d*d*d; }
+      const sk=m3/M/Math.pow(se,3);
+      ok(Math.abs(sk-E.skew/Math.sqrt(n))<5*Math.sqrt(6/M)+0.02,
+         'n = '+n+': the sample mean’s skewness is '+fmt(sk,3)+' against skew/√n = '+fmt(E.skew/Math.sqrt(n),3));
+    });
+    rel((E.sd/Math.sqrt(2))/(E.sd/Math.sqrt(40)),Math.sqrt(20),1e-14,'σ/√2 over σ/√40 is exactly √20');
+    /* the width half needs no theorem: it is exact at n = 2, where nothing is
+       normal.  Assert var(x̄) = σ²/n directly from the sampler. */
+    const K=20000, rng2=pdlRng(4711), ms=new Array(K);
+    for(let k=0;k<K;k++){ const a=pdlDraw(rng2,cfg), b=pdlDraw(rng2,cfg);
+      ms[k]=0.5*(pdlRange(a.v,a.ang,cfg.h)+pdlRange(b.v,b.ang,cfg.h)); }
+    const want2=E.sd/Math.sqrt(2);
+    const tol2=want2*Math.sqrt((E.kurt/2+2)/(4*K));
+    ok(Math.abs(pdlSd(ms,1)-want2)<4*tol2,'at n = 2 the spread is already σ/√2 = '+fmt(want2,4)
+       +' m ('+fmt(pdlSd(ms,1),4)+'), and no central limit theorem is involved');
+  }
+  TIMES.F=Date.now();
+
+  /* ============ H. the panels and the drawing ============ */
+  { let bad=null;
+    for(const cfg of CONFIGS){
+      applyConfig(cfg);
+      const M=buildModel();
+      const ro=readoutHTML(M), eb=eqbarHTML(M), tg=tagHTML(M);
+      for(const [nm,s] of [['readout',ro],['eqbar',eb],['tag',tg],['info',INFO[ST.view]],['deriv',DERIV[ST.view]]]){
+        if(!s||!s.length){ bad=cfg[0]+': '+nm+' is empty'; break; }
+        if(/NaN|undefined|Infinity/.test(s)){ bad=cfg[0]+': '+nm+' contains NaN/undefined/Infinity'; break; }
+      }
+      if(bad) break;
+      /* fmt() prints a non-finite as '—', so "no NaN" is vacuous on its own:
+         ask for a number only a live model can supply */
+      if(ro.indexOf(fmt(M.exact.sd,4)+' m')<0){ bad=cfg[0]+': the readout does not print σ = '+fmt(M.exact.sd,4); break; }
+      if(M.view==='field'&&M.mstat.sd1!==null&&ro.indexOf(fmt(M.mstat.sd1,4)+' m')<0){
+        bad=cfg[0]+': the readout does not print the measured spread '+fmt(M.mstat.sd1,4); break; }
+    }
+    ok(!bad,'every view × configuration builds clean panels'+(bad?' ('+bad+')':''));
+  }
+  { let bad=null;
+    for(const v of TABS.map(t=>t[0])) for(let lau=1;lau<=6;lau++) for(const n of PDL.SIZES){
+      Object.assign(ST,DEFAULTS);
+      ST.view=v; ST.pLau=lau; ST.sLau=lau; ST.xLau=lau; ST.cLau=lau; ST.pN=n; ST.cM=100; ST.sM=20;
+      resetAllWorlds();
+      const M=buildModel();
+      if(!(isFinite(M.exact.mean)&&isFinite(M.exact.sd)&&M.exact.sd>0)){ bad=v+'/'+lau+'/'+n; break; }
+    }
+    ok(!bad,'every launcher × sample size gives a finite model in every view'+(bad?' ('+bad+')':''));
+  }
+  TIMES.G=Date.now();
+  { const SIZES2=[[1400,820],[1100,712],[820,560],[560,380]];
+    let textBad=null, hintBad=null, collide=null, legBad=null, blank=null;
+    const entRe=/&#?[a-zA-Z0-9]+;|<[a-zA-Z][^>]*>/;
+    for(const cfg of CONFIGS){
+      applyConfig(cfg);
+      for(const [W,H] of SIZES2){
+        const ctx=makeShot(W,H);
+        drawView(ctx,W,H,buildModel());
+        const texts=ctx.ops.filter(o=>o.op==='text');
+        if(ctx.ops.length<20&&!blank) blank=cfg[0]+' '+W+'x'+H+' drew only '+ctx.ops.length+' ops';
+        for(const t of texts){
+          if(entRe.test(t.t)&&!textBad) textBad=cfg[0]+' '+W+'x'+H+': entity/tag "'+t.t.slice(0,32)+'"';
+          if(/NaN|undefined/.test(t.t)&&!textBad) textBad=cfg[0]+' '+W+'x'+H+': "'+t.t.slice(0,32)+'"';
+          if((t.bb[0]<-1||t.bb[2]>W+1||t.bb[1]<-1||t.bb[3]>H+1)&&!textBad)
+            textBad=cfg[0]+' '+W+'x'+H+': off canvas "'+t.t.slice(0,28)+'" ['+t.bb.map(v=>fmt(v,0))+']';
+          if(t.bb[0]<340&&t.bb[3]>H-27&&!hintBad) hintBad=cfg[0]+' '+W+'x'+H+': "'+t.t.slice(0,28)+'" under the #hint';
+        }
+        for(let i=0;i<texts.length&&!collide;i++) for(let j=i+1;j<texts.length;j++){
+          const a=texts[i].bb,b=texts[j].bb;
+          const ox=Math.min(a[2],b[2])-Math.max(a[0],b[0]), oy=Math.min(a[3],b[3])-Math.max(a[1],b[1]);
+          if(ox>0.5&&oy>0.5){ collide=cfg[0]+' '+W+'x'+H+': "'+texts[i].t.slice(0,20)+'" vs "'+texts[j].t.slice(0,20)+'"'; break; }
+        }
+        for(const r of LEGEND_RECTS){ for(let i=0;i<POLY_SEGS.length&&!legBad;i+=4){
+          const x0=POLY_SEGS[i],y0=POLY_SEGS[i+1],x1=POLY_SEGS[i+2],y1=POLY_SEGS[i+3];
+          if(Math.max(x0,x1)<r.x||Math.min(x0,x1)>r.x+r.w||Math.max(y0,y1)<r.y||Math.min(y0,y1)>r.y+r.h) continue;
+          legBad=cfg[0]+' '+W+'x'+H+': a data curve runs through a legend';
+        } }
+      }
+    }
+    ok(!textBad,'the layout sweep finds clean, on-canvas text'+(textBad?' ('+textBad+')':''));
+    ok(!hintBad,'nothing is drawn under the #hint line'+(hintBad?' ('+hintBad+')':''));
+    ok(!collide,'no two text boxes overlap'+(collide?' ('+collide+')':''));
+    ok(!legBad,'no legend has a data curve through it'+(legBad?' ('+legBad+')':''));
+    ok(!blank,'every view draws something at every size'+(blank?' ('+blank+')':''));
+  }
+  { /* a caption clause conditioned on the data must be conditioned on the CASE
+       making sense too: "visibly not a normal" is false for launcher 5, whose
+       parent has skewness 0.028 and excess kurtosis 0.001 */
+    const loud=pdlExact(cfgMystery(2)), quiet=pdlExact(cfgMystery(5));
+    ok(Math.abs(loud.skew)>0.05,'launcher 2’s parent is visibly skewed ('+fmt(loud.skew,3)+')');
+    ok(Math.abs(quiet.skew)<0.05&&Math.abs(quiet.kurt)<0.05,'launcher 5’s is not ('+fmt(quiet.skew,3)+', '+fmt(quiet.kurt,4)+')');
+    Object.assign(ST,DEFAULTS); ST.view='parent'; ST.xLau=2; resetAllWorlds();
+    ok(/visibly not a normal/.test(parentCaption(buildModel()).full),'and the caption says so for launcher 2');
+    Object.assign(ST,DEFAULTS); ST.view='parent'; ST.xLau=5; resetAllWorlds();
+    ok(!/visibly not a normal/.test(parentCaption(buildModel()).full),'… and does NOT say so for launcher 5');
+    ok(/little for the theorem to do/.test(parentCaption(buildModel()).full),'saying instead what is true there');
+    Object.assign(ST,DEFAULTS); resetAllWorlds(); }
+  { /* the launcher drag's geometry follows the picture it is drawn in */
+    Object.assign(ST,DEFAULTS); ST.view='field'; resetAllWorlds();
+    const ctx=makeShot(1200,760);
+    drawView(ctx,1200,760,buildModel());
+    const S2={W:1200,H:760,measure:()=>ctx,st:ST};
+    ok(launcherHit(S2,3,3)===null,'a pointer at the top-left of the stage grabs no launcher');
+    const M=buildModel(), ph=fieldCaptionS(M,'1.00');
+    const L=labStage(ctx,1200,760,ph.full,ph.short,{histFrac:0.52,fieldWant:fieldWantH(M)});
+    const map=fieldMap(L.field,M);
+    const g=launcherHit(S2,map.X(0),map.Y(0)-10);
+    ok(g&&g.what==='launcher','a pointer on the barrel grabs it');
+    ok(launcherHit(S2,map.X(0)+120,map.Y(0)-10)===null,'and one 120 px down the field does not');
+    Object.assign(ST,DEFAULTS); ST.view='clt'; resetAllWorlds();
+    ok(launcherHit(S2,map.X(0),map.Y(0)-10)===null,'there is no launcher to grab on the limit-theorem view');
+  }
+  TIMES.H=Date.now();
+
+  console.log('section times, s: '+['A','B','C','D','E','F','G','H'].map((k,i,a)=>
+    k+' '+((TIMES[k]-(i?TIMES[a[i-1]]:T0))/1000).toFixed(1)).join(', '));
+  Object.assign(ST,stSave); resetAllWorlds();
+  console.log(pass+' passed, '+fail+' failed  ('+fmt((Date.now()-T0)/1000,1)+' s)');
+  if(fail>0) throw new Error(fail+' self-test failure(s)');
+  return fail;
+}
+
+/* ============================== entry ============================= */
+if(typeof document==='undefined'){
+  selfTest();
+} else {
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+}
+</script>
+</body>
+</html>

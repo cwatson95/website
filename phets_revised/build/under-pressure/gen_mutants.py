@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+"""Write build/under-pressure/mutants.json and check every pattern is UNIQUE in
+the shipped html.  A pattern that matches twice mutates both sites (or none);
+a pattern that matches zero times is silently skipped by mutate.py and reads
+as a pass.  Both are checked here before the sweep ever runs.
+
+Every mutant breaks a CONSTANT, a SIGN or an EXPONENT.  None of them touches a
+loop condition: mutate.py has no per-mutant timeout, and a mutant that turns a
+correction loop into an infinite one outlives the sweep (BRIEF.md).
+
+  python3 gen_mutants.py
+"""
+import io
+import json
+import os
+import sys
+
+here = os.path.dirname(os.path.abspath(__file__))
+sim = os.path.abspath(os.path.join(here, '..', '..', 'under-pressure.html'))
+
+M = []
+
+
+def p(label, old, new):
+    M.append([label, old, new, 'p'])
+
+
+def u(label, old, new):
+    M.append([label, old, new, 'u'])
+
+
+# ---------------------------------------------------------------- units
+p('the standard atmosphere', 'const PA_PER_ATM=101325;', 'const PA_PER_ATM=101300;')
+p('the international pound', 'const LB_KG=0.45359237,', 'const LB_KG=0.4535924,')
+p('standard gravity', 'G_STD=9.80665,', 'G_STD=9.80666,')
+p('the international inch', 'INCH_M=0.0254,', 'INCH_M=0.0255,')
+p('the international foot', 'FT_M=0.3048;', 'FT_M=0.3049;')
+p('the psi is a force over an AREA', 'const PA_PER_PSI=LBF_N/(INCH_M*INCH_M);', 'const PA_PER_PSI=LBF_N/INCH_M;')
+p('the kilo in kilopascal', 'const PA_PER_KPA=1000;', 'const PA_PER_KPA=100;')
+p('toUnit divides', 'function toUnit(pa,u){ return pa/UNITS[u].per; }', 'function toUnit(pa,u){ return pa*UNITS[u].per; }')
+p('fromUnit multiplies', 'function fromUnit(v,u){ return v*UNITS[u].per; }', 'function fromUnit(v,u){ return v/UNITS[u].per; }')
+p('toLen divides', 'function toLen(m,u){ return m/UNITS[u].lenPer; }', 'function toLen(m,u){ return m*UNITS[u].lenPer; }')
+p('the english pressure unit is the psi',
+  "english:    {id:'english',    name:'psi', per:PA_PER_PSI,",
+  "english:    {id:'english',    name:'psi', per:PA_PER_ATM,")
+p('the english length unit is the foot', "len:'ft', lenPer:FT_M,", "len:'ft', lenPer:1,")
+
+# --------------------------------------------------- PhET's own constants
+p("gasoline's density", 'const RHO_GASOLINE=700,', 'const RHO_GASOLINE=710,')
+p("water's density", 'RHO_WATER=1000, RHO_HONEY=1420;', 'RHO_WATER=1010, RHO_HONEY=1420;')
+p("honey's density", 'RHO_WATER=1000, RHO_HONEY=1420;\n', 'RHO_WATER=1000, RHO_HONEY=1430;\n')
+p("Mars's gravity", 'const G_MARS=3.71,', 'const G_MARS=3.75,')
+p("Earth's gravity", 'G_EARTH=9.8, G_JUPITER=24.9;', 'G_EARTH=9.81, G_JUPITER=24.9;')
+p("Jupiter's gravity", 'G_EARTH=9.8, G_JUPITER=24.9;\n', 'G_EARTH=9.8, G_JUPITER=24.8;\n')
+p('the air pressure at the ground', 'const P_AIR_0=101325;', 'const P_AIR_0=101300;')
+p('the air pressure at 150 m', 'const P_AIR_HI=99490;', 'const P_AIR_HI=99400;')
+p('the height the lapse is quoted over', 'const Y_LAPSE=150;', 'const Y_LAPSE=155;')
+p('the SIGN of the air lapse', 'const LAPSE=(P_AIR_HI-P_AIR_0)/Y_LAPSE;', 'const LAPSE=(P_AIR_0-P_AIR_HI)/Y_LAPSE;')
+p('the pool depth', 'const POOL_H=3;', 'const POOL_H=3.1;')
+p('the out-of-page depth', 'const DEPTH_OUT=2;', 'const DEPTH_OUT=2.5;')
+p('the mystery fluids', 'const MYSTERY_RHO=[1700,840,1100];', 'const MYSTERY_RHO=[1700,845,1100];')
+p('the mystery planets', 'const MYSTERY_G=[20,14,6.5];', 'const MYSTERY_G=[20,14,6.6];')
+p('the ISA air density', 'const RHO_AIR_ISA=1.225,', 'const RHO_AIR_ISA=1.3,')
+p('the isothermal scale height', 'H_SCALE=P_AIR_0/(RHO_AIR_ISA*G_STD);', 'H_SCALE=P_AIR_0*(RHO_AIR_ISA*G_STD);')
+
+# -------------------------------------------------------- the law itself
+p('the air scales with g, not against it',
+  'return atmosphere?(P_AIR_0+LAPSE*y)*(g/G_EARTH):0;',
+  'return atmosphere?(P_AIR_0+LAPSE*y)*(G_EARTH/g):0;')
+p('the exponential air column decays', 'function airExact(y){ return P_AIR_0*Math.exp(-y/H_SCALE); }',
+  'function airExact(y){ return P_AIR_0*Math.exp(y/H_SCALE); }')
+p('rho g h carries g', 'return airP(ySurf===undefined?0:ySurf,g,atmosphere)+rho*g*depth;',
+  'return airP(ySurf===undefined?0:ySurf,g,atmosphere)+rho*depth;')
+p('rho g h is LINEAR in the depth', 'return airP(ySurf===undefined?0:ySurf,g,atmosphere)+rho*g*depth;\n',
+  'return airP(ySurf===undefined?0:ySurf,g,atmosphere)+rho*g*depth*depth;\n')
+p('the inversion SUBTRACTS the air', 'return (p-airP(ySurf===undefined?0:ySurf,g,atmosphere))/(g*depth);',
+  'return (p+airP(ySurf===undefined?0:ySurf,g,atmosphere))/(g*depth);')
+p('the gravity inversion carries the depth', 'return p/((atmosphere?(P_AIR_0+LAPSE*yS)/G_EARTH:0)+rho*depth);',
+  'return p/((atmosphere?(P_AIR_0+LAPSE*yS)/G_EARTH:0)+rho);')
+p('the probe measures depth BELOW the surface',
+  'return {p:pressureAt(ySurf-y,rho,g,atmosphere===undefined?true:atmosphere,atmosphere),wet:true,out:false,air:false,depth:ySurf-y,surf:ySurf};',
+  'IGNORED')      # replaced below with the real text
+
+# ------------------------------------------------------------- the pools
+p('the square pool is 3.7 m across', 'const SQ_X0=2.3, SQ_X1=6.0;', 'const SQ_X0=2.3, SQ_X1=6.5;')
+p('the pool level is the volume fraction', 'function sqLevel(volFrac){ return clamp(volFrac,0,1)*POOL_H; }',
+  'function sqLevel(volFrac){ return clamp(volFrac,0,1)*POOL_H*0.9; }')
+p("the trapezoid's top width", 'const TZ_WTOP=0.7,', 'const TZ_WTOP=0.75,')
+p("the trapezoid's bottom width", 'TZ_WBOT=3.15,', 'TZ_WBOT=3.2,')
+p("the trapezoid's chamber separation", 'TZ_SEP=3.22;', 'TZ_SEP=3.3;')
+p("the floor channel's height", 'const TZ_CHAN={x0:4.0, x1:6.2, t1:0.21};', 'const TZ_CHAN={x0:4.0, x1:6.2, t1:0.25};')
+p('the channel volume carries the out-of-page depth', 'const TZ_VCHAN=TZ_WCHAN*TZ_CHAN.t1*DEPTH_OUT;',
+  'const TZ_VCHAN=TZ_WCHAN*TZ_CHAN.t1;')
+p('the level inverts the channel volume', 'return V<=TZ_VCHAN?V/(TZ_WCHAN*DEPTH_OUT)', 'return V<=TZ_VCHAN?V/TZ_WCHAN')
+p('the chamber column is a TRAPEZIUM, not a rectangle',
+  'return 0.5*(f(yFrom)+f(ySurf))*(ySurf-yFrom)*DEPTH_OUT;',
+  'return (f(yFrom)+f(ySurf))*(ySurf-yFrom)*DEPTH_OUT;')
+
+# ------------------------------------------------------------- the press
+p('the small shaft width', 'const CH_L_W=0.5, CH_R_W=2.3;', 'const CH_L_W=0.55, CH_R_W=2.3;')
+p('the large shaft width', 'CH_R_W=2.3;   ', 'CH_R_W=2.4;   ')
+p('the area ratio is large over small', 'const CH_RATIO=CH_A_R/CH_A_L;', 'const CH_RATIO=CH_A_L/CH_A_R;')
+p('the depth of the shafts', 'const CH_OPEN_BOT=-1.7;', 'const CH_OPEN_BOT=-1.8;')
+p('the fluid standing in the shafts', 'const CH_WATER=1.0;', 'const CH_WATER=1.1;')
+p('the air SUBTRACTS its density from the fluid',
+  'function rhoEff(rho,atmosphere){ return rho+(atmosphere?LAPSE/G_EARTH:0); }',
+  'function rhoEff(rho,atmosphere){ return rho-(atmosphere?LAPSE/G_EARTH:0); }')
+p('the added pressure is F over the SMALL area', 'const dp=M*g/CH_A_L;', 'const dp=M*g/CH_A_R;')
+p('the separation has no g in it', 'const dhRaw=M/(CH_A_L*rhoEff(rho,atmosphere));',
+  'const dhRaw=M*g/(CH_A_L*rhoEff(rho,atmosphere));')
+p('the small side takes the LARGER share of the separation',
+  'const dLraw=dhRaw*CH_A_R/(CH_A_L+CH_A_R);', 'const dLraw=dhRaw*CH_A_L/(CH_A_L+CH_A_R);')
+p('volume conservation across the two pistons', 'const dR=dL*CH_A_L/CH_A_R;', 'const dR=dL*CH_A_R/CH_A_L;')
+p('the output force acts on the LARGE area', 'Fin:M*g, Fout:dp*CH_A_R,', 'Fin:M*g, Fout:dp*CH_A_L,')
+p('the piston ADDS pressure to its own column',
+  "if(inL&&y<=P.yL) return {p:airP(P.yL,g,atmosphere)+P.dp+rho*g*(P.yL-y),",
+  "if(inL&&y<=P.yL) return {p:airP(P.yL,g,atmosphere)-P.dp+rho*g*(P.yL-y),")
+p('the free side has NO piston term',
+  "if(inR&&y<=P.yR) return {p:airP(P.yR,g,atmosphere)+rho*g*(P.yR-y),",
+  "if(inR&&y<=P.yR) return {p:airP(P.yR,g,atmosphere)+P.dp+rho*g*(P.yR-y),")
+
+# ----------------------------------------------------------- the paradox
+p('the fluid depth in the paradox', 'const PAR_H=2.0, PAR_WB=1.2;', 'const PAR_H=2.2, PAR_WB=1.2;')
+p('the base width in the paradox', 'const PAR_H=2.0, PAR_WB=1.2;\n', 'const PAR_H=2.0, PAR_WB=1.3;\n')
+p('the trapezium rule has a half in it', 'V+=0.5*(profW(prof,a)+profW(prof,b))*(b-a)*depth;',
+  'V+=(profW(prof,a)+profW(prof,b))*(b-a)*depth;')
+p('the wall integral carries the out-of-page depth',
+  'F+=rho*g*k*depth*((H*b-b*b/2)-(H*a-a*a/2));', 'F+=rho*g*k*((H*b-b*b/2)-(H*a-a*a/2));')
+p('the wall integral has y-squared over two', 'F+=rho*g*k*depth*((H*b-b*b/2)-(H*a-a*a/2));\n',
+  'F+=rho*g*k*depth*((H*b-b*b)-(H*a-a*a));\n')
+p('the SIGN of the wall slope', 'const a=Math.max(y0,0), b=Math.min(y1,H), k=(w1-w0)/(y1-y0);',
+  'const a=Math.max(y0,0), b=Math.min(y1,H), k=(w0-w1)/(y1-y0);')
+p('the base pressure is rho g h', 'const pBase=rho*g*H,', 'const pBase=rho*g*H*2,')
+p('the base area is the width AT THE BASE', 'Abase=profW(v.prof,0)*DEPTH_OUT,', 'Abase=profW(v.prof,H)*DEPTH_OUT,')
+p('the brute-force wall sum uses the MIDPOINT height',
+  'F+=rho*g*(H-ym)*(profW(prof,yb)-profW(prof,ya))*depth;',
+  'F+=rho*g*(H-ya)*(profW(prof,yb)-profW(prof,ya))*depth;')
+
+# ------------------------------------------------------------- UI mutants
+u('the pointer handler marks the frame dirty',
+  "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=true;",
+  "if(S.pointer('move',e.clientX-r.left,e.clientY-r.top)){ dirty=false;")
+u('a slider marks the frame dirty',
+  'if(onchg) onchg(v); else st[key]=v;\n      clearAll(); syncPanel(); dirty=true; refresh(); });',
+  'if(onchg) onchg(v); else st[key]=v;\n      clearAll(); syncPanel(); refresh(); });')
+u('the gauge grab radius', 'if(dx*dx+dy*dy<=26*26){', 'if(dx*dx+dy*dy<=0){')
+u('a drag moves the gauge it grabbed',
+  "if(GRAB.what==='A'){ ST.gAx=wx; ST.gAy=wy; } else { ST.gBx=wx; ST.gBy=wy; }",
+  "{ ST.gBx=wx; ST.gBy=wy; }")
+u('a move reports that it changed something', "      clearAll();\n      return true;\n    }\n    return false;",
+  "      clearAll();\n      return false;\n    }\n    return false;")
+u('the pointer clamps to the world', 'const wx=clamp(map.wx(x)+GRAB.dx,E.xmin,E.xmax), wy=clamp(map.wy(y)+GRAB.dy,E.ymin,E.ymax);',
+  'const wx=map.wx(x)+GRAB.dx, wy=map.wy(y)+GRAB.dy;')
+u('the analysis views expose no stage map', "if(!sc||st.view==='mystery') return null;", 'if(!sc) return null;')
+u('a tab change clears the memo', 'st.view=k;\n    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?\'active\':\'\');\n    clearAll();',
+  'st.view=k;\n    [].forEach.call(tabsEl.children,(b,i)=>b.className=TABS[i][0]===st.view?\'active\':\'\');\n    ')
+u('reset all restores the defaults',
+  "btn('reset all',()=>{ const v=st.view; Object.assign(st,DEFAULTS); st.view=v; })",
+  "btn('reset all',()=>{ const v=st.view; st.view=v; })")
+u('the same-depth button levels the gauges', "btn('same depth',()=>{ st.gBy=st.gAy; })", "btn('same depth',()=>{ st.gBy=st.gBy; })")
+u('the reset-gauges button restores all four',
+  "btn('reset the gauges',()=>{ st.gAx=DEFAULTS.gAx; st.gAy=DEFAULTS.gAy; st.gBx=DEFAULTS.gBx; st.gBy=DEFAULTS.gBy; })",
+  "btn('reset the gauges',()=>{ st.gAx=DEFAULTS.gAx; st.gAy=DEFAULTS.gAy; })")
+u('the platform group is hidden outside the press', "gStack.hidden=(v!=='press');", 'gStack.hidden=false;')
+u('the mystery group is hidden outside the mystery', "gMy.hidden=(v!=='mystery');", 'gMy.hidden=false;')
+u('a chip sets its own key', 'if(onPick) onPick(o); else st[key]=o.id;', 'if(onPick) onPick(o);')
+u('the number keys select their own tab', "if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[+e.key-1][0]);",
+  "if(e.key>='1'&&e.key<=String(TABS.length)) setView(TABS[0][0]);")
+
+# the probe mutant needs the real source text; patch it in
+src = io.open(sim, encoding='utf-8').read()
+for m in M:
+    if m[1].startswith('return {p:pressureAt(ySurf-y'):
+        real = [l for l in src.splitlines() if 'return {p:pressureAt(ySurf-y' in l][0].strip()
+        m[1] = real
+        m[2] = real.replace('pressureAt(ySurf-y', 'pressureAt(y-ySurf').replace('depth:ySurf-y', 'depth:y-ySurf')
+        m[0] = 'the probe measures depth BELOW the surface'
+
+bad = []
+for label, old, new, kind in M:
+    n = src.count(old)
+    if n != 1:
+        bad.append('%-3s %-56s matches %d times' % (kind, label[:56], n))
+    if old == new:
+        bad.append('%-3s %-56s old == new' % (kind, label[:56]))
+if bad:
+    print('PROBLEMS:')
+    for b in bad:
+        print('   ' + b)
+    sys.exit(1)
+
+io.open(os.path.join(here, 'mutants.json'), 'w', encoding='utf-8').write(
+    json.dumps(M, ensure_ascii=False, indent=1) + '\n')
+print('mutants.json: %d mutants (%d physics, %d ui), every pattern unique in %s'
+      % (len(M), sum(1 for m in M if m[3] == 'p'), sum(1 for m in M if m[3] == 'u'),
+         os.path.basename(sim)))

@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greenhouse Effect &mdash; the layer model, solved exactly</title>
+<!--
+  ===================================================================
+  greenhouse-effect.html — a remake of PhET's Greenhouse Effect: the
+  waves, the photons and the layer model, on one exactly-solvable
+  radiative-equilibrium engine
+  ===================================================================
+
+  Remake of PhET Interactive Simulations' Greenhouse Effect (University
+  of Colorado Boulder, phet.colorado.edu, CC-BY 4.0). New code; no PhET
+  code or assets.  Built against PhET's greenhouse-effect 1.3.13, whose
+  three screens (Waves, Photons, Layer Model) all run on one "layers
+  model": a stack of sheets that pass sunlight and absorb infrared.
+  Its constants were read out of the minified original in
+  docs/phets/greenhouse-effect_en.html and are cited as PhET's values
+  wherever they appear.
+
+  Five views.  THE WAVES and THE PHOTONS are PhET's first two screens:
+  the same 12-layer atmosphere, greenhouse-gas concentration set either
+  by a slider or by a date (ice age, 1750, 1950, 2020), a cloud, a
+  surface albedo that turns glacial at the ice age, the thermometer in
+  K / °C / °F, the energy-balance meter at the top of the atmosphere
+  and the flux meter — drawn once as waves whose brightness is the
+  actual transmitted flux, and once as individual photons absorbed and
+  re-emitted by a seeded random number generator.  THE LAYERS is PhET's
+  Layer Model screen: 0 to 3 explicit sheets, their absorbance, the
+  solar intensity from 1/2 to 2 suns, the surface albedo, and each
+  sheet's own temperature.  THE LADDER and THE RECORD are this file's
+  own analysis: the law the whole sim obeys, drawn; and PhET's four
+  dates against the real climate record, with the line between physics
+  and fit drawn explicitly.
+
+  WHAT IS EXACT HERE
+  ------------------
+  The whole model.  For N sheets of infrared absorbance a_i over a
+  ground of albedo alpha under an absorbed solar flux F, each sheet
+  conserving energy makes the NET upward flux the same at every level,
+  so U_i = U_{i-1} - F a_i/(2 - a_i), and with U_N = F at the top,
+
+      sigma T_s^4 = F [ 1 + sum_i a_i/(2 - a_i) ].
+
+  That is derived in build/greenhouse-effect/derive.py, implemented
+  twice in this file (the recursion above, and a dense Gaussian solve
+  of the full 13-unknown flux system that never uses the invariant),
+  and asserted against a forward-Euler march of PhET's own layer ODE.
+  Energy balance is asserted at every sheet, at the ground and at the
+  top of the atmosphere to 1e-9 W/m^2, and the net flux is asserted
+  constant with altitude.  For a_i = 1 it collapses to the textbook
+  T_s = (N+1)^(1/4) T_eff, which is asserted at every N from 0 to 12.
+  The Stefan-Boltzmann constant is asserted against scipy's CODATA
+  value AND against 2 pi^5 k^4 / 15 h^3 c^2 built from CODATA h, c, k;
+  the Earth's effective temperature, 254.578 K, comes from the 2015 IAU
+  nominal solar irradiance 1361 W/m^2 and a Bond albedo of 0.30.
+  The photon picture is tied to the flux solution exactly: the chance
+  that an infrared photon leaving the ground escapes to space, under
+  "absorbed with probability a_i, then re-emitted up or down with
+  probability 1/2", is F/sigma T_s^4 — proved here as a Markov chain,
+  as the closed form, and by a seeded Monte Carlo (the sim and derive.py
+  share one 32-bit generator whose stream is pinned bit for bit).
+  One more exact statement, about PhET's own convention: PhET's sheet
+  absorbs a fraction a but emits a FULL blackbody sigma T^4 in each
+  direction, which is not Kirchhoff's law.  It makes no difference at
+  all to the fluxes or to the surface temperature — the emitted flux
+  per direction is a(U+D)/2 either way — and changes every sheet's
+  reported temperature by exactly a^(-1/4).  Both are printed.
+
+  WHAT IS PhET'S FIT, NOT PHYSICS
+  -------------------------------
+  Everything that turns a greenhouse-gas concentration into an
+  absorbance.  PhET's concentration screens use twelve sheets at
+  i x 50000/13 m with
+
+      a_i = 0.85 c exp(-altitude/8400 m),
+
+  and map its four dates to c = 0.625 (ice age), 0.7147 (1750),
+  0.7182 (1950), 0.7446 (2020).  Those five numbers, the sun's
+  343.6 W/m^2, the albedos 0.2 / 0.225 / 0.3, the cloud's 12.5 %, and
+  the CO2 / CH4 / N2O values printed beside each date are PhET's,
+  quoted as PhET's and not adjusted.  They are a teaching fit, not a
+  radiative-transfer calculation: no line strengths, no bands, no
+  overlap, no water vapour, no lapse rate.  What comes OUT of them is
+  this file's exact solve, and the answer is worth stating plainly —
+  PhET's 1750 surface temperature is 296.48 K (23.3 °C), about 8.5 K
+  above the real Earth's 288 K, while the DIFFERENCES between its dates
+  are good: the ice age is 6.29 K colder than 1750 (the Last Glacial
+  Maximum was about 6 K colder) and 2020 is 1.32 K warmer than 1750
+  (the observed figure is about 1.2 K).  PhET tuned the changes, not
+  the absolute level.  The independent check that this really is PhET's
+  model: the hottest state its concentration screens can reach is
+  309.13 K by this solve, and PhET hard-codes 309 as its thermometer's
+  EXPECTED_MAX_TEMPERATURE.
+
+  WHAT IS MODELLED / CHOSEN
+  -------------------------
+  The temperature is integrated with PhET's own heat capacities (a
+  sheet's response is 85000/(85000 x 3e-7 x rho x c_p) K per J/m^2:
+  exactly 32/15 for the ground, 1.5873 for a glass sheet), from PhET's
+  own starting state (the ground at its 245 K night floor, every sheet
+  at 0 K), in four forward-Euler sub-steps of a 1/60 s frame — which is
+  well inside the ODE's stability bound of h < 0.0198 s at 520 K, and
+  the sim clamps against that bound.  It settles in about 30 s of model
+  time; the exact steady state is printed alongside the live value, and
+  a button jumps to it.  The waves are drawn, not solved: their
+  brightness is the model's own transmitted flux at that height, which
+  is more honest than PhET's decorative per-layer attenuators and is
+  labelled on the canvas.  The flux meter and its draggable sensor
+  likewise read the LIVE model, and the meter draws the exact steady
+  profile beside it: settled, the two coincide to 1e-8 W/m^2 (asserted);
+  with the sun switched off they part company and the meter follows the
+  model.  The photons ARE simulated, with PhET's own
+  rules (created at the ground at sigma T^4/7.8 per second, one in five
+  drawn unless "more photons"; absorbed with probability a_i on
+  crossing a sheet; re-emitted after a fixed hold, up or down at even
+  odds), but as in PhET they are a display: the energy that sets the
+  temperature is the flux model, not the photon count, and the sim says
+  so.  The altitude axis is compressed by a factor printed on the
+  canvas.  The clock advances a fixed 1/60 s per frame so the headless
+  suites are deterministic.
+
+  NOT MODELLED
+  ------------
+  Everything that is not radiation: no convection, no lapse rate, no
+  latent heat, no water vapour feedback, no ocean, no clouds beyond
+  PhET's one 12.5 % reflector, no day and night, no latitude, no
+  spectral detail whatever — a real atmosphere's infrared opacity is a
+  forest of lines, and "absorbance a" stands in for all of it.  The
+  Earth in this model is a single point with one temperature.  Also
+  absent from this remake, being PhET's interface rather than its
+  physics: the sounds, the voicing and alt-text layers, the animated
+  glacier and cloud artwork, the flux meter as a box you drag around
+  (its SENSOR is draggable here; the panel is fixed beside the window),
+  PhET's "pause / step / speed" trio (here: a time checkbox, one step
+  and a jump-to-equilibrium button), and its per-layer wave
+  attenuators.  Two things differ from PhET's: the sun starts SHINING,
+  so a view shows something the moment it opens (PhET's "start
+  sunlight" button is a "cold start" button here), and the twelve
+  sheets of the concentration screens are DRAWN, faintly, with an
+  opacity that follows each sheet's absorbance -- PhET keeps them
+  invisible on those screens, and the captions here point at them.
+
+  WHERE THE NUMBERS COME FROM
+  ---------------------------
+  PhET's values, read from docs/phets/greenhouse-effect_en.html
+  (1.3.13): the sun's 343.6 W/m^2 and its 0.5-2 x range; the albedos
+  0.2 (green meadow), 0.225 (partially glaciated) and 0.3 (layer
+  model), the slider's 0-0.9; the 50 km top of atmosphere and the
+  sheet spacing 50000/(N+1); 12 sheets on the concentration screens
+  and 3 on the layer model, absorbance 0.1-1; a_i = 0.85 c
+  exp(-z/8400); the four dates' concentrations and their CO2 (180, 277,
+  311, 413 ppm), CH4 (380, 694, 1116, 1889 ppb) and N2O (215, 271, 288,
+  333 ppb); the cloud's 12.5 % (0.125 x 85000/18000 x 18000/85000
+  exactly); the 245 K night floor and the 125 K layer-model floor;
+  sigma = 5.670374419e-8; the densities and heat capacities 1250/1250
+  (earth) and 2500/840 (glass) with the 3e-7 volume coefficient; the
+  photon rules and rates; and the thermometer's 309 K expected maximum.
+  Physics, from scipy's CODATA: sigma = 5.670374419184e-8 W/m^2/K^4,
+  h, c, k.  Cited scalars: the 2015 IAU nominal total solar irradiance
+  1361 W/m^2, Earth's Bond albedo 0.30 (NASA's fact sheet gives 0.306,
+  which moves T_eff by 0.55 K), the conventional global mean surface
+  temperature 288 K, the Last Glacial Maximum about 6 K below
+  pre-industrial, and about 1.2 K of observed warming since 1750.
+  Nothing else is measured, and nothing was taken from PhET's code or
+  assets.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0c12; --panel2:#10131b; --text:#cfd4de; --dim:#8b93a6;
+    --accent:#5ac8e0; --edge:#1e222c; --edge2:#2a2f3d;
+    --neon-a:#b8ec4c; --neon-b:#cd35c4;
+    /* role colours: green = the computed thing (the surface temperature and the
+       flux solution), orange = the reference (the bare effective temperature, the
+       closed form, the real Earth), magenta = the live marker (the concentration
+       or date you have set, the thermometer's reading), cyan = structure (the
+       sheets, the altitude axis, the sunbeam). */
+    --pos:#b8ec4c; --ref:#e8843a; --live:#cd35c4; --wplus:#5ac8e0; --wminus:#e8843a;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text); display:flex; flex-direction:column;
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; flex-shrink:0; display:flex; align-items:center; gap:16px; padding:0 15px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  nav{margin-left:auto; display:flex; gap:6px; flex-shrink:0;}
+  nav button{background:transparent; color:var(--dim); border:1px solid transparent;
+             padding:5px 13px; border-radius:15px; font-size:12.5px; cursor:pointer;
+             font-family:Georgia, "Times New Roman", serif; letter-spacing:.4px;}
+  nav button:hover{color:var(--text);}
+  nav button.active{color:#fff; border-color:#556; background:rgba(255,255,255,.06);}
+
+  #wrap{display:flex; flex:1; min-height:0;}
+  #stage{position:relative; flex:1; min-width:0;}
+  #scene{position:absolute; inset:0; width:100%; height:100%; display:block;
+         touch-action:none; cursor:crosshair;}
+  #scene.dragging{cursor:grabbing;}
+
+  #readout{position:absolute; top:11px; right:13px; width:280px; pointer-events:none;
+           user-select:none; -webkit-user-select:none; text-align:left;
+           background:linear-gradient(180deg, rgba(10,12,18,.86), rgba(10,12,18,.66));
+           border:1px solid var(--edge2); border-radius:9px; padding:10px 12px 11px;
+           text-shadow:0 1px 3px rgba(0,0,0,.8); backdrop-filter:blur(2px);}
+  #readout .rname{font:italic 19px Georgia, serif; color:#fff; line-height:1.15;}
+  #readout .rname small{font-size:11.5px; color:var(--dim); font-style:normal; display:block;
+                        margin-top:2px; letter-spacing:.3px;}
+  #readout table{width:100%; border-collapse:collapse; margin-top:8px; font-size:11.5px;}
+  #readout td{padding:1.5px 0; color:var(--dim); white-space:nowrap;}
+  #readout td.v{color:var(--text); text-align:right; font-variant-numeric:tabular-nums;
+                overflow-wrap:anywhere; white-space:normal;}
+  #readout td.hd{color:#6f7789; font-size:10px; letter-spacing:.09em; text-transform:uppercase;
+                 padding-top:8px;}
+  #readout .note{margin-top:9px; font-size:10.5px; color:#767e92; line-height:1.5;}
+  #readout .note b{color:var(--dim); font-weight:600;}
+  #readout .good{color:var(--neon-a);} #readout .bad{color:#e8843a;}
+  #readout .legend{margin-top:9px; display:flex; flex-wrap:wrap; gap:3px 10px; font-size:10.5px; color:var(--dim);}
+  #readout .legend span{display:inline-flex; align-items:center; gap:5px; white-space:nowrap;}
+  #readout .legend i{width:9px; height:9px; border-radius:2px; display:inline-block;
+                     box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);}
+
+  #hint{position:absolute; left:14px; bottom:11px; color:var(--dim); font-size:11px;
+        pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #tag{position:absolute; left:14px; top:11px; color:var(--dim); font:italic 13px Georgia,serif;
+       pointer-events:none; text-shadow:0 1px 3px rgba(0,0,0,.9); max-width:52%;}
+  #tag b{color:var(--text); font-style:normal; font-weight:600;
+         font-family:-apple-system,sans-serif; font-size:12px;}
+  #errbox{position:absolute; left:12px; top:40px; max-width:70%; background:#3a1220; color:#ffb3c0;
+          border:1px solid #7c2338; border-radius:6px; padding:8px 12px; font:12px monospace;
+          display:none; white-space:pre-wrap; z-index:9;}
+
+  #eqbar{flex-shrink:0; background:var(--panel); border-top:1px solid var(--edge);
+         padding:9px 16px 11px; text-align:center; overflow-x:auto; white-space:nowrap;
+         font:italic 16px Georgia, "Times New Roman", serif; color:#e9e9f0; line-height:1.55;}
+  #eqbar .lhs{color:#fff;}
+  #eqbar .hl{color:var(--neon-a); font-style:normal;}
+  #eqbar .hl2{color:var(--neon-b); font-style:normal;}
+  #eqbar .sm{font:11.5px -apple-system,sans-serif; font-style:normal; color:var(--dim);
+             display:block; margin-top:3px; letter-spacing:.2px;}
+  #eqbar sup{font-size:10.5px;} #eqbar sub{font-size:10.5px;}
+
+  /* the right column is wider than the siblings' 300 px: it carries the
+     derivations for each view below the controls */
+  #panel{width:392px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 24px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:14px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777f90; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;
+        font-family:Georgia, serif; font-style:italic; transition:.12s;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a); background:rgba(184,236,76,.09);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:112px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:76px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2e38; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none;
+                    width:13px; height:13px; border-radius:50%; background:var(--text);
+                    border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .checks{display:flex; flex-direction:column; gap:5px; margin-top:4px;}
+  .checks label{font-size:12.5px; color:var(--text); display:flex; align-items:center;
+                gap:7px; cursor:pointer;}
+  .checks input{accent-color:var(--accent); width:13px; height:13px;}
+  .btnrow{display:flex; gap:8px; margin-top:9px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge2); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  .tag{font:11px "SF Mono", Menlo, monospace; color:#868e9f; margin-top:5px; line-height:1.55;}
+  .tag b{color:var(--text); font-weight:600;} .tag .g{color:var(--neon-a);} .tag .r{color:#e8843a;}
+  .src{font:10px "SF Mono", Menlo, monospace; color:#6b7284; margin-top:4px; line-height:1.5;}
+  #info{font-size:12px; line-height:1.62; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+
+  /* the mathematics column: numbered equation blocks set in Georgia italic,
+     CSS fractions, no network fonts, no MathJax */
+  #phys{font-size:12px; line-height:1.62; color:var(--dim);}
+  #phys p{margin:6px 0;}
+  #phys b{color:var(--text); font-weight:600;}
+  #phys i{color:#d8dce6;}
+  #phys h4{font-size:10.5px; font-weight:600; letter-spacing:.1em; text-transform:uppercase;
+           color:#8a93a8; margin:13px 0 4px;}
+  #phys .eq{display:block; margin:7px 0; padding:7px 9px 7px 10px; background:var(--panel2);
+            border-left:2px solid var(--accent); border-radius:4px; color:#eceef4;
+            font:italic 13.5px/1.75 Georgia, "Times New Roman", serif; overflow-x:auto;
+            white-space:nowrap;}
+  #phys .eq .n{float:right; color:#6f7789; font:10.5px -apple-system, sans-serif;
+               font-style:normal; margin-left:10px; margin-top:2px;}
+  #phys .eq .rm{font-style:normal;}
+  #phys .eq sup,#phys .eq sub{font-size:9.5px; line-height:0;}
+  #phys .frac{display:inline-block; vertical-align:middle; text-align:center; line-height:1.2;
+              margin:0 2px; font-size:12.5px;}
+  #phys .frac .t{display:block; border-bottom:1px solid #aeb6c6; padding:0 3px 1px;}
+  #phys .frac .b{display:block; padding:1px 3px 0;}
+  #phys .cite{font:10px "SF Mono", Menlo, monospace; color:#6b7284; line-height:1.5; margin:3px 0 8px;}
+  #phys .warn{color:#e8a25a;}
+  #phys .ok{color:var(--neon-a);}
+  #phys ul{margin:4px 0 4px 16px;}
+  #phys li{margin:2px 0;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="https://cooper-watson.net/index.html">Home</a>
+    <a href="https://cooper-watson.net/about.html">About</a>
+    <a href="https://cooper-watson.net/teaching.html">Teaching</a>
+    <a href="https://cooper-watson.net/modules/teaching_modules.html">Modules</a>
+    <a href="https://cooper-watson.net/simulations.html" aria-current="page">Simulations</a>
+    <a href="https://cooper-watson.net/research.html">Research</a>
+    <a href="https://cooper-watson.net/cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>Greenhouse effect</h1>
+  <span class="sub" id="sub">A remake of PhET&rsquo;s Greenhouse Effect: sunlight in, infrared out, and a stack of absorbing layers in between &mdash; with the steady state solved in closed form, T<sub>s</sub> = T<sub>eff</sub>[1 + &Sigma; a/(2&minus;a)]<sup>1/4</sup></span>
+  <nav id="tabs"></nav>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="scene"></canvas>
+    <div id="tag"></div>
+    <div id="readout"></div>
+    <div id="hint"></div>
+    <div id="errbox"></div>
+  </div>
+  <div id="panel"></div>
+</div>
+<div id="eqbar"></div>
+<script>
+'use strict';
