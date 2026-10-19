@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SERS &amp; TERS — surface- and tip-enhanced Raman</title>
+<!--
+  Plasmon-enhanced Raman scattering: a rough silver film (SERS) and a gold
+  tip (TERS). Split out of scattering.html on 2026-10-19, where these were
+  its TERS and SERS views: the physics and the self-test pins came across
+  unchanged except for the sweet-spot scan, and the drawing except for its
+  clearance of the HTML over the canvas (both below); scattering.html keeps
+  its other views.
+
+  SERS view: the ensemble cousin of TERS. A rough silver film is a random
+  antenna array: every nanogap is a hot spot with its own enhancement eta.
+  Fang, Seong & Dlott (Science 321, 388 (2008)) measured the distribution:
+  P(eta) d eta ~ eta^-1.75 between 2.8e4 and 4.1e10, and the hottest
+  63-per-million sites (eta > 1e9) carry 24% of the total light. The
+  analytic mean of that law, <eta> = 2.8e6, IS the textbook ensemble
+  enhancement factor. The stage samples 24 gaps from the law (seeded
+  mulberry32), streams Stokes photons site-weighted — watch one gap emit
+  nearly everything — the right panel histograms N = 2000 sites against the
+  analytic law, and a spacer slider lifts the molecules off the surface
+  with the (1 + r/a)^-10 distance law (a = 12 nm): SERS lives in the first
+  ~2 nm. Same plasmon envelope g^2(lam_0) g^2(lam_S) as TERS, normalized
+  absolutely (g_max^4), with lam_p reaching down to 520 nm for colloids.
+
+  TERS view: tip-enhanced Raman spectroscopy. A gold tip over the sample
+  forms a gap plasmon — a Lorentzian field enhancement g(lam) with tunable
+  peak lam_p (g_max = 30, FWHM 90 nm, representative Au-tip gap mode). The
+  Raman signal carries the fourth-power law
+      EF = g^2(lam_pump) x g^2(lam_Stokes)   (up to g_max^4 ~ 8e5)
+  so the optimum pump sits a little BLUE of lam_p (lam_p - dlam_S/2: pump
+  and Stokes straddle the resonance — self-tested by scan). The hot spot is
+  ~r_tip = 10 nm, far below the lam/2 diffraction limit. The stage shows
+  substrate, vibrating molecules, tip, pump beam and photon events (Stokes
+  rate follows EF; anti-Stokes appears e^{-h Om_v/kT} as often — raise T);
+  the right panel is the energy-level diagram: |0>, |1> = h Om_v, dashed
+  virtual states, and Rayleigh / Stokes / anti-Stokes arrow pairs in the
+  true colors of their photons, flashing as each photon is emitted, with
+  the Boltzmann population of |1> drawn as dots. Monatomic Ar shows only
+  the elastic channel.
+
+  The plasmon slider (lam_p) drives both views; the spacer slider is
+  SERS's. The readout's "sweet spot" (EF within 10% of the best pump) comes
+  from a scan of the pump slider's own range, PUMP = 400-700 nm. In
+  scattering.html the scan ran over 560-720 nm, the lam_p slider's range
+  when TERS was built: blind to every optimum below 560 nm (water at
+  lam_p 640 had its 560-nm pump, half the best EF, called sweet; the best is
+  532 nm) and able to name pumps past the slider's 700-nm end.
+  The drawing keeps clear of the HTML over the canvas: in scattering.html
+  the inset hid the SERS hot gap (the one the view is about) and the start
+  of two TERS captions, and the floating readout sat on the right-hand
+  panels' titles. The film sits above the inset, the captions start right
+  of it, and the panels start below the readout (insetBox, clearX, colTop).
+
+  Sample molecules: the Raman shifts (cm^-1) are the representative 293 K
+  values scattering.html uses — water 3400 (the broad O-H stretch), CS2 656,
+  CCl4 459, N2 2331; Ar is monatomic, no vibrational Raman line. Everything
+  derived from them (Stokes and anti-Stokes wavelengths, AS/S ratios, the
+  Boltzmann population of |1>, enhancement factors, the SERS statistics) is
+  computed live and self-tested against an independent Python re-derivation
+  (Agent repo, projects/simulations/build_sers_ters/audit_sers_ters.py).
+
+  Aesthetic matches the other sims in this collection: black stage,
+  Mathematica NeonColors accents, same chrome. Single file, no dependencies,
+  works over file://.
+  Headless self-test: extract the script body (substring between the LAST
+  script open/close tags, cf. rindex) and run it with
+      osascript -l JavaScript st_test.js
+  — with `document` undefined it runs the assertion suite (Raman shifts and
+  anti-Stokes Boltzmann factors, the plasmon g(lam) and the |E|^4 law, the
+  sweet-spot scan, SERS power-law statistics and the seeded-sample shares,
+  the spacer law, formats/clamps/labels) instead of booting the UI.
+-->
+<style>
+  :root{
+    --bg:#070b18; --panel:#0a0a0e; --panel2:#101014; --text:#cccccc; --dim:#999999;
+    --accent:#58c4dd; --edge:#222228; --neon-a:#b8ec4c; --neon-b:#cd35c4;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%; overflow:hidden;}
+  body{background:var(--bg); color:var(--text);
+       font:14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+  header{height:48px; display:flex; align-items:center; gap:18px; padding:0 14px;
+         background:var(--panel); border-bottom:1px solid var(--edge);}
+  header h1{font-size:15px; font-weight:600; letter-spacing:.2px; white-space:nowrap;}
+  header .sub{color:var(--dim); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #wrap{display:flex; height:calc(100% - 48px);}
+  #stage{position:relative; flex:1; min-width:0;}
+  #wave{position:absolute; inset:0; width:100%; height:100%; display:block;}
+  #readout{position:absolute; top:10px; right:14px; text-align:right; pointer-events:none;
+           user-select:none; -webkit-user-select:none;
+           font:italic 20px Georgia, "Times New Roman", serif; text-shadow:0 1px 4px rgba(0,0,0,.9);}
+  #readout .main{color:#fff;}
+  #readout .sub{display:block; font:12px -apple-system, sans-serif; font-style:normal; color:var(--dim); margin-top:3px;}
+  #hint{position:absolute; left:14px; top:10px; color:var(--dim); font-size:11px; pointer-events:none;
+        text-shadow:0 1px 3px rgba(0,0,0,.9);}
+  #inset{position:absolute; left:14px; bottom:12px; background:rgba(8,8,12,.72);
+         border:1px solid var(--edge); border-radius:6px;}
+  #panel{width:284px; background:var(--panel); border-left:1px solid var(--edge);
+         padding:12px 14px 20px; overflow-y:auto; flex-shrink:0;}
+  .grp{margin-bottom:16px;}
+  .grp h3{font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+          color:#777; margin-bottom:7px;}
+  .chips{display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+        border-radius:14px; padding:4px 11px; cursor:pointer; font-size:12.5px;}
+  .chip:hover{border-color:var(--accent);}
+  .chip.on{border-color:var(--neon-a); color:var(--neon-a);}
+  .sliderrow{display:flex; align-items:center; gap:8px; margin:7px 0;}
+  .sliderrow label{font-size:12px; color:var(--dim); width:86px; flex-shrink:0;}
+  .sliderrow .val{font:11.5px "SF Mono", Menlo, monospace; color:var(--text); width:56px;
+                  text-align:right; flex-shrink:0;}
+  input[type=range]{-webkit-appearance:none; appearance:none; flex:1; min-width:0; height:3px;
+                    background:#2a2a30; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; appearance:none; width:13px; height:13px;
+                    border-radius:50%; background:var(--text); border:1px solid #555; cursor:pointer;}
+  input[type=range]::-webkit-slider-thumb:hover{background:#fff;}
+  .btnrow{display:flex; gap:8px; margin-top:8px;}
+  .btnrow button{flex:1; background:var(--panel2); border:1px solid var(--edge); color:var(--text);
+                 border-radius:6px; padding:6px 0; cursor:pointer; font-size:12.5px;}
+  .btnrow button:hover{border-color:var(--accent);}
+  #info{font-size:12px; line-height:1.7; color:var(--dim);}
+  #info b{color:var(--text); font-weight:600;}
+  [hidden]{display:none !important;}
+</style>
+<style id="site-nav-css">
+/* injected site header — palette & tabs match ../website/style.css */
+body{padding-top:36px;}
+header.site-nav{position:fixed; top:0; left:0; right:0; height:36px; z-index:400;
+  display:flex; justify-content:center; align-items:center; padding:0 1rem;
+  background:#070b18; border:0;}
+.site-nav nav{margin:0; display:flex; flex-wrap:wrap; justify-content:center;
+  gap:0 1.5rem; letter-spacing:.16em; text-transform:uppercase; font-size:.78rem;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;}
+.site-nav a{color:#8fb8d4; text-decoration:none; padding:.2rem .1rem;
+  border-bottom:1px solid transparent; transition:color 120ms ease, border-color 120ms ease;}
+.site-nav a:hover{color:#7deeff;}
+.site-nav a[aria-current="page"]{color:#1bbeeb; border-bottom-color:#1bbeeb;}
+</style>
+</head>
+<body>
+<header class="site-nav">
+  <nav aria-label="Site">
+    <a href="../index.html">Home</a>
+    <a href="../about.html">About</a>
+    <a href="../teaching.html">Teaching</a>
+    <a href="../../modules/teaching_modules.html">Modules</a>
+    <a href="../simulations.html" aria-current="page">Simulations</a>
+    <a href="../research.html">Research</a>
+    <a href="../cv.html">CV</a>
+  </nav>
+</header>
+<header>
+  <h1>SERS &amp; TERS</h1>
+  <span class="sub">surface- &amp; tip-enhanced Raman &mdash; a plasmon&rsquo;s |E|&#8308; &middot; the hot-spot lottery &middot; the contact law &middot; one hot spot you can place</span>
+</header>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="wave"></canvas>
+    <div id="hint">SERS: one gap out-shouts the film &middot; lift the molecules off the metal &middot; TERS: tune &lambda;&#8320; until both lines ride the plasmon &middot; raise T for anti-Stokes &middot; Ar is monatomic &mdash; no Raman line</div>
+    <div id="readout"><span class="main" id="roMain"></span><span class="sub" id="roSub"></span></div>
+    <canvas id="inset" width="300" height="150"></canvas>
+  </div>
+  <aside id="panel">
+    <div class="grp">
+      <h3>view</h3>
+      <div class="chips">
+        <button class="chip on" id="viewR" title="surface-enhanced Raman: a million-fold ensemble carried by rare hot spots">SERS</button>
+        <button class="chip" id="viewT" title="tip-enhanced Raman: a gap plasmon turns one molecule into a light source">TERS</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>sample</h3>
+      <div class="chips">
+        <button class="chip on" id="mWater" title="the O&ndash;H stretch, 3400 cm&#8315;&#185;">water</button>
+        <button class="chip" id="mCS2" title="656 cm&#8315;&#185;">CS&#8322;</button>
+        <button class="chip" id="mCCl4" title="459 cm&#8315;&#185;: the smallest shift, the strongest anti-Stokes line">CCl&#8324;</button>
+        <button class="chip" id="mN2" title="2331 cm&#8315;&#185;">N&#8322;</button>
+        <button class="chip" id="mAr" title="monatomic: no vibrational Raman">Ar</button>
+      </div>
+    </div>
+
+    <div class="grp">
+      <h3>pump &amp; conditions</h3>
+      <div class="sliderrow"><label for="eTemp">temperature</label>
+        <input type="range" id="eTemp" min="150" max="600" step="1">
+        <span class="val" id="eTempVal"></span></div>
+      <div class="sliderrow"><label for="eLam">pump &lambda;&#8320;</label>
+        <input type="range" id="eLam" min="400" max="700" step="2">
+        <span class="val" id="eLamVal"></span></div>
+      <div class="sliderrow"><label for="eSpeed">speed</label>
+        <input type="range" id="eSpeed" min="0.2" max="3" step="0.1">
+        <span class="val" id="eSpeedVal"></span></div>
+      <div class="btnrow">
+        <button id="pauseBtn">pause</button>
+        <button id="resetBtn" title="back to the defaults">reset all</button>
+      </div>
+    </div>
+
+    <div class="grp" id="grpPlasmon">
+      <h3>plasmon</h3>
+      <div class="sliderrow"><label for="eLamP">plasmon &lambda;<sub>p</sub></label>
+        <input type="range" id="eLamP" min="520" max="720" step="2">
+        <span class="val" id="eLamPVal"></span></div>
+    </div>
+
+    <div class="grp" id="grpSers">
+      <h3>sers substrate</h3>
+      <div class="sliderrow"><label for="eDist">spacer r</label>
+        <input type="range" id="eDist" min="0" max="20" step="0.5">
+        <span class="val" id="eDistVal"></span></div>
+    </div>
+
+    <div class="grp">
+      <h3>notes</h3>
+      <div id="info"></div>
+    </div>
+  </aside>
+</div>
+<script>
+'use strict';
+/* =================== constants (SI 2019, exact) ================== */
+const PI = Math.PI, TAU = 2*PI;
+const H  = 6.62607015e-34;          // J s
+const C  = 2.99792458e8;            // m/s
+const KB = 1.380649e-23;            // J/K
+const HCK = H*C/KB;                 // m K — Boltzmann factor per wavenumber
+
+/* ==================== sample molecules (representative 293 K) =====
+   [label, Raman shift cm^-1 (0 = none)] — the shifts scattering.html's
+   media carry (water's is the broad O-H stretch); Ar is monatomic. */
+const MEDIA={
+  water:{label:'water', ram:3400},
+  cs2:  {label:'CS₂',   ram:656},
+  ccl4: {label:'CCl₄',  ram:459},
+  n2:   {label:'N₂',    ram:2331},
+  ar:   {label:'Ar',    ram:0},
+};
+
+/* ================== Raman: shift, anti-Stokes, Boltzmann ========= */
+function ramanHz(m){ return MEDIA[m].ram*100*C; }         // cm^-1 -> Hz
+function asFactor(m,T,lam){         // anti-Stokes/Stokes area ratio
+  if (!MEDIA[m].ram) return 0;
+  const nu0=C/lam, nuR=ramanHz(m);
+  const w4=Math.pow((nu0+nuR)/(nu0-nuR),4);
+  return Math.exp(-HCK*100*MEDIA[m].ram/T)*w4;
+}
+function pop1(ramCm,T){ return Math.exp(-HCK*100*ramCm/T); }   // n1/n0 of the vibrational level
+
+/* ============ TERS: gap plasmon + |E|^4 enhancement ==============
+   Representative Au-tip/Au-substrate gap mode: a Lorentzian field
+   enhancement g(lam) peaking at the tunable lam_p (g_max = 30, FWHM 90 nm).
+   TERS electromagnetic enhancement is the fourth-power law
+       EF = g^2(lam_pump) x g^2(lam_Stokes)
+   — largest when BOTH lines ride the plasmon, i.e. pump ~ lam_p - dlam_S/2.
+   Near-field spot ~ r_tip = 10 nm, far below the lam/2 diffraction limit. */
+const PLASMON={gmax:30, fwhm:90, rtip:10};
+const PUMP={lo:400, hi:700};                     // the pump slider, nm: clampState and the scan share it
+function gField(lamNm,lamP){
+  const d=(lamNm-lamP)/(PLASMON.fwhm/2);
+  return 1+(PLASMON.gmax-1)/(1+d*d);
+}
+function lamStokesNm(lam0Nm,ramCm){ return 1/(1/lam0Nm-ramCm*1e-7); }
+function lamAntiNm(lam0Nm,ramCm){ return 1/(1/lam0Nm+ramCm*1e-7); }
+function efOf(lam0Nm,ramCm,lamP){
+  if (!ramCm) return null;                       // monatomic: no Raman line
+  const g0=gField(lam0Nm,lamP), gS=gField(lamStokesNm(lam0Nm,ramCm),lamP);
+  return g0*g0*gS*gS;
+}
+function efBest(ramCm,lamP){                     // scan the pump slider's own range
+  let best=0, at=PUMP.lo;
+  for (let l=PUMP.lo;l<=PUMP.hi;l+=0.5){
+    const e=efOf(l,ramCm,lamP);
+    if (e>best){ best=e; at=l; }
+  }
+  return {best,at};
+}
+function efSweet(lam0Nm,ramCm,lamP){             // the readout's "sweet spot": within 10% of the best pump
+  const e=efOf(lam0Nm,ramCm,lamP);
+  return e!==null&&e>=0.9*efBest(ramCm,lamP).best;
+}
+
+/* ============ SERS: measured site statistics + spacer law ========
+   Fang, Seong & Dlott, Science 321, 388 (2008): benzenethiolate on a
+   Ag-coated nanosphere lattice at 532 nm. Site enhancements follow
+   P(eta) d eta ~ eta^-1.75 between 2.8e4 and 4.1e10; their MEASURED
+   hottest sites (eta > 1e9, 63 per million) carry 24% of the light.
+   The analytic mean of the law is <eta> = 2.84e6 — the textbook
+   ensemble EF. Spacer decay: signal ~ (1 + r/a)^-10, a = 12 nm. */
+const SERS={k:1.75, emin:2.8e4, emax:4.1e10, acurv:12};
+function sersInvCdf(u){
+  const p=1-SERS.k, a=Math.pow(SERS.emin,p), b=Math.pow(SERS.emax,p);
+  return Math.pow(a+u*(b-a),1/p);
+}
+function sersFracAbove(F){             // fraction of sites with eta > F
+  const p=1-SERS.k, a=Math.pow(SERS.emin,p), b=Math.pow(SERS.emax,p);
+  return (Math.pow(F,p)-b)/(a-b);
+}
+function sersShareAbove(F){            // their share of the total intensity
+  const q=2-SERS.k, a=Math.pow(SERS.emin,q), b=Math.pow(SERS.emax,q);
+  return (b-Math.pow(F,q))/(b-a);
+}
+function sersMean(){
+  const p=1-SERS.k, q=2-SERS.k;
+  return (p/q)*(Math.pow(SERS.emax,q)-Math.pow(SERS.emin,q))/
+         (Math.pow(SERS.emax,p)-Math.pow(SERS.emin,p));
+}
+function sersDist(rNm){ return Math.pow(1+rNm/SERS.acurv,-10); }
+function mulberry32(seed){             // same seeded RNG as blackbody's sampler
+  let a=seed|0;
+  return function(){
+    a=a+0x6D2B79F5|0;
+    let t=Math.imul(a^a>>>15,1|a);
+    t=t+Math.imul(t^t>>>7,61|t)^t;
+    return ((t^t>>>14)>>>0)/4294967296;
+  };
+}
+function sersSample(n,seed){
+  const r=mulberry32(seed), out=new Float64Array(n);
+  for (let i=0;i<n;i++) out[i]=sersInvCdf(r());
+  return out;
+}
+const SERS_HIST=sersSample(2000,20260722);   // the histogram population
+const SERS_STAGE=sersSample(24,77);          // the 24 on-stage gap sites
+
+/* ============ CIE color (Wyman-Sloan-Shirley fit, as blackbody) == */
+function lobe(x,mu,s1,s2){ const s=x<mu?s1:s2, d=(x-mu)/s;
+  return Math.exp(-0.5*d*d); }
+function cieX(l){ return 1.056*lobe(l,599.8,37.9,31.0)+0.362*lobe(l,442.0,16.0,26.7)
+                       -0.065*lobe(l,501.1,20.4,26.2); }
+function cieY(l){ return 0.821*lobe(l,568.8,46.9,40.5)+0.286*lobe(l,530.9,16.3,31.1); }
+function cieZ(l){ return 1.217*lobe(l,437.0,11.8,36.0)+0.681*lobe(l,459.0,26.0,13.8); }
+function srgbGamma(v){ return v<=0.0031308 ? 12.92*v : 1.055*Math.pow(v,1/2.4)-0.055; }
+function xyzToRgb(X,Y,Z){
+  let r= 3.2406*X-1.5372*Y-0.4986*Z,
+      g=-0.9689*X+1.8758*Y+0.0415*Z,
+      b= 0.0557*X-0.2040*Y+1.0570*Z;
+  const m=Math.max(r,g,b);
+  if (m<=0) return [0,0,0];
+  r=Math.max(0,r)/m; g=Math.max(0,g)/m; b=Math.max(0,b)/m;
+  return [srgbGamma(r),srgbGamma(g),srgbGamma(b)];
+}
+function spectralRgb(lnm){
+  if (lnm<380||lnm>780) return null;
+  return xyzToRgb(cieX(lnm),cieY(lnm),cieZ(lnm));
+}
+const IR_RGB=[0.30,0.17,0.11], UV_RGB=[0.27,0.20,0.42];   // display-only fallbacks
+function spectralCss(lnm){
+  let c;
+  if (lnm<380) c=UV_RGB; else if (lnm>750) c=IR_RGB; else c=spectralRgb(lnm)||IR_RGB;
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ================= colormap: Mathematica NeonColors ==============
+   Same exact 16-sample table as the other sims in this collection
+   (idsc-frazzoli/tensor colorscheme/neon.csv, verified vs Wolfram). */
+const NEON_STOPS=[
+  [0.0000, 0.7203,0.9238,0.2976],
+  [0.0667, 0.7332,0.8250,0.2939],
+  [0.1333, 0.7462,0.7263,0.2903],
+  [0.2000, 0.7591,0.6275,0.2866],
+  [0.2667, 0.7720,0.5287,0.2830],
+  [0.3333, 0.7849,0.4300,0.2793],
+  [0.4000, 0.8089,0.3632,0.2617],
+  [0.4667, 0.8316,0.3178,0.2550],
+  [0.5333, 0.8515,0.3153,0.2700],
+  [0.6000, 0.8580,0.3213,0.3191],
+  [0.6667, 0.8577,0.3317,0.3854],
+  [0.7333, 0.8473,0.3071,0.4623],
+  [0.8000, 0.8369,0.2825,0.5391],
+  [0.8667, 0.8266,0.2578,0.6160],
+  [0.9333, 0.8162,0.2332,0.6929],
+  [1.0000, 0.8058,0.2086,0.7698],
+];
+function neon(t){
+  t=Math.max(0,Math.min(1,t));
+  const S=NEON_STOPS;
+  let i=0;
+  while (i<S.length-2 && t>S[i+1][0]) i++;
+  const a=S[i], b=S[i+1], f=(t-a[0])/((b[0]-a[0])||1);
+  return [a[1]+(b[1]-a[1])*f, a[2]+(b[2]-a[2])*f, a[3]+(b[3]-a[3])*f];
+}
+function neonCss(t){
+  const c=neon(t);
+  return 'rgb('+Math.round(255*c[0])+','+Math.round(255*c[1])+','+Math.round(255*c[2])+')';
+}
+
+/* ======================== state and labels ======================= */
+const DEFAULTS={ view:'sers', medium:'water', T:293, lam:532, speed:1, lamP:640, dist:1 };
+function clampState(s){
+  const c=Object.assign({},s);
+  const f=(v,lo,hi)=>Math.max(lo,Math.min(hi,+v||lo));
+  c.T=f(c.T,150,600);
+  c.lam=f(c.lam,PUMP.lo,PUMP.hi); c.speed=f(c.speed,0.2,3);
+  c.lamP=f(c.lamP,520,720); c.dist=f(c.dist,0,20);
+  if (c.view!=='ters') c.view='sers';
+  if (!MEDIA[c.medium]) c.medium='water';
+  return c;
+}
+function mainLabel(st){
+  return (st.view==='ters'?'TERS':'SERS')+' — '+MEDIA[st.medium].label+', λ₀ = '+Math.round(st.lam)+' nm';
+}
+const SUP={'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵',
+           '6':'⁶','7':'⁷','8':'⁸','9':'⁹','-':'⁻'};
+function sup(n){ return String(n).split('').map(ch=>SUP[ch]||'').join(''); }
+function fmtExp(v,unit){
+  if (v===0) return '0'+(unit?' '+unit:'');
+  const e=Math.floor(Math.log10(Math.abs(v)));
+  if (e>=-2&&e<=3) return (+ (+v).toPrecision(3))+(unit?' '+unit:'');
+  const m=v/Math.pow(10,e);
+  return m.toFixed(1)+'×10'+sup(e)+(unit?' '+unit:'');
+}
+
+/* ============================ boot (UI) ========================== */
+function boot(){
+  const $=id=>document.getElementById(id);
+  const cv=$('wave'), ctx=cv.getContext('2d');
+  const insetCv=$('inset'), insetCtx=insetCv.getContext('2d');
+  if (!ctx || !insetCtx) return;
+  const dpr=(typeof window!=='undefined' && window.devicePixelRatio)||1;
+
+  let state=clampState(Object.assign({},DEFAULTS));
+  let W=900, HGT=620, paused=false;   // HGT, not H — Planck's H stays visible
+  let molPhase=0, rayAcc=0, stokesAcc=0, asAcc=0;
+  const photons=[];                                // TERS photon events
+  const flash={kind:'',ttl:0};                     // level-diagram highlight
+  const sphot=[];                                  // SERS photon events
+  let sersAcc=0, sersRayAcc=0, sersAsAcc=0;
+
+  /* ---------- shared frame ---------- */
+  function stageBox(){ return {x0:64,y0:34,x1:W-20,y1:HGT-56}; }
+  /* the HTML over the canvas: the inset (CSS left 14, bottom 12, a 1-px border) holds
+     the bottom left, the floating readout (at most four lines) the top right — the
+     right-hand panels start below the readout, and nothing a view is about sits
+     under the inset */
+  function insetBox(){ return {x1:14+insetCv.width+2, y0:HGT-12-insetCv.height-2}; }
+  function colTop(b){ return b.y0+88; }
+  function clearX(b){ return Math.max(b.x0+16,insetBox().x1+12); }
+
+  /* ---------- SERS view ---------- */
+  function sersGeom(){
+    const b=stageBox(), histW=248;
+    const x0=b.x0, x1=b.x1-histW-14, fY=Math.min(b.y1-34,insetBox().y0-12);   // the film sits clear of the inset
+    const R=26, spheres=[], sites=[];
+    const nB=Math.max(6,Math.floor((x1-x0-24)/(2*R)));
+    const bx=i=>x0+14+R+i*2*R;
+    for (let i=0;i<nB;i++) spheres.push({x:bx(i), y:fY-R, r:R});
+    for (let i=0;i<nB-1;i++) spheres.push({x:bx(i)+R, y:fY-R-1.72*R, r:R});
+    for (let i=0;i<nB-1;i++) sites.push({x:bx(i)+R, y:fY-R});
+    for (let i=0;i<nB-1;i++){
+      sites.push({x:bx(i)+R/2, y:fY-R-0.86*R});
+      sites.push({x:bx(i)+1.5*R, y:fY-R-0.86*R});
+    }
+    const use=Math.min(sites.length,SERS_STAGE.length);
+    return {b,histX:b.x1-histW,x0,x1,fY,spheres,sites:sites.slice(0,use)};
+  }
+  function stepSers(){
+    const st=state, M=MEDIA[st.medium], S=sersGeom();
+    molPhase+=0.05*st.speed*Math.sqrt((M.ram||600)/1000);
+    const distF=sersDist(st.dist);
+    const spawnAt=(site,kind)=>{
+      const a=-PI*(0.2+0.6*Math.random());
+      const lnm=kind==='ray'?st.lam:
+                kind==='stokes'?lamStokesNm(st.lam,M.ram):lamAntiNm(st.lam,M.ram);
+      sphot.push({x:site.x,y:site.y-4,vx:2.4*Math.cos(a),vy:2.4*Math.sin(a),
+                  css:spectralCss(lnm),kind,age:0});
+    };
+    sersRayAcc+=0.12*st.speed;
+    if (sersRayAcc>=1){ sersRayAcc-=1;
+      spawnAt(S.sites[Math.floor(Math.random()*S.sites.length)],'ray'); }
+    if (M.ram){
+      const env=efOf(st.lam,M.ram,st.lamP)/Math.pow(PLASMON.gmax,4);
+      sersAcc+=st.speed*(0.05+3.5*env)*Math.max(0.03,distF);
+      if (sersAcc>=1){
+        sersAcc-=1;
+        let tot=0;                    // eta-weighted site pick: the hot gap talks
+        for (let i=0;i<S.sites.length;i++) tot+=SERS_STAGE[i];
+        let u=Math.random()*tot, idx=0;
+        for (let i=0;i<S.sites.length;i++){
+          u-=SERS_STAGE[i];
+          if (u<=0){ idx=i; break; }
+        }
+        spawnAt(S.sites[idx],'stokes');
+        sersAsAcc+=asFactor(st.medium,st.T,st.lam*1e-9);
+        if (sersAsAcc>=1){ sersAsAcc-=1; spawnAt(S.sites[idx],'anti'); }
+      }
+    }
+    for (let i=sphot.length-1;i>=0;i--){
+      const p=sphot[i];
+      p.x+=p.vx*st.speed; p.y+=p.vy*st.speed; p.age++;
+      if (p.age>150||p.x<S.x0||p.x>S.x1||p.y<S.b.y0) sphot.splice(i,1);
+    }
+  }
+  function drawSers(){
+    ctx.clearRect(0,0,W,HGT);
+    const st=state, M=MEDIA[st.medium], S=sersGeom(), b=S.b;
+    const l0css=spectralCss(st.lam);
+    ctx.fillStyle=l0css; ctx.globalAlpha=0.045;
+    ctx.fillRect(S.x0,b.y0,S.x1-S.x0,b.y1-b.y0);
+    ctx.globalAlpha=1;
+    ctx.fillStyle='#ccc'; ctx.font='11px -apple-system, sans-serif';
+    ctx.fillText('pump λ₀ = '+Math.round(st.lam)+' nm floods the whole film',S.x0+8,b.y0+16);
+    ctx.strokeStyle=l0css; ctx.lineWidth=1.6;
+    for (const fx of [0.3,0.55,0.8]){
+      const px=S.x0+fx*(S.x1-S.x0);
+      ctx.globalAlpha=0.5;
+      ctx.beginPath(); ctx.moveTo(px,b.y0+8); ctx.lineTo(px,b.y0+46); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(px,b.y0+46); ctx.lineTo(px-4,b.y0+38);
+      ctx.moveTo(px,b.y0+46); ctx.lineTo(px+4,b.y0+38); ctx.stroke();
+    }
+    ctx.globalAlpha=1; ctx.lineWidth=1;
+    for (const sp of S.spheres){
+      if (ctx.createRadialGradient){
+        const sg=ctx.createRadialGradient(sp.x-8,sp.y-8,2,sp.x,sp.y,sp.r);
+        sg.addColorStop(0,'#d6dae2'); sg.addColorStop(0.55,'#8d929c');
+        sg.addColorStop(1,'#3f434c');
+        ctx.fillStyle=sg;
+      } else ctx.fillStyle='#8d929c';
+      ctx.beginPath(); ctx.arc(sp.x,sp.y,sp.r,0,TAU); ctx.fill();
+    }
+    ctx.fillStyle='rgba(200,205,215,0.12)';
+    ctx.fillRect(S.x0,S.fY,S.x1-S.x0,b.y1-S.fY);
+    const LO=Math.log10(SERS.emin), HI=Math.log10(SERS.emax);
+    let hotIdx=0;
+    for (let i=0;i<S.sites.length;i++) if (SERS_STAGE[i]>SERS_STAGE[hotIdx]) hotIdx=i;
+    ctx.globalCompositeOperation='lighter';
+    for (let i=0;i<S.sites.length;i++){
+      const site=S.sites[i];
+      const rel=Math.max(0,Math.min(1,(Math.log10(SERS_STAGE[i])-LO)/(HI-LO)));
+      const rad=5+13*rel;
+      if (ctx.createRadialGradient){
+        const hg=ctx.createRadialGradient(site.x,site.y,0.5,site.x,site.y,rad);
+        hg.addColorStop(0,'rgba(255,255,255,'+(0.10+0.75*rel*rel).toFixed(3)+')');
+        hg.addColorStop(0.5,'rgba(255,215,140,'+(0.05+0.45*rel*rel).toFixed(3)+')');
+        hg.addColorStop(1,'rgba(0,0,0,0)');
+        ctx.fillStyle=hg;
+        ctx.beginPath(); ctx.arc(site.x,site.y,rad,0,TAU); ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation='source-over';
+    const lift=3+1.3*st.dist;                    // molecules ride the spacer
+    ctx.strokeStyle='#9ab'; ctx.fillStyle='#cde';
+    for (let i=0;i<S.spheres.length;i++){
+      const sp=S.spheres[i];
+      for (const aa of [-0.9,-0.35,0.4]){
+        const a=aa+(i%2?0.18:0);
+        const mx=sp.x+(sp.r+lift)*Math.sin(a), my=sp.y-(sp.r+lift)*Math.cos(a);
+        const stx=M.ram?1+0.22*Math.sin(molPhase+i+aa*3):1;
+        const dxm=3.6*stx;
+        ctx.lineWidth=1.1;
+        ctx.beginPath(); ctx.moveTo(mx-dxm,my); ctx.lineTo(mx+dxm,my); ctx.stroke();
+        ctx.beginPath(); ctx.arc(mx-dxm,my,2.1,0,TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(mx+dxm,my,2.1,0,TAU); ctx.fill();
+      }
+    }
+    ctx.lineWidth=1;
+    ctx.globalCompositeOperation='lighter';
+    for (const p of sphot){
+      ctx.strokeStyle=p.css; ctx.globalAlpha=p.kind==='ray'?0.45:0.95;
+      ctx.lineWidth=p.kind==='ray'?1.1:2;
+      ctx.beginPath(); ctx.moveTo(p.x-p.vx*3,p.y-p.vy*3); ctx.lineTo(p.x,p.y); ctx.stroke();
+      ctx.fillStyle=p.css;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.kind==='ray'?1.5:2.5,0,TAU); ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.lineWidth=1;
+    ctx.globalCompositeOperation='source-over';
+    { const hs=S.sites[hotIdx];
+      let tot=0;
+      for (let i=0;i<S.sites.length;i++) tot+=SERS_STAGE[i];
+      ctx.strokeStyle='rgba(184,236,76,0.8)';
+      ctx.beginPath(); ctx.arc(hs.x,hs.y,17,0,TAU); ctx.stroke();
+      ctx.fillStyle='#b8ec4c'; ctx.font='10px -apple-system, sans-serif';
+      ctx.fillText('η = '+fmtExp(SERS_STAGE[hotIdx],'')+' — this one gap does '+
+                   Math.round(100*SERS_STAGE[hotIdx]/tot)+'% of the stage light',
+                   Math.max(S.x0+8,Math.min(hs.x-90,S.x1-250)),hs.y-30);
+    }
+    if (!M.ram){
+      ctx.fillStyle='#c96'; ctx.font='10px -apple-system, sans-serif';
+      ctx.fillText('monatomic '+M.label+' — no Raman-active vibration: elastic twinkles only',
+                   S.x0+10,b.y0+56);
+    }
+    drawSersHist(S);
+    drawSersInset();
+  }
+  function drawSersHist(S){
+    const b=S.b, x0=S.histX, x1=b.x1, top=colTop(b);
+    ctx.strokeStyle='#2a2a30'; ctx.strokeRect(x0,top,x1-x0,b.y1-top);
+    ctx.font='10px -apple-system, sans-serif';
+    ctx.fillStyle='#aaa';
+    ctx.fillText('site enhancements — N = 2000',x0+8,top+14);
+    const LO=Math.log10(SERS.emin), HI=Math.log10(SERS.emax);
+    const gx0=x0+16, gx1=x1-12, gy0=top+56, gy1=b.y1-64;
+    const NB=24, bw=(gx1-gx0)/NB;
+    const counts=new Array(NB).fill(0);
+    for (let i=0;i<SERS_HIST.length;i++){
+      const t=(Math.log10(SERS_HIST[i])-LO)/(HI-LO);
+      const k=Math.max(0,Math.min(NB-1,Math.floor(t*NB)));
+      counts[k]++;
+    }
+    let cmax=0;
+    for (const cn of counts) cmax=Math.max(cmax,cn);
+    const yOf=cn=>gy1-(gy1-gy0)*Math.sqrt(cn/cmax);
+    const x9=gx0+(gx1-gx0)*(9-LO)/(HI-LO);
+    ctx.fillStyle='rgba(255,150,60,0.07)';
+    ctx.fillRect(x9,gy0-8,gx1-x9,gy1-gy0+8);
+    ctx.strokeStyle='rgba(255,150,60,0.5)';
+    ctx.beginPath(); ctx.moveTo(x9,gy0-8); ctx.lineTo(x9,gy1); ctx.stroke();
+    for (let k=0;k<NB;k++){
+      if (!counts[k]) continue;
+      ctx.fillStyle=neonCss(k/(NB-1));
+      ctx.globalAlpha=0.85;
+      ctx.fillRect(gx0+k*bw+0.5,yOf(counts[k]),bw-1,gy1-yOf(counts[k]));
+    }
+    ctx.globalAlpha=1;
+    ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.setLineDash([3,3]);
+    ctx.beginPath();
+    for (let k=0;k<NB;k++){
+      const Flo=Math.pow(10,LO+(HI-LO)*k/NB), Fhi=Math.pow(10,LO+(HI-LO)*(k+1)/NB);
+      const expc=SERS_HIST.length*(sersFracAbove(Flo)-sersFracAbove(Fhi));
+      const xm=gx0+(k+0.5)*bw, ym=yOf(expc);
+      if (k===0) ctx.moveTo(xm,ym); else ctx.lineTo(xm,ym);
+    }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle='#666'; ctx.font='9px -apple-system, sans-serif';
+    for (const e of [5,7,9]){
+      const px=gx0+(gx1-gx0)*(e-LO)/(HI-LO);
+      ctx.fillText('10'+sup(e),px-7,gy1+12);
+    }
+    ctx.fillText('η (log)',gx1-30,gy1+12);
+    ctx.fillStyle='rgba(255,170,90,0.95)';
+    ctx.fillText('η > 10⁹',x9+3,gy0-1);
+    let mx=0,tot=0,cold=0;
+    for (let i=0;i<SERS_HIST.length;i++){
+      tot+=SERS_HIST[i];
+      if (SERS_HIST[i]>mx) mx=SERS_HIST[i];
+      if (SERS_HIST[i]<1e6) cold++;
+    }
+    ctx.fillStyle='#888';
+    ctx.fillText('P(η) ∝ η⁻¹·⁷⁵ · dashed = the law · √count scale',x0+8,top+30);
+    ctx.fillText(Math.round(100*cold/SERS_HIST.length)+'% of sites sit below 10⁶',x0+8,top+43);
+    ctx.fillStyle='#b8ec4c';
+    ctx.fillText('this sample: ONE site ('+fmtExp(mx,'')+')',x0+8,gy1+26);
+    ctx.fillText('carries '+Math.round(100*mx/tot)+'% of all the light',x0+8,gy1+39);
+    ctx.fillStyle='#888';
+    ctx.fillText('measured: 63/10⁶ sites carry 24% (Fang 2008)',x0+8,gy1+52);
+  }
+  function drawSersInset(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height;
+    c.clearRect(0,0,IW,IH);
+    const st=state;
+    const x0=34,y0=16,x1=IW-10,y1=IH-30, pw=x1-x0, ph=y1-y0;
+    const px=r=>x0+pw*r/20;
+    const py=v=>{ const lv=Math.log10(Math.max(v,Math.pow(10,-2.4)));
+      return y0+ph*(-lv/2.4); };
+    c.strokeStyle='#2a2a30'; c.strokeRect(x0,y0,pw,ph);
+    c.strokeStyle='#b8ec4c';
+    c.beginPath();
+    for (let i=0;i<=120;i++){
+      const r=20*i/120, v=sersDist(r);
+      if (i===0) c.moveTo(px(r),py(v)); else c.lineTo(px(r),py(v));
+    }
+    c.stroke();
+    c.fillStyle='#fff';
+    c.beginPath(); c.arc(px(st.dist),py(sersDist(st.dist)),2.6,0,TAU); c.fill();
+    c.font='9px -apple-system, sans-serif';
+    c.fillStyle='#888';
+    c.fillText('spacer law (1 + r/a)⁻¹⁰, a = 12 nm — the first ~2 nm only',x0+2,10);
+    c.fillText('r = '+(+st.dist.toFixed(1))+' nm → ×'+sersDist(st.dist).toFixed(3),x0+8,y0+12);
+    c.fillStyle='#666';
+    c.fillText('0',x0-4,y1+10); c.fillText('20 nm',x1-26,y1+10);
+    c.fillText('1',x0-10,py(1)+3); c.fillText('10⁻²',x0-26,py(0.01)+3);
+  }
+
+  /* ---------- TERS view ---------- */
+  function tersGeom(){
+    const b=stageBox();
+    const lvlW=248;                               // level diagram claims the right
+    const cx=b.x0+(b.x1-b.x0-lvlW)/2-10, floorY=b.y1-46;
+    return {b, lvlX:b.x1-lvlW, cx, floorY, apexX:cx, apexY:floorY-34};
+  }
+  function stepTers(){
+    const st=state, M=MEDIA[st.medium], G=tersGeom();
+    molPhase+=0.05*st.speed*Math.sqrt((M.ram||600)/1000);
+    const spawn=kind=>{
+      const a=-PI*(0.15+0.7*Math.random());       // outward, upward-ish
+      const lnm=kind==='ray'?st.lam:
+                kind==='stokes'?lamStokesNm(st.lam,M.ram):lamAntiNm(st.lam,M.ram);
+      photons.push({x:G.apexX,y:G.apexY-6,vx:2.6*Math.cos(a),vy:2.6*Math.sin(a),
+                    css:spectralCss(lnm),kind,age:0});
+      if (kind!=='ray'||flash.ttl<=0){ flash.kind=kind; flash.ttl=kind==='ray'?12:30; }
+    };
+    rayAcc+=0.10*st.speed;
+    if (rayAcc>=1){ rayAcc-=1; spawn('ray'); }
+    if (M.ram){
+      const rel=efOf(st.lam,M.ram,st.lamP)/Math.pow(PLASMON.gmax,4);
+      stokesAcc+=0.09*st.speed*Math.max(0.035,1.6*rel);
+      if (stokesAcc>=1){
+        stokesAcc-=1; spawn('stokes');
+        asAcc+=asFactor(st.medium,st.T,st.lam*1e-9);
+        if (asAcc>=1){ asAcc-=1; spawn('anti'); }
+      }
+    }
+    for (let i=photons.length-1;i>=0;i--){
+      const p=photons[i];
+      p.x+=p.vx*st.speed; p.y+=p.vy*st.speed; p.age++;
+      if (p.age>150||p.x<G.b.x0||p.x>G.b.x1||p.y<G.b.y0) photons.splice(i,1);
+    }
+    if (flash.ttl>0) flash.ttl--;
+  }
+  function drawTers(){
+    ctx.clearRect(0,0,W,HGT);
+    const st=state, M=MEDIA[st.medium], G=tersGeom(), b=G.b;
+    const gold='rgba(212,175,55,';
+    // substrate with sample molecules
+    ctx.fillStyle=gold+'0.20)';
+    ctx.fillRect(b.x0,G.floorY,G.lvlX-b.x0-18,b.y1-G.floorY);
+    ctx.strokeStyle=gold+'0.8)';
+    ctx.beginPath(); ctx.moveTo(b.x0,G.floorY); ctx.lineTo(G.lvlX-18,G.floorY); ctx.stroke();
+    for (let k=-1;k<=1;k++){
+      const mx=G.cx+k*46, stretch=M.ram?1+0.20*Math.sin(molPhase+k):1;
+      const dxm=6.5*stretch;
+      ctx.strokeStyle='#9ab'; ctx.lineWidth=1.4;
+      ctx.beginPath(); ctx.moveTo(mx-dxm,G.floorY-7); ctx.lineTo(mx+dxm,G.floorY-7); ctx.stroke();
+      ctx.fillStyle='#cde';
+      ctx.beginPath(); ctx.arc(mx-dxm,G.floorY-7,3.4,0,TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(mx+dxm,G.floorY-7,3.4,0,TAU); ctx.fill();
+    }
+    // tip (inverted gold cone) with a gap above the middle molecule
+    const tipY=G.apexY-8;
+    ctx.fillStyle=gold+'0.55)';
+    ctx.beginPath();
+    ctx.moveTo(G.apexX,tipY);
+    ctx.lineTo(G.apexX-42,b.y0+8); ctx.lineTo(G.apexX+42,b.y0+8);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle=gold+'0.9)'; ctx.stroke();
+    // pump beam onto the apex
+    const l0css=spectralCss(st.lam);
+    ctx.strokeStyle=l0css; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(b.x0+20,b.y0+40); ctx.lineTo(G.apexX-6,tipY+2); ctx.stroke();
+    ctx.lineWidth=1;
+    ctx.fillStyle='#ccc'; ctx.font='11px -apple-system, sans-serif';
+    ctx.fillText('pump λ₀ = '+Math.round(st.lam)+' nm',b.x0+20,b.y0+30);
+    // hot spot: brightness follows g(lam0)
+    const gRel=(gField(st.lam,st.lamP)-1)/(PLASMON.gmax-1);
+    if (ctx.createRadialGradient){
+      const R=15+5*gRel;
+      const hg=ctx.createRadialGradient(G.apexX,G.apexY,1,G.apexX,G.apexY,R);
+      hg.addColorStop(0,'rgba(255,255,255,'+(0.25+0.7*gRel).toFixed(3)+')');
+      hg.addColorStop(0.5,gold+(0.5*gRel+0.08).toFixed(3)+')');
+      hg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=hg;
+      ctx.beginPath(); ctx.arc(G.apexX,G.apexY,R,0,TAU); ctx.fill();
+    }
+    ctx.strokeStyle=gold+(0.25+0.5*gRel).toFixed(3)+')';
+    for (const r of [10,17,24]){
+      ctx.beginPath(); ctx.arc(G.apexX,G.apexY,r,0.15*PI,0.85*PI); ctx.stroke();
+    }
+    // photons
+    ctx.globalCompositeOperation='lighter';
+    for (const p of photons){
+      ctx.strokeStyle=p.css; ctx.globalAlpha=p.kind==='ray'?0.5:0.95;
+      ctx.lineWidth=p.kind==='ray'?1.2:2;
+      ctx.beginPath(); ctx.moveTo(p.x-p.vx*3,p.y-p.vy*3); ctx.lineTo(p.x,p.y); ctx.stroke();
+      ctx.fillStyle=p.css;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.kind==='ray'?1.6:2.6,0,TAU); ctx.fill();
+    }
+    ctx.globalAlpha=1; ctx.lineWidth=1;
+    ctx.globalCompositeOperation='source-over';
+    // captions
+    ctx.fillStyle='#888'; ctx.font='10px -apple-system, sans-serif';
+    ctx.fillText('gap plasmon hot spot ≈ r_tip = '+PLASMON.rtip+' nm — '+
+                 Math.round(st.lam/2/PLASMON.rtip)+'× below the λ₀/2 diffraction limit',
+                 clearX(b),b.y1-8);
+    if (!M.ram){
+      ctx.fillStyle='#c96';
+      ctx.fillText('monatomic '+M.label+' — no Raman-active vibration (pick a molecular sample)',
+                   clearX(b),G.floorY-28);
+    }
+    drawLevels(G);
+    drawTersInset();
+  }
+  function drawLevels(G){
+    // Jablonski-style diagram: |0>, |1> = h Om_v, dashed virtual states,
+    // Rayleigh / Stokes / anti-Stokes arrow pairs in their true colors
+    const st=state, M=MEDIA[st.medium], b=G.b, x0=G.lvlX, x1=b.x1, top=colTop(b);
+    const y0=b.y1-64;
+    const h1=M.ram?26+64*(M.ram/3400):0, y1=y0-h1;
+    const Lup=170, yVS=y0-Lup, yVA=y1-Lup;
+    ctx.strokeStyle='#2a2a30'; ctx.strokeRect(x0,top,x1-x0,b.y1-top);
+    ctx.font='10px -apple-system, sans-serif';
+    ctx.fillStyle='#aaa';
+    ctx.fillText('energy-level diagram',x0+8,top+14);
+    const level=(y,css,lab)=>{
+      ctx.strokeStyle=css; ctx.lineWidth=1.6;
+      ctx.beginPath(); ctx.moveTo(x0+12,y); ctx.lineTo(x1-12,y); ctx.stroke();
+      ctx.lineWidth=1;
+      if (lab){ ctx.fillStyle=css; ctx.fillText(lab,x1-34,y-4); }
+    };
+    level(y0,'#ccc','|0⟩');
+    if (M.ram) level(y1,'#ccc','|1⟩');
+    ctx.setLineDash([4,4]);
+    level(yVS,'rgba(255,255,255,0.35)','');
+    if (M.ram) level(yVA,'rgba(255,255,255,0.35)','');
+    ctx.setLineDash([]);
+    ctx.fillStyle='#888';
+    ctx.fillText('virtual states (no real level)',x0+12,yVA-6);
+    if (M.ram){
+      ctx.fillStyle='#b8ec4c';
+      ctx.fillText('ħΩ_v = '+M.ram+' cm⁻¹',x0+14,(y0+y1)/2+3);
+    }
+    const l0css=spectralCss(st.lam);
+    const arrow=(x,ya,yb,css,glow)=>{
+      ctx.strokeStyle=css; ctx.fillStyle=css;
+      ctx.globalAlpha=glow?1:0.55; ctx.lineWidth=glow?2.6:1.4;
+      ctx.beginPath(); ctx.moveTo(x,ya); ctx.lineTo(x,yb); ctx.stroke();
+      const s=yb>ya?1:-1;
+      ctx.beginPath(); ctx.moveTo(x,yb);
+      ctx.lineTo(x-4,yb-7*s); ctx.lineTo(x+4,yb-7*s);
+      ctx.closePath(); ctx.fill();
+      ctx.globalAlpha=1; ctx.lineWidth=1;
+    };
+    const xr=x0+42, xs=x0+108, xa=x0+174, gap=9;
+    // Rayleigh: up and back down, same color
+    arrow(xr-gap/2,y0,yVS,l0css,flash.kind==='ray'&&flash.ttl>0);
+    arrow(xr+gap/2,yVS,y0,l0css,flash.kind==='ray'&&flash.ttl>0);
+    ctx.fillStyle='#999'; ctx.fillText('Rayleigh',xr-20,y0+16);
+    if (M.ram){
+      const sCss=spectralCss(lamStokesNm(st.lam,M.ram)),
+            aCss=spectralCss(lamAntiNm(st.lam,M.ram));
+      arrow(xs-gap/2,y0,yVS,l0css,flash.kind==='stokes'&&flash.ttl>0);
+      arrow(xs+gap/2,yVS,y1,sCss,flash.kind==='stokes'&&flash.ttl>0);
+      ctx.fillStyle='#999'; ctx.fillText('Stokes',xs-15,y0+16);
+      arrow(xa-gap/2,y1,yVA,l0css,flash.kind==='anti'&&flash.ttl>0);
+      arrow(xa+gap/2,yVA,y0,aCss,flash.kind==='anti'&&flash.ttl>0);
+      ctx.fillStyle='#999'; ctx.fillText('anti-St.',xa-16,y0+16);
+      // Boltzmann population of |1>
+      const p1=pop1(M.ram,st.T);
+      const nDots=10, n1=Math.round(nDots*p1);
+      ctx.fillStyle='#b8ec4c';
+      for (let i=0;i<nDots;i++){
+        ctx.beginPath(); ctx.arc(x0+16+9*i,y0+6,2,0,TAU); ctx.fill();
+      }
+      for (let i=0;i<n1;i++){
+        ctx.beginPath(); ctx.arc(x0+16+9*i,y1+6,2,0,TAU); ctx.fill();
+      }
+      ctx.fillStyle='#888';
+      ctx.fillText('n₁/n₀ = e^{−ħΩ/kT} = '+fmtExp(p1,''),x0+12,y0+30);
+      if (n1===0) ctx.fillText('|1⟩ empty — anti-Stokes needs heat',x0+12,y1-6);
+    }
+  }
+  function drawTersInset(){
+    const c=insetCtx, IW=insetCv.width, IH=insetCv.height;
+    c.clearRect(0,0,IW,IH);
+    const st=state, M=MEDIA[st.medium];
+    const x0=14,y0=16,x1=IW-10,y1=IH-34, pw=x1-x0, ph=y1-y0;
+    const pxOf=l=>x0+pw*(l-500)/300;
+    c.strokeStyle='#2a2a30'; c.strokeRect(x0,y0,pw,ph);
+    for (let l=500;l<=800;l+=2){
+      const gg=(gField(l,st.lamP)-1)/(PLASMON.gmax-1);
+      c.fillStyle=spectralCss(l);
+      c.globalAlpha=0.8;
+      c.fillRect(pxOf(l),y0+ph*(1-gg),Math.max(1,pw/150),ph*gg);
+    }
+    c.globalAlpha=1;
+    const mark=(l,css,lab)=>{
+      if (l<500||l>800) return;
+      c.strokeStyle=css;
+      c.beginPath(); c.moveTo(pxOf(l),y0); c.lineTo(pxOf(l),y0+ph); c.stroke();
+      c.fillStyle=css; c.font='9px -apple-system, sans-serif';
+      c.fillText(lab,pxOf(l)-8,y0-3);
+    };
+    mark(st.lam,'#fff','λ₀');
+    if (M.ram){
+      mark(lamStokesNm(st.lam,M.ram),'rgba(255,180,120,0.9)','S');
+      mark(lamAntiNm(st.lam,M.ram),'rgba(150,190,255,0.9)','AS');
+    }
+    c.fillStyle='#888'; c.font='9px -apple-system, sans-serif';
+    c.fillText('gap-plasmon field enhancement g(λ) · peak g = '+PLASMON.gmax+' at λ_p',x0+2,IH-22);
+    c.fillText('EF = g²(λ₀)·g²(λ_S) — best with BOTH lines on the plasmon',x0+2,IH-10);
+  }
+
+  /* ---------- readouts / info ---------- */
+  function updateReadout(){
+    const st=state, m=st.medium, M=MEDIA[m], lam=st.lam*1e-9;
+    $('roMain').textContent=mainLabel(st);
+    let sub='';
+    if (st.view==='sers'){
+      sub='rough Ag film: P(η) ∝ η⁻¹·⁷⁵ over ['+fmtExp(SERS.emin,'')+', '+
+          fmtExp(SERS.emax,'')+'] · ⟨η⟩ = '+fmtExp(sersMean(),'')+' (the ensemble EF)';
+      if (M.ram){
+        sub+='<br>top decade η > 10⁹: '+fmtExp(sersFracAbove(1e9),'')+' of sites carry '+
+             Math.round(100*sersShareAbove(1e9))+'% of the light'+
+             ' · Fang 2008 measured 63/10⁶ → 24%'+
+             '<br>spacer r = '+(+st.dist.toFixed(1))+' nm → signal ×'+
+             sersDist(st.dist).toFixed(3)+' ((1+r/a)⁻¹⁰) · EF envelope g²(λ₀)g²(λ_S) = '+
+             fmtExp(efOf(st.lam,M.ram,st.lamP),'');
+      } else {
+        sub+='<br>monatomic — no Raman line, elastic hot spots only';
+      }
+    } else {
+      const g0=gField(st.lam,st.lamP);
+      sub='plasmon λ_p = '+Math.round(st.lamP)+' nm · g_max = '+PLASMON.gmax+
+          ' · g(λ₀) = '+(+g0.toPrecision(3));
+      if (M.ram){
+        const lS=lamStokesNm(st.lam,M.ram), lA=lamAntiNm(st.lam,M.ram);
+        const gS=gField(lS,st.lamP), ef=efOf(st.lam,M.ram,st.lamP);
+        sub+=' · g(λ_S) = '+(+gS.toPrecision(3))+
+             '<br>EF = g²(λ₀)g²(λ_S) = '+fmtExp(ef,'')+
+             ' (max g_max⁴ = '+fmtExp(Math.pow(PLASMON.gmax,4),'')+')'+
+             (efSweet(st.lam,M.ram,st.lamP)?' — sweet spot: both lines ride the plasmon':'')+
+             '<br>Stokes '+Math.round(lS)+' nm · anti-Stokes '+Math.round(lA)+' nm'+
+             ' · AS/S = '+fmtExp(asFactor(m,st.T,lam),'');
+      } else {
+        sub+='<br>monatomic — no Raman-active vibration, elastic glow only';
+      }
+      sub+='<br>near-field spot ≈ r_tip = '+PLASMON.rtip+' nm ≪ λ₀/2 = '+
+           Math.round(st.lam/2)+' nm';
+    }
+    $('roSub').innerHTML=sub;
+  }
+  function updateInfo(){
+    const st=state;
+    let s='';
+    if (st.view==='sers'){
+      s='<b>Surface-enhanced Raman — the lottery.</b> A rough metal film is thousands '+
+        'of random nanogaps, each a plasmonic hot spot with its own enhancement η. '+
+        'Fang, Seong &amp; Dlott (2008) measured the distribution: <b>P(η) ∝ η⁻¹·⁷⁵</b> '+
+        'from 2.8×10⁴ to 4.1×10¹⁰, and the hottest <b>63-in-a-million</b> sites carry '+
+        '<b>24%</b> of all the signal. The ensemble average of that law, ⟨η⟩ ≈ 2.8×10⁶, '+
+        'is the textbook "million-fold" SERS factor — but it is a mirage: watch one gap '+
+        'out-shout every other. Lift the molecules off the surface and the (1+r/a)⁻¹⁰ '+
+        'law kills it within ~2 nm — SERS is a contact sport. TERS is this with a single, '+
+        'placeable hot spot.';
+    } else {
+      s='<b>Tip-enhanced Raman.</b> The gold tip is an optical antenna: its gap plasmon '+
+        'squeezes the pump into a ~r_tip hot spot and boosts the field by g(λ). The '+
+        'Raman signal scales as <b>|E|⁴ = g²(λ₀)·g²(λ_S)</b> — up to g_max⁴ ≈ 8×10⁵ — '+
+        'so tune the pump a little blue of λ_p and BOTH lines ride the resonance. '+
+        'Diagram: scattering runs through a virtual state; <b>Stokes</b> leaves the '+
+        'molecule vibrating (photon out at −ħΩ_v), <b>anti-Stokes</b> must START from '+
+        'a thermally excited |1⟩ — its rate carries e^{−ħΩ_v/kT} (raise T and watch). '+
+        'Each emitted photon flashes its arrow pair.';
+    }
+    s+='<br>Raman shifts are representative 293 K values; every derived number is self-tested.';
+    $('info').innerHTML=s;
+  }
+
+  /* ---------- control wiring ---------- */
+  function syncControls(){
+    const st=state;
+    $('viewR').classList.toggle('on',st.view==='sers');
+    $('viewT').classList.toggle('on',st.view==='ters');
+    $('grpSers').hidden=st.view!=='sers';
+    $('eLamP').value=st.lamP; $('eLamPVal').textContent=Math.round(st.lamP)+' nm';
+    $('eDist').value=st.dist; $('eDistVal').textContent=(+st.dist.toFixed(1))+' nm';
+    const mm={water:'mWater',cs2:'mCS2',ccl4:'mCCl4',n2:'mN2',ar:'mAr'};
+    for (const k in mm) $(mm[k]).classList.toggle('on',st.medium===k);
+    $('eTemp').value=st.T; $('eTempVal').textContent=Math.round(st.T)+' K';
+    $('eLam').value=st.lam; $('eLamVal').textContent=Math.round(st.lam)+' nm';
+    $('eSpeed').value=st.speed; $('eSpeedVal').textContent='×'+st.speed.toFixed(1);
+  }
+  function applyChange(){
+    state=clampState(state); syncControls();
+    updateInfo(); updateReadout();
+  }
+  function chip(id,fn){ $(id).addEventListener('click',()=>{ fn(); applyChange(); }); }
+  chip('viewR',()=>{ state.view='sers'; });
+  chip('viewT',()=>{ state.view='ters'; });
+  chip('mWater',()=>{ state.medium='water'; });
+  chip('mCS2',()=>{ state.medium='cs2'; });
+  chip('mCCl4',()=>{ state.medium='ccl4'; });
+  chip('mN2',()=>{ state.medium='n2'; });
+  chip('mAr',()=>{ state.medium='ar'; });
+  function bindSlider(id,key){
+    $(id).addEventListener('input',()=>{ state[key]=+$(id).value; applyChange(); });
+  }
+  $('eLam').min=String(PUMP.lo); $('eLam').max=String(PUMP.hi);   // the range the sweet-spot scan covers
+  bindSlider('eTemp','T'); bindSlider('eLam','lam');
+  bindSlider('eLamP','lamP'); bindSlider('eDist','dist');
+  $('eSpeed').addEventListener('input',()=>{ state.speed=+$('eSpeed').value;
+    state=clampState(state); syncControls(); });
+  function setPaused(p){ paused=p; $('pauseBtn').textContent=paused?'resume':'pause'; }
+  $('pauseBtn').addEventListener('click',()=>setPaused(!paused));
+  $('resetBtn').addEventListener('click',()=>{
+    state=clampState(Object.assign({},DEFAULTS));
+    photons.length=0; molPhase=0;
+    rayAcc=stokesAcc=asAcc=0; flash.ttl=0;
+    sphot.length=0; sersAcc=sersRayAcc=sersAsAcc=0;
+    setPaused(false);
+    syncControls(); updateInfo(); updateReadout();
+  });
+  function resize(){
+    W=cv.clientWidth||900; HGT=cv.clientHeight||620;
+    cv.width=Math.round(W*dpr); cv.height=Math.round(HGT*dpr);
+    if (ctx.setTransform) ctx.setTransform(dpr,0,0,dpr,0,0); else ctx.scale(dpr,dpr);
+  }
+  if (typeof window!=='undefined')
+    window.addEventListener('resize',()=>{ resize(); });
+
+  /* ---------- main loop ---------- */
+  function frame(){
+    if (state.view==='ters'){
+      if (!paused) stepTers();
+      drawTers();
+    } else {
+      if (!paused) stepSers();
+      drawSers();
+    }
+    requestAnimationFrame(frame);
+  }
+  resize(); syncControls(); updateInfo(); updateReadout();
+  requestAnimationFrame(frame);
+}
+
+/* =========================== self-test =========================== */
+function selfTest(){
+  let pass=0, fail=0;
+  const ok=(cond,name)=>{ if (cond){ pass++; console.log('ok — '+name); }
+                          else { fail++; console.log('FAIL — '+name); } };
+  const approx=(a,b,tol)=>Math.abs(a-b)<=(tol===undefined?1e-9:tol);
+  const rel=(a,b)=>Math.abs(a/b-1);
+  const L532=532e-9;
+
+  /* --- Raman: shifts, colors, Boltzmann (audited in Python) --- */
+  ok(rel(ramanHz('n2'),6.9882e13)<1e-4,'N₂ 2331 cm⁻¹ = 69.88 THz');
+  ok(rel(lamStokesNm(532,2331),607.3)<1e-3&&rel(lamAntiNm(532,2331),473.3)<1e-3,
+     'N₂ pumped at 532 nm: Stokes at 607 nm (orange), anti-Stokes at 473 nm (blue)');
+  ok(rel(asFactor('n2',293,L532),2.897e-5)<2e-3,'N₂ AS/S at 293 K = 2.90×10⁻⁵');
+  ok(rel(asFactor('n2',600,L532),1.013e-2)<2e-3,'N₂ AS/S at 600 K = 1.01×10⁻²');
+  ok(rel(asFactor('n2',150,L532),5.283e-10)<3e-3,'N₂ AS/S at 150 K = 5.3×10⁻¹⁰');
+  ok(rel(asFactor('ccl4',293,L532),0.1276)<2e-3,'CCl₄ AS/S = 0.128 (visible anti-Stokes)');
+  ok(rel(asFactor('cs2',293,L532),5.276e-2)<2e-3,'CS₂ AS/S = 5.3×10⁻²');
+  ok(asFactor('ar',293,L532)===0,'Ar: no Raman line at all (monatomic)');
+  ok(rel(asFactor('water',293,L532),2.424268e-7)<1e-6,'water AS/S at 532 nm = 2.4×10⁻⁷ (the O–H stretch, 3400 cm⁻¹)');
+  { const w4=Math.pow((C/L532+ramanHz('n2'))/(C/L532-ramanHz('n2')),4);
+    ok(rel(w4,2.711)<1e-3,'ω⁴ radiation factor for N₂ = 2.711');
+    ok(rel(asFactor('n2',293,L532)/w4,pop1(2331,293))<1e-12,
+       'AS/S = the ω⁴ factor × the Boltzmann population of |1⟩, exactly'); }
+  ok(rel(pop1(459,293),0.104987)<1e-4&&rel(pop1(459,600),0.332650)<1e-4,
+     'CCl₄ n₁/n₀ = 0.105 at 293 K, 0.333 at 600 K: the level diagram’s 1 and 3 dots of 10');
+  ok(Math.round(10*pop1(459,293))===1&&Math.round(10*pop1(459,600))===3&&Math.round(10*pop1(2331,600))===0,
+     'dots on |1⟩: CCl₄ 1 → 3 from 293 to 600 K; N₂ none even at 600 K');
+  ok(rel(pop1(2331,293),1.068811e-5)<1e-6,'N₂ n₁/n₀ = 1.07×10⁻⁵ at 293 K — frozen out');
+  { const g=spectralRgb(550), b=spectralRgb(460);
+    ok(g[1]>0.9999&&b[2]>0.9999,'CIE pipeline sanity: 550 nm green, 460 nm blue'); }
+
+  /* --- TERS: gap plasmon and the |E|^4 law (audited in Python) --- */
+  { ok(Math.abs(gField(640,640)-30)<1e-12,'g(lam_p) = g_max = 30');
+    ok(Math.abs(gField(685,640)-15.5)<1e-12,'half-enhancement at lam_p + FWHM/2');
+    ok(gField(400,640)<2.0&&gField(400,640)<gField(500,640),
+       'far off resonance g -> 1 (Lorentzian tail: 1.985 at 240 nm detuning)');
+    ok(rel(lamStokesNm(633,656),660.4)<1e-3&&rel(lamAntiNm(633,656),607.8)<1e-3,
+       'CS2 pumped at 633 nm: Stokes 660.4 nm, anti-Stokes 607.8 nm');
+    { const l0=633, ram=656;
+      const viaNu=1e9*C/(C/(l0*1e-9)-ram*100*C);
+      ok(rel(lamStokesNm(l0,ram),viaNu)<1e-12,'wavenumber and frequency routes agree exactly'); }
+    ok(rel(efOf(633,656,640),5.391e5)<2e-3,'EF(CS2, 633 nm, lam_p 640) = 5.4e5');
+    ok(rel(Math.pow(PLASMON.gmax,4),8.1e5)<1e-9,'the |E|^4 ceiling g_max^4 = 8.1e5');
+    ok(rel(efOf(633,2331,640),2.774e4)<2e-3,'N2: the 2331 cm^-1 shift falls off the plasmon (20x less)');
+    ok(efOf(633,0,640)===null&&efOf(633,MEDIA.ar.ram,640)===null,'Ar: no Raman line, no EF');
+    { const o=efBest(656,640);
+      ok(Math.abs(o.at-625.9)<1.5,'optimal pump = 625.9 nm by scan');
+      const dS=lamStokesNm(o.at,656)-o.at;
+      ok(Math.abs(o.at-(640-dS/2))<2,'= lam_p - dlam_S/2: pump and Stokes straddle the peak');
+      ok(rel(o.best,5.831e5)<2e-3,'EF at the sweet spot = 5.83e5'); }
+    { const o=efBest(459,640);
+      ok(Math.abs(o.at-630.3)<1.5,'CCl4 optimum 630.3 nm (smaller shift, closer to lam_p)'); }
+    ok(rel(asFactor('cs2',293,633e-9),0.0556)<2e-3&&rel(asFactor('cs2',600,633e-9),0.2892)<2e-3,
+       'AS/S at the 633 pump: 0.056 at 293 K, 0.289 at 600 K');
+    /* the scan covers the pump slider (PUMP), not the old 560-720: these three fail on the old range */
+    { const o=efBest(3400,640);
+      ok(Math.abs(o.at-532)<1&&rel(o.best,2.31595e4)<2e-3,
+         'water, lam_p 640: the best pump is 532 nm, EF 2.32e4 (the old scan stopped at 560)');
+      ok(efSweet(532,3400,640)&&!efSweet(560,3400,640)&&rel(efOf(560,3400,640)/o.best,0.4999)<2e-3,
+         'sweet spot at 532 nm, not at 560 nm, where EF is half the best'); }
+    ok(Math.abs(efBest(3400,520).at-453)<1,'lam_p 520 (colloids): the best pump for water is 453 nm');
+    { const o=efBest(459,720);
+      ok(o.at===PUMP.hi&&rel(o.best,5.666009e5)<2e-3,
+         'lam_p 720, CCl4: the best reachable pump is the slider end, 700 nm (the old scan said 707.5)'); }
+    ok(efSweet(626,656,640)&&!efSweet(600,656,640)&&!efSweet(633,0,640),
+       'CS2 sweet at 626 nm, not at 600; Ar never');
+    ok(efSweet(618,656,640)&&efSweet(634,656,640)&&!efSweet(617.5,656,640)&&!efSweet(634.5,656,640),
+       'sweet = EF within 10% of the best: 618 and 634 nm in (0.905, 0.903 of it), 617.5 and 634.5 out (0.893, 0.892)'); }
+
+  /* --- SERS: Fang-Seong-Dlott statistics + seeded sampler (audited) --- */
+  ok(rel(sersMean(),2.8381e6)<1e-3,'⟨η⟩ of P(η)∝η^-1.75 = 2.84×10⁶ (the ensemble EF)');
+  ok(rel(sersInvCdf(0),2.8e4)<1e-9&&rel(sersInvCdf(1),4.1e10)<1e-9,
+     'inverse-CDF spans [2.8e4, 4.1e10]');
+  ok(rel(sersInvCdf(0.5),7.0553e4)<1e-3,'median site η = 7.06×10⁴ ≪ mean (heavy tail)');
+  ok(rel(sersFracAbove(1e9),3.6117e-4)<1e-3,'fraction of sites above 10⁹ = 3.6×10⁻⁴');
+  ok(rel(sersShareAbove(1e9),0.62271)<1e-3,'those carry 62% of the model intensity (top decade)');
+  ok(sersShareAbove(1e9)>10*sersFracAbove(1e9),'a few sites, most of the light — the SERS lottery');
+  ok(Math.abs(sersDist(0)-1)<1e-12&&rel(sersDist(2.8),0.12280)<1e-3&&rel(sersDist(1),0.44914)<1e-3,
+     'spacer law (1+r/12)⁻¹⁰: 1 → 0.45 (1 nm) → 0.12 (2.8 nm)');
+  { const r=mulberry32(20260722), got=[r(),r(),r(),r(),r()];
+    const want=[0.238021608,0.324671988,0.291686903,0.640540145,0.383252049];
+    let good=true;
+    for (let i=0;i<5;i++) if (Math.abs(got[i]-want[i])>1e-7) good=false;
+    ok(good,'mulberry32(20260722) reproduces the Python audit stream exactly'); }
+  { let mx=0,tot=0,cold=0;
+    for (let i=0;i<SERS_HIST.length;i++){ tot+=SERS_HIST[i];
+      if (SERS_HIST[i]>mx) mx=SERS_HIST[i];
+      if (SERS_HIST[i]<1e6) cold++; }
+    ok(SERS_HIST.length===2000,'histogram population is 2000 sites');
+    ok(rel(mx,1.6947e10)<1e-3,'hottest of 2000 sites = 1.69×10¹⁰');
+    ok(mx/tot>0.80,'that ONE site carries 86% of the sampled light (single-molecule SERS)');
+    ok(rel(cold/SERS_HIST.length,0.924)<0.02,'92% of sites sit below 10⁶ — most gaps are cold'); }
+  { let mx=0,tot=0;
+    for (let i=0;i<SERS_STAGE.length;i++){ tot+=SERS_STAGE[i]; if (SERS_STAGE[i]>mx) mx=SERS_STAGE[i]; }
+    ok(SERS_STAGE.length===24,'the stage samples 24 gap sites');
+    ok(rel(mx,4.1657e6)<1e-3&&rel(mx/tot,0.6011)<2e-3,
+       'stage hot gap η = 4.17×10⁶ does 60% of the stage light'); }
+
+  /* --- state, formats, labels --- */
+  { const st=clampState({view:'x',medium:'xx',T:1,lam:1,speed:99,lamP:1,dist:99});
+    ok(st.view==='sers'&&st.medium==='water'&&st.T===150&&st.lam===400&&st.speed===3&&
+       st.lamP===520&&st.dist===20,'clamps to sane state');
+    const z=clampState({view:'ters',dist:0});
+    ok(z.view==='ters'&&z.dist===0,'a 0-nm spacer survives the clamp (0 is not "unset")');
+    ok(clampState({lam:999}).lam===700&&PUMP.lo===400&&PUMP.hi===700,
+       'the pump clamps to the slider’s 400–700 nm, the range the sweet-spot scan covers'); }
+  ok(mainLabel(clampState(Object.assign({},DEFAULTS)))==='SERS — water, λ₀ = 532 nm','readout label');
+  ok(mainLabel(clampState({view:'ters',medium:'cs2',lam:633}))==='TERS — CS₂, λ₀ = 633 nm','readout label, TERS');
+  ok(fmtExp(2.897e-5,'')==='2.9×10⁻⁵','anti-Stokes scientific format');
+  { const c0=neon(0), c1=neon(1), S=NEON_STOPS;
+    ok(approx(c0[0],S[0][1])&&approx(c0[2],S[0][3])&&approx(c1[0],S[15][1])&&approx(c1[2],S[15][3]),
+       'neon endpoints hit the gradient stops');
+    ok(/^rgb\(\d+,\d+,\d+\)$/.test(neonCss(0.44)),'neonCss emits rgb() strings'); }
+
+  console.log(pass+' passed, '+fail+' failed');
+  if (fail>0) throw new Error(fail+' self-test failure(s)');
+  return true;
+}
+
+/* ============================ entry ============================== */
+if (typeof document!=='undefined'){
+  if (document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot);
+  else boot();
+} else {
+  selfTest();
+}
+</script>
+</body>
+</html>

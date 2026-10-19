@@ -11,6 +11,113 @@ the main checkout.
   children). The teaching page shipped with the `.page` overlay (z-index 1,
   100vh) silently swallowing every pointer/wheel event — pan, zoom, and
   click-travel were dead while the canvas rendered fine. Fixed 2026-08-12 c.
+- **Agent worktrees live in `.claude/worktrees/`, and `git add -A` stages each one as an embedded
+  repository**: a gitlink (mode 160000) with no `.gitmodules` entry, i.e. a submodule with no URL, which
+  the GitHub Pages checkout cannot fetch. `.claude/worktrees/` is in `.gitignore` since 2026-10-19 d; if
+  one is ever staged, `git rm --cached <path>` takes it out of the index and leaves the worktree alone.
+
+## 2026-10-19 d — .gitignore: agent worktrees stay out of the repo
+
+Cooper's ask: "Please remove blue-sky as a submodule so I can push the website repository". `git add -A` had
+staged `.claude/worktrees/blue-sky`, the worktree another session used for the Blue Sky split, as an embedded
+repository (gitlink fc167f7, no `.gitmodules`). It is out of the index (`git rm --cached`; the worktree, its
+branch `blue-sky` and the rest of the staged work are untouched), and `.claude/worktrees/` is ignored, so the
+next `git add -A` cannot stage it again. A Known-bad item says so.
+
+## 2026-10-19 c — the catalog lists only the sims in simulations/: 26 cards for unfinished sims removed, 67 sims
+
+`simulations.html` is updated. Cooper's ask: "Can you update the simulations.html so that it only has the
+simulations/ not any from unfinished_sims/". Twenty-six sims sit in `unfinished_sims/` now (moved there today,
+uncommitted), and their cards linked pages that no longer exist under `simulations/`. Those cards are gone, whole;
+every card left links a page in `simulations/`, one card per page (67 of each). The lede and meta count moved to
+sixty-seven. No section emptied: WIP keeps Quaternions.
+- REMOVED: Mechanics & Control — The Miraculous Staircase; Waves & Optics — Pupil-Plane Interferometry; Signals &
+  Sound — Sound Mixer, Synthesizer; Fluids & Flight — Bernoulli, Newtonian & Non-Newtonian Fluids, Shock Flow, Wind
+  Turbine; Heat & Thermodynamics — Adiabatic Expansion; Quantum Mechanics — Bloch Sphere, Clebsch–Gordan
+  Coefficients; Atoms, Matter & Light — The Meissner Effect & Superfluids, Down-Conversion, Organic Mechanisms;
+  Scattering & Brillouin Physics — Bremsstrahlung & Inverse Bremsstrahlung, LXCat Cross Sections; Astrophysics &
+  Relativity — The Microwave Background, The Kardashev & Barrow Scales; Mathematics & Machines — Primes, Green's
+  Functions & the Wronskian, Apollo DSKY; WIP — SBS in a Gas Cell, SBS Phase Space, SBS Gas-Law Manifold, SBS Parent
+  Law, SBS State Surface.
+- Nothing else on the site links to these pages (some code comments name them). The pages themselves are untouched,
+  and every removed card is in the last commit's `simulations.html` (2492f8e) for when its sim moves back.
+  `simulations/TODO.txt` still lists all 26 under COMPLETED SIMULATIONS; it is not changed here.
+- VERIFIED: the cards and `simulations/*.html` match one to one (67), no card links into `unfinished_sims/`, the page
+  is tag-balanced, and the lede and meta read 67. The diff removes 26 whole card blocks and changes only the two
+  count lines; it was applied to a copy and checked before main.
+
+## 2026-10-19 b — Blue Sky: Light Scattering's sky becomes a sim of its own, 93 sims
+
+`simulations/blue_sky.html` is new and `simulations/scattering.html` is updated. Cooper's ask: "under
+~/coding/website/simulations/ I want the blue sky tab from scattering.html to be its standalone simulation
+blue_sky.html". The blue-sky view left Light Scattering for a page of its own: the sky engine (twelve worlds, single
+scattering with the planet's shadow plus a two-stream diffuse field), the panorama toward the sun, the all-sky fisheye,
+the two spectrum panels, the telescope on the setting sun with the green flash, the readout and the notes. They were
+cut out of scattering.html by script, not retyped, and the page draws exactly what the view drew: the view's 41
+captured scenes (every world, twilight and night, Saturn's rings, the sea and the flash, three chroma settings),
+clicked the same way on both pages, give the same display list op for op, 353,880 ops.
+- NEW ON THE PAGE: its own header comment, which says what the view had become (the old one still said six worlds and
+  a sun down to −18°), title, tagline and hint; a "time" group with the swell speed, pause and reset all (the sea's
+  swell is the only thing that moves); the colour chips stay, for the two spectrum panels.
+- scattering.html keeps the spectrum, the phonon grating, the sun dogs and the glory; its view chips, tagline, hint
+  and header comment drop the sky (the comment points to the new page), and the plane-parallel sunlight and the CIE
+  pipeline the sun dogs and the glory use stay. The removal went in as exact-string edits onto the file as this
+  morning's SERS & TERS split (a) left it, and the four views it keeps draw exactly what they drew before (6,372 ops).
+- The Light Scattering card trades its sky sentence (which still said −18°) for the views it keeps, a Blue Sky card
+  follows SERS & TERS in Scattering & Brillouin Physics, and the lede and meta count moved to ninety-three.
+  `simulations/TODO.txt` lists the sim, its IMPROVEMENTS line for scattering notes the move, and its "COMPLETED
+  SIMULATIONS" header counts the list again: 87 (it said 85 over 86 entries). `dev/check_sims.py` gains the words for
+  ninety-two and ninety-three.
+- VERIFIED: blue_sky.html selfTest 1610 passed, 0 failed (the 1600 sky checks that left scattering.html, word for word
+  and in order, the six it shares with it, and four of its own state and labels), UI drive 190/0 (the boot checks
+  and the view's 154 assertions word for word, plus 33 for the page itself: the swell speed, pause and resume, the
+  colour chips, the exposure where the mean rule meters it, and the notes of all twelve worlds), mutation sweep 89 of
+  89 caught (the view's three sweeps; see below); audit 0 layout problems over the 41
+  scenes, six of them looked at.
+  scattering.html selfTest 90/0 (1688 before) and UI drive 16/0 (its four views). The two splits compose: the SERS &
+  TERS change is the same 679 lines out and 15 in before or after this one. `dev/sync_sims.py` and
+  `dev/check_sims.py` were not run (they read `../simulations/`, which is gone); their card, count and tag-balance
+  checks were run by `build_bluesky/check_catalog.py`.
+- FIXED, A BLIND SPOT IN THE TESTS: one mutant survived the first sweep, a picture exposed ten times too bright by
+  its mean rule (noon ×8, Mars ×4.8, Venus ×2.9). The view's harness pinned the exposure only at +10° on Earth, where
+  the highlight ceiling and the mean rule nearly coincide, and the mutant had not run since the ceiling went in on
+  2026-09-16. Three exposure pins where the mean rule meters the picture (noon, Venus, Mars) catch it.
+- FOUND, NOT FIXED: the colour fit the CIE pages share is wrong past 690 nm (its X/Y falls from 2.6 at 650 nm to 0.35
+  at 740, where the CIE's stays near 2.77), so "spectral" colouring paints 720 nm yellow-green and 740–750 nm green —
+  the right-hand end of the colour bar on both pages and of the blue-sky spectrum panels. The sky's numbers barely
+  notice (chromaticities move by at most 0.002); the same fit is in eight pages, and a fix belongs to all of them.
+
+Build, audit and harnesses: Agent repo `projects/simulations/build_bluesky/` (simulations changelog 2026-10-19 (b)).
+
+## 2026-10-19 a — SERS & TERS: Light Scattering's two plasmon views become a sim of their own, 92 sims
+
+`simulations/sers_ters.html` is new and `simulations/scattering.html` is updated. Cooper's ask: "make sers/ters tabs
+of scattering.html its own simulation sers_ters.html". The TERS and SERS views left Light Scattering for a page of
+their own, SERS first: the rough silver film whose hottest gap does 60 % of the light, the N = 2000 histogram against
+Fang, Seong & Dlott's measured law, the spacer slider; then the gold tip, its gap plasmon, the |E|⁴ law and the
+energy-level diagram. The physics, the drawing and the self-test pins were cut out of scattering.html by script, not
+retyped. The plasmon slider now shows in both views (SERS always used λ_p, but scattering.html hid the slider there),
+and the sample chips drop the "10 atm" only the Brillouin views needed.
+- FIXED, THE SWEET SPOT: the readout's "sweet spot" (EF within 10 % of the best pump) came from a scan over 560–720
+  nm, the λ_p slider's range when TERS was built, not the pump slider's 400–700 its comment named. It was blind to
+  every optimum below 560 nm: with water under the default λ_p 640 it called a 560-nm pump sweet at half the best EF
+  (the best is 532 nm), and at λ_p 720 it named pumps past the slider's 700-nm end. The scan now covers the pump
+  slider, from one constant both use.
+- FIXED, THE LAYOUT: the inset panel hid the SERS hot gap (the one the view is about) and the start of two TERS
+  captions, and the floating readout sat on the histogram's and the level diagram's titles. The film now sits above
+  the inset, the captions start right of it, and the right-hand panels start below the readout.
+- scattering.html keeps the spectrum, the phonon grating, the sun dogs, the glory and the sky; its tagline and hint
+  drop TERS/SERS and its header comment points to the new page. A card in Scattering & Brillouin Physics after Light
+  Scattering; the lede and meta count moved to ninety-two; `simulations/TODO.txt` lists the sim.
+- VERIFIED: scattering.html selfTest 1688 passed, 0 failed (1715 before; the 27 pins that left are all in the new
+  suite) and its UI drive 170/0 (174 before, less the two views); sers_ters.html selfTest 57/0, UI drive 78/0 (360
+  view × sample × slider corners draw clean; the photon streams, the √count histogram and the layout are checked
+  against an independent Python audit), mutation sweep 58 of 59 caught (the survivor moves the hot gap's share from
+  60.1 % to 59.6 %, under the label's whole-percent display); twelve captured scenes looked at, with the readout
+  drawn in. `dev/sync_sims.py` and `dev/check_sims.py` were not run (they read `../simulations/`, which is gone);
+  their card/sim/count/tag-balance checks were run by hand.
+
+Build, audit and harnesses: Agent repo `projects/simulations/build_sers_ters/` (simulations changelog 2026-10-19 (a)).
 
 ## 2026-10-14 e — Apollo DSKY: the ascent and the rendezvous now run the real lunar-module computer, Luminary 099; every view runs the flight programs
 

@@ -22,7 +22,7 @@ WORDS = {49: 'Forty-nine', 55: 'Fifty-five', 56: 'Fifty-six', 57: 'Fifty-seven',
          65: 'Sixty-five', 66: 'Sixty-six', 67: 'Sixty-seven', 68: 'Sixty-eight',
          69: 'Sixty-nine', 70: 'Seventy', 71: 'Seventy-one', 72: 'Seventy-two',
          73: 'Seventy-three', 74: 'Seventy-four', 75: 'Seventy-five',
-         76: 'Seventy-six', 77: 'Seventy-seven', 78: 'Seventy-eight', 79: 'Seventy-nine', 80: 'Eighty', 81: 'Eighty-one', 82: 'Eighty-two', 83: 'Eighty-three', 84: 'Eighty-four', 85: 'Eighty-five', 86: 'Eighty-six', 87: 'Eighty-seven', 88: 'Eighty-eight', 89: 'Eighty-nine', 90: 'Ninety', 91: 'Ninety-one'}
+         76: 'Seventy-six', 77: 'Seventy-seven', 78: 'Seventy-eight', 79: 'Seventy-nine', 80: 'Eighty', 81: 'Eighty-one', 82: 'Eighty-two', 83: 'Eighty-three', 84: 'Eighty-four', 85: 'Eighty-five', 86: 'Eighty-six', 87: 'Eighty-seven', 88: 'Eighty-eight', 89: 'Eighty-nine', 90: 'Ninety', 91: 'Ninety-one', 92: 'Ninety-two', 93: 'Ninety-three'}
 
 sims = sorted(f for f in os.listdir(src) if f.endswith('.html'))
 copies = sorted(f for f in os.listdir(dst) if f.endswith('.html'))
