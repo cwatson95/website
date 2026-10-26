@@ -467,7 +467,6 @@ SITE_NAV_HTML = f"""<header class="site-nav">
     <a href="teaching_modules.html" aria-current="page">Modules</a>
     <a href="{SITE_PREFIX}simulations.html">Simulations</a>
     <a href="{SITE_PREFIX}research.html">Research</a>
-    <a href="{SITE_PREFIX}cv.html">CV</a>
   </nav>
 </header>"""
 

@@ -8,7 +8,7 @@
 <root>/docs/phets_revised/build/<stem>/ui_drive_<stem>.js.
 
 Checks: selfTest() green under osascript; the UI drive green; the PhET credit
-line; all seven site-nav links absolute and no relative ../website/ or
+line; all six site-nav links absolute and no relative ../website/ or
 ../modules/ href left; nothing fetched from the network. Exit 0 only if all
 pass for every stem.
 """
@@ -23,8 +23,7 @@ import time
 NAV = ["https://cooper-watson.net/index.html", "https://cooper-watson.net/about.html",
        "https://cooper-watson.net/teaching.html",
        "https://cooper-watson.net/modules/teaching_modules.html",
-       "https://cooper-watson.net/simulations.html", "https://cooper-watson.net/research.html",
-       "https://cooper-watson.net/cv.html"]
+       "https://cooper-watson.net/simulations.html", "https://cooper-watson.net/research.html"]
 NETWORK = re.compile(r"""(<script[^>]+src\s*=\s*["']?https?:|<link[^>]+href\s*=\s*["']?https?:[^>]*stylesheet|"""
                      r"""<link[^>]+stylesheet[^>]*href\s*=\s*["']?https?:|@import\s+url\(\s*["']?https?:|"""
                      r"""\bfetch\s*\(|XMLHttpRequest|<img[^>]+src\s*=\s*["']?https?:|new\s+WebSocket)""", re.I)

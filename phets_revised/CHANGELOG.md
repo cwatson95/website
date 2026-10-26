@@ -20,6 +20,19 @@ editing or resurrecting files.
   The house sims' relative `../website/` and `../modules/` hrefs are dead from
   `docs/phets_revised/`. Do not "restore" the relative form.
 
+## 2026-10-26 — the site nav drops its CV tab
+
+### Changed
+
+The CV moved onto the site's About page (the root `CHANGELOG.md`, 2026-10-26 a),
+so the 46 remakes list six site-nav links: `https://cooper-watson.net/cv.html`
+is gone from each, and that URL now forwards to `about.html#cv`. Each page lost
+that one line and nothing else. `build/_tools/verify_one.py` checks for the six.
+
+The rest of `build/` stays as built on 2026-09-23: `BRIEF.md`, the
+`make_head.py` scripts and the `p1_head.html` parts still write the CV link, so
+a page rebuilt from them gets the tab back. Delete it there.
+
 ## 2026-09-23 — atomic-interactions: two atoms, the Lennard-Jones well between them, and the motion it produces
 
 ### Added

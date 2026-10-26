@@ -20,6 +20,29 @@ the main checkout.
   `unfinished_sims/` answered 200 at cooper-watson.net/unfinished_sims/… after the catalog dropped them.
   Keep unpublished work out of the index; `unfinished_sims/` is in `.gitignore` since 2026-10-19 e.
 
+## 2026-10-26 a — the CV tab merges into About: six nav tabs, and the CV is a card on about.html
+
+Cooper's ask: "Let us merge the CV tab into the About tab". The site nav is now Home, About, Teaching, Modules,
+Simulations, Research. `about.html` carries what `cv.html` had: a Curriculum Vitae card (`about.html#cv`) between the
+lede and Contact, with the View PDF (the inline PDF.js preview of `pdf_view.js`), Download and Publications buttons.
+Contact drops its "CV: curriculum vitae" line, which would only point at the card above it.
+- The card describes the `CV.pdf` of 2026-10-26 11:20: 4 pages, 103 KB (105,528 bytes), its sections named in their
+  order (education, technical skills, publications, presentations, experience, teaching, leadership). `cv.html` said
+  3 pages, 102 KB: that was the previous file, the committed one, also kept in `old_cv/`.
+- `cv.html` is a stub that forwards to `about.html#cv` (script, meta refresh and a plain link; noindex, canonical
+  about.html), so outside links and bookmarks to cooper-watson.net/cv.html still reach the CV.
+- The CV tab is gone from every page that carries the site nav, and from the homepage's row of pills: the four other
+  root pages, the 67 sims in `simulations/`, the 14 module pages and `SITE_NAV_HTML` in `modules/generate_webpage.py`,
+  the 46 pages of `phets_revised/`, and the 26 untracked sims in `unfinished_sims/` (patched in place, so a sim that
+  moves back already has six tabs). Each of those files lost that one line and nothing else (`index.html`: two).
+- `phets_revised/build/_tools/verify_one.py` checks for the six links. The rest of `phets_revised/build/` stays as
+  built on 2026-09-23: `BRIEF.md`, the `make_head.py` scripts and the `p1_head.html` parts still write the CV link,
+  so a page rebuilt from them gets the tab back. Delete it there.
+- The module pages were patched, not regenerated. `generate_webpage.py --deploy` run in this repo writes 268 modules
+  where the published pages list 270: MACRO_EM-07 (Time Varying Fields I) and MACRO_EM-09 (Plane Waves In Matter)
+  have no folder under `modules/MACRO_EM/`, so a regen from here would drop both from the site. A regen with the
+  edited template equals a regen with the old one minus the CV line, page for page.
+
 ## 2026-10-19 e — unfinished_sims/ leaves the repo, so it leaves the site
 
 Cooper's ask: "The website that I push to still have the unfinished simulations up". The catalog was right on

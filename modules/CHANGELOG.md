@@ -42,6 +42,18 @@ editing or resurrecting files.
   colour-coded series per axes, or separate them by linestyle/marker as well.
   Measured with the data-viz validator's six checks, 2026-08-01.
 
+## 2026-10-26 — the site nav drops its CV tab
+### Changed
+- `generate_webpage.py`: `SITE_NAV_HTML` lists six tabs. The CV moved onto
+  the About page (`about.html#cv`; the site's root `CHANGELOG.md`,
+  2026-10-26 a), and the 14 pages lost their CV line and nothing else.
+### Verified
+- The pages were patched, not regenerated: run in this repo, `--deploy`
+  writes 268 modules where the published pages list 270, because
+  MACRO_EM-07 and MACRO_EM-09 have no folder under `MACRO_EM/`. A regen
+  with the edited template equals a regen with the old one minus the CV
+  line, page for page (14/14).
+
 ## 2026-09-15 — arrival by deep link: the sidebar scrolls itself, the page stays put
 ### Changed
 - `generate_webpage.py`: Cooper reported that opening a module from the
