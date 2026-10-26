@@ -15,6 +15,22 @@ the main checkout.
   repository**: a gitlink (mode 160000) with no `.gitmodules` entry, i.e. a submodule with no URL, which
   the GitHub Pages checkout cannot fetch. `.claude/worktrees/` is in `.gitignore` since 2026-10-19 d; if
   one is ever staged, `git rm --cached <path>` takes it out of the index and leaves the worktree alone.
+- **Everything tracked is published.** GitHub Pages serves the whole repo (`.nojekyll`, no build), so a
+  folder of work in progress inside it is live at its URL even when no page links it: the 26 sims in
+  `unfinished_sims/` answered 200 at cooper-watson.net/unfinished_sims/… after the catalog dropped them.
+  Keep unpublished work out of the index; `unfinished_sims/` is in `.gitignore` since 2026-10-19 e.
+
+## 2026-10-19 e — unfinished_sims/ leaves the repo, so it leaves the site
+
+Cooper's ask: "The website that I push to still have the unfinished simulations up". The catalog was right on
+the live site (67 cards, deployed 18:03 GMT from 4dfd64d), but GitHub Pages publishes the whole repo, so the 26
+pages in `unfinished_sims/` were still served (cooper-watson.net/unfinished_sims/bernoulli.html answered 200).
+The folder is out of the index (`git rm -r --cached`) and in `.gitignore`: the files stay on disk, untracked,
+and the site drops them on the next push. Nothing published linked to or loaded anything from it.
+- They stay in the repo's history (4dfd64d and earlier), which is public; only a history rewrite would remove
+  them there.
+- To bring a sim back: move it to `simulations/`, restore its card (2492f8e's `simulations.html` has all 26) and
+  recount the lede and meta.
 
 ## 2026-10-19 d — .gitignore: agent worktrees stay out of the repo
 
